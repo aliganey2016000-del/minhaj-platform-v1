@@ -1,0 +1,103 @@
+{
+  "hero": {
+    "title": "Aqoonta Islaamka ee Heer Caalami ah si Heer Sare ah",
+    "subtitle": "Awoodsiinta Ummadda iyada oo loo marayo waxbarasho Islaami ah oo sax ah oo ku qotonta Qur'aanka iyo Sunnada. Ku soo biir kumanaan arday oo adduunka oo dhan ah Masjid Al-Raxma.",
+    "cta_primary": "Sahami Barnaamijyada",
+    "cta_secondary": "Faahfaahin Dheeri ah",
+    "stats_students": "Arday",
+    "stats_teachers": "Macallimiin",
+    "stats_courses": "Koorsooyin",
+    "stats_countries": "Waddan"
+  },
+  "about": {
+    "title": "Xaggiisa Masjid Al-Raxma",
+    "subtitle": "Ileyska aqoonta, iimaanka, iyo bulshada tan iyo 2015",
+    "description": "Masjid Al-Raxma waa wax ka badan masaajid - waa xarun waxbarasho Islaami ah oo u heellan kobcinta maskaxda iyo quluubta. Machadkayagu wuxuu isku daraa cilmiga Islaamka ee dhaqanka iyo hababka casriga ah ee waxbaridda si loo bixiyo waayo-aragnimo waxbarasho oo aan la mid ahayn.",
+    "mission_title": "Hadafkayaga",
+    "mission": "Inaan ku faafino aqoonta Islaamka ee saxda ah adduunka oo dhan, anagoo awoodsiinayna shakhsiyaadka si ay ugu noolaadaan waxbarista Qur'aanka iyo Sunnada Nebi Muxamed ﷺ.",
+    "vision_title": "Aragtidayada",
+    "vision": "Inaan noqono xarun caalami ah oo la aqoonsan yahay oo waxbarasho Islaami ah, soo saarta culimo, hogaamiyeyaal, iyo shakhsiyaad toosan oo u adeega bulshooyinkooda aqoon iyo xikmad."
+  },
+  "programs": {
+    "title": "Barnaamijyadayada",
+    "subtitle": "Waxbarasho Islaami ah oo dhameystiran oo loogu talagalay da' kasta iyo heer kasta",
+    "quran": { "title": "Cilmiga Qur'aanka", "description": "Baro akhrinta, xifdinta, iyo fahamka Qur'aanka Kariimka ah macallimiin khabiir ah." },
+    "fiqh": { "title": "Fiqhiga & Sharciga", "description": "Kobci fahamkaaga sharciga Islaamka, cibaadada, iyo xeerarka nolol maalmeedka." },
+    "arabic": { "title": "Luqadda Carabiga", "description": "Baro luqadda Qur'aanka kariimka ah macallimiin u dhashay barnaamijyo wax ku ool ah." },
+    "aqeedah": { "title": "Cajiidada", "description": "Dhis aasaas adag oo ku saabsan caqiidada Islaamka iyo diinta ku salaysan ilo sax ah." }
+  },
+  "courses": {
+    "title": "Koorsooyinka la Soo Bandhigay",
+    "subtitle": "Sahami koorsooyinkayaga si taxaddar leh loo diyaariyey oo ay bixiyeen culimo u qalma",
+    "category_label": "Qaybta",
+    "level_label": "Heerka",
+    "duration_label": "usbuuc",
+    "free": "Bilaash",
+    "students_enrolled": "arday ayaa isqortay",
+    "seats_available": "kursi ayaa bannaan",
+    "beginner": "Bilowga",
+    "intermediate": "Dhexdhexaad",
+    "advanced": "Heer Sare",
+    "enroll_cta": "Isqor Had",
+    "no_courses": "Ma jiraan koorsooyin la heli karo wakhtigan. Fadlan dib u hubi hadhow."
+  },
+  "teachers": {
+    "title": "Macallimiinteena Sharafta Leh",
+    "subtitle": "Ka baro culimo u qalma oo khibrad tobanaan sano ah leh",
+    "experience": "sano khibrad ah",
+    "courses_taught": "koorsooyin la baray"
+  },
+  "achievements": {
+    "title": "Guulaha Aan Gaarnay",
+    "subtitle": "Heerar muujinaya ka go'naanshahayaga waxbarashada Islaamka",
+    "students_graduated": "Arday Shahaadisay",
+    "quran_memorized": "Qur'aanka Xifdisay",
+    "courses_offered": "Koorsooyin La Bixiyey",
+    "years_service": "Sano Adeeg ah"
+  },
+  "events": {
+    "title": "Dhacdooyinka Soo Socda",
+    "subtitle": "Ka soo qayb gal muxaadarooyinkayaga, aqoon-is-weydaarsiyada, iyo kulamada bulshada",
+    "date": "Taariikhda",
+    "time": "Waqtiga",
+    "location": "Goobta",
+    "register": "Isqor",
+    "no_events": "Ma jiraan dhacdooyin soo socda wakhtigan."
+  },
+  "news": { "title": "Wararkii Ugu Dambeeyey", "subtitle": "La soco wixii ugu dambeeyey ee Masjid Al-Raxma", "read_more": "Akhri Maqaalka" },
+  "testimonials": { "title": "Waxa Ay Bulshadeenu Leedahay", "subtitle": "Ka maqal ardayda, waalidiinta, iyo xubnaha bulshada" },
+  "donation": {
+    "title": "Taageer Waxbarashada Islaamka",
+    "subtitle": "Tabarucaaga wuxuu naga caawinayaa faafinta aqoonta iyo u adeegidda bulshada",
+    "one_time": "Hal Mar",
+    "monthly": "Bil kasta",
+    "zakat": "Sakada",
+    "sadaqah": "Sadaqo",
+    "amount_placeholder": "Geli Qaddarka",
+    "currency": "USD",
+    "donate_now": "Deqso Had",
+    "message": "Deqsi kasta, xitaa haddii uu yar yahay, wuxuu gacan ka geystaa kobcinta aqoonta Islaamka."
+  },
+  "contact": {
+    "title": "Nala Soo Xiriir",
+    "subtitle": "Waan jeclaan lahayn inaan kaa maqalno. Nala soo xiriir wixii su'aalo ah ama faahfaahin ah.",
+    "name": "Magaca Buuxa",
+    "email": "Cinwaanka Email",
+    "subject": "Mawduuca",
+    "message": "Farriintaada",
+    "send": "Dir Farriin",
+    "address": "Cinwaanka",
+    "phone": "Telefoon",
+    "email_us": "Email Noogu Soo Dir",
+    "working_hours": "Saacadaha Shaqada",
+    "success_message": "Farriintaada si guul leh ayaa loo diray. Durbaba waan kula soo xiriiri doonaa."
+  },
+  "newsletter": { "title": "Ku Qor Warsidahayada", "subtitle": "Hel wararkii ugu dambeeyey, dhacdooyinka, iyo koorsooyinka si toos ah email-kaaga.", "placeholder": "Geli email-kaaga", "subscribe": "Ku Qor", "success": "Waad ku mahadsan tahay is-diiwaangalintaada!" },
+  "footer": {
+    "about_text": "Masjid Al-Raxma waa xarun waxbarasho Islaami ah oo u heellan faafinta aqoonta saxda ah iyo u adeegidda bulshada Muslimiinta.",
+    "quick_links": "Xiriiriyeyaal Dhaqso ah",
+    "programs_footer": "Barnaamijyada",
+    "contact_footer": "Macluumaadka Xiriirka",
+    "follow_us": "Nala Soo Xiriir"
+  }
+}

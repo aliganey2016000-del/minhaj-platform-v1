@@ -1,0 +1,128 @@
+{
+  "hero": {
+    "title": "Globalizing Islamic Knowledge with Excellence",
+    "subtitle": "Empowering the Ummah through authentic Islamic education rooted in the Quran and Sunnah. Join thousands of students worldwide at Masjid Al-Rahma.",
+    "cta_primary": "Explore Programs",
+    "cta_secondary": "Learn More",
+    "stats_students": "Students",
+    "stats_teachers": "Teachers",
+    "stats_courses": "Courses",
+    "stats_countries": "Countries"
+  },
+  "about": {
+    "title": "About Masjid Al-Rahma",
+    "subtitle": "A beacon of knowledge, faith, and community since 2015",
+    "description": "Masjid Al-Rahma is more than a mosque — it is a center of Islamic learning dedicated to nurturing minds and hearts. Our institution combines traditional Islamic sciences with modern pedagogical methods to deliver an unparalleled educational experience.",
+    "mission_title": "Our Mission",
+    "mission": "To spread authentic Islamic knowledge across the globe, empowering individuals to live by the teachings of the Quran and the Sunnah of Prophet Muhammad ﷺ.",
+    "vision_title": "Our Vision",
+    "vision": "To become a globally recognized center of Islamic education, producing scholars, leaders, and righteous individuals who serve their communities with knowledge and wisdom."
+  },
+  "programs": {
+    "title": "Our Programs",
+    "subtitle": "Comprehensive Islamic education for all ages and levels",
+    "quran": {
+      "title": "Quran Studies",
+      "description": "Master the recitation, memorization, and understanding of the Holy Quran with expert teachers."
+    },
+    "fiqh": {
+      "title": "Fiqh & Jurisprudence",
+      "description": "Deepen your understanding of Islamic law, worship, and daily life rulings."
+    },
+    "arabic": {
+      "title": "Arabic Language",
+      "description": "Learn the language of the Quran from native speakers in immersive programs."
+    },
+    "aqeedah": {
+      "title": "Aqeedah",
+      "description": "Build a solid foundation in Islamic creed and theology based on authentic sources."
+    }
+  },
+  "courses": {
+    "title": "Featured Courses",
+    "subtitle": "Explore our carefully designed courses taught by qualified scholars",
+    "category_label": "Category",
+    "level_label": "Level",
+    "duration_label": "weeks",
+    "free": "Free",
+    "students_enrolled": "students enrolled",
+    "seats_available": "seats available",
+    "beginner": "Beginner",
+    "intermediate": "Intermediate",
+    "advanced": "Advanced",
+    "enroll_cta": "Enroll Now",
+    "no_courses": "No courses available at this time. Please check back later."
+  },
+  "teachers": {
+    "title": "Our Esteemed Teachers",
+    "subtitle": "Learn from qualified scholars with decades of experience",
+    "experience": "years experience",
+    "courses_taught": "courses taught"
+  },
+  "achievements": {
+    "title": "Our Achievements",
+    "subtitle": "Milestones that reflect our commitment to Islamic education",
+    "students_graduated": "Students Graduated",
+    "quran_memorized": "Quran Memorizations",
+    "courses_offered": "Courses Offered",
+    "years_service": "Years of Service"
+  },
+  "events": {
+    "title": "Upcoming Events",
+    "subtitle": "Join our lectures, workshops, and community gatherings",
+    "date": "Date",
+    "time": "Time",
+    "location": "Location",
+    "register": "Register",
+    "no_events": "No upcoming events at this time."
+  },
+  "news": {
+    "title": "Latest News",
+    "subtitle": "Stay updated with the latest from Masjid Al-Rahma",
+    "read_more": "Read Article"
+  },
+  "testimonials": {
+    "title": "What Our Community Says",
+    "subtitle": "Hear from students, parents, and community members"
+  },
+  "donation": {
+    "title": "Support Islamic Education",
+    "subtitle": "Your contribution helps us spread knowledge and serve the community",
+    "one_time": "One Time",
+    "monthly": "Monthly",
+    "zakat": "Zakat",
+    "sadaqah": "Sadaqah",
+    "amount_placeholder": "Enter Amount",
+    "currency": "USD",
+    "donate_now": "Donate Now",
+    "message": "Every donation, no matter how small, contributes to the growth of Islamic knowledge."
+  },
+  "contact": {
+    "title": "Get in Touch",
+    "subtitle": "We'd love to hear from you. Reach out with any questions or inquiries.",
+    "name": "Full Name",
+    "email": "Email Address",
+    "subject": "Subject",
+    "message": "Your Message",
+    "send": "Send Message",
+    "address": "Address",
+    "phone": "Phone",
+    "email_us": "Email Us",
+    "working_hours": "Working Hours",
+    "success_message": "Your message has been sent successfully. We'll get back to you soon."
+  },
+  "newsletter": {
+    "title": "Subscribe to Our Newsletter",
+    "subtitle": "Get the latest updates, events, and courses delivered to your inbox.",
+    "placeholder": "Enter your email",
+    "subscribe": "Subscribe",
+    "success": "Thank you for subscribing!"
+  },
+  "footer": {
+    "about_text": "Masjid Al-Rahma is a center of Islamic learning dedicated to spreading authentic knowledge and serving the Muslim community.",
+    "quick_links": "Quick Links",
+    "programs_footer": "Programs",
+    "contact_footer": "Contact Info",
+    "follow_us": "Follow Us"
+  }
+}
