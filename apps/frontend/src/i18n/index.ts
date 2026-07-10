@@ -61,4 +61,17 @@ i18n
     },
   });
 
+// ---------------------------------------------------------------------------
+// Sync `dir` and `lang` attributes on <html> on initial load
+// ---------------------------------------------------------------------------
+
+const savedLang = localStorage.getItem('masjid-language') ?? i18n.language;
+if (savedLang === 'ar') {
+  document.documentElement.setAttribute('dir', 'rtl');
+  document.documentElement.setAttribute('lang', 'ar');
+} else {
+  document.documentElement.setAttribute('dir', 'ltr');
+  document.documentElement.setAttribute('lang', savedLang || 'en');
+}
+
 export default i18n;

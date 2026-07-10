@@ -55,11 +55,13 @@ export function LanguageSwitcher() {
     i18n.changeLanguage(code);
     localStorage.setItem('masjid-language', code);
 
-    // Handle RTL for Arabic
+    // Handle RTL and lang attribute for Arabic
     if (code === 'ar') {
       document.documentElement.setAttribute('dir', 'rtl');
+      document.documentElement.setAttribute('lang', 'ar');
     } else {
       document.documentElement.setAttribute('dir', 'ltr');
+      document.documentElement.setAttribute('lang', code);
     }
 
     setIsOpen(false);

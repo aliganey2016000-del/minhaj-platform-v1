@@ -1,128 +1,170 @@
 {
+  "nav": {
+    "features": "Features",
+    "solutions": "Solutions",
+    "architecture": "Architecture",
+    "pricing": "Pricing",
+    "faq": "FAQ",
+    "sign_in": "Sign In",
+    "start_free": "Start Free"
+  },
   "hero": {
-    "title": "Globalizing Islamic Knowledge with Excellence",
-    "subtitle": "Empowering the Ummah through authentic Islamic education rooted in the Quran and Sunnah. Join thousands of students worldwide at Masjid Al-Rahma.",
-    "cta_primary": "Explore Programs",
-    "cta_secondary": "Learn More",
-    "stats_students": "Students",
-    "stats_teachers": "Teachers",
-    "stats_courses": "Courses",
-    "stats_countries": "Countries"
+    "badge": "Trusted by learning communities worldwide",
+    "title_part1": "The Complete",
+    "title_highlight": "Learning & Education",
+    "title_part2": "Management Platform",
+    "subtitle": "Create, manage, and grow your learning organization with one powerful cloud platform designed for modern education.",
+    "cta_primary": "Start Free",
+    "cta_secondary": "Watch Demo",
+    "stat_learners": "Active Learners",
+    "stat_orgs": "Organizations",
+    "stat_uptime": "Uptime SLA",
+    "stat_countries": "Countries",
+    "dashboard_total_learners": "Total Learners",
+    "dashboard_active_courses": "Active Courses",
+    "dashboard_completion": "Completion",
+    "dashboard_learner_growth": "Learner Growth",
+    "dashboard_course_builder": "Course Builder",
+    "dashboard_drag_drop": "Drag & drop editor",
+    "dashboard_certificates": "Certificates",
+    "dashboard_auto_generated": "Auto-generated",
+    "dashboard_chart_months": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+    "floating_completed": "Completed Course",
+    "floating_engagement": "Engagement Rate"
   },
-  "about": {
-    "title": "About Masjid Al-Rahma",
-    "subtitle": "A beacon of knowledge, faith, and community since 2015",
-    "description": "Masjid Al-Rahma is more than a mosque — it is a center of Islamic learning dedicated to nurturing minds and hearts. Our institution combines traditional Islamic sciences with modern pedagogical methods to deliver an unparalleled educational experience.",
-    "mission_title": "Our Mission",
-    "mission": "To spread authentic Islamic knowledge across the globe, empowering individuals to live by the teachings of the Quran and the Sunnah of Prophet Muhammad ﷺ.",
-    "vision_title": "Our Vision",
-    "vision": "To become a globally recognized center of Islamic education, producing scholars, leaders, and righteous individuals who serve their communities with knowledge and wisdom."
+  "trust": {
+    "title": "Trusted by learning communities worldwide"
   },
-  "programs": {
-    "title": "Our Programs",
-    "subtitle": "Comprehensive Islamic education for all ages and levels",
-    "quran": {
-      "title": "Quran Studies",
-      "description": "Master the recitation, memorization, and understanding of the Holy Quran with expert teachers."
+  "audience": {
+    "title": "Built for Every Learning Community",
+    "subtitle": "Whether you're an individual educator or a multinational organization, our platform scales with you.",
+    "cards": [
+      { "title": "K-12 Schools", "description": "Manage classrooms, track attendance, and deliver curriculum across all grade levels." },
+      { "title": "Universities & Colleges", "description": "Powerful LMS for higher education with advanced analytics, research tools, and accreditation support." },
+      { "title": "Training Academies", "description": "Professional certification programs, skill bootcamps, and vocational training management." },
+      { "title": "Corporate Learning", "description": "Employee onboarding, compliance training, and professional development at scale." },
+      { "title": "Independent Educators", "description": "Monetize your expertise with your own branded learning platform and course marketplace." },
+      { "title": "Online Communities", "description": "Create engaging learning experiences for your community, cohort, or membership group." },
+      { "title": "Homeschool Networks", "description": "Organized curriculum delivery, progress tracking, and community collaboration tools." },
+      { "title": "Non-Profits & NGOs", "description": "Deliver educational programs to underserved communities with powerful offline-ready tools." }
+    ]
+  },
+  "features": {
+    "title": "Everything You Need to Succeed",
+    "subtitle": "A complete suite of tools designed to deliver exceptional learning experiences at any scale.",
+    "list": [
+      { "title": "Course Builder", "description": "Drag-and-drop course creation with rich media support, quizzes, and assignments." },
+      { "title": "Video Lessons", "description": "Upload or embed videos with YouTube, Vimeo, and direct MP4 support." },
+      { "title": "PDF & HTML Lessons", "description": "Rich text lessons with embedded PDFs, images, and formatted content." },
+      { "title": "Assignments", "description": "Create, distribute, and grade assignments with file uploads and rubrics." },
+      { "title": "Quizzes & Exams", "description": "Multiple choice, true/false, and essay questions with auto-grading." },
+      { "title": "Certificates", "description": "Auto-generated completion certificates with custom branding and designs." },
+      { "title": "Progress Tracking", "description": "Real-time learner progress dashboards with detailed completion metrics." },
+      { "title": "Analytics & Reports", "description": "Comprehensive analytics on engagement, performance, and growth trends." },
+      { "title": "Attendance", "description": "Track attendance with QR codes, manual check-in, or self-reporting." },
+      { "title": "Messaging", "description": "Built-in announcements and direct messaging between all user roles." },
+      { "title": "Notifications", "description": "Email, in-app, and push notifications to keep everyone informed." },
+      { "title": "Role Management", "description": "Granular permissions for admins, instructors, learners, and parents." },
+      { "title": "Mobile Friendly", "description": "Fully responsive design that works beautifully on any device." },
+      { "title": "Dark Mode", "description": "Eye-friendly dark theme that switches automatically or manually." },
+      { "title": "API Access", "description": "RESTful API for custom integrations with your existing systems." },
+      { "title": "Multi-Language", "description": "Full internationalization supporting English, Arabic, Somali, and more." }
+    ]
+  },
+  "multitenant": {
+    "badge": "Multi-Tenant Architecture",
+    "title_part1": "Every Organization Gets Its Own",
+    "title_highlight": "Private Workspace",
+    "subtitle": "Each organization operates in its own secure environment with complete privacy and independence. Users only access the information and resources that belong to their own organization, while the platform owner maintains centralized oversight across all workspaces.",
+    "platform_title": "Platform",
+    "platform_subtitle": "Super Admin Managed",
+    "platform_desc": "Unified control across all workspaces",
+    "org_label": "Isolated Workspace",
+    "security_caption": "Complete data isolation — each workspace is fully independent and secure",
+    "benefits_title": "Key Benefits",
+    "benefits": [
+      { "title": "Complete Data Isolation", "description": "Every workspace has its own dedicated database. No organization can access another's data — ever." },
+      { "title": "Independent Management", "description": "Each organization manages its own users, courses, classes, and settings autonomously." },
+      { "title": "Secure Access Control", "description": "Role-based permissions ensure users only see what they're authorized to access within their workspace." },
+      { "title": "Scalable Cloud Architecture", "description": "Built on cloud infrastructure that scales automatically as your organization grows." },
+      { "title": "Centralized Platform Administration", "description": "Super admins maintain full oversight across all workspaces from a single unified dashboard." }
+    ]
+  },
+  "how": {
+    "title": "How It Works",
+    "subtitle": "Get your learning platform up and running in minutes, not months.",
+    "steps": [
+      { "title": "Create Workspace", "description": "Sign up in seconds and get your own private, branded workspace ready for your organization." },
+      { "title": "Invite Your Team", "description": "Add instructors, learners, and administrators with role-based permissions." },
+      { "title": "Build Learning Content", "description": "Create courses with videos, lessons, quizzes, assignments, and certificates." },
+      { "title": "Start Teaching", "description": "Launch your programs and track progress with real-time analytics and reporting." }
+    ]
+  },
+  "pricing": {
+    "title": "Simple, Transparent Pricing",
+    "subtitle": "Start free and scale as you grow. No hidden fees.",
+    "popular": "Most Popular",
+    "starter": {
+      "name": "Starter",
+      "description": "For small teams getting started.",
+      "price": "$49",
+      "period": "/month",
+      "features": ["Up to 100 learners", "5 instructors", "10 courses", "Basic analytics", "Email support"],
+      "cta": "Start Free Trial"
     },
-    "fiqh": {
-      "title": "Fiqh & Jurisprudence",
-      "description": "Deepen your understanding of Islamic law, worship, and daily life rulings."
+    "professional": {
+      "name": "Professional",
+      "description": "For growing organizations.",
+      "price": "$149",
+      "period": "/month",
+      "features": ["Up to 1,000 learners", "25 instructors", "Unlimited courses", "Advanced analytics", "Priority support", "Custom branding", "API access", "Certificate builder"],
+      "cta": "Start Free Trial"
     },
-    "arabic": {
-      "title": "Arabic Language",
-      "description": "Learn the language of the Quran from native speakers in immersive programs."
-    },
-    "aqeedah": {
-      "title": "Aqeedah",
-      "description": "Build a solid foundation in Islamic creed and theology based on authentic sources."
+    "enterprise": {
+      "name": "Enterprise",
+      "description": "Custom solutions for large organizations.",
+      "price": "Custom",
+      "period": "",
+      "features": ["Unlimited learners", "Unlimited instructors", "SSO & SAML", "White-label", "Dedicated support", "SLA guarantee", "Custom integrations", "On-premise option"],
+      "cta": "Contact Sales"
     }
   },
-  "courses": {
-    "title": "Featured Courses",
-    "subtitle": "Explore our carefully designed courses taught by qualified scholars",
-    "category_label": "Category",
-    "level_label": "Level",
-    "duration_label": "weeks",
-    "free": "Free",
-    "students_enrolled": "students enrolled",
-    "seats_available": "seats available",
-    "beginner": "Beginner",
-    "intermediate": "Intermediate",
-    "advanced": "Advanced",
-    "enroll_cta": "Enroll Now",
-    "no_courses": "No courses available at this time. Please check back later."
+  "faq": {
+    "title": "Frequently Asked Questions",
+    "subtitle": "Everything you need to know about the platform.",
+    "questions": [
+      { "q": "What is this platform?", "a": "A multi-tenant learning management platform that gives each organization its own private workspace with complete data isolation. Create courses, manage users, track progress, and deliver exceptional learning experiences." },
+      { "q": "How does multi-tenancy work?", "a": "Every organization gets a completely isolated workspace — own users, courses, classes, branding, and settings. No organization can see another organization's data. Only the platform super admin manages the overall system." },
+      { "q": "Is there a free trial?", "a": "Yes! All plans include a 14-day free trial with full access to all features. No credit card required to get started." },
+      { "q": "Can I customize the branding?", "a": "Professional and Enterprise plans include custom branding options — your logo, colors, domain, and white-label experience for your learners." },
+      { "q": "How are payments handled?", "a": "We accept all major credit cards and bank transfers. Enterprise customers can also arrange invoicing and customized payment terms." },
+      { "q": "Is my data secure?", "a": "Absolutely. We use bank-grade encryption (AES-256), regular security audits, and comply with industry standards. Your data is backed up daily and stored in secure data centers." },
+      { "q": "Can I migrate from another platform?", "a": "Yes, we offer data migration assistance for Enterprise plans. Contact our sales team to discuss your specific migration needs." },
+      { "q": "What support is available?", "a": "All plans include email support. Professional plans get priority support with faster response times. Enterprise customers receive a dedicated account manager and 24/7 support." }
+    ]
   },
-  "teachers": {
-    "title": "Our Esteemed Teachers",
-    "subtitle": "Learn from qualified scholars with decades of experience",
-    "experience": "years experience",
-    "courses_taught": "courses taught"
-  },
-  "achievements": {
-    "title": "Our Achievements",
-    "subtitle": "Milestones that reflect our commitment to Islamic education",
-    "students_graduated": "Students Graduated",
-    "quran_memorized": "Quran Memorizations",
-    "courses_offered": "Courses Offered",
-    "years_service": "Years of Service"
-  },
-  "events": {
-    "title": "Upcoming Events",
-    "subtitle": "Join our lectures, workshops, and community gatherings",
-    "date": "Date",
-    "time": "Time",
-    "location": "Location",
-    "register": "Register",
-    "no_events": "No upcoming events at this time."
-  },
-  "news": {
-    "title": "Latest News",
-    "subtitle": "Stay updated with the latest from Masjid Al-Rahma",
-    "read_more": "Read Article"
-  },
-  "testimonials": {
-    "title": "What Our Community Says",
-    "subtitle": "Hear from students, parents, and community members"
-  },
-  "donation": {
-    "title": "Support Islamic Education",
-    "subtitle": "Your contribution helps us spread knowledge and serve the community",
-    "one_time": "One Time",
-    "monthly": "Monthly",
-    "zakat": "Zakat",
-    "sadaqah": "Sadaqah",
-    "amount_placeholder": "Enter Amount",
-    "currency": "USD",
-    "donate_now": "Donate Now",
-    "message": "Every donation, no matter how small, contributes to the growth of Islamic knowledge."
-  },
-  "contact": {
-    "title": "Get in Touch",
-    "subtitle": "We'd love to hear from you. Reach out with any questions or inquiries.",
-    "name": "Full Name",
-    "email": "Email Address",
-    "subject": "Subject",
-    "message": "Your Message",
-    "send": "Send Message",
-    "address": "Address",
-    "phone": "Phone",
-    "email_us": "Email Us",
-    "working_hours": "Working Hours",
-    "success_message": "Your message has been sent successfully. We'll get back to you soon."
-  },
-  "newsletter": {
-    "title": "Subscribe to Our Newsletter",
-    "subtitle": "Get the latest updates, events, and courses delivered to your inbox.",
-    "placeholder": "Enter your email",
-    "subscribe": "Subscribe",
-    "success": "Thank you for subscribing!"
+  "cta": {
+    "title": "Ready to Transform Learning?",
+    "subtitle": "Join thousands of organizations that trust our platform to deliver world-class learning experiences. Start your journey today.",
+    "primary": "Get Started Free",
+    "secondary": "Talk to Sales",
+    "footer_note": "Free 14-day trial · No credit card required · Cancel anytime"
   },
   "footer": {
-    "about_text": "Masjid Al-Rahma is a center of Islamic learning dedicated to spreading authentic knowledge and serving the Muslim community.",
-    "quick_links": "Quick Links",
-    "programs_footer": "Programs",
-    "contact_footer": "Contact Info",
-    "follow_us": "Follow Us"
+    "brand_desc": "The complete learning and education management platform. Create, manage, and grow your learning organization with one powerful cloud solution.",
+    "column_product": "Product",
+    "column_company": "Company",
+    "column_legal": "Legal",
+    "product_course_builder": "Course Builder",
+    "product_analytics": "Analytics",
+    "product_certificates": "Certificates",
+    "product_attendance": "Attendance",
+    "company_about": "About Us",
+    "company_blog": "Blog",
+    "company_careers": "Careers",
+    "company_contact": "Contact",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "cookies": "Cookie Policy"
   }
 }

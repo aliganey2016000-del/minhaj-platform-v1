@@ -1,103 +1,149 @@
 {
+  "nav": {
+    "features": "Astaamaha",
+    "solutions": "Xalalka",
+    "architecture": "Qaabdhismeedka",
+    "pricing": "Qiimaha",
+    "faq": "Su'aalaha",
+    "sign_in": "Soo Gal",
+    "start_free": "Bilaab Bilaash"
+  },
   "hero": {
-    "title": "Aqoonta Islaamka ee Heer Caalami ah si Heer Sare ah",
-    "subtitle": "Awoodsiinta Ummadda iyada oo loo marayo waxbarasho Islaami ah oo sax ah oo ku qotonta Qur'aanka iyo Sunnada. Ku soo biir kumanaan arday oo adduunka oo dhan ah Masjid Al-Raxma.",
-    "cta_primary": "Sahami Barnaamijyada",
-    "cta_secondary": "Faahfaahin Dheeri ah",
-    "stats_students": "Arday",
-    "stats_teachers": "Macallimiin",
-    "stats_courses": "Koorsooyin",
-    "stats_countries": "Waddan"
+    "badge": "Laguaamminoonay beesha barashada adduunka oo dhan",
+    "title_part1": "Goobta Dhamaystiran",
+    "title_highlight": "Barashada & Waxbarashada",
+    "title_part2": "Maareynta Mashruuca",
+    "subtitle": "Abuur, maamul, oo kobci ururkaaga waxbarasho hal goob oo awood leh oo daruur ku salaysan oo loogu talagalay waxbarashada casriga ah.",
+    "cta_primary": "Bilaab Bilaash",
+    "cta_secondary": "Daawo Muuqaalka",
+    "stat_learners": "Arday Firfircoon",
+    "stat_orgs": "Ururada",
+    "stat_uptime": "Waqtiga Shaqaynta",
+    "stat_countries": "Waddamada",
+    "dashboard_total_learners": "Wadarta Ardayda",
+    "dashboard_active_courses": "Koorsooyin Firfircoon",
+    "dashboard_completion": "Dhammayska",
+    "dashboard_learner_growth": "Koritaanka Ardayda",
+    "dashboard_course_builder": "Abuuraha Koorsooyinka",
+    "dashboard_drag_drop": "Tifaftire jiidid iyo dhigid",
+    "dashboard_certificates": "Shahaadooyinka",
+    "dashboard_auto_generated": "Si toos ah ayaa loo soo saaray",
+    "dashboard_chart_months": ["Jan", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Seb", "Okt", "Nof", "Dis"],
+    "floating_completed": "Koorsada La Dhammeeyay",
+    "floating_engagement": "Heerka Ka Qaybgalka"
   },
-  "about": {
-    "title": "Xaggiisa Masjid Al-Raxma",
-    "subtitle": "Ileyska aqoonta, iimaanka, iyo bulshada tan iyo 2015",
-    "description": "Masjid Al-Raxma waa wax ka badan masaajid - waa xarun waxbarasho Islaami ah oo u heellan kobcinta maskaxda iyo quluubta. Machadkayagu wuxuu isku daraa cilmiga Islaamka ee dhaqanka iyo hababka casriga ah ee waxbaridda si loo bixiyo waayo-aragnimo waxbarasho oo aan la mid ahayn.",
-    "mission_title": "Hadafkayaga",
-    "mission": "Inaan ku faafino aqoonta Islaamka ee saxda ah adduunka oo dhan, anagoo awoodsiinayna shakhsiyaadka si ay ugu noolaadaan waxbarista Qur'aanka iyo Sunnada Nebi Muxamed ﷺ.",
-    "vision_title": "Aragtidayada",
-    "vision": "Inaan noqono xarun caalami ah oo la aqoonsan yahay oo waxbarasho Islaami ah, soo saarta culimo, hogaamiyeyaal, iyo shakhsiyaad toosan oo u adeega bulshooyinkooda aqoon iyo xikmad."
+  "trust": {
+    "title": "Laguaamminoonay beesha barashada adduunka oo dhan"
   },
-  "programs": {
-    "title": "Barnaamijyadayada",
-    "subtitle": "Waxbarasho Islaami ah oo dhameystiran oo loogu talagalay da' kasta iyo heer kasta",
-    "quran": { "title": "Cilmiga Qur'aanka", "description": "Baro akhrinta, xifdinta, iyo fahamka Qur'aanka Kariimka ah macallimiin khabiir ah." },
-    "fiqh": { "title": "Fiqhiga & Sharciga", "description": "Kobci fahamkaaga sharciga Islaamka, cibaadada, iyo xeerarka nolol maalmeedka." },
-    "arabic": { "title": "Luqadda Carabiga", "description": "Baro luqadda Qur'aanka kariimka ah macallimiin u dhashay barnaamijyo wax ku ool ah." },
-    "aqeedah": { "title": "Cajiidada", "description": "Dhis aasaas adag oo ku saabsan caqiidada Islaamka iyo diinta ku salaysan ilo sax ah." }
+  "audience": {
+    "title": "Loo Sameeyay Bulsho Kasta oo Barasho ah",
+    "subtitle": "Had iyo goor macalin gaar ah ama hay'ad caalami ah, goobtayada waa kuwaa kugu habboon.",
+    "cards": [
+      { "title": "Dugsiyada K-12", "description": "Maamul fasallada, la soco xaadiritaanka, oo bixi manhajka heer kasta." },
+      { "title": "Jaamacadaha", "description": "LMS awood leh oo loogu talagalay tacliinta sare oo leh falanqeyn sare." },
+      { "title": "Akademiyada Tababarka", "description": "Barnaamijyada shahaadada xirfadeed, tababarka xirfadaha, iyo maaraynta." },
+      { "title": "Barashada Shirkadaha", "description": "Tababarka shaqaalaha, u hoggaansanaanta, iyo horumarka xirfadeed." },
+      { "title": "Macallimiin Madax Banaan", "description": "Ka faa'iidee aqoontaada adoo isticmaalaya goob waxbarasho summad leh." },
+      { "title": "Beesha Khaanadka", "description": "Abuur waayo-aragnimo waxbarasho oo soo jiidasho leh oo loogu talagalay beeshaada." },
+      { "title": "Shabakadaha Dugsi-guriga", "description": "Bixinta manhaj habaysan, la socodka horumarka, iyo qalabka wada shaqaynta." },
+      { "title": "Hay'adaha Samafalka", "description": "Bixi barnaamijyada waxbarasho ee bulshooyinka aan la gaadhin oo leh qalab awood leh." }
+    ]
   },
-  "courses": {
-    "title": "Koorsooyinka la Soo Bandhigay",
-    "subtitle": "Sahami koorsooyinkayaga si taxaddar leh loo diyaariyey oo ay bixiyeen culimo u qalma",
-    "category_label": "Qaybta",
-    "level_label": "Heerka",
-    "duration_label": "usbuuc",
-    "free": "Bilaash",
-    "students_enrolled": "arday ayaa isqortay",
-    "seats_available": "kursi ayaa bannaan",
-    "beginner": "Bilowga",
-    "intermediate": "Dhexdhexaad",
-    "advanced": "Heer Sare",
-    "enroll_cta": "Isqor Had",
-    "no_courses": "Ma jiraan koorsooyin la heli karo wakhtigan. Fadlan dib u hubi hadhow."
+  "features": {
+    "title": "Wax Kasta oo Aad u Baahan Tahay Si Aad u Guuleysato",
+    "subtitle": "Qalab dhameystiran oo loogu talagalay in lagu bixiyo waayo-aragnimo waxbarasho oo heer sare ah.",
+    "list": [
+      { "title": "Abuuraha Koorsooyinka", "description": "Abuur koorsooyin si fudud oo leh multimedia, su'aalo, iyo shaqooyin." },
+      { "title": "Duruusta Fiidyowga", "description": "Soo geli ama ku dar fiidyooyinka YouTube, Vimeo, iyo MP4." },
+      { "title": "Duruusta PDF & HTML", "description": "Duruus qoraal ah oo hodan ah oo leh PDF, sawirro, iyo nuxur qaabaysan." },
+      { "title": "Shaqooyinka", "description": "Abuur, qaybi, oo buundiyee shaqooyinka leh raacida faylasha." },
+      { "title": "Su'aalaha & Imtixaanada", "description": "Doorasho badan, run/been, iyo su'aalo qoraal ah oo leh buundeyn toos ah." },
+      { "title": "Shahaadooyinka", "description": "Shahaadooyin dhammayn ah oo si toos ah loo soo saaro oo leh naqshado gaar ah." },
+      { "title": "La Socodka Horumarka", "description": "Dashboard-yada horumarka ardayda ee waqtiga dhabta ah." },
+      { "title": "Falanqaynta & Warbixinta", "description": "Falanqeyn dhameystiran oo ku saabsan ka qaybgalka, waxqabadka, iyo isbeddellada." },
+      { "title": "Xaadiritaanka", "description": "La soco xaadiritaanka QR code-yada, hubinta gacanta, ama is-warbixinta." },
+      { "title": "Farriimaha", "description": "Ogeysiisyo iyo farriimo toos ah oo u dhexeeya dhammaan doorarka isticmaalayaasha." },
+      { "title": "Ogeysiisyada", "description": "Ogeysiisyada email, app-ka, iyo fariimaha si qof walba loo ogeysiiyo." },
+      { "title": "Maamulka Doorarka", "description": "Rukhsadaha faahfaahsan ee adminka, macallimiinta, ardayda, iyo waalidiinta." },
+      { "title": "La Jaan Qaadi Kara Moobiilka", "description": "Naqshadeyn si buuxda u jawaabaysa oo ka shaqaysa qalab kasta." },
+      { "title": "Habka Madow", "description": "Mowduuc madow oo indhaha u roon oo si toos ah ama gacanta loogu beddelo." },
+      { "title": "Mareegta API", "description": "API RESTful oo loogu talagalay isku xidhka habaysan ee nidaamyadaaga." },
+      { "title": "Luuqado Badan", "description": "Caalamiyaynta dhamaystiran oo taageeraysa Ingiriisiga, Carabiga, Soomaaliga, iyo kuwa kale." }
+    ]
   },
-  "teachers": {
-    "title": "Macallimiinteena Sharafta Leh",
-    "subtitle": "Ka baro culimo u qalma oo khibrad tobanaan sano ah leh",
-    "experience": "sano khibrad ah",
-    "courses_taught": "koorsooyin la baray"
+  "multitenant": {
+    "badge": "Qaabdhismeedka Kirada Badan",
+    "title_part1": "Ururo Kasta Waxay Heli Doontaa",
+    "title_highlight": "Goob Gaar ah oo Shaqo",
+    "subtitle": "Ururo kasta wuxuu ku shaqeeyaa jawi gaar ah oo ammaan ah oo leh qarsoodi iyo madaxbannaanidhameystiran. Isticmaalayaasha waxay heli karaan oo keliya macluumaadka ururadooda.",
+    "platform_title": "Goobta",
+    "platform_subtitle": "Maamulaha Guud ayaa Maamula",
+    "platform_desc": "Xakamaynta midaysan ee dhammaan goobaha shaqada",
+    "org_label": "Goob Shaqo oo Go'doonsan",
+    "security_caption": "Go'doominta xogta oo dhamaystiran - goob kasta oo shaqo waa madaxbannaan oo ammaan ah",
+    "benefits_title": "Faa'iidooyinka Muhiimka ah",
+    "benefits": [
+      { "title": "Go'doominta Xogta oo Dhamaystiran", "description": "Goob kasta oo shaqo waxay leedahay kayd gaar ah. Ururo kastana ma heli karaan xogta ururka kale." },
+      { "title": "Maamul Madaxbannaan", "description": "Ururo kasta wuxuu si madaxbannaan u maamulaa isticmaalayaasha, koorsooyinka, iyo goobaha." },
+      { "title": "Xakamaynta Helitaanka Ammaan ah", "description": "Rukhsadaha doorarka waxay hubinayaan in isticmaalayaashu ay arkaan oo keliya waxa loo oggol yahay." },
+      { "title": "Qaabdhismeedka Daruurta oo La Kordhin Karo", "description": "Infrastructure-ka daruurta oo si toos ah u kordha marka ururkaagu kobco." },
+      { "title": "Maamul Dhexe oo Goobta", "description": "Adminka super-ka ah ayaa ilaalinaya kormeerka dhammaan goobaha shaqada hal dashboard oo midaysan." }
+    ]
   },
-  "achievements": {
-    "title": "Guulaha Aan Gaarnay",
-    "subtitle": "Heerar muujinaya ka go'naanshahayaga waxbarashada Islaamka",
-    "students_graduated": "Arday Shahaadisay",
-    "quran_memorized": "Qur'aanka Xifdisay",
-    "courses_offered": "Koorsooyin La Bixiyey",
-    "years_service": "Sano Adeeg ah"
+  "how": {
+    "title": "Sida Ay u Shaqayso",
+    "subtitle": "Ku billow goobtaada waxbarasho daqiiqado gudahood.",
+    "steps": [
+      { "title": "Abuur Goob Shaqo", "description": "Isqor ilbiriqsiyo gudahood oo hel goob shaqo oo summad leh oo diyaar ah." },
+      { "title": "Ku Casuum Kooxdaada", "description": "Ku dar macallimiin, arday, iyo maamulayaal leh rukhsadaha doorarka." },
+      { "title": "Dhis Nuxurka Waxbarasho", "description": "Abuur koorsooyin leh fiidyoow, duruus, su'aalo, shaqooyin, iyo shahaadooyin." },
+      { "title": "Bilaab Waxbaridda", "description": "Bilaab barnaamijyadaada oo la soco horumarka falanqaynta waqtiga-dhabta ah." }
+    ]
   },
-  "events": {
-    "title": "Dhacdooyinka Soo Socda",
-    "subtitle": "Ka soo qayb gal muxaadarooyinkayaga, aqoon-is-weydaarsiyada, iyo kulamada bulshada",
-    "date": "Taariikhda",
-    "time": "Waqtiga",
-    "location": "Goobta",
-    "register": "Isqor",
-    "no_events": "Ma jiraan dhacdooyin soo socda wakhtigan."
+  "pricing": {
+    "title": "Qiimo Fudud oo Cad",
+    "subtitle": "Bilaab bilaash oo kor soco hadba sidaad u korto. Wax qarsoodi ah malahan.",
+    "popular": "Ugu Caansan",
+    "starter": { "name": "Bilaabidda", "description": "Kooxaha yar-yar oo bilaabaya.", "price": "$49", "period": "/bishii", "features": ["Ilaa 100 arday", "5 macallimiin", "10 koorsooyin", "Falanqayn aasaasi ah", "Taageero email"], "cta": "Bilaab Tijaabo Bilaash ah" },
+    "professional": { "name": "Xirfadeed", "description": "Ururada kobcaya.", "price": "$149", "period": "/bishii", "features": ["Ilaa 1,000 arday", "25 macallimiin", "Koorsooyin aan xadidnayn", "Falanqayn sare", "Taageero mudnaan leh", "Summaynta gaarka ah", "Mareegta API", "Abuuraha shahaadooyinka"], "cta": "Bilaab Tijaabo Bilaash ah" },
+    "enterprise": { "name": "Shirkadeed", "description": "Xalalka gaarka ah ee ururada waaweyn.", "price": "Gaar ah", "period": "", "features": ["Arday aan xadidnayn", "Macallimiin aan xadidnayn", "SSO & SAML", "Summad cad", "Taageero gaar ah", "Dammanad SLA", "Isku xidhka gaarka ah", "Ikhtiyaarka goobta"], "cta": "La Xidhiidh Iibka" }
   },
-  "news": { "title": "Wararkii Ugu Dambeeyey", "subtitle": "La soco wixii ugu dambeeyey ee Masjid Al-Raxma", "read_more": "Akhri Maqaalka" },
-  "testimonials": { "title": "Waxa Ay Bulshadeenu Leedahay", "subtitle": "Ka maqal ardayda, waalidiinta, iyo xubnaha bulshada" },
-  "donation": {
-    "title": "Taageer Waxbarashada Islaamka",
-    "subtitle": "Tabarucaaga wuxuu naga caawinayaa faafinta aqoonta iyo u adeegidda bulshada",
-    "one_time": "Hal Mar",
-    "monthly": "Bil kasta",
-    "zakat": "Sakada",
-    "sadaqah": "Sadaqo",
-    "amount_placeholder": "Geli Qaddarka",
-    "currency": "USD",
-    "donate_now": "Deqso Had",
-    "message": "Deqsi kasta, xitaa haddii uu yar yahay, wuxuu gacan ka geystaa kobcinta aqoonta Islaamka."
+  "faq": {
+    "title": "Su'aalaha Inta La Isweydiiyo",
+    "subtitle": "Wax kasta oo aad u baahan tahay inaad ka ogaato goobta.",
+    "questions": [
+      { "q": "Waa maxay goobtani?", "a": "Waa goob maaraynta waxbarashada kirada badan oo siinaysa urur kasta goob shaqo gaar ah oo leh go'doomin xog oo dhammaystiran." },
+      { "q": "Sidee ayay u shaqaysaa kirada badani?", "a": "Ururo kasta waxay helaan goob go'doonsan — isticmaalayaal, koorsooyin, fasallo, summad, iyo goobo u gaar ah." },
+      { "q": "Ma jiraa tijaabo bilaash ah?", "a": "Haa! Dhammaan qorshayaasha waxaa ku jira 14 maalmood oo tijaabo bilaash ah oo leh marin buuxda." },
+      { "q": "Ma beddeli karaa summaynta?", "a": "Qorshayaasha Xirfadeed iyo Shirkadeed waxaa ku jira ikhtiyaaro summaynta gaarka ah." },
+      { "q": "Sidee loo maareeyaa lacagaha?", "a": "Waxaan aqbalnaa dhammaan kaararka waaweyn iyo xawilaadaha bangiyada." },
+      { "q": "Xogtaydu ma ammaan baa?", "a": "Haa. Waxaan isticmaalnaa sirta AES-256 iyo hubin ammaan oo joogto ah." },
+      { "q": "Ma ka soo guuri karaa goob kale?", "a": "Haa, qorshayaasha Enterprise waxaan bixinaa gargaar guuritaanka." },
+      { "q": "Taageero noocee ah ayaa jirta?", "a": "Dhammaan qorshayaasha waxaa ku jira taageero email. Xirfadeedku wuxuu helaa taageero mudnaan leh." }
+    ]
   },
-  "contact": {
-    "title": "Nala Soo Xiriir",
-    "subtitle": "Waan jeclaan lahayn inaan kaa maqalno. Nala soo xiriir wixii su'aalo ah ama faahfaahin ah.",
-    "name": "Magaca Buuxa",
-    "email": "Cinwaanka Email",
-    "subject": "Mawduuca",
-    "message": "Farriintaada",
-    "send": "Dir Farriin",
-    "address": "Cinwaanka",
-    "phone": "Telefoon",
-    "email_us": "Email Noogu Soo Dir",
-    "working_hours": "Saacadaha Shaqada",
-    "success_message": "Farriintaada si guul leh ayaa loo diray. Durbaba waan kula soo xiriiri doonaa."
+  "cta": {
+    "title": "Diyaar Ma U Tahay Inaad Beddesho Waxbarashada?",
+    "subtitle": "Ku soo biir kumanaan ururo ah oo ku kalsoon goobtayada. Bilaab maanta.",
+    "primary": "Bilaab Bilaash",
+    "secondary": "La Hadal Iibka",
+    "footer_note": "Tijaabo bilaash ah 14 maalmood · Lacag laguma qasbo · Ka noqo wakhti kasta"
   },
-  "newsletter": { "title": "Ku Qor Warsidahayada", "subtitle": "Hel wararkii ugu dambeeyey, dhacdooyinka, iyo koorsooyinka si toos ah email-kaaga.", "placeholder": "Geli email-kaaga", "subscribe": "Ku Qor", "success": "Waad ku mahadsan tahay is-diiwaangalintaada!" },
   "footer": {
-    "about_text": "Masjid Al-Raxma waa xarun waxbarasho Islaami ah oo u heellan faafinta aqoonta saxda ah iyo u adeegidda bulshada Muslimiinta.",
-    "quick_links": "Xiriiriyeyaal Dhaqso ah",
-    "programs_footer": "Barnaamijyada",
-    "contact_footer": "Macluumaadka Xiriirka",
-    "follow_us": "Nala Soo Xiriir"
+    "brand_desc": "Goobta dhamaystiran ee maaraynta waxbarashada. Abuur, maamul, oo kobci ururkaaga waxbarasho hal xal daruur ah.",
+    "column_product": "Badeecadda",
+    "column_company": "Shirkadda",
+    "column_legal": "Sharciga",
+    "product_course_builder": "Abuuraha Koorsooyinka",
+    "product_analytics": "Falanqaynta",
+    "product_certificates": "Shahaadooyinka",
+    "product_attendance": "Xaadiritaanka",
+    "company_about": "Xaggiisa",
+    "company_blog": "Balooka",
+    "company_careers": "Shaqooyinka",
+    "company_contact": "Xidhiidh",
+    "privacy": "Siyaasadda Qarsoodiga",
+    "terms": "Shuruudaha Adeegga",
+    "cookies": "Siyaasadda Kukiyada"
   }
 }

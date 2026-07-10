@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -100,8 +102,9 @@
     direction: rtl;
   }
 
-  html[dir='rtl'] body {
-    font-family: 'Noto Naskh Arabic', 'Scheherazade New', 'Inter', system-ui, sans-serif;
+  /* Arabic font via lang attribute */
+  html[lang='ar'] body {
+    font-family: 'Cairo', 'Tajawal', system-ui, sans-serif;
   }
 
   body {
