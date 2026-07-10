@@ -87,5 +87,20 @@
   "new_password": "كلمة المرور الجديدة",
   "update_password": "تحديث كلمة المرور",
   "password_changed": "تم تغيير كلمة المرور بنجاح!",
-  "save_settings": "حفظ الإعدادات"
+  "save_settings": "حفظ الإعدادات",
+  "duration": "المدة",
+  "teacher": "المعلم",
+  "in_progress": "قيد التقدم",
+  "continue_learning": "مواصلة التعلم",
+  "resume": "استئناف",
+  "view_progress": "عرض التقدم",
+  "completed_lessons": "الدروس المكتملة",
+  "total_lessons": "إجمالي الدروس",
+  "total_courses": "إجمالي الدورات",
+  "last_accessed": "آخر دخول",
+  "completion_percentage": "نسبة الإكمال",
+  "all_statuses": "جميع الحالات",
+  "filter_by_status": "تصفية حسب الحالة",
+  "course_progress": "تقدم الدورة",
+  "never_accessed": "لم يبدأ بعد"
 }

@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Assignment from '../models/assignment.model';
-import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
+import ensureStudentRecord from '../utils/ensure-student';
 
 // POST /
 export const create = async (req: Request, res: Response) => {
@@ -15,10 +15,9 @@ export const create = async (req: Request, res: Response) => {
 
 // GET /my — Student sees assignments for their enrolled courses
 export const getMyAssignments = async (req: Request, res: Response) => {
-  const student = await Student.findOne({ user: req.user!.userId }).select('enrolledCourses').lean();
-  if (!student) return ApiResponse.success(res, []);
+  const student = await ensureStudentRecord(req.user!.userId);
 
-  const courseIds = (student as any).enrolledCourses || [];
+  const courseIds = (student.enrolledCourses || []).map((id: any) => id);
   const assignments = await Assignment.find({ course: { $in: courseIds }, status: 'active' })
     .populate('course', 'title.en slug category')
     .sort({ dueDate: 1 })

@@ -140,6 +140,20 @@ router.get(
   asyncHandler(studentController.getPayments)
 );
 
+// PATCH /api/v1/students/:id/approve — Approve student (admin only)
+router.patch(
+  '/:id/approve',
+  adminOnly,
+  asyncHandler(studentController.approve)
+);
+
+// PATCH /api/v1/students/:id/reject — Reject student (admin only)
+router.patch(
+  '/:id/reject',
+  adminOnly,
+  asyncHandler(studentController.reject)
+);
+
 // GET /api/v1/students/:id/certificates — Get student's certificates
 router.get(
   '/:id/certificates',

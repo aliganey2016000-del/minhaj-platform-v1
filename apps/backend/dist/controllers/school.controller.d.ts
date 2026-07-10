@@ -1,0 +1,15 @@
+/**
+ * School Controller
+ *
+ * Handles school-related HTTP requests:
+ * CRUD operations for school management.
+ * Only admins can manage schools.
+ */
+import { Request, Response } from 'express';
+export declare const getAll: (req: Request, res: Response) => Promise<Response>;
+export declare const getById: (req: Request, res: Response) => Promise<Response>;
+export declare const create: (req: Request, res: Response) => Promise<Response>;
+export declare const update: (req: Request, res: Response) => Promise<Response>;
+export declare const updateStatus: (req: Request, res: Response) => Promise<Response>;
+export declare const remove: (req: Request, res: Response) => Promise<Response>;
+//# sourceMappingURL=school.controller.d.ts.map

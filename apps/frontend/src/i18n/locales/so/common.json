@@ -87,5 +87,20 @@
   "new_password": "Password Cusub",
   "update_password": "Cusbooneyso Password",
   "password_changed": "Password si guul leh ayaa loo badalay!",
-  "save_settings": "Keydi Dejinta"
+  "save_settings": "Keydi Dejinta",
+  "duration": "Muddada",
+  "teacher": "Macallin",
+  "in_progress": "Ku Socota",
+  "continue_learning": "Sii Wad Waxbarashada",
+  "resume": "Sii Wad",
+  "view_progress": "Eeg Horumarka",
+  "completed_lessons": "Casharada La Dhammeeyay",
+  "total_lessons": "Wadarta Casharada",
+  "total_courses": "Wadarta Koorsooyinka",
+  "last_accessed": "Markii ugu Dambaysay",
+  "completion_percentage": "Heerka Dhammeystirka",
+  "all_statuses": "Dhammaan Xaaladaha",
+  "filter_by_status": "Kala Sooc Xaaladda",
+  "course_progress": "Horumarka Koorsada",
+  "never_accessed": "Weli lama bilaabin"
 }

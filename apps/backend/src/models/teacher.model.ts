@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface ITeacher extends Document {
   user: mongoose.Types.ObjectId;
   profile: mongoose.Types.ObjectId;
+  school?: mongoose.Types.ObjectId;
   teacherId: string;
   qualification?: string;
   specialization?: string[];
@@ -17,6 +18,7 @@ const teacherSchema = new Schema<ITeacher>(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     profile: { type: Schema.Types.ObjectId, ref: 'Profile', required: true },
+    school: { type: Schema.Types.ObjectId, ref: 'School', default: undefined },
     teacherId: { type: String, unique: true, sparse: true },
     qualification: { type: String, default: '' },
     specialization: [{ type: String }],

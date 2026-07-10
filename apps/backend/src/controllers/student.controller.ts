@@ -10,8 +10,11 @@ import mongoose from 'mongoose';
 import Student from '../models/student.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
+import Progress from '../models/progress.model';
+import CourseContent from '../models/course-content.model';
 import { BadRequestError, NotFoundError, ForbiddenError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
+import ensureStudentRecord from '../utils/ensure-student';
 
 // ---------------------------------------------------------------------------
 // List Students (Admin & Teacher only)
@@ -21,6 +24,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
   const status = req.query.status as string | undefined;
+  const approvalStatus = req.query.approvalStatus as string | undefined;
   const search = req.query.search as string | undefined;
 
   const filter: Record<string, unknown> = {};
@@ -29,14 +33,26 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     filter.status = status;
   }
 
+  if (approvalStatus === 'approved') {
+    // Match explicitly approved OR legacy students (null/undefined) who were created before this field existed
+    filter.$or = [
+      { approvalStatus: 'approved' },
+      { approvalStatus: { $in: [null, undefined] } },
+    ];
+  } else if (approvalStatus === 'pending') {
+    filter.approvalStatus = 'pending';
+  } else if (approvalStatus === 'rejected') {
+    filter.approvalStatus = 'rejected';
+  }
+
   if (req.user?.role === 'teacher') {
     // In production, filter by teacher's assigned courses
   }
 
   if (search) {
-    filter.$or = [
-      { studentId: { $regex: search, $options: 'i' } },
-    ];
+    const searchRegex = { $regex: search, $options: 'i' };
+    (filter.$or as any[]) = (filter.$or as any[]) || [];
+    (filter.$or as any[]).push({ studentId: searchRegex });
   }
 
   let allStudents: any[];
@@ -48,6 +64,8 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
         .populate('user', 'email role isActive isVerified preferredLanguage')
         .populate('profile', 'firstName lastName avatar gender')
         .populate('parent', 'user profile')
+        .populate('school', 'name')
+        .populate('class', 'title section')
         .populate('enrolledCourses', 'title slug')
         .sort({ createdAt: -1 })
         .lean(),
@@ -70,6 +88,8 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
         .populate('user', 'email role isActive isVerified preferredLanguage')
         .populate('profile', 'firstName lastName avatar gender')
         .populate('parent', 'user profile')
+        .populate('school', 'name')
+        .populate('class', 'title section')
         .populate('enrolledCourses', 'title slug')
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
@@ -92,6 +112,8 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
   const student = await Student.findById(req.params.id)
     .populate('user', 'email role isActive isVerified preferredLanguage')
     .populate('profile', 'firstName lastName avatar gender dateOfBirth address emergencyContact')
+    .populate('school', 'name')
+    .populate('class', 'title section')
     .populate('parent', 'user profile children')
     .populate('enrolledCourses', 'title slug category level status')
     .lean();
@@ -118,7 +140,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { email, password, firstName, lastName, gender, phone, enrollmentDate, grade, medicalNotes, parentId, preferredLanguage } = req.body;
+  const { email, password, firstName, lastName, gender, phone, enrollmentDate, school, classId, grade, medicalNotes, parentId, preferredLanguage } = req.body;
 
   const user = await User.create({
     email: email.toLowerCase(), password, role: 'student',
@@ -129,12 +151,15 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const student = await Student.create({
     user: user._id, profile: profile._id, parent: parentId || undefined,
+    school: school || undefined, class: classId || undefined,
     enrollmentDate: enrollmentDate || new Date(), grade: grade || undefined, medicalNotes: medicalNotes || undefined,
   });
 
   const populated = await Student.findById(student._id)
     .populate('user', 'email role isActive preferredLanguage')
     .populate('profile', 'firstName lastName avatar gender')
+    .populate('school', 'name')
+    .populate('class', 'title section')
     .populate('parent', 'user profile').lean();
 
   return ApiResponse.created(res, populated, 'Student created successfully');
@@ -148,7 +173,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const student = await Student.findById(req.params.id);
   if (!student) throw new NotFoundError('Student');
 
-  const { firstName, lastName, gender, grade, medicalNotes, parent, enrollmentDate, status, attendancePercentage, gpa, totalFeesPaid, totalFeesDue } = req.body;
+  const { firstName, lastName, gender, school, classId, grade, medicalNotes, parent, enrollmentDate, status, attendancePercentage, gpa, totalFeesPaid, totalFeesDue } = req.body;
 
   if (firstName || lastName || gender) {
     const profileUpdate: any = {};
@@ -158,6 +183,8 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     await Profile.findByIdAndUpdate(student.profile, profileUpdate);
   }
 
+  if (school !== undefined) student.school = school || undefined;
+  if (classId !== undefined) student.class = classId || undefined;
   if (grade !== undefined) student.grade = grade;
   if (medicalNotes !== undefined) student.medicalNotes = medicalNotes;
   if (parent !== undefined) student.parent = parent || undefined;
@@ -173,6 +200,8 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const updated = await Student.findById(student._id)
     .populate('user', 'email role isActive isVerified preferredLanguage')
     .populate('profile', 'firstName lastName avatar gender')
+    .populate('school', 'name')
+    .populate('class', 'title section')
     .populate('parent', 'user profile')
     .populate('enrolledCourses', 'title slug');
 
@@ -216,20 +245,18 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
 // ---------------------------------------------------------------------------
 
 export const getMyDashboard = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findOne({ user: req.user!.userId })
-    .populate('enrolledCourses', 'title slug category level status thumbnail')
-    .lean();
+  const student = await ensureStudentRecord(req.user!.userId);
+  await student.populate('enrolledCourses', 'title slug category level status thumbnail');
 
-  // Return empty/default data if student record doesn't exist yet
   return ApiResponse.success(res, {
-    studentId: (student as any)?.studentId || 'N/A',
-    status: (student as any)?.status || 'active',
-    enrolledCourses: (student as any)?.enrolledCourses || [],
-    coursesCount: (student as any)?.enrolledCourses?.length || 0,
-    attendancePercentage: (student as any)?.attendancePercentage || 0,
-    gpa: (student as any)?.gpa || 0,
-    totalFeesPaid: (student as any)?.totalFeesPaid || 0,
-    totalFeesDue: (student as any)?.totalFeesDue || 0,
+    studentId: (student as any).studentId || 'N/A',
+    status: (student as any).status || 'active',
+    enrolledCourses: (student as any).enrolledCourses || [],
+    coursesCount: (student as any).enrolledCourses?.length || 0,
+    attendancePercentage: (student as any).attendancePercentage || 0,
+    gpa: (student as any).gpa || 0,
+    totalFeesPaid: (student as any).totalFeesPaid || 0,
+    totalFeesDue: (student as any).totalFeesDue || 0,
   });
 };
 
@@ -251,11 +278,65 @@ export const getCourses = async (req: Request, res: Response): Promise<Response>
 // ---------------------------------------------------------------------------
 
 export const getMyCourses = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findOne({ user: req.user!.userId })
-    .populate({ path: 'enrolledCourses', select: 'title slug description category level status teacher thumbnail duration fee', populate: { path: 'teacher', select: 'user profile', populate: { path: 'profile', select: 'firstName lastName' } } })
+  const student = await ensureStudentRecord(req.user!.userId);
+  const populated = await Student.findById(student._id)
+    .populate({
+      path: 'enrolledCourses',
+      select: 'title slug description category level status teacher thumbnail duration fee maxStudents enrolledStudents',
+      populate: { path: 'teacher', select: 'user profile', populate: { path: 'profile', select: 'firstName lastName' } },
+    })
     .lean();
 
-  return ApiResponse.success(res, (student as any)?.enrolledCourses || []);
+  const enrolled = (populated as any)?.enrolledCourses || [];
+
+  // Fetch progress records for all enrolled courses
+  const courseIds = enrolled.map((c: any) => c._id);
+  const [progressRecords, contentRecords] = await Promise.all([
+    Progress.find({ student: student._id, course: { $in: courseIds } }).lean(),
+    CourseContent.find({ course: { $in: courseIds } }).select('course totalLessons totalQuizzes totalAssignments totalDuration').lean(),
+  ]);
+
+  const progressMap: Record<string, any> = {};
+  for (const p of progressRecords) {
+    progressMap[(p as any).course.toString()] = p;
+  }
+
+  const contentMap: Record<string, any> = {};
+  for (const c of contentRecords) {
+    contentMap[(c as any).course.toString()] = c;
+  }
+
+  // Merge progress and content stats into each course
+  const coursesWithProgress = enrolled.map((course: any) => {
+    const cid = course._id.toString();
+    const prog = progressMap[cid];
+    const content = contentMap[cid];
+    const totalLessons = content?.totalLessons || 0;
+    const totalQuizzes = content?.totalQuizzes || 0;
+    const totalAssignments = content?.totalAssignments || 0;
+    const totalItems = totalLessons + totalQuizzes + totalAssignments;
+    const completedItems = (prog?.completedLessons || 0) + (prog?.completedQuizzes || 0) + (prog?.completedAssignments || 0);
+    const progressPercent = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+
+    return {
+      ...course,
+      progress: {
+        percent: progressPercent,
+        completedLessons: prog?.completedLessons || 0,
+        completedQuizzes: prog?.completedQuizzes || 0,
+        completedAssignments: prog?.completedAssignments || 0,
+        totalLessons,
+        totalQuizzes,
+        totalAssignments,
+        totalItems,
+        completedItems,
+        status: prog?.status || 'in_progress',
+        lastAccessed: prog?.lastAccessed || null,
+      },
+    };
+  });
+
+  return ApiResponse.success(res, coursesWithProgress);
 };
 
 // ---------------------------------------------------------------------------
@@ -306,4 +387,40 @@ export const bulkImport = async (_req: Request, _res: Response): Promise<Respons
 
 export const exportStudents = async (_req: Request, _res: Response): Promise<Response> => {
   throw new BadRequestError('Export not yet implemented');
+};
+
+// ---------------------------------------------------------------------------
+// Approve / Reject Student (Admin)
+// ---------------------------------------------------------------------------
+
+export const approve = async (req: Request, res: Response): Promise<Response> => {
+  const { school, classId } = req.body;
+  if (!school) throw new BadRequestError('School is required for approval');
+  if (!classId) throw new BadRequestError('Class is required for approval');
+
+  const student = await Student.findByIdAndUpdate(
+    req.params.id,
+    { approvalStatus: 'approved', school, class: classId },
+    { new: true }
+  )
+    .populate('user', 'email role isActive preferredLanguage')
+    .populate('profile', 'firstName lastName avatar gender')
+    .populate('school', 'name')
+    .populate('class', 'title section');
+
+  if (!student) throw new NotFoundError('Student');
+  return ApiResponse.success(res, student, 'Student approved successfully');
+};
+
+export const reject = async (req: Request, res: Response): Promise<Response> => {
+  const student = await Student.findByIdAndUpdate(
+    req.params.id,
+    { approvalStatus: 'rejected' },
+    { new: true }
+  )
+    .populate('user', 'email')
+    .populate('profile', 'firstName lastName');
+
+  if (!student) throw new NotFoundError('Student');
+  return ApiResponse.success(res, student, 'Student rejected');
 };

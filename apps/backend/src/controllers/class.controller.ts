@@ -10,10 +10,10 @@ const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 // ---------------------------------------------------------------------------
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const { courseId, status, page = '1', limit = '50', search } = req.query;
+  const { schoolId, status, page = '1', limit = '50', search } = req.query;
 
   const filter: Record<string, unknown> = {};
-  if (courseId) filter.course = courseId as string;
+  if (schoolId) filter.school = schoolId as string;
   if (status && ['active', 'inactive', 'completed'].includes(status as string)) filter.status = status;
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -21,9 +21,10 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const [classes, total] = await Promise.all([
     ClassModel.find(filter)
+      .populate('school', 'name')
       .populate('course', 'title.en slug category')
       .populate('teacher', 'teacherId')
-      .sort({ dayOfWeek: 1, startTime: 1 })
+      .sort({ createdAt: -1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
       .lean(),
@@ -36,15 +37,13 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     result = classes.filter((c: any) => {
       const title = (c.title || '').toLowerCase();
       const room = (c.room || '').toLowerCase();
-      const courseName = (c.course?.title?.en || '').toLowerCase();
-      return title.includes(s) || room.includes(s) || courseName.includes(s);
+      const section = (c.section || '').toLowerCase();
+      const schoolName = (c.school?.name || '').toLowerCase();
+      return title.includes(s) || room.includes(s) || section.includes(s) || schoolName.includes(s);
     });
   }
 
-  // Attach day name
-  const withDays = result.map((c: any) => ({ ...c, dayName: days[c.dayOfWeek] }));
-
-  return ApiResponse.paginated(res, withDays, {
+  return ApiResponse.paginated(res, result, {
     page: pageNum,
     limit: limitNum,
     total: search ? result.length : total,
@@ -58,11 +57,12 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 export const create = async (req: Request, res: Response): Promise<Response> => {
   const cls = await ClassModel.create(req.body);
   const populated = await ClassModel.findById(cls._id)
+    .populate('school', 'name')
     .populate('course', 'title.en slug category')
     .populate('teacher', 'teacherId')
     .lean();
 
-  return ApiResponse.created(res, { ...populated, dayName: days[(populated as any).dayOfWeek] });
+  return ApiResponse.created(res, populated, 'Class created successfully');
 };
 
 // ---------------------------------------------------------------------------
@@ -74,12 +74,13 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     new: true,
     runValidators: true,
   })
+    .populate('school', 'name')
     .populate('course', 'title.en slug category')
     .populate('teacher', 'teacherId')
     .lean();
 
   if (!cls) throw new NotFoundError('Class');
-  return ApiResponse.success(res, { ...cls, dayName: days[(cls as any).dayOfWeek] });
+  return ApiResponse.success(res, cls, 'Class updated successfully');
 };
 
 // ---------------------------------------------------------------------------
@@ -107,11 +108,12 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
     { status },
     { new: true }
   )
+    .populate('school', 'name')
     .populate('course', 'title.en slug')
     .lean();
 
   if (!cls) throw new NotFoundError('Class');
-  return ApiResponse.success(res, { ...cls, dayName: days[(cls as any).dayOfWeek] }, `Class status updated to ${status}`);
+  return ApiResponse.success(res, cls, `Class status updated to ${status}`);
 };
 
 // ---------------------------------------------------------------------------

@@ -87,5 +87,20 @@
   "new_password": "New Password",
   "update_password": "Update Password",
   "password_changed": "Password changed successfully!",
-  "save_settings": "Save Settings"
+  "save_settings": "Save Settings",
+  "duration": "Duration",
+  "teacher": "Teacher",
+  "in_progress": "In Progress",
+  "continue_learning": "Continue Learning",
+  "resume": "Resume",
+  "view_progress": "View Progress",
+  "completed_lessons": "Completed Lessons",
+  "total_lessons": "Total Lessons",
+  "total_courses": "Total Courses",
+  "last_accessed": "Last Accessed",
+  "completion_percentage": "Completion",
+  "all_statuses": "All Statuses",
+  "filter_by_status": "Filter by Status",
+  "course_progress": "Course Progress",
+  "never_accessed": "Not started yet"
 }

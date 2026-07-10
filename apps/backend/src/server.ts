@@ -13,8 +13,10 @@ import './models/parent.model';
 import './models/setting.model';
 import './models/activity-log.model';
 import './models/assignment.model';
+import './models/school.model';
 import './models/resource.model';
 import './models/notification.model';
+import './models/course-content.model';
 
 import app from './app';
 

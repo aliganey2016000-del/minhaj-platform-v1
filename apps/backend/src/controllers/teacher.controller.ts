@@ -16,12 +16,16 @@ import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-erro
 // ---------------------------------------------------------------------------
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const { status, search, page = '1', limit = '10' } = req.query;
+  const { status, search, page = '1', limit = '10', school } = req.query;
 
   const filter: any = {};
 
   if (status && ['active', 'inactive', 'on_leave'].includes(status as string)) {
     filter.status = status;
+  }
+
+  if (school) {
+    filter.school = school as string;
   }
 
   // For text search we'll filter after population on profile name
@@ -32,6 +36,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   let query = Teacher.find(filter)
     .populate('user', 'email isVerified isActive')
     .populate('profile', 'firstName lastName gender')
+    .populate('school', 'name')
     .populate('courses', 'title.en slug')
     .sort({ createdAt: -1 });
 
@@ -72,6 +77,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
   const teacher = await Teacher.findById(req.params.id)
     .populate('user', 'email isVerified isActive preferredLanguage')
     .populate('profile')
+    .populate('school', 'name')
     .populate('courses', 'title.en slug category status');
 
   if (!teacher) throw new NotFoundError('Teacher');
@@ -91,6 +97,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     lastName,
     gender,
     phone,
+    school,
     qualification,
     specialization,
     experience,
@@ -135,6 +142,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     user: user._id,
     profile: profile._id,
     teacherId,
+    school: school || undefined,
     qualification: qualification || '',
     specialization: specialization || [],
     experience: experience || 0,
@@ -145,7 +153,8 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const populated = await Teacher.findById(teacher._id)
     .populate('user', 'email isVerified isActive')
-    .populate('profile', 'firstName lastName gender');
+    .populate('profile', 'firstName lastName gender')
+    .populate('school', 'name');
 
   return ApiResponse.created(res, populated, 'Teacher created successfully');
 };
@@ -162,6 +171,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     firstName,
     lastName,
     gender,
+    school,
     qualification,
     specialization,
     experience,
@@ -181,6 +191,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   }
 
   // Update teacher fields
+  if (school !== undefined) teacher.school = school || null;
   if (qualification !== undefined) teacher.qualification = qualification;
   if (specialization !== undefined) teacher.specialization = specialization;
   if (experience !== undefined) teacher.experience = experience;
@@ -193,6 +204,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const updated = await Teacher.findById(teacher._id)
     .populate('user', 'email isVerified isActive')
     .populate('profile')
+    .populate('school', 'name')
     .populate('courses', 'title.en slug category status');
 
   return ApiResponse.success(res, updated, 'Teacher updated successfully');
@@ -243,7 +255,9 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
     req.params.id,
     { status },
     { new: true }
-  ).populate('profile', 'firstName lastName');
+  )
+    .populate('profile', 'firstName lastName')
+    .populate('school', 'name');
 
   if (!teacher) throw new NotFoundError('Teacher');
 

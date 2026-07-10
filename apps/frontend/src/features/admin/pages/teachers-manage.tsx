@@ -30,11 +30,17 @@ interface TeacherCourse {
   slug: string;
 }
 
+interface TeacherSchool {
+  _id: string;
+  name: string;
+}
+
 interface Teacher {
   _id: string;
   teacherId: string;
   user: TeacherUser;
   profile: TeacherProfile;
+  school?: TeacherSchool;
   qualification: string;
   specialization: string[];
   experience: number;
@@ -52,11 +58,18 @@ interface TeacherForm {
   lastName: string;
   gender: string;
   phone: string;
+  school: string;
   qualification: string;
   specialization: string;
   experience: number;
   bio: string;
   joiningDate: string;
+}
+
+interface School {
+  _id: string;
+  name: string;
+  status: 'active' | 'inactive';
 }
 
 const emptyForm: TeacherForm = {
@@ -66,6 +79,7 @@ const emptyForm: TeacherForm = {
   lastName: '',
   gender: 'male',
   phone: '',
+  school: '',
   qualification: '',
   specialization: '',
   experience: 0,
@@ -96,6 +110,7 @@ function TeacherModal({
           lastName: teacher.profile?.lastName || '',
           gender: teacher.profile?.gender || 'male',
           phone: '',
+          school: teacher.school?._id || '',
           qualification: teacher.qualification || '',
           specialization: (teacher.specialization || []).join(', '),
           experience: teacher.experience || 0,
@@ -108,6 +123,23 @@ function TeacherModal({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [schools, setSchools] = useState<School[]>([]);
+  const [schoolsLoading, setSchoolsLoading] = useState(true);
+
+  // Load schools for dropdown
+  useEffect(() => {
+    const fetchSchools = async () => {
+      try {
+        const { data } = await api.get('/schools', { params: { limit: '100' } });
+        setSchools(data.data || []);
+      } catch {
+        // Silently fail — dropdown will just be empty
+      } finally {
+        setSchoolsLoading(false);
+      }
+    };
+    fetchSchools();
+  }, []);
 
   const handleChange = (field: keyof TeacherForm, value: string | number) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -122,6 +154,7 @@ function TeacherModal({
         firstName: form.firstName,
         lastName: form.lastName,
         gender: form.gender,
+        school: form.school || undefined,
         qualification: form.qualification,
         specialization: form.specialization
           .split(',')
@@ -177,6 +210,25 @@ function TeacherModal({
             <select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.gender} onChange={(e) => handleChange('gender', e.target.value)}>
               <option value="male">Male</option>
               <option value="female">Female</option>
+            </select>
+          </div>
+
+          {/* School */}
+          <div>
+            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">School *</label>
+            <select
+              className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
+              value={form.school}
+              onChange={(e) => handleChange('school', e.target.value)}
+              required
+              disabled={schoolsLoading}
+            >
+              <option value="">{schoolsLoading ? 'Loading schools...' : '-- Select School --'}</option>
+              {schools
+                .filter((s) => s.status === 'active')
+                .map((s) => (
+                  <option key={s._id} value={s._id}>{s.name}</option>
+                ))}
             </select>
           </div>
 
@@ -267,6 +319,7 @@ function ViewModal({ teacher, onClose }: { teacher: Teacher; onClose: () => void
           </div>
 
           <DetailRow label="Email" value={teacher.user?.email} />
+          <DetailRow label="School" value={teacher.school?.name || '—'} />
           <DetailRow label="Qualification" value={teacher.qualification || '—'} />
           <DetailRow label="Specialization" value={teacher.specialization?.length ? teacher.specialization.join(', ') : '—'} />
           <DetailRow label="Experience" value={teacher.experience ? `${teacher.experience} years` : '—'} />

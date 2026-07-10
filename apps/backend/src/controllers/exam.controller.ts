@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Exam from '../models/exam.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
+import ensureStudentRecord from '../utils/ensure-student';
 
 // GET /exams — List all with optional filters
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
@@ -91,11 +92,9 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
 
 // GET /exams/my — Student's exams from enrolled courses
 export const getMyExams = async (req: Request, res: Response): Promise<Response> => {
-  const Student = mongoose.model('Student');
-  const student = await Student.findOne({ user: req.user!.userId }).select('enrolledCourses').lean();
-  if (!student) return ApiResponse.success(res, []);
+  const student = await ensureStudentRecord(req.user!.userId);
 
-  const courseIds = (student as any).enrolledCourses || [];
+  const courseIds = (student.enrolledCourses || []).map((id: any) => id);
   const exams = await Exam.find({ course: { $in: courseIds } })
     .populate('course', 'title.en slug category')
     .populate('createdBy', 'email')

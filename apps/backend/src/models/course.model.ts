@@ -44,6 +44,8 @@ export interface ICourse extends Document {
   duration: number;             // Duration in weeks
   fee: number;                  // 0 = free course
   teacher: mongoose.Types.ObjectId;
+  school?: mongoose.Types.ObjectId;
+  class?: mongoose.Types.ObjectId;
   maxStudents: number;
   enrolledStudents: number;
   thumbnail?: string;
@@ -136,6 +138,18 @@ const courseSchema = new Schema<ICourse>(
     teacher: {
       type: Schema.Types.ObjectId,
       ref: 'Teacher',
+      default: null,
+      index: true,
+    },
+    school: {
+      type: Schema.Types.ObjectId,
+      ref: 'School',
+      default: null,
+      index: true,
+    },
+    class: {
+      type: Schema.Types.ObjectId,
+      ref: 'Class',
       default: null,
       index: true,
     },

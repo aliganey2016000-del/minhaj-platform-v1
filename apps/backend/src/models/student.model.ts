@@ -18,6 +18,9 @@ export interface IStudent extends Document {
   parent?: mongoose.Types.ObjectId;
   enrollmentDate: Date;
   status: 'active' | 'inactive' | 'graduated' | 'suspended';
+  approvalStatus: 'pending' | 'approved' | 'rejected';
+  school?: mongoose.Types.ObjectId;
+  class?: mongoose.Types.ObjectId;
   grade?: string;
   medicalNotes?: string;
   enrolledCourses: mongoose.Types.ObjectId[];
@@ -78,6 +81,24 @@ const studentSchema = new Schema<IStudent>(
       default: 'active',
       index: true,
     },
+    approvalStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'approved',
+      index: true,
+    },
+    school: {
+      type: Schema.Types.ObjectId,
+      ref: 'School',
+      default: null,
+      index: true,
+    },
+    class: {
+      type: Schema.Types.ObjectId,
+      ref: 'Class',
+      default: null,
+      index: true,
+    },
     grade: {
       type: String,
       default: null,
@@ -136,6 +157,9 @@ const studentSchema = new Schema<IStudent>(
 studentSchema.index({ user: 1 }, { unique: true });
 studentSchema.index({ studentId: 1 }, { unique: true });
 studentSchema.index({ parent: 1 });
+studentSchema.index({ school: 1 });
+studentSchema.index({ class: 1 });
+studentSchema.index({ approvalStatus: 1 });
 studentSchema.index({ status: 1 });
 studentSchema.index({ enrollmentDate: -1 });
 

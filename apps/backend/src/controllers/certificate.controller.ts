@@ -5,6 +5,7 @@ import Student from '../models/student.model';
 import Course from '../models/course.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
+import ensureStudentRecord from '../utils/ensure-student';
 
 // GET /certificates — List all with filters, search, pagination
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
@@ -118,8 +119,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
 
 // GET /certificates/my — Student's own certificates
 export const getMyCertificates = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findOne({ user: req.user!.userId }).lean();
-  if (!student) return ApiResponse.success(res, []);
+  const student = await ensureStudentRecord(req.user!.userId);
 
   const certs = await Certificate.find({ student: student._id })
     .populate('course', 'title.en slug category')

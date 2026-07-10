@@ -28,8 +28,8 @@ app.use(cors({
 // Rate Limiting
 // ---------------------------------------------------------------------------
 const limiter = rateLimit({
-  windowMs: (parseInt(process.env.RATE_LIMIT_WINDOW || '15')) * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX || '100'),
+  windowMs: (parseInt(process.env.RATE_LIMIT_WINDOW || '1')) * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX || '1000'),
   standardHeaders: true,
   legacyHeaders: false,
   message: {

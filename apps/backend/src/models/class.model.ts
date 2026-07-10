@@ -1,12 +1,14 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IClass extends Document {
-  course: mongoose.Types.ObjectId;
+  school: mongoose.Types.ObjectId;
   title: string;
-  dayOfWeek: number; // 0=Sunday, 6=Saturday
-  startTime: string; // HH:mm
-  endTime: string;   // HH:mm
-  room?: string;
+  section: string;
+  room: string;
+  course?: mongoose.Types.ObjectId;
+  dayOfWeek?: number;
+  startTime?: string;
+  endTime?: string;
   meetingLink?: string;
   teacher?: mongoose.Types.ObjectId;
   status: 'active' | 'inactive' | 'completed';
@@ -16,12 +18,14 @@ export interface IClass extends Document {
 
 const classSchema = new Schema<IClass>(
   {
-    course: { type: Schema.Types.ObjectId, ref: 'Course', required: true, index: true },
+    school: { type: Schema.Types.ObjectId, ref: 'School', required: true, index: true },
     title: { type: String, required: true, trim: true, maxlength: 200 },
-    dayOfWeek: { type: Number, required: true, min: 0, max: 6 },
-    startTime: { type: String, required: true, match: /^([01]\d|2[0-3]):([0-5]\d)$/ },
-    endTime: { type: String, required: true, match: /^([01]\d|2[0-3]):([0-5]\d)$/ },
-    room: { type: String, default: '' },
+    section: { type: String, required: true, trim: true, maxlength: 10 },
+    room: { type: String, required: true, trim: true, maxlength: 50 },
+    course: { type: Schema.Types.ObjectId, ref: 'Course', default: null, index: true },
+    dayOfWeek: { type: Number, min: 0, max: 6, default: null },
+    startTime: { type: String, match: /^([01]\d|2[0-3]):([0-5]\d)$/, default: null },
+    endTime: { type: String, match: /^([01]\d|2[0-3]):([0-5]\d)$/, default: null },
     meetingLink: { type: String, default: '' },
     teacher: { type: Schema.Types.ObjectId, ref: 'Teacher', default: null, index: true },
     status: { type: String, enum: ['active', 'inactive', 'completed'], default: 'active', index: true },
@@ -29,7 +33,7 @@ const classSchema = new Schema<IClass>(
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );
 
-classSchema.index({ course: 1, dayOfWeek: 1 });
+classSchema.index({ school: 1 });
 classSchema.index({ status: 1 });
 
 const ClassModel = mongoose.model<IClass>('Class', classSchema);

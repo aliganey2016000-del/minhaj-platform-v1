@@ -11,6 +11,7 @@ import Student from '../models/student.model';
 import '../models/teacher.model'; // Register Teacher model for population
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
+import ensureStudentRecord from '../utils/ensure-student';
 
 // ---------------------------------------------------------------------------
 // List Courses (Public — only published)
@@ -37,7 +38,13 @@ export const getAllPublic = async (req: Request, res: Response): Promise<Respons
 
   const [courses, total] = await Promise.all([
     Course.find(filter)
-      .populate('teacher', 'user profile')
+      .populate({
+        path: 'teacher',
+        select: 'teacherId profile',
+        populate: { path: 'profile', select: 'firstName lastName' },
+      })
+      .populate('school', 'name')
+      .populate({ path: 'class', select: 'title section' })
       .select('-syllabus')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -55,7 +62,7 @@ export const getAllPublic = async (req: Request, res: Response): Promise<Respons
 
 export const getAllAdmin = async (req: Request, res: Response): Promise<Response> => {
   const page = parseInt(req.query.page as string) || 1;
-  const limit = parseInt(req.query.limit as string) || 20;
+  const limit = parseInt(req.query.limit as string) || 100;
   const status = req.query.status as string | undefined;
   const category = req.query.category as string | undefined;
 
@@ -65,6 +72,13 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
 
   const [courses, total] = await Promise.all([
     Course.find(filter)
+      .populate({
+        path: 'teacher',
+        select: 'teacherId profile',
+        populate: { path: 'profile', select: 'firstName lastName' },
+      })
+      .populate('school', 'name')
+      .populate({ path: 'class', select: 'title section' })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -81,7 +95,13 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
 
 export const getBySlug = async (req: Request, res: Response): Promise<Response> => {
   const course = await Course.findOne({ slug: req.params.slug, status: 'published' })
-    .populate('teacher', 'user profile')
+    .populate({
+      path: 'teacher',
+      select: 'teacherId profile',
+      populate: { path: 'profile', select: 'firstName lastName' },
+    })
+    .populate('school', 'name')
+    .populate({ path: 'class', select: 'title section' })
     .lean();
 
   if (!course) {
@@ -97,7 +117,13 @@ export const getBySlug = async (req: Request, res: Response): Promise<Response> 
 
 export const getByIdAdmin = async (req: Request, res: Response): Promise<Response> => {
   const course = await Course.findById(req.params.id)
-    .populate('teacher', 'user profile')
+    .populate({
+      path: 'teacher',
+      select: 'teacherId profile',
+      populate: { path: 'profile', select: 'firstName lastName' },
+    })
+    .populate('school', 'name')
+    .populate({ path: 'class', select: 'title section' })
     .lean();
 
   if (!course) {
@@ -112,7 +138,7 @@ export const getByIdAdmin = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { title, description, category, level, duration, fee, teacher, maxStudents, syllabus, prerequisites } = req.body;
+  const { title, description, category, level, duration, fee, teacher, school, class: classId, maxStudents, syllabus, prerequisites } = req.body;
 
   // Generate slug from English title
   const slug = title.en
@@ -134,14 +160,26 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     level,
     duration,
     fee: fee || 0,
-    teacher,
+    teacher: teacher || null,
+    school: school || null,
+    class: classId || null,
     maxStudents,
     syllabus: syllabus || [],
     prerequisites: prerequisites || [],
     status: 'draft',
   });
 
-  return ApiResponse.created(res, course, 'Course created successfully');
+  const populated = await Course.findById(course._id)
+    .populate({
+      path: 'teacher',
+      select: 'teacherId profile',
+      populate: { path: 'profile', select: 'firstName lastName' },
+    })
+    .populate('school', 'name')
+    .populate({ path: 'class', select: 'title section' })
+    .lean();
+
+  return ApiResponse.created(res, populated, 'Course created successfully');
 };
 
 // ---------------------------------------------------------------------------
@@ -151,7 +189,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 export const update = async (req: Request, res: Response): Promise<Response> => {
   const allowedUpdates = [
     'title', 'description', 'category', 'level', 'duration',
-    'fee', 'teacher', 'maxStudents', 'syllabus', 'prerequisites', 'status',
+    'fee', 'teacher', 'school', 'class', 'maxStudents', 'syllabus', 'prerequisites', 'status',
     'startDate', 'endDate', 'thumbnail',
   ];
 
@@ -179,7 +217,17 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     throw new NotFoundError('Course');
   }
 
-  return ApiResponse.success(res, course, 'Course updated successfully');
+  const populated = await Course.findById(course._id)
+    .populate({
+      path: 'teacher',
+      select: 'teacherId profile',
+      populate: { path: 'profile', select: 'firstName lastName' },
+    })
+    .populate('school', 'name')
+    .populate({ path: 'class', select: 'title section' })
+    .lean();
+
+  return ApiResponse.success(res, populated, 'Course updated successfully');
 };
 
 // ---------------------------------------------------------------------------
@@ -290,8 +338,7 @@ export const getEnrolledStudents = async (req: Request, res: Response): Promise<
 // ---------------------------------------------------------------------------
 
 export const selfEnroll = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findOne({ user: req.user!.userId });
-  if (!student) throw new NotFoundError('Student record not found. Please contact admin.');
+  const student = await ensureStudentRecord(req.user!.userId);
 
   const course = await Course.findById(req.params.id);
   if (!course) throw new NotFoundError('Course');
@@ -311,8 +358,7 @@ export const selfEnroll = async (req: Request, res: Response): Promise<Response>
 // ---------------------------------------------------------------------------
 
 export const selfUnenroll = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findOne({ user: req.user!.userId });
-  if (!student) throw new NotFoundError('Student record not found. Please contact admin.');
+  const student = await ensureStudentRecord(req.user!.userId);
 
   const course = await Course.findById(req.params.id);
   if (!course) throw new NotFoundError('Course');
@@ -350,8 +396,14 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
 
   const [courses, total] = await Promise.all([
     Course.find(filter)
-      .populate({ path: 'teacher', populate: { path: 'profile', select: 'firstName lastName' }, select: 'teacherId profile' })
-      .select('title slug description category level duration fee teacher maxStudents enrolledStudents thumbnail status startDate')
+      .populate({
+        path: 'teacher',
+        select: 'teacherId profile',
+        populate: { path: 'profile', select: 'firstName lastName' },
+      })
+      .populate('school', 'name')
+      .populate({ path: 'class', select: 'title section' })
+      .select('title slug description category level duration fee teacher maxStudents enrolledStudents thumbnail status startDate school class')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -361,8 +413,13 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
 
   let enrolledIds: string[] = [];
   if (req.user?.userId) {
-    const student = await Student.findOne({ user: req.user.userId }).select('enrolledCourses').lean();
-    enrolledIds = ((student as any)?.enrolledCourses || []).map((id: any) => id.toString());
+    try {
+      const student = await ensureStudentRecord(req.user.userId);
+      enrolledIds = (student.enrolledCourses || []).map((id: any) => id.toString());
+    } catch {
+      // If student record can't be created (e.g. no profile), just show no enrollments
+      enrolledIds = [];
+    }
   }
 
   const coursesWithStatus = courses.map((c: any) => ({ ...c, isEnrolled: enrolledIds.includes(c._id.toString()) }));

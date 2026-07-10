@@ -23,6 +23,8 @@ import resourceRoutes from './resource.routes';
 import notificationRoutes from './notification.routes';
 import contentRoutes from './content.routes';
 import systemRoutes from './system.routes';
+import schoolRoutes from './school.routes';
+import courseContentRoutes from './course-content.routes';
 
 const router = Router();
 
@@ -50,6 +52,8 @@ router.use('/news', contentRoutes('News'));
 router.use('/events', contentRoutes('Event'));
 router.use('/gallery', contentRoutes('Gallery'));
 router.use('/system', systemRoutes);
+router.use('/schools', schoolRoutes);
+router.use('/courses/:courseId/content', courseContentRoutes);
 
 // Future routes (to be implemented):
 // router.use('/users', userRoutes);

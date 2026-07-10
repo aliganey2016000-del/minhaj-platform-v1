@@ -27,6 +27,7 @@ const navSections = [
       { path: '/admin/parents',      label: 'Manage Parents',     icon: '👨‍👩‍👧‍👦' },
       { path: '/admin/teachers',     label: 'Manage Teachers',    icon: '👨‍🏫' },
       { path: '/admin/courses',      label: 'Manage Courses',     icon: '📚' },
+      { path: '/admin/schools',      label: 'School Management',  icon: '🏛️' },
       { path: '/admin/classes',      label: 'Manage Classes',     icon: '🏫' },
     ],
   },

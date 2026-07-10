@@ -10,6 +10,7 @@ import Student from '../models/student.model';
 import Course from '../models/course.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
+import ensureStudentRecord from '../utils/ensure-student';
 
 // ---------------------------------------------------------------------------
 // Bulk Mark Attendance (Admin/Teacher) — POST /attendance
@@ -98,8 +99,7 @@ export const getStudentSummary = async (req: Request, res: Response): Promise<Re
 // ---------------------------------------------------------------------------
 
 export const getMyAttendance = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findOne({ user: req.user!.userId }).lean();
-  if (!student) return ApiResponse.success(res, { total: 0, present: 0, late: 0, absent: 0, excused: 0, percentage: 0 });
+  const student = await ensureStudentRecord(req.user!.userId);
 
   const stats = await Attendance.aggregate([
     { $match: { student: student._id } },

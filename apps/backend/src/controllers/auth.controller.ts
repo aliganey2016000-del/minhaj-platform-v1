@@ -11,6 +11,8 @@ import crypto from 'crypto';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import Student from '../models/student.model';
+import School from '../models/school.model';
+import ClassModel from '../models/class.model';
 import { generateTokenPair, verifyRefreshToken } from '../utils/jwt';
 import {
   BadRequestError,
@@ -58,10 +60,37 @@ export const register = async (req: Request, res: Response): Promise<Response> =
 
   // 4b. Create Student document if role is 'student'
   if (role === 'student') {
+    // Auto-find or create "Public School" and "Public Class" for self-registered students
+    let publicSchool = await School.findOne({ name: 'Public School' });
+    if (!publicSchool) {
+      publicSchool = await School.create({
+        name: 'Public School',
+        address: 'Online',
+        phone: '+000',
+        email: 'public@school.edu',
+        principalName: 'Admin',
+        establishedYear: new Date().getFullYear(),
+        createdBy: user._id,
+      });
+    }
+
+    let publicClass = await ClassModel.findOne({ school: publicSchool._id, title: 'Public Class' });
+    if (!publicClass) {
+      publicClass = await ClassModel.create({
+        school: publicSchool._id,
+        title: 'Public Class',
+        section: 'A',
+        room: 'Online',
+      });
+    }
+
     await Student.create({
       user: user._id,
       profile: (await Profile.findOne({ user: user._id }))!._id,
       enrollmentDate: new Date(),
+      approvalStatus: 'pending',
+      school: publicSchool._id,
+      class: publicClass._id,
     });
 
     // Seed welcome notification

@@ -1,0 +1,43 @@
+"""Final admin fix — unlock admin@, set role, test"""
+import sys, os, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from deploy import connect_ssh, run_cmd, VPS_HOST
+
+c = connect_ssh()
+
+# 1. Unlock admin@masjidalrahma.com and set role
+print("1. Fixing admin@masjidalrahma.com...")
+run_cmd(c, 'mongosh --quiet masjid-al-rahma --eval '
+    '\'db.users.updateOne({email:"admin@masjidalrahma.com"},{$set:{role:"admin",isVerified:true,isActive:true,lockedUntil:null,failedLoginAttempts:0}})\' 2>&1')
+
+# 2. Fix admin2 role
+print("2. Fixing admin2 role to admin...")
+run_cmd(c, 'mongosh --quiet masjid-al-rahma --eval '
+    '\'db.users.updateOne({email:"admin2@masjidalrahma.com"},{$set:{role:"admin",isVerified:true}})\' 2>&1')
+
+# 3. Verify both
+_, a1, _ = run_cmd(c, 'mongosh --quiet masjid-al-rahma --eval '
+    '\'JSON.stringify(db.users.findOne({email:"admin@masjidalrahma.com"},{email:1,role:1,isActive:1,isVerified:1,lockedUntil:1}))\' 2>&1')
+print(f"   Admin@: {a1}")
+
+_, a2, _ = run_cmd(c, 'mongosh --quiet masjid-al-rahma --eval '
+    '\'JSON.stringify(db.users.findOne({email:"admin2@masjidalrahma.com"},{email:1,role:1,isActive:1,isVerified:1}))\' 2>&1')
+print(f"   Admin2: {a2}")
+
+# 4. Test login for both
+for email, desc in [("admin@masjidalrahma.com", "Original admin"), ("admin2@masjidalrahma.com", "Admin2")]:
+    _, resp, _ = run_cmd(c,
+        f'curl -s -X POST http://localhost:5000/api/v1/auth/login '
+        f'-H "Content-Type: application/json" '
+        f'--data-raw \'{{"email":"{email}","password":"Admin@2025Secure!"}}\' 2>&1')
+    print(f"\n5. Login {desc}: {resp[:250]}")
+    if '"accessToken"' in resp and '"role":"admin"' in resp:
+        print(f"   ✅ ROLE ADMIN DETECTED!")
+
+print(f"\n{'=' * 60}")
+print(f"LOGIN AT: http://{VPS_HOST}/")
+print(f"admin@masjidalrahma.com / Admin@2025Secure!")
+print(f"admin2@masjidalrahma.com / Admin@2025Secure! (backup)")
+print(f"{'=' * 60}")
+
+c.close()

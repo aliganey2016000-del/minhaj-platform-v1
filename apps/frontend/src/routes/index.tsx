@@ -53,6 +53,9 @@ const StudentProfileView = lazy(() =>
 const StudentSettings = lazy(() =>
   import('../features/student/pages/student-settings').then((m) => ({ default: m.StudentSettings }))
 );
+const StudentCourseLearn = lazy(() =>
+  import('../features/student/pages/student-course-learn').then((m) => ({ default: m.StudentCourseLearn }))
+);
 const StudentPage = lazy(() =>
   import('../features/student/pages/generic-page').then((m) => ({ default: m.StudentPage }))
 );
@@ -67,6 +70,15 @@ const AdminDashboard = lazy(() =>
 );
 const CoursesManage = lazy(() =>
   import('../features/admin/pages/courses-manage').then((m) => ({ default: m.CoursesManage }))
+);
+const CourseBuilder = lazy(() =>
+  import('../features/admin/pages/course-builder').then((m) => ({ default: m.CourseBuilder }))
+);
+const CoursePreview = lazy(() =>
+  import('../features/admin/pages/course-preview').then((m) => ({ default: m.CoursePreview }))
+);
+const SchoolsManage = lazy(() =>
+  import('../features/admin/pages/schools-manage').then((m) => ({ default: m.SchoolsManage }))
 );
 const StudentsManage = lazy(() =>
   import('../features/admin/pages/students-manage').then((m) => ({ default: m.StudentsManage }))
@@ -158,6 +170,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: L(<StudentDashboard />) },
       { path: 'courses', element: L(<StudentCourses />) },
+      { path: 'courses/:courseId/learn', element: L(<StudentCourseLearn />) },
       { path: 'available', element: L(<StudentAvailable />) },
       { path: 'assignments', element: L(<StudentAssignments />) },
       { path: 'exams', element: L(<StudentExams />) },
@@ -171,7 +184,7 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ── Admin Portal (20 sub-routes) ──
+  // ── Admin Portal (21 sub-routes) ──
   {
     path: 'admin',
     element: L(<AdminLayout />),
@@ -180,7 +193,15 @@ export const router = createBrowserRouter([
       { path: 'students', element: L(<StudentsManage />) },
       { path: 'parents', element: L(<ParentsManage />) },
       { path: 'teachers', element: L(<TeachersManage />) },
-      { path: 'courses', element: L(<CoursesManage />) },
+      {
+        path: 'courses',
+        children: [
+          { index: true, element: L(<CoursesManage />) },
+      { path: ':courseId/builder', element: L(<CourseBuilder />) },
+          { path: ':courseId/preview', element: L(<CoursePreview />) },
+        ],
+      },
+      { path: 'schools', element: L(<SchoolsManage />) },
       { path: 'classes', element: L(<ClassesManage />) },
       { path: 'attendance', element: L(<AttendanceManage />) },
       { path: 'exams', element: L(<ExamsManage />) },

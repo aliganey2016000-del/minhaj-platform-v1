@@ -4,12 +4,12 @@ import Resource from '../models/resource.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { NotFoundError } from '../utils/api-error';
+import ensureStudentRecord from '../utils/ensure-student';
 
 // GET /my — Student's downloads from enrolled courses
 export const getMyDownloads = async (req: Request, res: Response) => {
-  const student = await Student.findOne({ user: req.user!.userId }).select('enrolledCourses').lean();
-  if (!student) return ApiResponse.success(res, []);
-  const courseIds = (student as any).enrolledCourses || [];
+  const student = await ensureStudentRecord(req.user!.userId);
+  const courseIds = (student.enrolledCourses || []).map((id: any) => id);
   const resources = await Resource.find({ course: { $in: courseIds }, status: 'active' })
     .populate('course', 'title.en slug')
     .sort({ createdAt: -1 })
