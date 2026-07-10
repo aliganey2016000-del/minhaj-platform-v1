@@ -215,7 +215,7 @@ function TeacherModal({
 
           {/* School */}
           <div>
-            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">School *</label>
+            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Organization *</label>
             <select
               className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
               value={form.school}
@@ -223,7 +223,7 @@ function TeacherModal({
               required
               disabled={schoolsLoading}
             >
-              <option value="">{schoolsLoading ? 'Loading schools...' : '-- Select School --'}</option>
+              <option value="">{schoolsLoading ? 'Loading organizations...' : '-- Select Organization --'}</option>
               {schools
                 .filter((s) => s.status === 'active')
                 .map((s) => (
@@ -319,7 +319,7 @@ function ViewModal({ teacher, onClose }: { teacher: Teacher; onClose: () => void
           </div>
 
           <DetailRow label="Email" value={teacher.user?.email} />
-          <DetailRow label="School" value={teacher.school?.name || '—'} />
+          <DetailRow label="Organization" value={teacher.school?.name || '—'} />
           <DetailRow label="Qualification" value={teacher.qualification || '—'} />
           <DetailRow label="Specialization" value={teacher.specialization?.length ? teacher.specialization.join(', ') : '—'} />
           <DetailRow label="Experience" value={teacher.experience ? `${teacher.experience} years` : '—'} />

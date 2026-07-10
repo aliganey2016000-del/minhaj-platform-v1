@@ -133,7 +133,7 @@ function StudentModal({ student, schools, onClose, onSaved }: {
     if (!isEdit) { if (!form.email.trim()) errs.email = 'Email is required'; else if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) errs.email = 'Enter a valid email'; if (!form.password) errs.password = 'Password is required'; else if (form.password.length < 8) errs.password = 'Min 8 characters'; }
     if (!form.firstName.trim()) errs.firstName = 'First name is required';
     if (!form.lastName.trim()) errs.lastName = 'Last name is required';
-    if (!form.school) errs.school = 'School is required';
+    if (!form.school) errs.school = 'Organization is required';
     if (!form.classId) errs.classId = 'Class is required';
     setErrors(errs); return Object.keys(errs).length === 0;
   };
@@ -176,8 +176,8 @@ function StudentModal({ student, schools, onClose, onSaved }: {
             <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Email *</label><input className={ic('email')} name="email" type="email" value={form.email} onChange={handleChange} required />{errors.email && <p className="mt-1 text-xs text-red-500">{errors.email}</p>}</div>
             <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Password *</label><input className={ic('password')} name="password" type="password" value={form.password} onChange={handleChange} required minLength={8} />{errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}</div>
           </>)}
-          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">School *</label><select className={ic('school')} name="school" value={form.school} onChange={handleChange}><option value="">Select a school...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>{errors.school && <p className="mt-1 text-xs text-red-500">{errors.school}</p>}</div>
-          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Class *</label><select className={ic('classId')} name="classId" value={form.classId} onChange={handleChange} disabled={!form.school}><option value="">{form.school ? 'Select a class...' : 'Select a school first'}</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title} — Section {c.section}</option>)}</select>{errors.classId && <p className="mt-1 text-xs text-red-500">{errors.classId}</p>}</div>
+          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Organization *</label><select className={ic('school')} name="school" value={form.school} onChange={handleChange}><option value="">Select an organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>{errors.school && <p className="mt-1 text-xs text-red-500">{errors.school}</p>}</div>
+          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Class *</label><select className={ic('classId')} name="classId" value={form.classId} onChange={handleChange} disabled={!form.school}><option value="">{form.school ? 'Select a class...' : 'Select an organization first'}</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title} — Section {c.section}</option>)}</select>{errors.classId && <p className="mt-1 text-xs text-red-500">{errors.classId}</p>}</div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Grade</label><input className={ic('grade')} name="grade" placeholder="e.g. Level 3" value={form.grade} onChange={handleChange} /></div>
             <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Enrollment Date</label><input className={ic('enrollmentDate')} name="enrollmentDate" type="date" value={form.enrollmentDate} onChange={handleChange} /></div>
@@ -231,7 +231,7 @@ function ApproveModal({ student, schools, onClose, onDone }: {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!school) { setError('School is required'); return; }
+    if (!school) { setError('Organization is required'); return; }
     if (!classId) { setError('Class is required'); return; }
     setLoading(true); setError('');
     try { await api.patch(`/students/${student._id}/approve`, { school, classId }); onDone(); onClose(); }
@@ -251,8 +251,8 @@ function ApproveModal({ student, schools, onClose, onDone }: {
         <p className="text-sm text-[var(--color-text-secondary)] mb-3">Approve <strong>{student.profile?.firstName} {student.profile?.lastName}</strong></p>
         {error && <p className="text-red-500 text-sm mb-3 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{error}</p>}
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">School *</label><select className={ic} value={school} onChange={e => setSchool(e.target.value)}><option value="">Select school...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select></div>
-          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Class *</label><select className={ic} value={classId} onChange={e => setClassId(e.target.value)} disabled={!school}><option value="">{school ? 'Select class...' : 'Select a school first'}</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title} — Section {c.section}</option>)}</select></div>
+          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Organization *</label><select className={ic} value={school} onChange={e => setSchool(e.target.value)}><option value="">Select organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select></div>
+          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Class *</label><select className={ic} value={classId} onChange={e => setClassId(e.target.value)} disabled={!school}><option value="">{school ? 'Select class...' : 'Select an organization first'}</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title} — Section {c.section}</option>)}</select></div>
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
             <button type="submit" disabled={loading} className="flex-1 rounded-xl bg-green-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}Approve</button>
@@ -282,7 +282,7 @@ function ViewModal({ student, onClose }: { student: Student; onClose: () => void
           <DR label="Approval" value={<ApprovalBadge status={student.approvalStatus} />} />
           <DR label="Status" value={<StatusBadge status={student.status} />} />
           <DR label="Gender" value={student.profile?.gender || '—'} />
-          <DR label="School" value={student.school?.name || '—'} />
+          <DR label="Organization" value={student.school?.name || '—'} />
           <DR label="Class" value={student.class ? `${student.class.title} — Section ${student.class.section}` : '—'} />
           <DR label="Grade" value={student.grade || '—'} />
           <DR label="Enrolled" value={new Date(student.enrollmentDate).toLocaleDateString()} />
@@ -400,7 +400,7 @@ export function StudentsManage() {
               <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                 <tr>
                   <th className="text-left px-5 py-3 font-semibold">Student</th>
-                  <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">School</th>
+                  <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th>
                   <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Class</th>
                   <th className="text-center px-5 py-3 font-semibold">Approval</th>
                   <th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Status</th>

@@ -37,7 +37,7 @@ const parentPages: Record<string, { title: string; icon: string; desc: string }>
   '/parent/results':      { title: 'Results & Grades',    icon: '📊', desc: 'View academic results and grades' },
   '/parent/fees':         { title: 'Fees & Payments',     icon: '💰', desc: 'View fee status and payment history' },
   '/parent/teachers':     { title: 'Teachers',            icon: '👨‍🏫', desc: 'View your children\'s teachers' },
-  '/parent/events':       { title: 'School Events',       icon: '🎉', desc: 'Upcoming events and activities' },
+  '/parent/events':       { title: 'Events',       icon: '🎉', desc: 'Upcoming events and activities' },
   '/parent/notifications':{ title: 'Notifications',       icon: '🔔', desc: 'Your alerts and notifications' },
   '/parent/messages':     { title: 'Messages',            icon: '💬', desc: 'Communicate with teachers and staff' },
   '/parent/profile':      { title: 'Profile',             icon: '👤', desc: 'Manage your parent profile' },

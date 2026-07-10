@@ -283,7 +283,7 @@ function CourseModal({
 
           {/* School */}
           <div>
-            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">School *</label>
+            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Organization *</label>
             <select
               className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
               value={form.school}
@@ -291,7 +291,7 @@ function CourseModal({
               disabled={dataLoading}
               required={!isEdit}
             >
-              <option value="">{dataLoading ? 'Loading...' : '-- Select School --'}</option>
+              <option value="">{dataLoading ? 'Loading...' : '-- Select Organization --'}</option>
               {schools.map((s) => (
                 <option key={s._id} value={s._id}>{s.name}</option>
               ))}
@@ -308,7 +308,7 @@ function CourseModal({
               disabled={!form.school || classesLoading}
             >
               <option value="">
-                {!form.school ? '-- Select a school first --' : classesLoading ? 'Loading classes...' : '-- None --'}
+                {!form.school ? '-- Select an organization first --' : classesLoading ? 'Loading classes...' : '-- None --'}
               </option>
               {classes.map((c) => (
                 <option key={c._id} value={c._id}>{c.title} ({c.section})</option>
@@ -326,7 +326,7 @@ function CourseModal({
               disabled={!form.school || teachersLoading}
             >
               <option value="">
-                {!form.school ? '-- Select a school first --' : teachersLoading ? 'Loading teachers...' : '-- None --'}
+                {!form.school ? '-- Select an organization first --' : teachersLoading ? 'Loading teachers...' : '-- None --'}
               </option>
               {teachers.map((t) => (
                 <option key={t._id} value={t._id}>
@@ -608,7 +608,7 @@ function CourseCard({
 
         {/* Info rows */}
         <div className="space-y-1.5 text-sm flex-1">
-          <InfoRow icon="🏫" label="School" value={schoolName} />
+          <InfoRow icon="🏛️" label="Organization" value={schoolName} />
           <InfoRow icon="🏛️" label="Class" value={className} />
           <InfoRow icon="👨‍🏫" label="Teacher" value={teacherName} />
           <InfoRow icon="⏱️" label="Duration" value={`${course.duration} weeks`} />

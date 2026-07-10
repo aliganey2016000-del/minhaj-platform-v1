@@ -129,7 +129,7 @@ function ClassModal({
 
   const validate = (): boolean => {
     const errs: Partial<Record<keyof ClassForm, string>> = {};
-    if (!form.school) errs.school = 'School is required';
+    if (!form.school) errs.school = 'Organization is required';
     if (!form.title.trim()) errs.title = 'Class name is required';
     if (!form.section.trim()) errs.section = 'Section is required';
     if (!form.room.trim()) errs.room = 'Room is required';
@@ -216,7 +216,7 @@ function ClassModal({
           {/* School Dropdown */}
           <div>
             <label htmlFor="school" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">
-              School <span className="text-red-500">*</span>
+              Organization <span className="text-red-500">*</span>
             </label>
             <select
               id="school"
@@ -225,7 +225,7 @@ function ClassModal({
               onChange={handleChange}
               className={inputClass('school')}
             >
-              <option value="">Select a school...</option>
+              <option value="">Select an organization...</option>
               {schools.map((s) => (
                 <option key={s._id} value={s._id}>
                   {s.name}
@@ -445,7 +445,7 @@ export function ClassesManage() {
         <div className="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
-            placeholder="Search by class name, section, room, or school..."
+            placeholder="Search by class name, section, room, or organization..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary-500"
@@ -470,7 +470,7 @@ export function ClassesManage() {
                 <tr>
                   <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">Class</th>
                   <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">Section</th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell">School</th>
+                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell">Organization</th>
                   <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">Room</th>
                   <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)]">Status</th>
                   <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)]">Actions</th>

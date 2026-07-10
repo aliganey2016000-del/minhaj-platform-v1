@@ -1,10 +1,10 @@
 /**
- * School Management Page
+ * Organization Management Page
  *
- * Full CRUD interface for school management.
- * - Register new schools via modal form
- * - View all schools in a table
- * - Edit and delete existing schools
+ * Full CRUD interface for organization management.
+ * - Register new organizations via modal form
+ * - View all organizations in a table
+ * - Edit and delete existing organizations
  * - Search, filter by status, and paginate
  */
 
@@ -255,7 +255,7 @@ export function SchoolsManage() {
   const validate = (): boolean => {
     const errors: Partial<Record<keyof SchoolFormData, string>> = {};
 
-    if (!form.name.trim()) errors.name = 'School name is required';
+    if (!form.name.trim()) errors.name = 'Organization name is required';
     else if (form.name.length > 200) errors.name = 'Name cannot exceed 200 characters';
 
     if (!form.address.trim()) errors.address = 'Address is required';
@@ -338,7 +338,7 @@ export function SchoolsManage() {
         // Update
         const { data } = await api.patch(`/schools/${editingSchool._id}`, payload);
         if (data.success) {
-          showToast(data.message || 'School updated successfully', 'success');
+          showToast(data.message || 'Organization updated successfully', 'success');
           setModalOpen(false);
           fetchSchools();
         } else {
@@ -348,7 +348,7 @@ export function SchoolsManage() {
         // Create
         const { data } = await api.post('/schools', payload);
         if (data.success) {
-          showToast(data.message || 'School registered successfully', 'success');
+          showToast(data.message || 'Organization registered successfully', 'success');
           setModalOpen(false);
           fetchSchools();
         } else {
@@ -370,14 +370,14 @@ export function SchoolsManage() {
     try {
       const { data } = await api.delete(`/schools/${deleteTarget._id}`);
       if (data.success) {
-        showToast(data.message || 'School deleted', 'success');
+        showToast(data.message || 'Organization deleted', 'success');
         setDeleteTarget(null);
         fetchSchools();
       } else {
         throw new Error(data.message || 'Delete failed');
       }
     } catch (err: any) {
-      showToast(err.response?.data?.message || 'Failed to delete school', 'error');
+      showToast(err.response?.data?.message || 'Failed to delete organization', 'error');
     } finally {
       setDeleting(false);
     }
@@ -389,7 +389,7 @@ export function SchoolsManage() {
     try {
       const { data } = await api.patch(`/schools/${school._id}/status`, { status: newStatus });
       if (data.success) {
-        showToast(data.message || `School ${newStatus === 'active' ? 'activated' : 'deactivated'}`, 'success');
+        showToast(data.message || `Organization ${newStatus === 'active' ? 'activated' : 'deactivated'}`, 'success');
         fetchSchools();
       }
     } catch (err: any) {
@@ -409,16 +409,16 @@ export function SchoolsManage() {
         {/* ── Header ── */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🏛️ School Management</h1>
+            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🏛️ Organization Management</h1>
             <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
-              Register and manage schools in the system
+              Register and manage organizations in the system
             </p>
           </div>
           <button
             onClick={openCreate}
             className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 transition-colors"
           >
-            <span className="text-lg leading-none">+</span> Register School
+            <span className="text-lg leading-none">+</span> Register Organization
           </button>
         </div>
 
@@ -428,7 +428,7 @@ export function SchoolsManage() {
             type="text"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPagination((p) => ({ ...p, page: 1 })); }}
-            placeholder="Search schools..."
+            placeholder="Search organizations..."
             className="w-full sm:w-80 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
           <select
@@ -448,7 +448,7 @@ export function SchoolsManage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]">
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">School Name</th>
+                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">Organization Name</th>
                   <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden md:table-cell">Address</th>
                   <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden lg:table-cell">Phone</th>
                   <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden xl:table-cell">Email</th>
@@ -464,7 +464,7 @@ export function SchoolsManage() {
                     <td colSpan={8} className="px-6 py-16 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
-                        <p className="text-sm text-[var(--color-text-tertiary)]">Loading schools...</p>
+                        <p className="text-sm text-[var(--color-text-tertiary)]">Loading organizations...</p>
                       </div>
                     </td>
                   </tr>
@@ -473,9 +473,9 @@ export function SchoolsManage() {
                     <td colSpan={8} className="px-6 py-16 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <span className="text-4xl">🏛️</span>
-                        <p className="text-lg font-medium text-[var(--color-text-primary)]">No schools registered yet</p>
+                        <p className="text-lg font-medium text-[var(--color-text-primary)]">No organizations registered yet</p>
                         <p className="text-sm text-[var(--color-text-tertiary)]">
-                          Click the "Register School" button above to add your first school.
+                          Click the "Register Organization" button above to add your first organization.
                         </p>
                       </div>
                     </td>
@@ -564,7 +564,7 @@ export function SchoolsManage() {
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-6 py-4">
               <h2 className="text-lg font-bold text-[var(--color-text-primary)]">
-                {editingSchool ? '✏️ Edit School' : '🏛️ Register New School'}
+                {editingSchool ? '✏️ Edit Organization' : '🏛️ Register New Organization'}
               </h2>
               <button
                 onClick={() => setModalOpen(false)}
@@ -579,11 +579,11 @@ export function SchoolsManage() {
 
             {/* Modal Body */}
             <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
-              <FormInput label="School Name" name="name" value={form.name} error={formErrors.name} onChange={handleChange} placeholder="e.g., Al-Huda International School" required maxLength={200} />
-              <FormInput label="Address" name="address" value={form.address} error={formErrors.address} onChange={handleChange} placeholder="Full school address" required maxLength={500} />
+              <FormInput label="Organization Name" name="name" value={form.name} error={formErrors.name} onChange={handleChange} placeholder="e.g., Al-Huda International" required maxLength={200} />
+              <FormInput label="Address" name="address" value={form.address} error={formErrors.address} onChange={handleChange} placeholder="Full organization address" required maxLength={500} />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormInput label="Phone" name="phone" type="tel" value={form.phone} error={formErrors.phone} onChange={handleChange} placeholder="+252 61 2345678" required />
-                <FormInput label="Email" name="email" type="email" value={form.email} error={formErrors.email} onChange={handleChange} placeholder="school@example.com" required />
+                <FormInput label="Email" name="email" type="email" value={form.email} error={formErrors.email} onChange={handleChange} placeholder="org@example.com" required />
               </div>
               <FormInput label="Principal Name" name="principalName" value={form.principalName} error={formErrors.principalName} onChange={handleChange} placeholder="Full name of the principal" required maxLength={100} />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -604,7 +604,7 @@ export function SchoolsManage() {
                   </select>
                 </div>
               </div>
-              <FormInput label="Website (optional)" name="website" type="url" value={form.website} error={formErrors.website} onChange={handleChange} placeholder="https://www.school.edu.so" />
+              <FormInput label="Website (optional)" name="website" type="url" value={form.website} error={formErrors.website} onChange={handleChange} placeholder="https://www.example.org.so" />
 
               {/* Form Actions */}
               <div className="flex justify-end gap-3 pt-3 border-t border-[var(--color-border-subtle)]">
@@ -624,7 +624,7 @@ export function SchoolsManage() {
                   {submitting && (
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
                   )}
-                  {editingSchool ? 'Update School' : 'Register School'}
+                  {editingSchool ? 'Update Organization' : 'Register Organization'}
                 </button>
               </div>
             </form>
@@ -635,7 +635,7 @@ export function SchoolsManage() {
       {/* ── Delete Confirm Dialog ── */}
       <ConfirmDialog
         open={!!deleteTarget}
-        title="Delete School"
+        title="Delete Organization"
         message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
