@@ -86,6 +86,7 @@ export function Navbar() {
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Desktop actions */}
             <div className="hidden lg:flex lg:items-center lg:gap-1">
               <LanguageSwitcher />
               <ThemeToggle />
@@ -103,7 +104,20 @@ export function Navbar() {
               </Link>
             </div>
 
-            <div className="flex items-center gap-0.5 lg:hidden">
+            {/* Mobile actions — compact Sign In + language + theme + hamburger */}
+            <div className="flex items-center gap-1 lg:hidden">
+              <Link
+                to="/auth/login"
+                className="rounded-lg px-2.5 py-1.5 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-obsidian-700 transition-colors"
+              >
+                {t('nav.sign_in')}
+              </Link>
+              <Link
+                to="/auth/register"
+                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
+              >
+                {t('nav.start_free')}
+              </Link>
               <LanguageSwitcher />
               <ThemeToggle />
             </div>
