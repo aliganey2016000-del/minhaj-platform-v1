@@ -10,12 +10,15 @@ import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router({ mergeParams: true });
 
-// All routes require auth + admin/teacher
+// All routes require authentication
 router.use(authMiddleware);
-router.use(adminOrTeacher);
 
+// ── Read: accessible to all authenticated users (admin, teacher, student, parent) ──
 // GET /api/v1/courses/:courseId/content
 router.get('/', asyncHandler(contentController.getByCourse));
+
+// ── Write: restricted to admin and teacher ──
+router.use(adminOrTeacher);
 
 // PUT /api/v1/courses/:courseId/content — full save / upsert
 router.put('/', asyncHandler(contentController.saveContent));

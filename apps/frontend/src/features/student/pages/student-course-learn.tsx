@@ -273,6 +273,19 @@ export function StudentCourseLearn() {
 
   return (
     <div className="min-h-screen bg-[var(--color-surface-secondary)]">
+      {/* ── Mobile: Top-left hamburger for Course Content (overlays portal sidebar button) ── */}
+      <button
+        onClick={() => setDrawerOpen(true)}
+        className={`lg:hidden fixed top-3 start-3 z-[60] rounded-xl bg-[var(--color-surface-primary)] border border-[var(--color-border-default)] p-2.5 shadow-lg transition-opacity ${
+          drawerOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        }`}
+        aria-label="Open course contents"
+      >
+        <svg className="h-5 w-5 text-[var(--color-text-primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+
       <div className="flex">
         {/* ================================================================ */}
         {/* DESKTOP: Course Content Sidebar */}
