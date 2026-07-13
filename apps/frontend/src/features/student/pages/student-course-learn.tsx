@@ -9,7 +9,7 @@
  * HTML content, attachments, Previous/Next navigation.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useId } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -137,6 +137,9 @@ export function StudentCourseLearn() {
   const [activeItemIdx, setActiveItemIdx] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeChapterIdx, setActiveChapterIdx] = useState(0);
+  const [markingComplete, setMarkingComplete] = useState(false);
+  // Track locally which flat-item indices have been marked completed
+  const [locallyCompleted, setLocallyCompleted] = useState<Set<number>>(new Set());
 
   const getTitle = (c: EnrolledCourse) => {
     if (lang === 'so' && c.title?.so) return c.title.so;
@@ -228,6 +231,37 @@ export function StudentCourseLearn() {
       setActiveChapterIdx(flatItems[newIdx]?.chapterIdx || 0);
     }
   };
+
+  const handleMarkComplete = async () => {
+    if (!currentItem || markingComplete) return;
+    setMarkingComplete(true);
+    try {
+      await api.post('/students/my/progress', {
+        courseId,
+        itemType: currentItem.item.type,
+      });
+      // Optimistically update local state
+      setLocallyCompleted((prev) => new Set(prev).add(activeItemIdx));
+      // Refresh course data to get updated progress from server
+      const myCoursesRes = await api.get('/students/my/courses');
+      const courses: EnrolledCourse[] = myCoursesRes.data.data || [];
+      const updated = courses.find((c) => c._id === courseId);
+      if (updated) setCourse(updated);
+      // Auto-advance to next item if available
+      if (activeItemIdx < totalItems - 1) {
+        const nextIdx = activeItemIdx + 1;
+        setActiveItemIdx(nextIdx);
+        setActiveChapterIdx(flatItems[nextIdx]?.chapterIdx || 0);
+      }
+    } catch (err: any) {
+      // Silent fail — the user can try again
+      console.error('Failed to mark progress:', err);
+    } finally {
+      setMarkingComplete(false);
+    }
+  };
+
+  const isCurrentItemCompleted = activeItemIdx < completedCount || locallyCompleted.has(activeItemIdx);
 
   const jumpToItem = (flatIdx: number) => {
     if (flatIdx < 0 || flatIdx >= unlockedCount) return; // Cannot jump to locked items
@@ -572,6 +606,34 @@ export function StudentCourseLearn() {
                 {currentItem.item.type === 'quiz' && <QuizView quiz={currentItem.item as QuizItem} />}
                 {currentItem.item.type === 'assignment' && <AssignmentView assignment={currentItem.item as AssignmentItem} />}
 
+                {/* ── Mark as Completed Button ── */}
+                <div className="pt-2">
+                  {isCurrentItemCompleted ? (
+                    <div className="flex items-center justify-center gap-2 rounded-2xl bg-green-50 dark:bg-green-950/20 border-2 border-green-300 dark:border-green-700 px-6 py-4 text-green-700 dark:text-green-300">
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-base font-bold">✓ Completed</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleMarkComplete}
+                      disabled={markingComplete}
+                      className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 px-6 py-4 text-base font-bold text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-600/30 disabled:shadow-none transition-all duration-300 active:scale-[0.98]"
+                    >
+                      {markingComplete ? (
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      <span>{markingComplete ? 'Saving...' : 'Mark as Completed'}</span>
+                    </button>
+                  )}
+                </div>
+
                 {/* Navigation */}
                 <hr className="border-[var(--color-border-default)]" />
                 <div className="flex items-center justify-between pt-1">
@@ -714,11 +776,36 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
 }
 
 // ===========================================================================
-// Quiz View
+// Quiz View — interactive student quiz with attempt/submit/results flow
 // ===========================================================================
 function QuizView({ quiz }: { quiz: QuizItem }) {
+  const [answers, setAnswers] = useState<Record<number, any>>({});
+  const [submitted, setSubmitted] = useState(false);
+  const [score, setScore] = useState<{ correct: number; total: number } | null>(null);
+
+  const setAnswer = (qIdx: number, value: any) => {
+    if (submitted) return;
+    setAnswers((prev) => ({ ...prev, [qIdx]: value }));
+  };
+
+  const handleSubmit = () => {
+    const total = quiz.questions.length;
+    let correct = 0;
+    quiz.questions.forEach((q, i) => {
+      const ans = answers[i];
+      if (ans === undefined || ans === null) return;
+      if (q.type === 'mcq') correct += ans === q.correctIndex ? 1 : 0;
+      else if (q.type === 'true_false') correct += ans === q.correctAnswer ? 1 : 0;
+      // For now, MCQ and true_false are the only auto-gradable types
+    });
+    setScore({ correct, total });
+    setSubmitted(true);
+  };
+
+  const percent = score ? Math.round((score.correct / score.total) * 100) : 0;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {quiz.description && <p className="text-sm text-[var(--color-text-secondary)]">{quiz.description}</p>}
       <div className="flex flex-wrap gap-3 text-sm">
         <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-2">
@@ -737,15 +824,152 @@ function QuizView({ quiz }: { quiz: QuizItem }) {
           </div>
         )}
       </div>
+
       {quiz.questions.length > 0 && (
-        <div className="space-y-4 mt-4">
-          <h4 className="text-sm font-bold text-[var(--color-text-primary)]">Questions</h4>
-          {quiz.questions.map((q, qIdx) => (
-            <QuestionPreview key={qIdx} question={q} index={qIdx} />
-          ))}
+        <div className="space-y-5 mt-4">
+          {quiz.questions.map((q, qIdx) => {
+            const userAnswer = answers[qIdx];
+            const isCorrect = submitted && q.type === 'mcq'
+              ? userAnswer === q.correctIndex
+              : submitted && q.type === 'true_false'
+                ? userAnswer === q.correctAnswer
+                : null;
+
+            return (
+              <div key={qIdx} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+                <p className="text-sm font-semibold text-[var(--color-text-primary)] mb-3">
+                  {qIdx + 1}. {q.question}
+                </p>
+
+                {/* MCQ */}
+                {q.type === 'mcq' && (
+                  <div className="space-y-2">
+                    {q.options.map((opt, oIdx) => {
+                      let style = 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]';
+                      let badge: string | null = null;
+                      if (submitted) {
+                        if (oIdx === q.correctIndex) {
+                          style = 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300';
+                        } else if (oIdx === userAnswer && oIdx !== q.correctIndex) {
+                          style = 'border-red-400 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300';
+                        }
+                        if (oIdx === q.correctIndex) badge = '✓ Correct';
+                        else if (oIdx === userAnswer && oIdx !== q.correctIndex) badge = '✗ Your answer';
+                      }
+                      return (
+                        <button
+                          key={oIdx}
+                          type="button"
+                          disabled={submitted}
+                          onClick={() => setAnswer(qIdx, oIdx)}
+                          className={`w-full flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm text-left transition-colors ${style} ${
+                            !submitted ? 'hover:bg-[var(--color-surface-tertiary)] cursor-pointer' : ''
+                          } ${userAnswer === oIdx && !submitted ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-950/20' : ''}`}
+                        >
+                          <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-xs flex-shrink-0 ${
+                            submitted && oIdx === q.correctIndex
+                              ? 'border-green-500 bg-green-500 text-white'
+                              : submitted && oIdx === userAnswer && oIdx !== q.correctIndex
+                                ? 'border-red-500 bg-red-500 text-white'
+                                : userAnswer === oIdx && !submitted
+                                  ? 'border-primary-500 bg-primary-500 text-white'
+                                  : 'border-[var(--color-border-default)]'
+                          }`}>
+                            {submitted && oIdx === q.correctIndex ? '✓' : submitted && oIdx === userAnswer && oIdx !== q.correctIndex ? '✗' : String.fromCharCode(65 + oIdx)}
+                          </span>
+                          <span className="flex-1">{opt}</span>
+                          {badge && <span className="text-xs font-semibold flex-shrink-0">{badge}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* True/False */}
+                {q.type === 'true_false' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    {[true, false].map((val) => {
+                      let style = 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]';
+                      let badge: string | null = null;
+                      if (submitted) {
+                        if (val === q.correctAnswer) {
+                          style = 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300';
+                        } else if (val === userAnswer && val !== q.correctAnswer) {
+                          style = 'border-red-400 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300';
+                        }
+                        if (val === q.correctAnswer) badge = 'Correct';
+                        else if (val === userAnswer) badge = 'Your answer';
+                      }
+                      return (
+                        <button
+                          key={String(val)}
+                          type="button"
+                          disabled={submitted}
+                          onClick={() => setAnswer(qIdx, val)}
+                          className={`flex items-center justify-center gap-2 rounded-lg border-2 px-4 py-3 text-sm font-bold transition-colors ${style} ${
+                            !submitted ? 'hover:bg-[var(--color-surface-tertiary)] cursor-pointer' : ''
+                          } ${userAnswer === val && !submitted ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-950/20' : ''}`}
+                        >
+                          <span className="text-lg">{val ? '✅' : '❌'}</span>
+                          {val ? 'True' : 'False'}
+                          {badge && <span className="text-xs font-semibold">— {badge}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Other question types — show in static preview mode (no interactivity for now) */}
+                {q.type !== 'mcq' && q.type !== 'true_false' && (
+                  <QuestionPreview question={q} index={qIdx} />
+                )}
+
+                {/* Explanation — only shown after submission */}
+                {submitted && q.explanation && (
+                  <div className="mt-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                    <p className="text-xs text-blue-700 dark:text-blue-300">
+                      <span className="font-semibold">💡 Explanation:</span> {q.explanation}
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
-      {quiz.questions.length === 0 && <p className="text-sm text-[var(--color-text-tertiary)] italic">No questions yet.</p>}
+
+      {quiz.questions.length === 0 && (
+        <p className="text-sm text-[var(--color-text-tertiary)] italic">No questions yet.</p>
+      )}
+
+      {/* ── Submit Quiz Button ── */}
+      {!submitted && quiz.questions.length > 0 && (
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 px-6 py-4 text-base font-bold text-white shadow-lg shadow-indigo-500/25 hover:shadow-indigo-600/30 transition-all duration-300 active:scale-[0.98]"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Submit Quiz
+          </button>
+        </div>
+      )}
+
+      {/* ── Results Summary ── */}
+      {submitted && score && (
+        <div className={`rounded-2xl p-5 text-center ${percent >= quiz.passingScore ? 'bg-green-50 dark:bg-green-950/20 border-2 border-green-300 dark:border-green-700' : 'bg-red-50 dark:bg-red-950/20 border-2 border-red-300 dark:border-red-700'}`}>
+          <p className="text-3xl font-bold mb-1">
+            {percent >= quiz.passingScore ? '🎉' : '😔'} {score.correct}/{score.total}
+          </p>
+          <p className={`text-sm font-semibold ${percent >= quiz.passingScore ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+            You scored {percent}% {percent >= quiz.passingScore ? '— Passed!' : '— Keep trying!'}
+          </p>
+          <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Passing score: {quiz.passingScore}%</p>
+        </div>
+      )}
     </div>
   );
 }

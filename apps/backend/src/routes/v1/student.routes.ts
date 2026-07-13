@@ -82,6 +82,13 @@ router.get(
   asyncHandler(studentController.getMyCourses)
 );
 
+// POST /api/v1/students/my/progress — Record lesson/quiz/assignment completion
+router.post(
+  '/my/progress',
+  roleMiddleware(['student']),
+  asyncHandler(studentController.recordProgress)
+);
+
 // ---------------------------------------------------------------------------
 // Single Student Routes (admin/teacher + self-access)
 // ---------------------------------------------------------------------------

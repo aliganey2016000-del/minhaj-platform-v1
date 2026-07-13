@@ -424,3 +424,34 @@ export const reject = async (req: Request, res: Response): Promise<Response> => 
   if (!student) throw new NotFoundError('Student');
   return ApiResponse.success(res, student, 'Student rejected');
 };
+
+// ---------------------------------------------------------------------------
+// Record Progress — POST /api/v1/students/my/progress
+// ---------------------------------------------------------------------------
+export const recordProgress = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId, itemType } = req.body as { courseId: string; itemType: 'lesson' | 'quiz' | 'assignment' };
+
+  if (!courseId) throw new BadRequestError('Course ID is required.');
+  if (!['lesson','quiz','assignment'].includes(itemType)) throw new BadRequestError('itemType must be lesson, quiz, or assignment.');
+
+  const student = await ensureStudentRecord(req.user!.userId);
+  if (!student) throw new NotFoundError('Student record not found.');
+
+  let progress = await Progress.findOne({ student: student._id, course: courseId });
+  if (!progress) {
+    const content = await CourseContent.findOne({ course: courseId });
+    const total = content ? (content.totalLessons||0)+(content.totalQuizzes||0)+(content.totalAssignments||0) : 0;
+    progress = await Progress.create({ student: student._id, course: courseId,
+      completedLessons: itemType==='lesson'?1:0, completedQuizzes: itemType==='quiz'?1:0,
+      completedAssignments: itemType==='assignment'?1:0, totalItems: total, lastAccessed: new Date(), status: 'in_progress' });
+  } else {
+    if (itemType==='lesson') progress.completedLessons += 1;
+    else if (itemType==='quiz') progress.completedQuizzes += 1;
+    else progress.completedAssignments += 1;
+    const done = progress.completedLessons + progress.completedQuizzes + progress.completedAssignments;
+    if (done >= progress.totalItems && progress.totalItems > 0) progress.status = 'completed';
+    progress.lastAccessed = new Date();
+    await progress.save();
+  }
+  return ApiResponse.success(res, { progress }, 'Progress recorded.');
+};
