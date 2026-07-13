@@ -4,14 +4,20 @@
 
 import { useState } from 'react';
 import type { LessonItem, Attachment } from '../course-builder.types';
+import { RichTextEditor } from './rich-text-editor';
+import { AiLessonGeneratorModal } from './ai-lesson-generator-modal';
 
 interface LessonEditorProps {
   lesson: LessonItem;
   onSave: (updated: LessonItem) => void;
   onCancel: () => void;
+  /** HTML id to put on the <form>, so an external button (e.g. a page header) can submit it via `form={formId}`. */
+  formId?: string;
+  /** Hide the built-in Cancel/Save Lesson footer — use when a parent page renders those actions itself. */
+  hideActions?: boolean;
 }
 
-export function LessonEditor({ lesson, onSave, onCancel }: LessonEditorProps) {
+export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: LessonEditorProps) {
   const [form, setForm] = useState({
     title: lesson.title || '',
     content: lesson.content || '',
@@ -22,6 +28,7 @@ export function LessonEditor({ lesson, onSave, onCancel }: LessonEditorProps) {
   const [attachments, setAttachments] = useState<Attachment[]>(lesson.attachments || []);
   const [newAttUrl, setNewAttUrl] = useState('');
   const [newAttName, setNewAttName] = useState('');
+  const [aiModalOpen, setAiModalOpen] = useState(false);
 
   const update = (field: string, value: string | number) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -58,7 +65,7 @@ export function LessonEditor({ lesson, onSave, onCancel }: LessonEditorProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 p-4 border border-[var(--color-border-default)] rounded-xl bg-[var(--color-surface-secondary)]">
+    <form id={formId} onSubmit={handleSubmit} className="space-y-4 p-4 border border-[var(--color-border-default)] rounded-xl bg-[var(--color-surface-secondary)]">
       <h4 className="text-sm font-bold text-[var(--color-text-primary)] flex items-center gap-2">
         <span>📝</span> Edit Lesson
       </h4>
@@ -108,15 +115,28 @@ export function LessonEditor({ lesson, onSave, onCancel }: LessonEditorProps) {
         />
       </div>
 
-      {/* Content (rich text placeholder) */}
+      {/* Content (Visual rich-text editor / raw HTML code, bi-directionally synced) */}
       <div>
-        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Content / Description</label>
-        <textarea
-          rows={4}
-          className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm resize-y"
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-xs font-semibold text-[var(--color-text-secondary)]">Content / Description</label>
+          <button
+            type="button"
+            onClick={() => setAiModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-violet-700 hover:to-indigo-700 transition-all"
+          >
+            <span>✨</span> AI Lesson Generator
+          </button>
+        </div>
+        <RichTextEditor
           value={form.content}
-          onChange={(e) => update('content', e.target.value)}
-          placeholder="Enter lesson content, HTML supported..."
+          onChange={(html) => update('content', html)}
+          placeholder="Enter lesson content..."
+        />
+        <AiLessonGeneratorModal
+          isOpen={aiModalOpen}
+          onClose={() => setAiModalOpen(false)}
+          lessonTitle={form.title}
+          onGenerated={(html) => update('content', html)}
         />
       </div>
 
@@ -153,14 +173,16 @@ export function LessonEditor({ lesson, onSave, onCancel }: LessonEditorProps) {
       </div>
 
       {/* Actions */}
-      <div className="flex gap-2 pt-1">
-        <button type="button" onClick={onCancel} className="flex-1 rounded-lg border border-[var(--color-border-default)] px-4 py-2 text-xs font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">
-          Cancel
-        </button>
-        <button type="submit" className="flex-1 rounded-lg bg-primary-600 text-white px-4 py-2 text-xs font-semibold hover:bg-primary-700 transition-colors">
-          Save Lesson
-        </button>
-      </div>
+      {!hideActions && (
+        <div className="flex gap-2 pt-1">
+          <button type="button" onClick={onCancel} className="flex-1 rounded-lg border border-[var(--color-border-default)] px-4 py-2 text-xs font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            Cancel
+          </button>
+          <button type="submit" className="flex-1 rounded-lg bg-primary-600 text-white px-4 py-2 text-xs font-semibold hover:bg-primary-700 transition-colors">
+            Save Lesson
+          </button>
+        </div>
+      )}
     </form>
   );
 }

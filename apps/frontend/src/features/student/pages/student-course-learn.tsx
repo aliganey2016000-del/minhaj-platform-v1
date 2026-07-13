@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/axios';
 import type { Chapter, LessonItem, QuizItem, AssignmentItem } from '../../admin/pages/course-builder.types';
+import { QuestionPreview } from '../../../components/shared/quiz-question-preview';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -740,19 +741,7 @@ function QuizView({ quiz }: { quiz: QuizItem }) {
         <div className="space-y-4 mt-4">
           <h4 className="text-sm font-bold text-[var(--color-text-primary)]">Questions</h4>
           {quiz.questions.map((q, qIdx) => (
-            <div key={qIdx} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
-              <p className="text-sm font-semibold text-[var(--color-text-primary)] mb-3">{qIdx + 1}. {q.question}</p>
-              <div className="space-y-2">
-                {q.options.map((opt, oIdx) => (
-                  <div key={oIdx} className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${oIdx === q.correctIndex ? 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300' : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'}`}>
-                    <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-xs ${oIdx === q.correctIndex ? 'border-green-500 bg-green-500 text-white' : 'border-[var(--color-border-default)]'}`}>
-                      {String.fromCharCode(65 + oIdx)}
-                    </span>
-                    <span>{opt}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <QuestionPreview key={qIdx} question={q} index={qIdx} />
           ))}
         </div>
       )}

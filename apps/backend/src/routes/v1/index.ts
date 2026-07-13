@@ -25,6 +25,7 @@ import contentRoutes from './content.routes';
 import systemRoutes from './system.routes';
 import schoolRoutes from './school.routes';
 import courseContentRoutes from './course-content.routes';
+import aiRoutes from './ai.routes';
 
 const router = Router();
 
@@ -54,6 +55,7 @@ router.use('/gallery', contentRoutes('Gallery'));
 router.use('/system', systemRoutes);
 router.use('/schools', schoolRoutes);
 router.use('/courses/:courseId/content', courseContentRoutes);
+router.use('/ai', aiRoutes);
 
 // Future routes (to be implemented):
 // router.use('/users', userRoutes);

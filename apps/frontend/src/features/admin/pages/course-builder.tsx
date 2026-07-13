@@ -10,12 +10,10 @@ import { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCourseContent, useAutoSave, generateTempId } from './course-builder.api';
-import { LessonEditor } from './components/builder-lesson-editor';
-import { QuizEditor } from './components/builder-quiz-editor';
 import { AssignmentEditor } from './components/builder-assignment-editor';
 import type {
   ChapterItem,
-  LessonItem,
+  CourseContent,
   QuizItem,
   AssignmentItem,
   DragPayload,
@@ -156,11 +154,12 @@ export function CourseBuilder() {
   // -----------------------------------------------------------------------
   // Item CRUD
   // -----------------------------------------------------------------------
-  const handleAddItem = (chapterIdx: number, type: 'lesson' | 'quiz' | 'assignment') => {
+  const handleAddItem = async (chapterIdx: number, type: 'lesson' | 'quiz' | 'assignment') => {
+    if (!content) return;
     const baseItem: any = {
       _id: generateTempId(),
       type,
-      order: content?.chapters[chapterIdx]?.items.length || 0,
+      order: content.chapters[chapterIdx]?.items.length || 0,
       status: 'draft',
       duration: 0,
       _isNew: true,
@@ -189,17 +188,29 @@ export function CourseBuilder() {
       baseItem.attachments = [];
     }
 
-    updateContentLocally((prev) => ({
-      ...prev,
-      chapters: prev.chapters.map((ch, i) =>
+    const newContent: CourseContent = {
+      ...content,
+      chapters: content.chapters.map((ch, i) =>
         i === chapterIdx ? { ...ch, items: [...ch.items, baseItem] } : ch,
       ),
-    }));
+    };
 
-    // Open editor for the new item
-    const newItemIdx = (content?.chapters[chapterIdx]?.items.length || 0);
-    setEditingItem({ chapterIdx, itemIdx: newItemIdx });
+    updateContentLocally(() => newContent);
     setAddingItemChapter(null);
+
+    if (type === 'lesson' || type === 'quiz') {
+      // Persist immediately so the dedicated edit page can find this
+      // lesson/quiz via a fresh fetch right after navigating.
+      try {
+        await saveContent(newContent);
+        navigate(`/admin/courses/${courseId}/${type === 'lesson' ? 'lessons' : 'quizzes'}/${baseItem._id}/edit`);
+      } catch {
+        showToast(`Failed to create ${type}. Please try again.`, 'error');
+      }
+    } else {
+      const newItemIdx = content.chapters[chapterIdx]?.items.length || 0;
+      setEditingItem({ chapterIdx, itemIdx: newItemIdx });
+    }
   };
 
   const handleDeleteItem = (chapterIdx: number, itemIdx: number) => {
@@ -681,8 +692,17 @@ export function CourseBuilder() {
                             </span>
 
                             {/* Title + meta */}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                            <div
+                              className={`flex-1 min-w-0 ${item.type === 'lesson' || item.type === 'quiz' ? 'cursor-pointer' : ''}`}
+                              onClick={() => {
+                                if (item.type === 'lesson') {
+                                  navigate(`/admin/courses/${courseId}/lessons/${item._id}/edit`);
+                                } else if (item.type === 'quiz') {
+                                  navigate(`/admin/courses/${courseId}/quizzes/${item._id}/edit`);
+                                }
+                              }}
+                            >
+                              <p className="text-sm font-medium text-[var(--color-text-primary)] truncate group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
                                 {item.title}
                               </p>
                               <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
@@ -713,7 +733,11 @@ export function CourseBuilder() {
                             {/* Item Actions */}
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
-                                onClick={() => setEditingItem({ chapterIdx: chIdx, itemIdx })}
+                                onClick={() => {
+                                  if (item.type === 'lesson') navigate(`/admin/courses/${courseId}/lessons/${item._id}/edit`);
+                                  else if (item.type === 'quiz') navigate(`/admin/courses/${courseId}/quizzes/${item._id}/edit`);
+                                  else setEditingItem({ chapterIdx: chIdx, itemIdx });
+                                }}
                                 className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors text-xs"
                                 title="Edit"
                               >
@@ -736,24 +760,10 @@ export function CourseBuilder() {
                             </div>
                           </div>
 
-                          {/* Item Editor (inline) */}
+                          {/* Item Editor (inline) — lessons & quizzes now open a dedicated full-page editor instead */}
                           <AnimatePresence>
                             {editingItem?.chapterIdx === chIdx && editingItem?.itemIdx === itemIdx && (
                               <motion.div {...scaleIn} className="mt-2">
-                                {item.type === 'lesson' && (
-                                  <LessonEditor
-                                    lesson={item as LessonItem}
-                                    onSave={(updated) => handleSaveItem(chIdx, itemIdx, updated)}
-                                    onCancel={() => setEditingItem(null)}
-                                  />
-                                )}
-                                {item.type === 'quiz' && (
-                                  <QuizEditor
-                                    quiz={item as QuizItem}
-                                    onSave={(updated) => handleSaveItem(chIdx, itemIdx, updated)}
-                                    onCancel={() => setEditingItem(null)}
-                                  />
-                                )}
                                 {item.type === 'assignment' && (
                                   <AssignmentEditor
                                     assignment={item as AssignmentItem}

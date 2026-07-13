@@ -1,3 +1,20 @@
+import path from 'path';
+import fs from 'fs';
+import dotenv from 'dotenv';
+
+// Load environment variables before anything else touches process.env.
+//
+// backend/.env.production holds real VPS values (a Docker-internal Mongo
+// URI, the VPS's public IP as CLIENT_URL, etc.) — loading it on a local
+// dev machine breaks the DB connection and CORS. So: prefer a local-only
+// backend/.env (gitignored, create it yourself with just the values you
+// need to override locally, e.g. DEEPSEEK_API_KEY) and only fall back to
+// .env.production if no local .env exists — e.g. when actually running
+// on the VPS.
+const localEnvPath = path.resolve(__dirname, '../.env');
+const prodEnvPath = path.resolve(__dirname, '../.env.production');
+dotenv.config({ path: fs.existsSync(localEnvPath) ? localEnvPath : prodEnvPath });
+
 import mongoose from 'mongoose';
 
 // Register all models before routes are loaded

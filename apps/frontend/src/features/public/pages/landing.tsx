@@ -7,7 +7,6 @@
 import { lazy, Suspense } from 'react';
 
 const HeroSection = lazy(() => import('../../../components/landing/hero-section').then(m => ({ default: m.HeroSection })));
-const TrustSection = lazy(() => import('../../../components/landing/trust-section').then(m => ({ default: m.TrustSection })));
 const WhoIsItForSection = lazy(() => import('../../../components/landing/who-is-it-for').then(m => ({ default: m.WhoIsItForSection })));
 const FeaturesSection = lazy(() => import('../../../components/landing/features-section').then(m => ({ default: m.FeaturesSection })));
 const MultiTenantSection = lazy(() => import('../../../components/landing/multitenant-section').then(m => ({ default: m.MultiTenantSection })));
@@ -28,7 +27,6 @@ export function LandingPage() {
   return (
     <>
       <Suspense fallback={<SectionFallback />}><HeroSection /></Suspense>
-      <Suspense fallback={<SectionFallback />}><TrustSection /></Suspense>
       <Suspense fallback={<SectionFallback />}><WhoIsItForSection /></Suspense>
       <Suspense fallback={<SectionFallback />}><FeaturesSection /></Suspense>
       <Suspense fallback={<SectionFallback />}><MultiTenantSection /></Suspense>

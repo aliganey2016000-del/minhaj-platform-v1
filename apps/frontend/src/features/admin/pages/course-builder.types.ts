@@ -39,12 +39,119 @@ export interface LessonItem {
   _isEditing?: boolean;
 }
 
-export interface QuizQuestion {
+// ---------------------------------------------------------------------------
+// Quiz Questions — discriminated union of interactive question types
+// ---------------------------------------------------------------------------
+export type QuestionType =
+  | 'mcq'
+  | 'true_false'
+  | 'matching'
+  | 'ordering'
+  | 'picture_choice'
+  | 'swipe_sort'
+  | 'listen_write'
+  | 'fill_blank'
+  | 'word_scramble'
+  | 'sentence_build';
+
+interface BaseQuizQuestion {
   _id?: string;
-  question: string;
+  question: string; // the prompt, shared across all types
+  explanation?: string;
+  points?: number;
+}
+
+/** Classic multiple choice — pick the one correct option. */
+export interface McqQuestion extends BaseQuizQuestion {
+  type: 'mcq';
   options: string[];
   correctIndex: number; // 0-based
-  explanation?: string;
+}
+
+/** Quick yes/no challenge. */
+export interface TrueFalseQuestion extends BaseQuizQuestion {
+  type: 'true_false';
+  correctAnswer: boolean;
+}
+
+/** Drag-to-match pairs — e.g. term ↔ definition, Arabic word ↔ meaning. */
+export interface MatchingQuestion extends BaseQuizQuestion {
+  type: 'matching';
+  pairs: { left: string; right: string }[];
+}
+
+/** Drag items into the correct sequence. Stored already in correct order — shuffle for display. */
+export interface OrderingQuestion extends BaseQuizQuestion {
+  type: 'ordering';
+  items: string[];
+}
+
+/** Tap the picture that answers the question — visual, low-reading-load. */
+export interface PictureChoiceQuestion extends BaseQuizQuestion {
+  type: 'picture_choice';
+  choices: { image: string; label?: string }[];
+  correctIndex: number;
+}
+
+/** Tinder-style swipe — sort each card into one of two buckets. */
+export interface SwipeSortQuestion extends BaseQuizQuestion {
+  type: 'swipe_sort';
+  leftLabel: string; // e.g. "Halal"
+  rightLabel: string; // e.g. "Haram"
+  cards: { text: string; correctSide: 'left' | 'right' }[];
+}
+
+/** Play an audio clip and type what was heard (dictation / listening comprehension). */
+export interface ListenWriteQuestion extends BaseQuizQuestion {
+  type: 'listen_write';
+  audioUrl: string;
+  correctText: string;
+  hint?: string;
+}
+
+/** A sentence with blanks — drag the right word from a bank into each gap. */
+export interface FillBlankQuestion extends BaseQuizQuestion {
+  type: 'fill_blank';
+  /** The sentence with each blank marked as `___`. */
+  textTemplate: string;
+  /** Correct word for each `___`, in left-to-right order. */
+  blanks: string[];
+  /** Extra decoy words shown in the word bank alongside the correct ones. */
+  distractors: string[];
+}
+
+/** Unscramble the shuffled letters to spell the correct word. */
+export interface WordScrambleQuestion extends BaseQuizQuestion {
+  type: 'word_scramble';
+  answer: string;
+  hint?: string;
+}
+
+/** Drag word chips into the correct order to build the sentence. */
+export interface SentenceBuildQuestion extends BaseQuizQuestion {
+  type: 'sentence_build';
+  /** Words in the correct order — this order is the answer key. */
+  words: string[];
+  /** Extra decoy words mixed into the word bank. */
+  distractors: string[];
+}
+
+export type QuizQuestion =
+  | McqQuestion
+  | TrueFalseQuestion
+  | MatchingQuestion
+  | OrderingQuestion
+  | PictureChoiceQuestion
+  | SwipeSortQuestion
+  | ListenWriteQuestion
+  | FillBlankQuestion
+  | WordScrambleQuestion
+  | SentenceBuildQuestion;
+
+/** Old records saved before `type` existed are always plain MCQ. */
+export function normalizeQuestion(q: any): QuizQuestion {
+  if (q && q.type) return q as QuizQuestion;
+  return { ...q, type: 'mcq', options: q?.options?.length >= 2 ? q.options : ['', ''], correctIndex: q?.correctIndex ?? 0 };
 }
 
 export interface QuizItem {

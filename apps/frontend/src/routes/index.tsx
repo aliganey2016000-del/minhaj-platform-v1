@@ -74,6 +74,12 @@ const CoursesManage = lazy(() =>
 const CourseBuilder = lazy(() =>
   import('../features/admin/pages/course-builder').then((m) => ({ default: m.CourseBuilder }))
 );
+const LessonEditPage = lazy(() =>
+  import('../features/admin/pages/lesson-edit-page').then((m) => ({ default: m.LessonEditPage }))
+);
+const QuizEditPage = lazy(() =>
+  import('../features/admin/pages/quiz-edit-page').then((m) => ({ default: m.QuizEditPage }))
+);
 const CoursePreview = lazy(() =>
   import('../features/admin/pages/course-preview').then((m) => ({ default: m.CoursePreview }))
 );
@@ -197,7 +203,9 @@ export const router = createBrowserRouter([
         path: 'courses',
         children: [
           { index: true, element: L(<CoursesManage />) },
-      { path: ':courseId/builder', element: L(<CourseBuilder />) },
+          { path: ':courseId/builder', element: L(<CourseBuilder />) },
+          { path: ':courseId/lessons/:lessonId/edit', element: L(<LessonEditPage />) },
+          { path: ':courseId/quizzes/:quizId/edit', element: L(<QuizEditPage />) },
           { path: ':courseId/preview', element: L(<CoursePreview />) },
         ],
       },

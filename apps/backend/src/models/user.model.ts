@@ -158,14 +158,7 @@ const userSchema = new Schema<IUser, IUserModel>(
   }
 );
 
-// ---------------------------------------------------------------------------
-// Indexes
-// ---------------------------------------------------------------------------
-
-userSchema.index({ email: 1 }, { unique: true, sparse: true });
-userSchema.index({ phone: 1 }, { unique: true, sparse: true });
-userSchema.index({ role: 1 });
-userSchema.index({ isActive: 1 });
+// (Indexes are declared inline on the schema fields above — email, phone, role, isActive)
 
 // ---------------------------------------------------------------------------
 // Pre-save Hook — Hash password & email verification token

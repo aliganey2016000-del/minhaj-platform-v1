@@ -14,6 +14,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/axios';
 import type { CourseContent, Chapter, LessonItem, QuizItem, AssignmentItem } from './course-builder.types';
+import { QuestionPreview } from '../../../components/shared/quiz-question-preview';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -838,42 +839,7 @@ function QuizPreview({ quiz }: { quiz: QuizItem }) {
         <div className="space-y-4 mt-4">
           <h4 className="text-sm font-bold text-[var(--color-text-primary)]">Questions Preview</h4>
           {quiz.questions.map((q, qIdx) => (
-            <div key={qIdx} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
-              <p className="text-sm font-semibold text-[var(--color-text-primary)] mb-3">
-                {qIdx + 1}. {q.question}
-              </p>
-              <div className="space-y-2">
-                {q.options.map((opt, oIdx) => (
-                  <div
-                    key={oIdx}
-                    className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
-                      oIdx === q.correctIndex
-                        ? 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300'
-                        : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'
-                    }`}
-                  >
-                    <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-xs ${
-                      oIdx === q.correctIndex
-                        ? 'border-green-500 bg-green-500 text-white'
-                        : 'border-[var(--color-border-default)]'
-                    }`}>
-                      {oIdx === q.correctIndex ? '✓' : String.fromCharCode(65 + oIdx)}
-                    </span>
-                    <span>{opt}</span>
-                    {oIdx === q.correctIndex && (
-                      <span className="ml-auto text-xs text-green-600 dark:text-green-400 font-semibold">Correct</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {q.explanation && (
-                <div className="mt-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
-                  <p className="text-xs text-blue-700 dark:text-blue-300">
-                    <span className="font-semibold">💡 Explanation:</span> {q.explanation}
-                  </p>
-                </div>
-              )}
-            </div>
+            <QuestionPreview key={qIdx} question={q} index={qIdx} />
           ))}
         </div>
       )}
