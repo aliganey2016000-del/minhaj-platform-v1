@@ -130,15 +130,15 @@ function ParentModal({
         firstName: form.firstName,
         lastName: form.lastName,
         gender: form.gender,
+        email: form.email,
         phone: form.phone || undefined,
         occupation: form.occupation,
         relationship: form.relationship,
         address: form.address,
       };
-      if (!isEdit) {
-        payload.email = form.email;
-        payload.password = form.password;
-      }
+      // On edit, a blank password means "keep the current password" — only
+      // send it when the admin actually typed a new one.
+      if (form.password) payload.password = form.password;
 
       if (isEdit) {
         await api.patch(`/parents/${parent._id}`, payload);
@@ -180,18 +180,14 @@ function ParentModal({
               <option value="female">Female</option>
             </select>
           </div>
-          {!isEdit && (
-            <>
-              <div>
-                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Email *</label>
-                <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="email" value={form.email} onChange={(e) => handleChange('email', e.target.value)} required />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Password *</label>
-                <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="password" value={form.password} onChange={(e) => handleChange('password', e.target.value)} required minLength={8} />
-              </div>
-            </>
-          )}
+          <div>
+            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Email *</label>
+            <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="email" value={form.email} onChange={(e) => handleChange('email', e.target.value)} required />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Password {isEdit ? '' : '*'}</label>
+            <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="password" placeholder={isEdit ? 'Leave blank to keep current password' : ''} value={form.password} onChange={(e) => handleChange('password', e.target.value)} required={!isEdit} minLength={8} />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Phone Number</label>

@@ -134,7 +134,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (!parent) throw new NotFoundError('Parent');
   assertOwnsOrg(req, parent, 'school');
 
-  const { firstName, lastName, gender, phone, occupation, relationship, address, status } = req.body;
+  const { firstName, lastName, gender, email, password, phone, occupation, relationship, address, status } = req.body;
 
   if (firstName || lastName || gender) {
     const profileUpdate: any = {};
@@ -144,8 +144,21 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     await Profile.findByIdAndUpdate(parent.profile, profileUpdate);
   }
 
-  if (phone !== undefined) {
-    await User.findByIdAndUpdate(parent.user, { phone: phone || undefined });
+  if (email || password || phone !== undefined) {
+    const user = await User.findById(parent.user);
+    if (!user) throw new NotFoundError('Parent user account');
+
+    if (email && email.toLowerCase() !== user.email) {
+      const existing = await User.findOne({ email: email.toLowerCase(), _id: { $ne: user._id } });
+      if (existing) throw new ConflictError('A user with this email already exists');
+      user.email = email.toLowerCase();
+    }
+    // Pre-save hook bcrypt-hashes the password exactly once — only touch it
+    // when a new value was actually submitted (blank means "keep current").
+    if (password) user.password = password;
+    if (phone !== undefined) user.phone = phone || undefined;
+
+    await user.save();
   }
 
   if (occupation !== undefined) parent.occupation = occupation;
