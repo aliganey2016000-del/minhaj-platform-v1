@@ -31,7 +31,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const [parents, total] = await Promise.all([
     Parent.find(scopedFilter)
-      .populate('user', 'email isVerified isActive')
+      .populate('user', 'email phone isVerified isActive')
       .populate('profile', 'firstName lastName gender')
       .populate('children', 'studentId')
       .sort({ createdAt: -1 })
@@ -65,7 +65,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
 export const getById = async (req: Request, res: Response): Promise<Response> => {
   const parent = await Parent.findById(req.params.id)
-    .populate('user', 'email isVerified isActive preferredLanguage')
+    .populate('user', 'email phone isVerified isActive preferredLanguage')
     .populate('profile')
     .populate('children', 'studentId');
 
@@ -118,7 +118,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   });
 
   const populated = await Parent.findById(parent._id)
-    .populate('user', 'email isVerified isActive')
+    .populate('user', 'email phone isVerified isActive')
     .populate('profile', 'firstName lastName gender')
     .populate('children', 'studentId');
 
@@ -134,7 +134,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (!parent) throw new NotFoundError('Parent');
   assertOwnsOrg(req, parent, 'school');
 
-  const { firstName, lastName, gender, occupation, relationship, address, status } = req.body;
+  const { firstName, lastName, gender, phone, occupation, relationship, address, status } = req.body;
 
   if (firstName || lastName || gender) {
     const profileUpdate: any = {};
@@ -142,6 +142,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     if (lastName) profileUpdate.lastName = lastName;
     if (gender) profileUpdate.gender = gender;
     await Profile.findByIdAndUpdate(parent.profile, profileUpdate);
+  }
+
+  if (phone !== undefined) {
+    await User.findByIdAndUpdate(parent.user, { phone: phone || undefined });
   }
 
   if (occupation !== undefined) parent.occupation = occupation;
@@ -152,7 +156,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   await parent.save();
 
   const updated = await Parent.findById(parent._id)
-    .populate('user', 'email isVerified isActive')
+    .populate('user', 'email phone isVerified isActive')
     .populate('profile')
     .populate('children', 'studentId');
 
