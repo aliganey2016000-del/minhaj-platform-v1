@@ -27,7 +27,4 @@ const parentSchema = new Schema<IParent>(
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );
 
-parentSchema.index({ user: 1 }, { unique: true });
-parentSchema.index({ parentId: 1 }, { unique: true, sparse: true });
-
 export default mongoose.model<IParent>('Parent', parentSchema);

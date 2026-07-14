@@ -30,6 +30,5 @@ const schema = new Schema<IEvent>(
 );
 
 schema.index({ eventDate: 1 });
-schema.index({ status: 1 });
 
 export default mongoose.model<IEvent>('Event', schema);

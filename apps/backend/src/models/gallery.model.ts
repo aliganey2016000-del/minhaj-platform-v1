@@ -24,6 +24,5 @@ const schema = new Schema<IGallery>(
 );
 
 schema.index({ album: 1 });
-schema.index({ status: 1 });
 
 export default mongoose.model<IGallery>('Gallery', schema);

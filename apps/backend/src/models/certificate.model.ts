@@ -31,9 +31,7 @@ const certificateSchema = new Schema<ICertificate>(
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );
 
-certificateSchema.index({ certificateNumber: 1 }, { unique: true });
 certificateSchema.index({ student: 1, course: 1 });
-certificateSchema.index({ status: 1 });
 
 // Auto-generate certificate number
 certificateSchema.pre<ICertificate>('validate', async function (next) {

@@ -32,6 +32,5 @@ const schema = new Schema<IResource>(
 );
 
 schema.index({ course: 1, category: 1 });
-schema.index({ status: 1 });
 
 export default mongoose.model<IResource>('Resource', schema);
