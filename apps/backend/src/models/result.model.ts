@@ -30,8 +30,6 @@ const resultSchema = new Schema<IResult>(
 );
 
 resultSchema.index({ exam: 1, student: 1 }, { unique: true });
-resultSchema.index({ student: 1 });
-resultSchema.index({ status: 1 });
 
 // Auto-calculate percentage and grade
 resultSchema.pre<IResult>('save', function (next) {

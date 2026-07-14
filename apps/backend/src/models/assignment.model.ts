@@ -30,6 +30,5 @@ const schema = new Schema<IAssignment>(
 );
 
 schema.index({ course: 1, dueDate: 1 });
-schema.index({ status: 1 });
 
 export default mongoose.model<IAssignment>('Assignment', schema);

@@ -154,13 +154,6 @@ const studentSchema = new Schema<IStudent>(
 // Indexes
 // ---------------------------------------------------------------------------
 
-studentSchema.index({ user: 1 }, { unique: true });
-studentSchema.index({ studentId: 1 }, { unique: true });
-studentSchema.index({ parent: 1 });
-studentSchema.index({ school: 1 });
-studentSchema.index({ class: 1 });
-studentSchema.index({ approvalStatus: 1 });
-studentSchema.index({ status: 1 });
 studentSchema.index({ enrollmentDate: -1 });
 
 // Compound index for filtering students by status + enrollment

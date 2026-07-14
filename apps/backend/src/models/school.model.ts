@@ -102,7 +102,6 @@ const schoolSchema = new Schema<ISchool>(
 // ---------------------------------------------------------------------------
 
 schoolSchema.index({ name: 1 });
-schoolSchema.index({ status: 1 });
 schoolSchema.index({ createdBy: 1 });
 
 // ---------------------------------------------------------------------------

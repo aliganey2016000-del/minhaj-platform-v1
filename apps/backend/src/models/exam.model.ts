@@ -36,6 +36,5 @@ const examSchema = new Schema<IExam>(
 );
 
 examSchema.index({ course: 1, examDate: 1 });
-examSchema.index({ status: 1 });
 
 export default mongoose.model<IExam>('Exam', examSchema);

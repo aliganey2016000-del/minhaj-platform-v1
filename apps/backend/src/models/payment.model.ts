@@ -28,7 +28,6 @@ const paymentSchema = new Schema<IPayment>(
 );
 
 paymentSchema.index({ student: 1, createdAt: -1 });
-paymentSchema.index({ status: 1 });
 paymentSchema.index({ type: 1 });
 
 export default mongoose.model<IPayment>('Payment', paymentSchema);

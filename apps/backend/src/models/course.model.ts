@@ -217,10 +217,6 @@ const courseSchema = new Schema<ICourse>(
 // Indexes
 // ---------------------------------------------------------------------------
 
-courseSchema.index({ slug: 1 }, { unique: true });
-courseSchema.index({ category: 1 });
-courseSchema.index({ status: 1 });
-courseSchema.index({ teacher: 1 });
 courseSchema.index({ level: 1 });
 courseSchema.index({ fee: 1 }); // For filtering free vs paid courses
 courseSchema.index({ startDate: 1 }); // For upcoming courses

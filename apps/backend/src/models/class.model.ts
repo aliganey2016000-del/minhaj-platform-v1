@@ -33,8 +33,5 @@ const classSchema = new Schema<IClass>(
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );
 
-classSchema.index({ school: 1 });
-classSchema.index({ status: 1 });
-
 const ClassModel = mongoose.model<IClass>('Class', classSchema);
 export default ClassModel;
