@@ -20,6 +20,7 @@ interface ParentProfile {
 interface ParentUser {
   _id: string;
   email: string;
+  phone?: string;
   isVerified: boolean;
   isActive: boolean;
 }
@@ -50,6 +51,7 @@ interface ParentForm {
   firstName: string;
   lastName: string;
   gender: string;
+  phone: string;
   occupation: string;
   relationship: string;
   address: string;
@@ -61,6 +63,7 @@ const emptyForm: ParentForm = {
   firstName: '',
   lastName: '',
   gender: 'male',
+  phone: '',
   occupation: '',
   relationship: 'father',
   address: '',
@@ -104,6 +107,7 @@ function ParentModal({
           firstName: parent.profile?.firstName || '',
           lastName: parent.profile?.lastName || '',
           gender: parent.profile?.gender || 'male',
+          phone: parent.user?.phone || '',
           occupation: parent.occupation || '',
           relationship: parent.relationship || 'father',
           address: parent.address || '',
@@ -126,6 +130,7 @@ function ParentModal({
         firstName: form.firstName,
         lastName: form.lastName,
         gender: form.gender,
+        phone: form.phone || undefined,
         occupation: form.occupation,
         relationship: form.relationship,
         address: form.address,
@@ -187,14 +192,20 @@ function ParentModal({
               </div>
             </>
           )}
-          <div>
-            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Relationship</label>
-            <select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.relationship} onChange={(e) => handleChange('relationship', e.target.value)}>
-              <option value="father">Father</option>
-              <option value="mother">Mother</option>
-              <option value="guardian">Guardian</option>
-              <option value="other">Other</option>
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Phone Number</label>
+              <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="tel" placeholder="+252XXXXXXXXX" value={form.phone} onChange={(e) => handleChange('phone', e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Relationship</label>
+              <select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.relationship} onChange={(e) => handleChange('relationship', e.target.value)}>
+                <option value="father">Father</option>
+                <option value="mother">Mother</option>
+                <option value="guardian">Guardian</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
           </div>
           <div>
             <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Occupation</label>
@@ -276,6 +287,7 @@ function ViewModal({ parent, onClose }: { parent: Parent; onClose: () => void })
           </div>
 
           <DetailRow label="Email" value={parent.user?.email} />
+          <DetailRow label="Phone" value={parent.user?.phone || '—'} />
           <DetailRow label="Status" value={<StatusBadge status={parent.status} />} />
           <DetailRow label="Relationship" value={parent.relationship} />
           <DetailRow label="Occupation" value={parent.occupation || '—'} />
