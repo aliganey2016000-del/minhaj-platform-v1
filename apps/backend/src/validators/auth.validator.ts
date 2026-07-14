@@ -40,12 +40,6 @@ export const registerSchema = Joi.object({
     'any.required': 'Gender is required',
   }),
   phone: Joi.string().optional().allow('').max(20),
-  role: Joi.string()
-    .valid('admin', 'teacher', 'student', 'parent')
-    .default('student')
-    .messages({
-      'any.only': 'Invalid role',
-    }),
   preferredLanguage: Joi.string()
     .valid('en', 'so', 'ar')
     .default('en')
