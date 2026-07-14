@@ -136,7 +136,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
         await Profile.create({
           user: orgAdmin._id,
           firstName: req.body.principalName || 'Principal',
-          lastName: '',
+          lastName: 'Admin',
           gender: 'male',
         });
       }
