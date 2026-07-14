@@ -27,7 +27,12 @@ import ApiResponse from '../utils/api-response';
 // ---------------------------------------------------------------------------
 
 export const register = async (req: Request, res: Response): Promise<Response> => {
-  const { email, password, firstName, lastName, gender, phone, role, preferredLanguage } = req.body;
+  const { email, password, firstName, lastName, gender, phone, preferredLanguage } = req.body;
+  // Public self-registration always creates a 'student' account. Elevated
+  // roles (admin, teacher, org_admin, parent) are only ever assigned by an
+  // authenticated admin action (see teacher/school/parent controllers) —
+  // never take role from client input here.
+  const role = 'student';
 
   // 1. Check if user already exists
   const existingUser = await User.findOne({ email: email.toLowerCase() });
