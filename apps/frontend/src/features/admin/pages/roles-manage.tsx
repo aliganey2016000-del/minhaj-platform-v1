@@ -3,7 +3,8 @@ import { useAuth } from '../../../store/auth-context';
 export function RolesManage() {
   const { user } = useAuth();
   const roles = [
-    { role: 'admin', permissions: 'Full access — manage all data, users, settings', icon: '🔐', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+    { role: 'admin', permissions: 'Full system access — manage all organizations, users, settings globally', icon: '🔐', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+    { role: 'org_admin', permissions: 'Full access — manage all data, users, settings of his organization only', icon: '🏢', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
     { role: 'teacher', permissions: 'Manage courses, classes, attendance, results', icon: '👨‍🏫', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
     { role: 'student', permissions: 'View courses, attendance, results, certificates', icon: '🎓', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
     { role: 'parent', permissions: 'View linked children data, attendance, results, payments', icon: '👨‍👩‍👧‍👦', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },

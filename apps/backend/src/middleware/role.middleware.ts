@@ -16,7 +16,7 @@ import { ForbiddenError, UnauthorizedError } from '../utils/api-error';
 // Allowed role types
 // ---------------------------------------------------------------------------
 
-export type AllowedRole = 'admin' | 'teacher' | 'student' | 'parent';
+export type AllowedRole = 'admin' | 'teacher' | 'student' | 'parent' | 'org_admin';
 
 // ---------------------------------------------------------------------------
 // Middleware Factory
@@ -83,11 +83,11 @@ export const roleMiddleware = (allowedRoles: AllowedRole[]) => {
 // Convenience Middleware — Pre-configured Role Guards
 // ---------------------------------------------------------------------------
 
-/** Allows only admin users. */
-export const adminOnly = roleMiddleware(['admin']);
+/** Allows only admin and org_admin users. */
+export const adminOnly = roleMiddleware(['admin', 'org_admin']);
 
-/** Allows admin and teacher users. */
-export const adminOrTeacher = roleMiddleware(['admin', 'teacher']);
+/** Allows admin, org_admin, and teacher users. */
+export const adminOrTeacher = roleMiddleware(['admin', 'org_admin', 'teacher']);
 
 /** Allows admin, teacher, and parent users. */
 export const staffAndParents = roleMiddleware(['admin', 'teacher', 'parent']);
@@ -98,6 +98,7 @@ export const anyAuthenticatedUser = roleMiddleware([
   'teacher',
   'student',
   'parent',
+  'org_admin',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -185,3 +186,11 @@ export const adminOrParentOf = (getChildUserId: (req: Request) => string) => {
     }
   };
 };
+
+// ---------------------------------------------------------------------------
+// Multi-Tenant Organization Scoping
+// ---------------------------------------------------------------------------
+// Actual per-organization data isolation for org_admin lives in
+// `utils/tenant-scope.ts` (applyOrgFilter / assertOwnsOrg / resolveOrgIdForCreate),
+// applied inside each controller's queries — a route-level middleware can't
+// filter a Mongoose query's *results*, only allow/deny the whole request.

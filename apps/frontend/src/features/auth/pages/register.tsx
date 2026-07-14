@@ -75,7 +75,7 @@ export function RegisterPage() {
         try {
           const { data: meData } = await import('../../../lib/axios').then(m => m.default.get('/auth/me'));
           const role = meData?.data?.user?.role || 'student';
-          if (role === 'admin') navigate('/admin');
+          if (role === 'admin' || role === 'org_admin' || role === 'teacher') navigate('/admin');
           else if (role === 'parent') navigate('/parent');
           else navigate('/student');
         } catch {

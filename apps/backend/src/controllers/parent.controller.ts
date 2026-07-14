@@ -10,6 +10,7 @@ import Profile from '../models/profile.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import Student from '../models/student.model';
+import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
 
 // ---------------------------------------------------------------------------
 // GET /parents — List all with optional filters
@@ -26,8 +27,10 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 10));
 
+  const scopedFilter = applyOrgFilter(req, filter, 'school');
+
   const [parents, total] = await Promise.all([
-    Parent.find(filter)
+    Parent.find(scopedFilter)
       .populate('user', 'email isVerified isActive')
       .populate('profile', 'firstName lastName gender')
       .populate('children', 'studentId')
@@ -35,7 +38,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
       .lean(),
-    Parent.countDocuments(filter),
+    Parent.countDocuments(scopedFilter),
   ]);
 
   let result = parents;
@@ -67,6 +70,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
     .populate('children', 'studentId');
 
   if (!parent) throw new NotFoundError('Parent');
+  assertOwnsOrg(req, parent, 'school');
 
   return ApiResponse.success(res, parent);
 };
@@ -106,6 +110,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     user: user._id,
     profile: profile._id,
     parentId,
+    school: resolveOrgIdForCreate(req, req.body.school) || undefined,
     occupation: occupation || '',
     relationship: relationship || 'father',
     address: address || '',
@@ -127,6 +132,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 export const update = async (req: Request, res: Response): Promise<Response> => {
   const parent = await Parent.findById(req.params.id);
   if (!parent) throw new NotFoundError('Parent');
+  assertOwnsOrg(req, parent, 'school');
 
   const { firstName, lastName, gender, occupation, relationship, address, status } = req.body;
 
@@ -160,6 +166,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 export const remove = async (req: Request, res: Response): Promise<Response> => {
   const parent = await Parent.findById(req.params.id);
   if (!parent) throw new NotFoundError('Parent');
+  assertOwnsOrg(req, parent, 'school');
 
   // Unlink children
   if (parent.children.length > 0) {
@@ -187,6 +194,10 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
   if (!status || !['active', 'inactive'].includes(status)) {
     throw new BadRequestError('Valid status required: active or inactive');
   }
+
+  const existing = await Parent.findById(req.params.id);
+  if (!existing) throw new NotFoundError('Parent');
+  assertOwnsOrg(req, existing, 'school');
 
   const parent = await Parent.findByIdAndUpdate(
     req.params.id,
@@ -216,6 +227,7 @@ export const getChildren = async (req: Request, res: Response): Promise<Response
     .lean();
 
   if (!parent) throw new NotFoundError('Parent');
+  assertOwnsOrg(req, parent, 'school');
 
   return ApiResponse.success(res, (parent as any).children || []);
 };
@@ -230,9 +242,11 @@ export const linkChild = async (req: Request, res: Response): Promise<Response> 
 
   const student = await Student.findById(childId);
   if (!student) throw new NotFoundError('Student');
+  assertOwnsOrg(req, student, 'school');
 
   const parent = await Parent.findById(req.params.id);
   if (!parent) throw new NotFoundError('Parent');
+  assertOwnsOrg(req, parent, 'school');
 
   // Add child if not already linked
   if (!parent.children.includes(childId)) {
@@ -262,6 +276,7 @@ export const unlinkChild = async (req: Request, res: Response): Promise<Response
 
   const parent = await Parent.findById(req.params.id);
   if (!parent) throw new NotFoundError('Parent');
+  assertOwnsOrg(req, parent, 'school');
 
   parent.children = parent.children.filter((c: any) => c.toString() !== childId);
   await parent.save();

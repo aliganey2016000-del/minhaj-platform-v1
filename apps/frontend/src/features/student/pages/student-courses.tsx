@@ -438,21 +438,21 @@ export function StudentCourses() {
                     <div onClick={(e) => e.stopPropagation()}>
                       {isCompleted ? (
                         <button
-                          onClick={() => navigate(`/student/courses/${c._id}/learn`)}
+                          onClick={() => navigate(`/student/courses/${c._id}`)}
                           className="w-full rounded-xl bg-green-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-green-700 active:bg-green-800 transition-all shadow-sm hover:shadow-md"
                         >
                           🎓 {t('view_progress')}
                         </button>
                       ) : (progress.totalItems || 0) > 0 ? (
                         <button
-                          onClick={() => navigate(`/student/courses/${c._id}/learn`)}
+                          onClick={() => navigate(`/student/courses/${c._id}`)}
                           className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-primary-700 active:bg-primary-800 transition-all shadow-sm hover:shadow-md"
                         >
                           ▶ {t('continue_learning')}
                         </button>
                       ) : (
                         <button
-                          onClick={() => navigate(`/student/courses/${c._id}/learn`)}
+                          onClick={() => navigate(`/student/courses/${c._id}`)}
                           className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-primary-700 active:bg-primary-800 transition-all shadow-sm hover:shadow-md"
                         >
                           📖 {t('resume')}

@@ -20,7 +20,7 @@
 import { Router } from 'express';
 import * as courseController from '../../controllers/course.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { roleMiddleware, adminOrTeacher } from '../../middleware/role.middleware';
+import { roleMiddleware, adminOnly, adminOrTeacher } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
@@ -50,11 +50,11 @@ router.get(
   asyncHandler(courseController.getAllPublic)
 );
 
-// POST /api/v1/courses — Create course (admin only)
+// POST /api/v1/courses — Create course (admin or org_admin — scoped to own org)
 router.post(
   '/',
   authMiddleware,
-  roleMiddleware(['admin']),
+  adminOnly,
   asyncHandler(courseController.create)
 );
 
@@ -66,19 +66,19 @@ router.get(
   asyncHandler(courseController.getByIdAdmin)
 );
 
-// PATCH /api/v1/courses/:id — Update course (admin only)
+// PATCH /api/v1/courses/:id — Update course (admin or org_admin — scoped to own org)
 router.patch(
   '/:id',
   authMiddleware,
-  roleMiddleware(['admin']),
+  adminOnly,
   asyncHandler(courseController.update)
 );
 
-// DELETE /api/v1/courses/:id — Delete course (admin only)
+// DELETE /api/v1/courses/:id — Delete course (admin or org_admin — scoped to own org)
 router.delete(
   '/:id',
   authMiddleware,
-  roleMiddleware(['admin']),
+  adminOnly,
   asyncHandler(courseController.remove)
 );
 

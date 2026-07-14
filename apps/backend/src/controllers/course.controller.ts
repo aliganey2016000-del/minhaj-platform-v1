@@ -12,6 +12,7 @@ import '../models/teacher.model'; // Register Teacher model for population
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
+import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
 
 // ---------------------------------------------------------------------------
 // List Courses (Public — only published)
@@ -70,8 +71,10 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
   if (status) filter.status = status;
   if (category) filter.category = category;
 
+  const scopedFilter = applyOrgFilter(req, filter, 'school');
+
   const [courses, total] = await Promise.all([
-    Course.find(filter)
+    Course.find(scopedFilter)
       .populate({
         path: 'teacher',
         select: 'teacherId profile',
@@ -83,7 +86,7 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
-    Course.countDocuments(filter),
+    Course.countDocuments(scopedFilter),
   ]);
 
   return ApiResponse.paginated(res, courses, { page, limit, total });
@@ -129,12 +132,13 @@ export const getByIdAdmin = async (req: Request, res: Response): Promise<Respons
   if (!course) {
     throw new NotFoundError('Course');
   }
+  assertOwnsOrg(req, course, 'school');
 
   return ApiResponse.success(res, course);
 };
 
 // ---------------------------------------------------------------------------
-// Create Course (Admin only)
+// Create Course (Admin, or org_admin — scoped to their own org)
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
@@ -161,7 +165,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     duration,
     fee: fee || 0,
     teacher: teacher || null,
-    school: school || null,
+    school: resolveOrgIdForCreate(req, school) || null,
     class: classId || null,
     maxStudents,
     syllabus: syllabus || [],
@@ -187,6 +191,10 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 // ---------------------------------------------------------------------------
 
 export const update = async (req: Request, res: Response): Promise<Response> => {
+  const existing = await Course.findById(req.params.id);
+  if (!existing) throw new NotFoundError('Course');
+  assertOwnsOrg(req, existing, 'school');
+
   const allowedUpdates = [
     'title', 'description', 'category', 'level', 'duration',
     'fee', 'teacher', 'school', 'class', 'maxStudents', 'syllabus', 'prerequisites', 'status',
@@ -199,6 +207,9 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       updates[key] = req.body[key];
     }
   }
+
+  // org_admin can never move a course to a different organization.
+  if (req.user?.role === 'org_admin') delete updates.school;
 
   // If title.en changed, regenerate slug
   if (updates.title && (updates.title as any).en) {
@@ -235,6 +246,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 // ---------------------------------------------------------------------------
 
 export const remove = async (req: Request, res: Response): Promise<Response> => {
+  const existing = await Course.findById(req.params.id);
+  if (!existing) throw new NotFoundError('Course');
+  assertOwnsOrg(req, existing, 'school');
+
   const course = await Course.findByIdAndDelete(req.params.id);
 
   if (!course) {

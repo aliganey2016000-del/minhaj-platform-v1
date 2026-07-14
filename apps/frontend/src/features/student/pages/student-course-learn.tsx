@@ -9,8 +9,8 @@
  * HTML content, attachments, Previous/Next navigation.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, useMemo, useId } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/axios';
@@ -124,6 +124,7 @@ function formatFileSize(bytes: number): string {
 export function StudentCourseLearn() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t, i18n } = useTranslation('common');
   const lang = i18n.language as 'en' | 'so' | 'ar';
 
@@ -137,6 +138,11 @@ export function StudentCourseLearn() {
   const [activeItemIdx, setActiveItemIdx] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeChapterIdx, setActiveChapterIdx] = useState(0);
+  const [markingComplete, setMarkingComplete] = useState(false);
+  // Track locally which flat-item indices have been marked completed
+  const [locallyCompleted, setLocallyCompleted] = useState<Set<number>>(new Set());
+  // Track whether quiz is finished (hide mark-complete during active quiz)
+  const [quizFinished, setQuizFinished] = useState(false);
 
   const getTitle = (c: EnrolledCourse) => {
     if (lang === 'so' && c.title?.so) return c.title.so;
@@ -203,6 +209,18 @@ export function StudentCourseLearn() {
     return items;
   }, [content]);
 
+  // Honor the startItemIdx passed via navigation state
+  useEffect(() => {
+    const state = location.state as { startItemIdx?: number } | null;
+    if (typeof state?.startItemIdx === 'number' && flatItems.length > 0) {
+      const idx = Math.min(state.startItemIdx, flatItems.length - 1);
+      setActiveItemIdx(idx);
+      setActiveChapterIdx(flatItems[idx]?.chapterIdx || 0);
+    }
+    // Only run once on mount (when flatItems first loads)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flatItems.length > 0]);
+
   const currentItem = flatItems[activeItemIdx] || null;
   const totalItems = flatItems.length;
   const completedCount = course?.progress?.completedLessons
@@ -228,6 +246,37 @@ export function StudentCourseLearn() {
       setActiveChapterIdx(flatItems[newIdx]?.chapterIdx || 0);
     }
   };
+
+  const handleMarkComplete = async () => {
+    if (!currentItem || markingComplete) return;
+    setMarkingComplete(true);
+    try {
+      await api.post('/students/my/progress', {
+        courseId,
+        itemType: currentItem.item.type,
+      });
+      // Optimistically update local state
+      setLocallyCompleted((prev) => new Set(prev).add(activeItemIdx));
+      // Refresh course data to get updated progress from server
+      const myCoursesRes = await api.get('/students/my/courses');
+      const courses: EnrolledCourse[] = myCoursesRes.data.data || [];
+      const updated = courses.find((c) => c._id === courseId);
+      if (updated) setCourse(updated);
+      // Auto-advance to next item if available
+      if (activeItemIdx < totalItems - 1) {
+        const nextIdx = activeItemIdx + 1;
+        setActiveItemIdx(nextIdx);
+        setActiveChapterIdx(flatItems[nextIdx]?.chapterIdx || 0);
+      }
+    } catch (err: any) {
+      // Silent fail — the user can try again
+      console.error('Failed to mark progress:', err);
+    } finally {
+      setMarkingComplete(false);
+    }
+  };
+
+  const isCurrentItemCompleted = activeItemIdx < completedCount || locallyCompleted.has(activeItemIdx);
 
   const jumpToItem = (flatIdx: number) => {
     if (flatIdx < 0 || flatIdx >= unlockedCount) return; // Cannot jump to locked items
@@ -569,8 +618,38 @@ export function StudentCourseLearn() {
                 <hr className="border-[var(--color-border-default)]" />
 
                 {currentItem.item.type === 'lesson' && <LessonView lesson={currentItem.item as LessonItem} />}
-                {currentItem.item.type === 'quiz' && <QuizView quiz={currentItem.item as QuizItem} />}
+                {currentItem.item.type === 'quiz' && <QuizView quiz={currentItem.item as QuizItem} onComplete={() => setQuizFinished(true)} />}
                 {currentItem.item.type === 'assignment' && <AssignmentView assignment={currentItem.item as AssignmentItem} />}
+
+                {/* ── Mark as Completed Button (hidden during live quiz) ── */}
+                {!(currentItem.item.type === 'quiz' && !quizFinished) && (
+                <div className="pt-2">
+                  {isCurrentItemCompleted ? (
+                    <div className="flex items-center justify-center gap-2 rounded-2xl bg-green-50 dark:bg-green-950/20 border-2 border-green-300 dark:border-green-700 px-6 py-4 text-green-700 dark:text-green-300">
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-base font-bold">✓ Completed</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleMarkComplete}
+                      disabled={markingComplete}
+                      className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 px-6 py-4 text-base font-bold text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-600/30 disabled:shadow-none transition-all duration-300 active:scale-[0.98]"
+                    >
+                      {markingComplete ? (
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      <span>{markingComplete ? 'Saving...' : 'Mark as Completed'}</span>
+                    </button>
+                  )}
+                </div>
+                )}
 
                 {/* Navigation */}
                 <hr className="border-[var(--color-border-default)]" />
@@ -714,38 +793,282 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
 }
 
 // ===========================================================================
-// Quiz View
+// Quiz View — gamified single-question step-by-step for children
 // ===========================================================================
-function QuizView({ quiz }: { quiz: QuizItem }) {
-  return (
-    <div className="space-y-4">
-      {quiz.description && <p className="text-sm text-[var(--color-text-secondary)]">{quiz.description}</p>}
-      <div className="flex flex-wrap gap-3 text-sm">
-        <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-2">
-          <span className="text-xs text-amber-600 dark:text-amber-400">Passing</span>
-          <p className="font-bold text-amber-700 dark:text-amber-300">{quiz.passingScore}%</p>
-        </div>
-        {quiz.timeLimit ? (
-          <div className="rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-4 py-2">
-            <span className="text-xs text-blue-600 dark:text-blue-400">Time Limit</span>
-            <p className="font-bold text-blue-700 dark:text-blue-300">{quiz.timeLimit} min</p>
+function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: () => void }) {
+  const [currentQ, setCurrentQ] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<any>(null);
+  const [checked, setChecked] = useState(false);
+  const [results, setResults] = useState<boolean[]>([]); // track correct/incorrect per question
+  const [finished, setFinished] = useState(false);
+
+  const total = quiz.questions.length;
+  const q = quiz.questions[currentQ];
+  const isCorrect = checked && q
+    ? q.type === 'mcq'
+      ? selectedAnswer === q.correctIndex
+      : q.type === 'true_false'
+        ? selectedAnswer === q.correctAnswer
+        : null
+    : null;
+
+  const correctCount = results.filter(Boolean).length;
+  const percent = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+
+  const celebratoryMessages = ['🎉 Excellent!', '🌟 Great Job!', '💪 Well Done!', '🏆 Amazing!', '👏 Fantastic!', '⭐ Super Star!'];
+
+  const handleCheck = () => {
+    if (selectedAnswer === null || selectedAnswer === undefined) return;
+    const correct = q.type === 'mcq'
+      ? selectedAnswer === q.correctIndex
+      : q.type === 'true_false'
+        ? selectedAnswer === q.correctAnswer
+        : true;
+    setResults((prev) => [...prev, correct]);
+    setChecked(true);
+
+    if (correct) {
+      // Fire confetti
+      import('canvas-confetti').then((confetti) => {
+        confetti.default({
+          particleCount: 100,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#22c55e', '#10b981', '#f59e0b', '#3b82f6'],
+        });
+      });
+    }
+  };
+
+  const handleNext = () => {
+    if (currentQ < total - 1) {
+      setCurrentQ((prev) => prev + 1);
+      setSelectedAnswer(null);
+      setChecked(false);
+    } else {
+      setFinished(true);
+      onComplete?.();
+    }
+  };
+
+  const handleRestart = () => {
+    setCurrentQ(0);
+    setSelectedAnswer(null);
+    setChecked(false);
+    setResults([]);
+    setFinished(false);
+  };
+
+  const progressPctQ = total > 0 ? Math.round(((currentQ + (checked ? 1 : 0)) / total) * 100) : 0;
+
+  // ── Finished: Score Card ──
+  if (finished) {
+    return (
+      <div className="space-y-5">
+        <div className={`rounded-3xl p-6 sm:p-8 text-center ${percent >= quiz.passingScore ? 'bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 border-2 border-green-300 dark:border-green-700' : 'bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950/20 dark:to-rose-950/20 border-2 border-red-300 dark:border-red-700'}`}>
+          <p className="text-5xl mb-3">{percent >= quiz.passingScore ? '🎉' : '😊'}</p>
+          <h3 className="text-xl sm:text-2xl font-extrabold text-[var(--color-text-primary)] mb-2">
+            {percent >= quiz.passingScore ? 'Congratulations!' : 'Quiz Complete!'}
+          </h3>
+          <p className="text-4xl font-black mb-2" style={{ color: percent >= quiz.passingScore ? '#16a34a' : '#dc2626' }}>
+            {correctCount}/{total}
+          </p>
+          <p className="text-sm text-[var(--color-text-secondary)] mb-1">
+            You scored <span className="font-bold">{percent}%</span>
+          </p>
+          <p className="text-xs text-[var(--color-text-tertiary)] mb-5">Passing score: {quiz.passingScore}%</p>
+          {/* Per-question result dots */}
+          <div className="flex justify-center gap-1.5 mb-4">
+            {results.map((ok, i) => (
+              <span key={i} className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${ok ? 'bg-green-500 text-white' : 'bg-red-400 text-white'}`}>
+                {ok ? '✓' : '✗'}
+              </span>
+            ))}
           </div>
-        ) : (
-          <div className="rounded-xl bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 px-4 py-2">
-            <span className="text-xs text-green-600 dark:text-green-400">Time</span>
-            <p className="font-bold text-green-700 dark:text-green-300">No limit</p>
+          <button
+            type="button"
+            onClick={handleRestart}
+            className="rounded-xl bg-amber-500 hover:bg-amber-600 px-5 py-2 text-sm font-bold text-white transition-all shadow-sm"
+          >
+            🔄 Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── No questions ──
+  if (!q) {
+    return <p className="text-sm text-[var(--color-text-tertiary)] italic">No questions yet.</p>;
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* ── Progress Indicator ── */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs font-semibold text-[var(--color-text-secondary)]">
+          <span>Question {currentQ + 1} of {total}</span>
+          <span>{progressPctQ}% done</span>
+        </div>
+        <div className="w-full h-3 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden">
+          <motion.div
+            className={`h-full rounded-full ${progressPctQ >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-primary-500 to-amber-500'}`}
+            initial={{ width: 0 }}
+            animate={{ width: `${progressPctQ}%` }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+          />
+        </div>
+      </div>
+
+      {/* ── Question Card ── */}
+      <div className="rounded-3xl border-2 border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card p-5 sm:p-7 space-y-5">
+        {/* Question text */}
+        <div>
+          <p className="text-sm font-bold text-[var(--color-text-secondary)] mb-1">
+            {itemTypeIcons[q.type] || '📝'} {q.type === 'mcq' ? 'Multiple Choice' : q.type === 'true_false' ? 'True or False' : q.type}
+          </p>
+          <h3 className="text-lg sm:text-xl font-extrabold text-[var(--color-text-primary)] leading-snug">
+            {q.question}
+          </h3>
+        </div>
+
+        {/* ── MCQ Options ── */}
+        {q.type === 'mcq' && (
+          <div className="space-y-2.5">
+            {q.options.map((opt, oIdx) => {
+              let style = 'border-2 border-[var(--color-border-default)] text-[var(--color-text-secondary)]';
+              let icon: string | null = null;
+              if (checked) {
+                if (oIdx === q.correctIndex) style = 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300';
+                else if (oIdx === selectedAnswer && oIdx !== q.correctIndex) style = 'border-red-400 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300';
+                if (oIdx === q.correctIndex) icon = '✓';
+                else if (oIdx === selectedAnswer && oIdx !== q.correctIndex) icon = '✗';
+              }
+              return (
+                <button
+                  key={oIdx}
+                  type="button"
+                  disabled={checked}
+                  onClick={() => setSelectedAnswer(oIdx)}
+                  className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-sm font-semibold text-left transition-all duration-200 ${style} ${
+                    !checked ? 'hover:bg-[var(--color-surface-secondary)] hover:border-primary-300 active:scale-[0.98]' : ''
+                  } ${selectedAnswer === oIdx && !checked ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-950/20 border-primary-400' : ''}`}
+                >
+                  <span className={`w-7 h-7 rounded-xl border-2 flex items-center justify-center text-sm flex-shrink-0 font-bold ${
+                    checked && oIdx === q.correctIndex
+                      ? 'border-green-500 bg-green-500 text-white'
+                      : checked && oIdx === selectedAnswer && oIdx !== q.correctIndex
+                        ? 'border-red-500 bg-red-500 text-white'
+                        : selectedAnswer === oIdx && !checked
+                          ? 'border-primary-500 bg-primary-500 text-white'
+                          : 'border-[var(--color-border-default)]'
+                  }`}>
+                    {icon || String.fromCharCode(65 + oIdx)}
+                  </span>
+                  <span className="flex-1">{opt}</span>
+                  {checked && oIdx === q.correctIndex && (
+                    <span className="text-xs font-bold text-green-600 dark:text-green-400 flex-shrink-0">Correct!</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
+
+        {/* ── True/False ── */}
+        {q.type === 'true_false' && (
+          <div className="grid grid-cols-2 gap-3">
+            {[true, false].map((val) => {
+              let style = 'border-2 border-[var(--color-border-default)] text-[var(--color-text-secondary)]';
+              if (checked) {
+                if (val === q.correctAnswer) style = 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300';
+                else if (val === selectedAnswer && val !== q.correctAnswer) style = 'border-red-400 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300';
+              }
+              return (
+                <button
+                  key={String(val)}
+                  type="button"
+                  disabled={checked}
+                  onClick={() => setSelectedAnswer(val)}
+                  className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-4 text-base font-extrabold transition-all duration-200 ${style} ${
+                    !checked ? 'hover:bg-[var(--color-surface-secondary)] hover:border-primary-300 active:scale-[0.98]' : ''
+                  } ${selectedAnswer === val && !checked ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-950/20 border-primary-400' : ''}`}
+                >
+                  <span className="text-2xl">{val ? '✅' : '❌'}</span>
+                  {val ? 'True' : 'False'}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Other types — read-only preview ── */}
+        {q.type !== 'mcq' && q.type !== 'true_false' && (
+          <QuestionPreview question={q} index={currentQ} />
+        )}
+
+        {/* ── Feedback after check ── */}
+        {checked && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+            className="space-y-3"
+          >
+            {isCorrect ? (
+              <div className="rounded-2xl bg-green-50 dark:bg-green-950/20 border-2 border-green-300 dark:border-green-700 p-4 text-center">
+                <p className="text-3xl mb-1">🎉</p>
+                <p className="text-lg font-extrabold text-green-700 dark:text-green-300">
+                  {celebratoryMessages[Math.floor(Math.random() * celebratoryMessages.length)]}
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/20 border-2 border-amber-300 dark:border-amber-700 p-4 text-center">
+                <p className="text-2xl mb-1">🤔</p>
+                <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">Not quite! Review the correct answer below.</p>
+              </div>
+            )}
+
+            {/* Explanation after check */}
+            {q.explanation && (
+              <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  <span className="font-extrabold">💡 Explanation:</span> {q.explanation}
+                </p>
+              </div>
+            )}
+          </motion.div>
+        )}
       </div>
-      {quiz.questions.length > 0 && (
-        <div className="space-y-4 mt-4">
-          <h4 className="text-sm font-bold text-[var(--color-text-primary)]">Questions</h4>
-          {quiz.questions.map((q, qIdx) => (
-            <QuestionPreview key={qIdx} question={q} index={qIdx} />
-          ))}
-        </div>
-      )}
-      {quiz.questions.length === 0 && <p className="text-sm text-[var(--color-text-tertiary)] italic">No questions yet.</p>}
+
+      {/* ── Action Button ── */}
+      <div className="pt-1">
+        {!checked ? (
+          <button
+            type="button"
+            onClick={handleCheck}
+            disabled={selectedAnswer === null || selectedAnswer === undefined}
+            className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed px-6 py-4 text-base font-extrabold text-white shadow-lg shadow-indigo-500/25 hover:shadow-indigo-600/30 disabled:shadow-none transition-all duration-300 active:scale-[0.98]"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Check Answer
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleNext}
+            className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 px-6 py-4 text-base font-extrabold text-white shadow-lg shadow-amber-500/25 hover:shadow-amber-600/30 transition-all duration-300 active:scale-[0.98]"
+          >
+            {currentQ < total - 1 ? (
+              <>Next Question <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg></>
+            ) : (
+              <>See Results <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg></>
+            )}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -24,6 +24,7 @@ declare global {
         userId: string;
         role: string;
         permissions: string[];
+        organizationId?: string;
       };
     }
   }
@@ -69,6 +70,7 @@ export const authMiddleware = (
       userId: decoded.userId,
       role: decoded.role,
       permissions: decoded.permissions,
+      organizationId: decoded.organizationId,
     };
 
     next();

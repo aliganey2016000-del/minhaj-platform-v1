@@ -15,6 +15,7 @@ import CourseContent from '../models/course-content.model';
 import { BadRequestError, NotFoundError, ForbiddenError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
+import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
 
 // ---------------------------------------------------------------------------
 // List Students (Admin & Teacher only)
@@ -55,12 +56,14 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     (filter.$or as any[]).push({ studentId: searchRegex });
   }
 
+  const scopedFilter = applyOrgFilter(req, filter, 'school');
+
   let allStudents: any[];
   let total: number;
 
   if (search) {
     const [students, count] = await Promise.all([
-      Student.find(filter)
+      Student.find(scopedFilter)
         .populate('user', 'email role isActive isVerified preferredLanguage')
         .populate('profile', 'firstName lastName avatar gender')
         .populate('parent', 'user profile')
@@ -69,7 +72,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
         .populate('enrolledCourses', 'title slug')
         .sort({ createdAt: -1 })
         .lean(),
-      Student.countDocuments(filter),
+      Student.countDocuments(scopedFilter),
     ]);
 
     const s = search.toLowerCase();
@@ -84,7 +87,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     allStudents = filtered.slice((page - 1) * limit, page * limit);
   } else {
     const [students, count] = await Promise.all([
-      Student.find(filter)
+      Student.find(scopedFilter)
         .populate('user', 'email role isActive isVerified preferredLanguage')
         .populate('profile', 'firstName lastName avatar gender')
         .populate('parent', 'user profile')
@@ -95,7 +98,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
         .skip((page - 1) * limit)
         .limit(limit)
         .lean(),
-      Student.countDocuments(filter),
+      Student.countDocuments(scopedFilter),
     ]);
     allStudents = students;
     total = count;
@@ -119,6 +122,8 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
     .lean();
 
   if (!student) throw new NotFoundError('Student');
+
+  assertOwnsOrg(req, student, 'school');
 
   const userId = req.user?.userId;
   const role = req.user?.role;
@@ -151,7 +156,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const student = await Student.create({
     user: user._id, profile: profile._id, parent: parentId || undefined,
-    school: school || undefined, class: classId || undefined,
+    school: resolveOrgIdForCreate(req, school) || undefined, class: classId || undefined,
     enrollmentDate: enrollmentDate || new Date(), grade: grade || undefined, medicalNotes: medicalNotes || undefined,
   });
 
@@ -173,6 +178,8 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const student = await Student.findById(req.params.id);
   if (!student) throw new NotFoundError('Student');
 
+  assertOwnsOrg(req, student, 'school');
+
   const { firstName, lastName, gender, school, classId, grade, medicalNotes, parent, enrollmentDate, status, attendancePercentage, gpa, totalFeesPaid, totalFeesDue } = req.body;
 
   if (firstName || lastName || gender) {
@@ -183,7 +190,8 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     await Profile.findByIdAndUpdate(student.profile, profileUpdate);
   }
 
-  if (school !== undefined) student.school = school || undefined;
+  // org_admin can never move a student to a different organization.
+  if (school !== undefined && req.user?.role !== 'org_admin') student.school = school || undefined;
   if (classId !== undefined) student.class = classId || undefined;
   if (grade !== undefined) student.grade = grade;
   if (medicalNotes !== undefined) student.medicalNotes = medicalNotes;
@@ -218,6 +226,10 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
     throw new BadRequestError('Valid status required: active, inactive, graduated, or suspended');
   }
 
+  const existing = await Student.findById(req.params.id);
+  if (!existing) throw new NotFoundError('Student');
+  assertOwnsOrg(req, existing, 'school');
+
   const student = await Student.findByIdAndUpdate(req.params.id, { status }, { new: true })
     .populate('profile', 'firstName lastName');
 
@@ -232,6 +244,7 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
 export const remove = async (req: Request, res: Response): Promise<Response> => {
   const student = await Student.findById(req.params.id);
   if (!student) throw new NotFoundError('Student');
+  assertOwnsOrg(req, student, 'school');
 
   await User.findByIdAndUpdate(student.user, { isActive: false });
   student.status = 'inactive';
@@ -394,7 +407,13 @@ export const exportStudents = async (_req: Request, _res: Response): Promise<Res
 // ---------------------------------------------------------------------------
 
 export const approve = async (req: Request, res: Response): Promise<Response> => {
-  const { school, classId } = req.body;
+  const existing = await Student.findById(req.params.id);
+  if (!existing) throw new NotFoundError('Student');
+  assertOwnsOrg(req, existing, 'school'); // no-op if unclaimed, blocks if already another org's
+
+  // org_admin can only approve students INTO their own organization.
+  const school = resolveOrgIdForCreate(req, req.body.school);
+  const { classId } = req.body;
   if (!school) throw new BadRequestError('School is required for approval');
   if (!classId) throw new BadRequestError('Class is required for approval');
 
@@ -413,6 +432,10 @@ export const approve = async (req: Request, res: Response): Promise<Response> =>
 };
 
 export const reject = async (req: Request, res: Response): Promise<Response> => {
+  const existing = await Student.findById(req.params.id);
+  if (!existing) throw new NotFoundError('Student');
+  assertOwnsOrg(req, existing, 'school');
+
   const student = await Student.findByIdAndUpdate(
     req.params.id,
     { approvalStatus: 'rejected' },
@@ -423,4 +446,35 @@ export const reject = async (req: Request, res: Response): Promise<Response> => 
 
   if (!student) throw new NotFoundError('Student');
   return ApiResponse.success(res, student, 'Student rejected');
+};
+
+// ---------------------------------------------------------------------------
+// Record Progress — POST /api/v1/students/my/progress
+// ---------------------------------------------------------------------------
+export const recordProgress = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId, itemType } = req.body as { courseId: string; itemType: 'lesson' | 'quiz' | 'assignment' };
+
+  if (!courseId) throw new BadRequestError('Course ID is required.');
+  if (!['lesson','quiz','assignment'].includes(itemType)) throw new BadRequestError('itemType must be lesson, quiz, or assignment.');
+
+  const student = await ensureStudentRecord(req.user!.userId);
+  if (!student) throw new NotFoundError('Student record not found.');
+
+  let progress = await Progress.findOne({ student: student._id, course: courseId });
+  if (!progress) {
+    const content = await CourseContent.findOne({ course: courseId });
+    const total = content ? (content.totalLessons||0)+(content.totalQuizzes||0)+(content.totalAssignments||0) : 0;
+    progress = await Progress.create({ student: student._id, course: courseId,
+      completedLessons: itemType==='lesson'?1:0, completedQuizzes: itemType==='quiz'?1:0,
+      completedAssignments: itemType==='assignment'?1:0, totalItems: total, lastAccessed: new Date(), status: 'in_progress' });
+  } else {
+    if (itemType==='lesson') progress.completedLessons += 1;
+    else if (itemType==='quiz') progress.completedQuizzes += 1;
+    else progress.completedAssignments += 1;
+    const done = progress.completedLessons + progress.completedQuizzes + progress.completedAssignments;
+    if (done >= progress.totalItems && progress.totalItems > 0) progress.status = 'completed';
+    progress.lastAccessed = new Date();
+    await progress.save();
+  }
+  return ApiResponse.success(res, { progress }, 'Progress recorded.');
 };

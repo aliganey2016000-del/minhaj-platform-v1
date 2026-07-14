@@ -10,6 +10,7 @@ import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
+import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
 
 // ---------------------------------------------------------------------------
 // GET /teachers — List all teachers with optional filters
@@ -24,16 +25,20 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     filter.status = status;
   }
 
-  if (school) {
+  // org_admin can never widen the filter to another org via ?school=; their
+  // own organization always wins (applied below, after the client's value).
+  if (school && req.user?.role !== 'org_admin') {
     filter.school = school as string;
   }
+
+  const scopedFilter = applyOrgFilter(req, filter, 'school');
 
   // For text search we'll filter after population on profile name
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 10));
   const skip = (pageNum - 1) * limitNum;
 
-  let query = Teacher.find(filter)
+  let query = Teacher.find(scopedFilter)
     .populate('user', 'email isVerified isActive')
     .populate('profile', 'firstName lastName gender')
     .populate('school', 'name')
@@ -47,7 +52,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const [teachers, total] = await Promise.all([
     query.skip(skip).limit(limitNum).lean(),
-    Teacher.countDocuments(filter),
+    Teacher.countDocuments(scopedFilter),
   ]);
 
   // Apply search filter in-memory on profile name / email / teacherId
@@ -81,6 +86,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
     .populate('courses', 'title.en slug category status');
 
   if (!teacher) throw new NotFoundError('Teacher');
+  assertOwnsOrg(req, teacher, 'school');
 
   return ApiResponse.success(res, teacher);
 };
@@ -142,7 +148,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     user: user._id,
     profile: profile._id,
     teacherId,
-    school: school || undefined,
+    school: resolveOrgIdForCreate(req, school) || undefined,
     qualification: qualification || '',
     specialization: specialization || [],
     experience: experience || 0,
@@ -166,6 +172,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 export const update = async (req: Request, res: Response): Promise<Response> => {
   const teacher = await Teacher.findById(req.params.id);
   if (!teacher) throw new NotFoundError('Teacher');
+  assertOwnsOrg(req, teacher, 'school');
 
   const {
     firstName,
@@ -190,8 +197,8 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     await Profile.findByIdAndUpdate(teacher.profile, profileUpdate);
   }
 
-  // Update teacher fields
-  if (school !== undefined) teacher.school = school || null;
+  // Update teacher fields — org_admin can never move a teacher to another org.
+  if (school !== undefined && req.user?.role !== 'org_admin') teacher.school = school || null;
   if (qualification !== undefined) teacher.qualification = qualification;
   if (specialization !== undefined) teacher.specialization = specialization;
   if (experience !== undefined) teacher.experience = experience;
@@ -217,6 +224,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 export const remove = async (req: Request, res: Response): Promise<Response> => {
   const teacher = await Teacher.findById(req.params.id);
   if (!teacher) throw new NotFoundError('Teacher');
+  assertOwnsOrg(req, teacher, 'school');
 
   // Check if teacher has active courses
   const Course = mongoose.model('Course');
@@ -250,6 +258,10 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
   if (!status || !['active', 'inactive', 'on_leave'].includes(status)) {
     throw new BadRequestError('Valid status required: active, inactive, or on_leave');
   }
+
+  const existing = await Teacher.findById(req.params.id);
+  if (!existing) throw new NotFoundError('Teacher');
+  assertOwnsOrg(req, existing, 'school');
 
   const teacher = await Teacher.findByIdAndUpdate(
     req.params.id,

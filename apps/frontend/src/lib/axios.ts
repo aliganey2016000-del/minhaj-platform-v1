@@ -19,14 +19,22 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Endpoints that legitimately return 401 for bad credentials — these are
+// NOT expired-session cases, so they must never trigger the refresh-token
+// retry/redirect flow below (there is no session to refresh yet).
+const AUTH_ENDPOINTS_EXEMPT_FROM_REFRESH = ['/auth/login', '/auth/register', '/auth/refresh-token'];
+
 // Response interceptor — handle 401, refresh token
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    const isAuthEndpoint = AUTH_ENDPOINTS_EXEMPT_FROM_REFRESH.some((path) => originalRequest?.url?.includes(path));
 
-    // If 401 and not already retried
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // If 401 and not already retried (and not a login/register/refresh call itself —
+    // those 401s mean "wrong credentials", not "session expired", and must be
+    // surfaced to the caller instead of triggering a silent redirect).
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
 
       try {

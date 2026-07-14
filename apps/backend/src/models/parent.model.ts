@@ -5,6 +5,7 @@ export interface IParent extends Document {
   profile: mongoose.Types.ObjectId;
   parentId: string;
   children: mongoose.Types.ObjectId[];
+  school?: mongoose.Types.ObjectId;
   occupation?: string;
   relationship: string;
   address?: string;
@@ -19,6 +20,7 @@ const parentSchema = new Schema<IParent>(
     profile: { type: Schema.Types.ObjectId, ref: 'Profile', required: true },
     parentId: { type: String, unique: true, sparse: true },
     children: [{ type: Schema.Types.ObjectId, ref: 'Student' }],
+    school: { type: Schema.Types.ObjectId, ref: 'School', default: undefined },
     occupation: { type: String, default: '' },
     relationship: { type: String, default: 'father', enum: ['father', 'mother', 'guardian', 'other'] },
     address: { type: String, default: '' },

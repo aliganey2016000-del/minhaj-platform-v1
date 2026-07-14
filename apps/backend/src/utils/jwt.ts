@@ -10,6 +10,7 @@ interface AccessTokenPayload {
   userId: string;
   role: string;
   permissions: string[];
+  organizationId?: string;
 }
 
 interface RefreshTokenPayload {
@@ -67,6 +68,7 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
       userId: decoded.userId as string,
       role: decoded.role as string,
       permissions: (decoded.permissions as string[]) || [],
+      organizationId: decoded.organizationId as string | undefined,
     };
   } catch (error: any) {
     if (error.name === 'TokenExpiredError') {

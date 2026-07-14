@@ -56,6 +56,9 @@ const StudentSettings = lazy(() =>
 const StudentCourseLearn = lazy(() =>
   import('../features/student/pages/student-course-learn').then((m) => ({ default: m.StudentCourseLearn }))
 );
+const StudentCourseDetail = lazy(() =>
+  import('../features/student/pages/student-course-detail').then((m) => ({ default: m.StudentCourseDetail }))
+);
 const StudentPage = lazy(() =>
   import('../features/student/pages/generic-page').then((m) => ({ default: m.StudentPage }))
 );
@@ -176,6 +179,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: L(<StudentDashboard />) },
       { path: 'courses', element: L(<StudentCourses />) },
+      { path: 'courses/:courseId', element: L(<StudentCourseDetail />) },
       { path: 'courses/:courseId/learn', element: L(<StudentCourseLearn />) },
       { path: 'available', element: L(<StudentAvailable />) },
       { path: 'assignments', element: L(<StudentAssignments />) },

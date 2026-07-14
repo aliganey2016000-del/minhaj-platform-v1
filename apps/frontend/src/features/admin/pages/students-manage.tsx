@@ -53,6 +53,11 @@ interface StudentForm {
   gpa: number;
   totalFeesPaid: number;
   totalFeesDue: number;
+  guardianFullName: string;
+  guardianEmail: string;
+  guardianPassword: string;
+  guardianPhone: string;
+  guardianRelationship: string;
 }
 
 const emptyForm: StudentForm = {
@@ -60,6 +65,8 @@ const emptyForm: StudentForm = {
   school: '', classId: '', grade: '', medicalNotes: '',
   enrollmentDate: new Date().toISOString().split('T')[0],
   attendancePercentage: 0, gpa: 0, totalFeesPaid: 0, totalFeesDue: 0,
+  guardianFullName: '', guardianEmail: '', guardianPassword: '',
+  guardianPhone: '', guardianRelationship: 'Father',
 };
 
 type TabKey = 'all' | 'approved' | 'pending' | 'rejected';
@@ -114,6 +121,8 @@ function StudentModal({ student, schools, onClose, onSaved }: {
     enrollmentDate: student.enrollmentDate ? new Date(student.enrollmentDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
     attendancePercentage: student.attendancePercentage ?? 0, gpa: student.gpa ?? 0,
     totalFeesPaid: student.totalFeesPaid ?? 0, totalFeesDue: student.totalFeesDue ?? 0,
+    guardianFullName: '', guardianEmail: '', guardianPassword: '',
+    guardianPhone: '', guardianRelationship: 'Father',
   } : emptyForm);
   const [classes, setClasses] = useState<ClassBrief[]>([]);
   const [loading, setLoading] = useState(false);
@@ -135,6 +144,7 @@ function StudentModal({ student, schools, onClose, onSaved }: {
     if (!form.lastName.trim()) errs.lastName = 'Last name is required';
     if (!form.school) errs.school = 'Organization is required';
     if (!form.classId) errs.classId = 'Class is required';
+    if (form.guardianFullName.trim() && form.guardianEmail.trim() && !/^\S+@\S+\.\S+$/.test(form.guardianEmail.trim())) errs.guardianEmail = 'Enter a valid guardian email';
     setErrors(errs); return Object.keys(errs).length === 0;
   };
 
@@ -148,7 +158,14 @@ function StudentModal({ student, schools, onClose, onSaved }: {
     e.preventDefault(); if (!validate()) return;
     setLoading(true); setError('');
     try {
-      const payload = { firstName: form.firstName, lastName: form.lastName, gender: form.gender, school: form.school, classId: form.classId, grade: form.grade || undefined, medicalNotes: form.medicalNotes || undefined, enrollmentDate: form.enrollmentDate, attendancePercentage: Number(form.attendancePercentage), gpa: Number(form.gpa), totalFeesPaid: Number(form.totalFeesPaid), totalFeesDue: Number(form.totalFeesDue), ...(isEdit ? {} : { email: form.email, password: form.password }) };
+      const guardian = form.guardianFullName.trim() ? {
+        guardianFullName: form.guardianFullName.trim(),
+        guardianEmail: form.guardianEmail.trim() || undefined,
+        guardianPassword: form.guardianPassword || undefined,
+        guardianPhone: form.guardianPhone.trim() || undefined,
+        guardianRelationship: form.guardianRelationship,
+      } : {};
+      const payload = { firstName: form.firstName, lastName: form.lastName, gender: form.gender, school: form.school, classId: form.classId, grade: form.grade || undefined, medicalNotes: form.medicalNotes || undefined, enrollmentDate: form.enrollmentDate, attendancePercentage: Number(form.attendancePercentage), gpa: Number(form.gpa), totalFeesPaid: Number(form.totalFeesPaid), totalFeesDue: Number(form.totalFeesDue), ...guardian, ...(isEdit ? {} : { email: form.email, password: form.password }) };
       if (isEdit) await api.patch(`/students/${student._id}`, payload);
       else { if (!form.email || !form.password) throw new Error('Email and password are required'); await api.post('/students', payload); }
       onSaved(); onClose();
@@ -183,6 +200,25 @@ function StudentModal({ student, schools, onClose, onSaved }: {
             <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Enrollment Date</label><input className={ic('enrollmentDate')} name="enrollmentDate" type="date" value={form.enrollmentDate} onChange={handleChange} /></div>
           </div>
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Medical Notes</label><textarea className={ic('medicalNotes')} name="medicalNotes" rows={2} value={form.medicalNotes} onChange={handleChange} /></div>
+
+          {/* ───── Parent / Guardian Information ───── */}
+          {!isEdit && (
+            <div className="border-t border-[var(--color-border-subtle)] pt-3">
+              <p className="text-xs font-bold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">👨‍👩‍👧 Parent / Guardian Information (Optional)</p>
+              <div className="space-y-3">
+                <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Full Name</label><input className={ic('guardianFullName')} name="guardianFullName" placeholder="e.g. Mohamed Ali" value={form.guardianFullName} onChange={handleChange} />{errors.guardianFullName && <p className="mt-1 text-xs text-red-500">{errors.guardianFullName}</p>}</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Email</label><input className={ic('guardianEmail')} name="guardianEmail" type="email" placeholder="guardian@example.com" value={form.guardianEmail} onChange={handleChange} />{errors.guardianEmail && <p className="mt-1 text-xs text-red-500">{errors.guardianEmail}</p>}</div>
+                  <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Password</label><input className={ic('guardianPassword')} name="guardianPassword" type="password" placeholder="Min 8 characters" value={form.guardianPassword} onChange={handleChange} />{errors.guardianPassword && <p className="mt-1 text-xs text-red-500">{errors.guardianPassword}</p>}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Phone Number</label><input className={ic('guardianPhone')} name="guardianPhone" type="tel" placeholder="+252XXXXXXXXX" value={form.guardianPhone} onChange={handleChange} />{errors.guardianPhone && <p className="mt-1 text-xs text-red-500">{errors.guardianPhone}</p>}</div>
+                  <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Relationship to Student</label><select className={ic('guardianRelationship')} name="guardianRelationship" value={form.guardianRelationship} onChange={handleChange}><option value="Father">Father</option><option value="Mother">Mother</option><option value="Guardian">Guardian</option><option value="Other">Other</option></select>{errors.guardianRelationship && <p className="mt-1 text-xs text-red-500">{errors.guardianRelationship}</p>}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {isEdit && (<>
             <div className="border-t border-[var(--color-border-subtle)] pt-3"><p className="text-xs font-bold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">Academic Summary</p>
               <div className="grid grid-cols-2 gap-3">

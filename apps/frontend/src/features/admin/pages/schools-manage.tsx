@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, type FormEvent, type ChangeEvent } from 'react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -195,6 +196,12 @@ function FormInput({
 // ---------------------------------------------------------------------------
 
 export function SchoolsManage() {
+  // Only the true super admin can register new organizations, or
+  // activate/deactivate/delete existing ones — an org_admin only ever
+  // sees and edits their own organization (enforced by the backend too).
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'admin';
+
   // ── Data state ──
   const [schools, setSchools] = useState<School[]>([]);
   const [pagination, setPagination] = useState<PaginationMeta>({ page: 1, limit: 20, total: 0 });
@@ -414,12 +421,14 @@ export function SchoolsManage() {
               Register and manage organizations in the system
             </p>
           </div>
-          <button
-            onClick={openCreate}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 transition-colors"
-          >
-            <span className="text-lg leading-none">+</span> Register Organization
-          </button>
+          {isSuperAdmin && (
+            <button
+              onClick={openCreate}
+              className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 transition-colors"
+            >
+              <span className="text-lg leading-none">+</span> Register Organization
+            </button>
+          )}
         </div>
 
         {/* ── Search & Filter Bar ── */}
@@ -495,16 +504,28 @@ export function SchoolsManage() {
                       <td className="px-6 py-4 text-[var(--color-text-secondary)]">{school.principalName}</td>
                       <td className="px-6 py-4 text-[var(--color-text-secondary)] hidden lg:table-cell">{school.establishedYear}</td>
                       <td className="px-6 py-4">
-                        <button
-                          onClick={() => toggleStatus(school)}
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${
-                            school.status === 'active'
-                              ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
-                              : 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
-                          }`}
-                        >
-                          {school.status}
-                        </button>
+                        {isSuperAdmin ? (
+                          <button
+                            onClick={() => toggleStatus(school)}
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${
+                              school.status === 'active'
+                                ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
+                                : 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
+                            }`}
+                          >
+                            {school.status}
+                          </button>
+                        ) : (
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              school.status === 'active'
+                                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                            }`}
+                          >
+                            {school.status}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex gap-2">
@@ -514,12 +535,14 @@ export function SchoolsManage() {
                           >
                             Edit
                           </button>
-                          <button
-                            onClick={() => setDeleteTarget(school)}
-                            className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                          >
-                            Delete
-                          </button>
+                          {isSuperAdmin && (
+                            <button
+                              onClick={() => setDeleteTarget(school)}
+                              className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                            >
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -588,21 +611,23 @@ export function SchoolsManage() {
               <FormInput label="Principal Name" name="principalName" value={form.principalName} error={formErrors.principalName} onChange={handleChange} placeholder="Full name of the principal" required maxLength={100} />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormInput label="Established Year" name="establishedYear" type="number" value={form.establishedYear} error={formErrors.establishedYear} onChange={handleChange} placeholder={`e.g., ${getCurrentYear() - 10}`} required />
-                <div>
-                  <label htmlFor="status" className="block text-sm font-medium text-[var(--color-text-primary)] mb-1">
-                    Status
-                  </label>
-                  <select
-                    id="status"
-                    name="status"
-                    value={form.status}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </div>
+                {isSuperAdmin && (
+                  <div>
+                    <label htmlFor="status" className="block text-sm font-medium text-[var(--color-text-primary)] mb-1">
+                      Status
+                    </label>
+                    <select
+                      id="status"
+                      name="status"
+                      value={form.status}
+                      onChange={handleChange}
+                      className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+                )}
               </div>
               <FormInput label="Website (optional)" name="website" type="url" value={form.website} error={formErrors.website} onChange={handleChange} placeholder="https://www.example.org.so" />
 
