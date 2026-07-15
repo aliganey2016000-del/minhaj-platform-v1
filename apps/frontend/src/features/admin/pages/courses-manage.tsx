@@ -880,14 +880,24 @@ export function CoursesManage() {
     setCourses((prev) => prev.map((c) => (c._id === id ? { ...c, accessMode } : c)));
   };
 
+  const handleOpenVideoGating = async (course: Course) => {
+    setVideoGatedCourse(course);
+    setVideoGatingSettings(undefined);
+    try {
+      const { data } = await api.get(`/courses/${course._id}/video-gating`);
+      if (data.data) setVideoGatingSettings(data.data);
+    } catch (err: any) {
+      // Non-fatal — the modal just opens with default settings instead.
+      console.error('Failed to load existing video gating settings:', err);
+    }
+  };
+
   const handleSaveVideoGatingSettings = async (settings: VideoGatingSettings) => {
     try {
       if (videoGatedCourse) {
-        // Save to backend (assuming /courses/:id/video-gating endpoint)
         await api.post(`/courses/${videoGatedCourse._id}/video-gating`, settings);
         setVideoGatedCourse(undefined);
         setVideoGatingSettings(undefined);
-        // Show success message
         alert('Video-gating settings saved successfully!');
       }
     } catch (err: any) {
@@ -1004,7 +1014,7 @@ export function CoursesManage() {
                 onViewStudents={handleViewStudents}
                 onPreview={handlePreview}
                 onSetAccessMode={setAccessModeCourse}
-                onSetVideoGating={setVideoGatedCourse}
+                onSetVideoGating={handleOpenVideoGating}
               />
             ))}
           </div>

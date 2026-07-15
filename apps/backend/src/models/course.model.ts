@@ -57,8 +57,30 @@ export interface ICourse extends Document {
   meetingLink?: string;          // Google Meet URL for this course's live sessions
   isLive: boolean;               // Toggled by the teacher — shows "Join Live" to students when true
   accessMode: 'open' | 'restricted'; // Lesson access restriction: open = all unlocked, restricted = sequential
+  videoGating?: IVideoGating;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** A question asked when a student reaches a given video-watch checkpoint. */
+export interface ICheckpointQuestion {
+  _id?: mongoose.Types.ObjectId;
+  text: string;
+  type: 'multiple_choice' | 'short_answer';
+  options?: string[];           // multiple_choice only
+  correctOptionIndex?: number;  // multiple_choice only
+}
+
+export interface IVideoGating {
+  enabled: boolean;
+  blockForwardSeeking: boolean;
+  checkpoints: number[];                       // e.g. [33, 66, 95]
+  minWatchPercentToUnlock: number;             // e.g. 95
+  showCheckpointAlerts: boolean;
+  description?: string;
+  // Keyed by checkpoint percentage (as a string key, since object keys are
+  // always strings) — checkpointQuestions['66'] = [...]
+  checkpointQuestions?: Record<string, ICheckpointQuestion[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +242,20 @@ const courseSchema = new Schema<ICourse>(
         message: '{VALUE} is not a valid access mode',
       },
       default: 'open',
+    },
+    videoGating: {
+      type: {
+        enabled: { type: Boolean, default: false },
+        blockForwardSeeking: { type: Boolean, default: true },
+        checkpoints: { type: [Number], default: [33, 66, 95] },
+        minWatchPercentToUnlock: { type: Number, default: 95 },
+        showCheckpointAlerts: { type: Boolean, default: true },
+        description: { type: String, default: '' },
+        // Dynamic checkpoint -> questions[] map; shape is validated in the
+        // controller rather than via a rigid Mongoose subdocument schema.
+        checkpointQuestions: { type: Schema.Types.Mixed, default: {} },
+      },
+      default: undefined,
     },
   },
   {

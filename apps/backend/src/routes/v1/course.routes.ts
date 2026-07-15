@@ -12,6 +12,8 @@
  *   POST /                 — Create course
  *   PATCH /:id             — Update course
  *   PATCH /:id/live        — Start/end live Google Meet session
+ *   GET  /:id/video-gating — Fetch video-gating settings
+ *   POST /:id/video-gating — Save video-gating settings
  *   DELETE /:id            — Delete course
  *   POST /:id/enroll       — Enroll student
  *   POST /:id/unenroll     — Unenroll student
@@ -98,6 +100,22 @@ router.get(
   authMiddleware,
   adminOrTeacher,
   asyncHandler(courseController.getEnrolledStudents)
+);
+
+// GET /api/v1/courses/:id/video-gating — Fetch video-gating settings
+router.get(
+  '/:id/video-gating',
+  authMiddleware,
+  adminOrTeacher,
+  asyncHandler(courseController.getVideoGating)
+);
+
+// POST /api/v1/courses/:id/video-gating — Save video-gating settings
+router.post(
+  '/:id/video-gating',
+  authMiddleware,
+  adminOrTeacher,
+  asyncHandler(courseController.updateVideoGating)
 );
 
 // POST /api/v1/courses/:courseId/enroll — Enroll student (admin only)

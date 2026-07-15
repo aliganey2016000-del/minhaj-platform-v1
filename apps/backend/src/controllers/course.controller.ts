@@ -278,6 +278,57 @@ export const toggleLive = async (req: Request, res: Response): Promise<Response>
 };
 
 // ---------------------------------------------------------------------------
+// Video Gating Settings — sequential-watch enforcement + per-checkpoint quiz
+// questions for this course's video lessons (admin/org_admin/teacher)
+// ---------------------------------------------------------------------------
+
+export const getVideoGating = async (req: Request, res: Response): Promise<Response> => {
+  const course = await Course.findById(req.params.id).select('videoGating school');
+  if (!course) throw new NotFoundError('Course');
+  assertOwnsOrg(req, course, 'school');
+
+  return ApiResponse.success(res, course.videoGating || null);
+};
+
+export const updateVideoGating = async (req: Request, res: Response): Promise<Response> => {
+  const course = await Course.findById(req.params.id);
+  if (!course) throw new NotFoundError('Course');
+  assertOwnsOrg(req, course, 'school');
+
+  const {
+    enabled,
+    blockForwardSeeking,
+    checkpoints,
+    minWatchPercentToUnlock,
+    showCheckpointAlerts,
+    description,
+    checkpointQuestions,
+  } = req.body;
+
+  if (!Array.isArray(checkpoints) || checkpoints.length === 0) {
+    throw new BadRequestError('At least one checkpoint percentage is required');
+  }
+  const minWatch = Number(minWatchPercentToUnlock);
+  if (!Number.isFinite(minWatch) || minWatch < 1 || minWatch > 100) {
+    throw new BadRequestError('minWatchPercentToUnlock must be a number between 1 and 100');
+  }
+
+  course.videoGating = {
+    enabled: !!enabled,
+    blockForwardSeeking: blockForwardSeeking !== false,
+    checkpoints: checkpoints.map((c: unknown) => Number(c)).filter((c: number) => Number.isFinite(c)),
+    minWatchPercentToUnlock: minWatch,
+    showCheckpointAlerts: showCheckpointAlerts !== false,
+    description: description || '',
+    checkpointQuestions: checkpointQuestions && typeof checkpointQuestions === 'object' ? checkpointQuestions : {},
+  };
+
+  await course.save();
+
+  return ApiResponse.success(res, course.videoGating, 'Video gating settings saved');
+};
+
+// ---------------------------------------------------------------------------
 // Delete Course (Admin only)
 // ---------------------------------------------------------------------------
 
