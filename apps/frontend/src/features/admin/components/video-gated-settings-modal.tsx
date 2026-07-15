@@ -6,6 +6,17 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
+export interface CheckpointQuestion {
+  _id: string;
+  text: string;
+  type: 'multiple_choice' | 'short_answer';
+  options?: string[]; // multiple_choice only
+  correctOptionIndex?: number; // multiple_choice only
+}
+
+// Keyed by checkpoint percentage (e.g. checkpointQuestions[33] = [...])
+export type CheckpointQuestionsMap = Record<number, CheckpointQuestion[]>;
+
 export interface VideoGatingSettings {
   _id?: string;
   courseId: string;
@@ -15,6 +26,11 @@ export interface VideoGatingSettings {
   minWatchPercentToUnlock: number; // 95
   showCheckpointAlerts: boolean;
   description?: string;
+  checkpointQuestions?: CheckpointQuestionsMap;
+}
+
+function generateId(): string {
+  return `cq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 interface VideoGatedSettingsModalProps {
@@ -22,6 +38,151 @@ interface VideoGatedSettingsModalProps {
   initialSettings?: VideoGatingSettings;
   onClose: () => void;
   onSave: (settings: VideoGatingSettings) => Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoint Questions Editor — questions asked when a student reaches a
+// given viewing checkpoint (e.g. "quiz them at 66% watched").
+// ---------------------------------------------------------------------------
+
+function CheckpointQuestionsEditor({
+  checkpoint,
+  questions,
+  onChange,
+}: {
+  checkpoint: number;
+  questions: CheckpointQuestion[];
+  onChange: (questions: CheckpointQuestion[]) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const addQuestion = () => {
+    onChange([
+      ...questions,
+      { _id: generateId(), text: '', type: 'multiple_choice', options: ['', ''], correctOptionIndex: 0 },
+    ]);
+    setExpanded(true);
+  };
+
+  const updateQuestion = (id: string, patch: Partial<CheckpointQuestion>) => {
+    onChange(questions.map((q) => (q._id === id ? { ...q, ...patch } : q)));
+  };
+
+  const removeQuestion = (id: string) => {
+    onChange(questions.filter((q) => q._id !== id));
+  };
+
+  return (
+    <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <span className="text-sm font-medium text-[var(--color-text-primary)]">
+          ❓ Questions at {checkpoint}% {questions.length > 0 && <span className="text-primary-600 dark:text-primary-400">({questions.length})</span>}
+        </span>
+        <span className="text-xs text-[var(--color-text-tertiary)]">{expanded ? '▲ Hide' : '▼ Manage'}</span>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {questions.map((q, qIdx) => (
+            <div key={q._id} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 space-y-2">
+              <div className="flex items-start gap-2">
+                <span className="text-xs font-semibold text-[var(--color-text-tertiary)] mt-2">Q{qIdx + 1}</span>
+                <input
+                  type="text"
+                  value={q.text}
+                  onChange={(e) => updateQuestion(q._id, { text: e.target.value })}
+                  placeholder="Enter the question..."
+                  className="flex-1 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-sm"
+                />
+                <button type="button" onClick={() => removeQuestion(q._id)} className="text-red-500 hover:text-red-600 text-sm px-1">
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3 ps-6">
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={q.type === 'multiple_choice'}
+                    onChange={() => updateQuestion(q._id, { type: 'multiple_choice', options: q.options?.length ? q.options : ['', ''] })}
+                  />
+                  Multiple choice
+                </label>
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={q.type === 'short_answer'}
+                    onChange={() => updateQuestion(q._id, { type: 'short_answer' })}
+                  />
+                  Short answer
+                </label>
+              </div>
+
+              {q.type === 'multiple_choice' && (
+                <div className="ps-6 space-y-1.5">
+                  {(q.options || []).map((opt, optIdx) => (
+                    <div key={optIdx} className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        checked={q.correctOptionIndex === optIdx}
+                        onChange={() => updateQuestion(q._id, { correctOptionIndex: optIdx })}
+                        title="Mark as correct answer"
+                      />
+                      <input
+                        type="text"
+                        value={opt}
+                        onChange={(e) => {
+                          const next = [...(q.options || [])];
+                          next[optIdx] = e.target.value;
+                          updateQuestion(q._id, { options: next });
+                        }}
+                        placeholder={`Option ${optIdx + 1}`}
+                        className="flex-1 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2.5 py-1 text-xs"
+                      />
+                      {(q.options || []).length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = (q.options || []).filter((_, i) => i !== optIdx);
+                            updateQuestion(q._id, {
+                              options: next,
+                              correctOptionIndex: q.correctOptionIndex === optIdx ? 0 : q.correctOptionIndex,
+                            });
+                          }}
+                          className="text-red-500 hover:text-red-600 text-xs"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => updateQuestion(q._id, { options: [...(q.options || []), ''] })}
+                    className="text-xs text-primary-600 dark:text-primary-400 hover:underline"
+                  >
+                    + Add option
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={addQuestion}
+            className="w-full rounded-lg border border-dashed border-[var(--color-border-default)] py-2 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+          >
+            + Add Question at {checkpoint}%
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function VideoGatedSettingsModal({
@@ -226,6 +387,28 @@ export function VideoGatedSettingsModal({
                           ✕
                         </button>
                       </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Per-Checkpoint Questions */}
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-[var(--color-text-secondary)]">
+                    Checkpoint Questions (optional — asks the student a question when they reach that checkpoint):
+                  </div>
+                  <div className="space-y-2">
+                    {settings.checkpoints.map((checkpoint) => (
+                      <CheckpointQuestionsEditor
+                        key={checkpoint}
+                        checkpoint={checkpoint}
+                        questions={settings.checkpointQuestions?.[checkpoint] || []}
+                        onChange={(questions) =>
+                          setSettings((prev) => ({
+                            ...prev,
+                            checkpointQuestions: { ...prev.checkpointQuestions, [checkpoint]: questions },
+                          }))
+                        }
+                      />
                     ))}
                   </div>
                 </div>
