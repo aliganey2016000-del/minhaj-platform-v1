@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { LanguageSwitcher } from '../shared/language-switcher';
 import { ThemeToggle } from '../shared/theme-toggle';
 
-const BRAND_NAME = 'EduRaah';
+const BRAND_NAME = 'Sahal Education Platform';
 
 export function Navbar() {
   const { t } = useTranslation('landing');
