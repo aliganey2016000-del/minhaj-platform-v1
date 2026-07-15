@@ -55,6 +55,7 @@ interface EnrolledCourse {
   progress: Progress;
   meetingLink?: string;
   isLive?: boolean;
+  accessMode?: 'open' | 'restricted';
 }
 
 interface CourseContent {
@@ -229,9 +230,11 @@ export function StudentCourseLearn() {
     ? (course.progress.completedLessons + (course.progress.completedQuizzes || 0) + (course.progress.completedAssignments || 0))
     : 0;
 
-  // Determine which items are locked — all items beyond the unlocked range are locked
-  // Simple lock logic: first N items unlocked where N = completedCount + 1 (current)
-  const unlockedCount = Math.min(completedCount + 1, totalItems);
+  // Determine which items are locked — all items beyond the unlocked range are locked.
+  // Only enforced when the course's accessMode is 'restricted'; otherwise every
+  // lesson is open regardless of completion order.
+  const isRestrictedCourse = course?.accessMode === 'restricted';
+  const unlockedCount = isRestrictedCourse ? Math.min(completedCount + 1, totalItems) : totalItems;
 
   const goToPrev = () => {
     if (activeItemIdx > 0) {
