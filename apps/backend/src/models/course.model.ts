@@ -56,6 +56,7 @@ export interface ICourse extends Document {
   endDate?: Date;
   meetingLink?: string;          // Google Meet URL for this course's live sessions
   isLive: boolean;               // Toggled by the teacher — shows "Join Live" to students when true
+  accessMode: 'open' | 'restricted'; // Lesson access restriction: open = all unlocked, restricted = sequential
   createdAt: Date;
   updatedAt: Date;
 }
@@ -211,6 +212,14 @@ const courseSchema = new Schema<ICourse>(
     isLive: {
       type: Boolean,
       default: false,
+    },
+    accessMode: {
+      type: String,
+      enum: {
+        values: ['open', 'restricted'],
+        message: '{VALUE} is not a valid access mode',
+      },
+      default: 'open',
     },
   },
   {

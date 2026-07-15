@@ -146,6 +146,9 @@ const ProfileManage = lazy(() =>
 const PortalPage = lazy(() =>
   import('../features/shared/pages/portal-page').then((m) => ({ default: m.PortalPage }))
 );
+const ForumPage = lazy(() =>
+  import('../features/shared/pages/forum-page').then((m) => ({ default: m.ForumPage }))
+);
 
 function PageLoader() {
   return (
@@ -172,7 +175,7 @@ export const router = createBrowserRouter([
   ...publicRoutes,
   ...authRoutes,
 
-  // ── Student Portal (12 sub-routes) ──
+  // ── Student Portal ──
   {
     path: 'student',
     element: L(<StudentLayout />),
@@ -189,12 +192,13 @@ export const router = createBrowserRouter([
       { path: 'downloads', element: L(<StudentDownloads />) },
       { path: 'bookmarks', element: L(<StudentBookmarks />) },
       { path: 'notifications', element: L(<StudentNotifications />) },
+      { path: 'forum', element: L(<ForumPage />) },
       { path: 'profile', element: L(<StudentProfileView />) },
       { path: 'settings', element: L(<StudentSettings />) },
     ],
   },
 
-  // ── Admin Portal (21 sub-routes) ──
+  // ── Admin Portal (shared with teachers) ──
   {
     path: 'admin',
     element: L(<AdminLayout />),
@@ -228,11 +232,12 @@ export const router = createBrowserRouter([
       { path: 'settings', element: L(<SettingsManage />) },
       { path: 'analytics', element: L(<AnalyticsManage />) },
       { path: 'logs', element: L(<ActivityLogsManage />) },
+      { path: 'forum', element: L(<ForumPage />) },
       { path: 'profile', element: L(<ProfileManage />) },
     ],
   },
 
-  // ── Parent Portal (11 sub-routes) ──
+  // ── Parent Portal ──
   {
     path: 'parent',
     element: L(<ParentLayout />),
@@ -245,6 +250,7 @@ export const router = createBrowserRouter([
       { path: 'teachers', element: L(<PortalPage />) },
       { path: 'events', element: L(<PortalPage />) },
       { path: 'notifications', element: L(<PortalPage />) },
+      { path: 'forum', element: L(<ForumPage />) },
       { path: 'messages', element: L(<PortalPage />) },
       { path: 'profile', element: L(<PortalPage />) },
       { path: 'settings', element: L(<PortalPage />) },

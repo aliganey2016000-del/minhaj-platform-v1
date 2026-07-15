@@ -279,7 +279,7 @@ export const getMyDashboard = async (req: Request, res: Response): Promise<Respo
 
 export const getCourses = async (req: Request, res: Response): Promise<Response> => {
   const student = await Student.findById(req.params.id)
-    .populate({ path: 'enrolledCourses', select: 'title slug description category level status teacher thumbnail meetingLink isLive', populate: { path: 'teacher', select: 'user profile' } })
+    .populate({ path: 'enrolledCourses', select: 'title slug description category level status teacher thumbnail meetingLink isLive accessMode', populate: { path: 'teacher', select: 'user profile' } })
     .lean();
 
   if (!student) throw new NotFoundError('Student');
@@ -295,7 +295,7 @@ export const getMyCourses = async (req: Request, res: Response): Promise<Respons
   const populated = await Student.findById(student._id)
     .populate({
       path: 'enrolledCourses',
-      select: 'title slug description category level status teacher thumbnail duration fee maxStudents enrolledStudents meetingLink isLive',
+      select: 'title slug description category level status teacher thumbnail duration fee maxStudents enrolledStudents meetingLink isLive accessMode',
       populate: { path: 'teacher', select: 'user profile', populate: { path: 'profile', select: 'firstName lastName' } },
     })
     .lean();

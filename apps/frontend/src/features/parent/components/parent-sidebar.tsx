@@ -25,6 +25,7 @@ const navItems = [
   { path: '/parent/fees',         label: 'Fees & Payments',   icon: '💰' },
   { path: '/parent/teachers',     label: 'Teachers',          icon: '👨‍🏫' },
   { path: '/parent/events',       label: 'Events',     icon: '🎉' },
+  { path: '/parent/forum',        label: 'Forum',             icon: '💬' },
   { path: '/parent/notifications',label: 'Notifications',     icon: '🔔' },
   { path: '/parent/messages',     label: 'Messages',          icon: '💬' },
   { path: '/parent/profile',      label: 'Profile',           icon: '👤' },

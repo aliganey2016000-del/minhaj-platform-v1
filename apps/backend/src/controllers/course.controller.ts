@@ -198,7 +198,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const allowedUpdates = [
     'title', 'description', 'category', 'level', 'duration',
     'fee', 'teacher', 'school', 'class', 'maxStudents', 'syllabus', 'prerequisites', 'status',
-    'startDate', 'endDate', 'thumbnail', 'meetingLink',
+    'startDate', 'endDate', 'thumbnail', 'meetingLink', 'accessMode',
   ];
 
   const updates: Record<string, unknown> = {};

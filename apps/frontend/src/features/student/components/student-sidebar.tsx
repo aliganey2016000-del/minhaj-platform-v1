@@ -37,6 +37,12 @@ export function StudentSidebar() {
       ],
     },
     {
+      title: 'Communication',
+      items: [
+        { path: '/student/forum', label: 'Forum', icon: '💬' },
+      ],
+    },
+    {
       title: t('account'),
       items: [
         { path: '/student/notifications', label: t('notifications'), icon: '🔔' },

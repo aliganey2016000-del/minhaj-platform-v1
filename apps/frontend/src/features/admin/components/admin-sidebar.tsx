@@ -42,6 +42,12 @@ const navSections = [
     ],
   },
   {
+    title: 'Communication',
+    items: [
+      { path: '/admin/forum',        label: 'Forum',              icon: '💬' },
+    ],
+  },
+  {
     title: 'Content',
     items: [
       { path: '/admin/announcements',label: 'Announcements',      icon: '📢' },

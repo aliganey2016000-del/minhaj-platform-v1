@@ -34,6 +34,7 @@ interface Course {
   teacher?: TeacherBrief; maxStudents: number; enrolledStudents: number;
   thumbnail?: string; status: string; progress: Progress;
   meetingLink?: string; isLive?: boolean;
+  accessMode?: 'open' | 'restricted';
 }
 interface CourseContent {
   _id?: string; course: string; chapters: Chapter[];
@@ -108,6 +109,8 @@ export function StudentCourseDetail() {
   const completedCount = (course?.progress?.completedItems || 0) + (course?.progress?.completedLessons || 0) + (course?.progress?.completedQuizzes || 0) + (course?.progress?.completedAssignments || 0);
   // Use the flatItems length for total
   const totalItems = flatItems.length;
+  // 'restricted' = sequential unlock (must complete previous item first); anything else = all lessons open
+  const isRestrictedCourse = course?.accessMode === 'restricted';
   const progressPct = totalItems > 0 ? Math.round((completedCount / totalItems) * 100) : 0;
 
   const launchLearn = (itemIdx: number) => {
@@ -175,8 +178,8 @@ export function StudentCourseDetail() {
               <div className="space-y-6 relative z-10">
                 {flatItems.map((fi, idx) => {
                   const isCompleted = idx < completedCount;
-                  const isUnlocked = idx === completedCount;
-                  const isLocked = idx > completedCount;
+                  const isLocked = isRestrictedCourse && idx > completedCount;
+                  const isUnlocked = isRestrictedCourse ? idx === completedCount : !isCompleted;
                   return (
                     <motion.button
                       key={`${fi.item._id || idx}`}
@@ -248,8 +251,8 @@ export function StudentCourseDetail() {
                       {chItems.map((fi, i) => {
                         const globalIdx = flatItems.indexOf(fi);
                         const isCompleted = globalIdx < completedCount;
-                        const isUnlocked = globalIdx === completedCount;
-                        const isLocked = globalIdx > completedCount;
+                        const isLocked = isRestrictedCourse && globalIdx > completedCount;
+                        const isUnlocked = isRestrictedCourse ? globalIdx === completedCount : !isCompleted;
                         return (
                           <button
                             key={fi.item._id || i}

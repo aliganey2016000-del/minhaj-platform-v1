@@ -26,6 +26,7 @@ import systemRoutes from './system.routes';
 import schoolRoutes from './school.routes';
 import courseContentRoutes from './course-content.routes';
 import aiRoutes from './ai.routes';
+import forumRoutes from './forum.routes';
 
 const router = Router();
 
@@ -56,32 +57,7 @@ router.use('/system', systemRoutes);
 router.use('/schools', schoolRoutes);
 router.use('/courses/:courseId/content', courseContentRoutes);
 router.use('/ai', aiRoutes);
-
-// Future routes (to be implemented):
-// router.use('/users', userRoutes);
-// router.use('/parents', parentRoutes);
-// router.use('/teachers', teacherRoutes);
-// router.use('/classes', classRoutes);
-// router.use('/attendance', attendanceRoutes);
-// router.use('/exams', examRoutes);
-// router.use('/results', resultRoutes);
-// router.use('/assignments', assignmentRoutes);
-// router.use('/payments', paymentRoutes);
-// router.use('/certificates', certificateRoutes);
-// router.use('/announcements', announcementRoutes);
-// router.use('/news', newsRoutes);
-// router.use('/events', eventRoutes);
-// router.use('/gallery', galleryRoutes);
-// router.use('/messages', messageRoutes);
-// router.use('/notifications', notificationRoutes);
-// router.use('/roles', roleRoutes);
-// router.use('/permissions', permissionRoutes);
-// router.use('/settings', settingsRoutes);
-// router.use('/donations', donationRoutes);
-// router.use('/upload', uploadRoutes);
-// router.use('/analytics', analyticsRoutes);
-// router.use('/website', websiteRoutes);
-// router.use('/logs', logRoutes);
+router.use('/forum', forumRoutes);
 
 // ---------------------------------------------------------------------------
 // Health Check Endpoint

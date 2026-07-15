@@ -14,6 +14,10 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ISchool extends Document {
   name: string;
+  organizationType: 'school' | 'university' | 'training_center' | 'private';
+  subdomain: string;
+  country: string;
+  city: string;
   orgId?: string;
   address: string;
   phone: string;
@@ -21,6 +25,9 @@ export interface ISchool extends Document {
   principalName: string;
   establishedYear: number;
   website?: string;
+  estimatedStudents?: '<50' | '50-200' | '200-1000' | '1000+';
+  subscriptionPlan: 'free_trial' | 'basic' | 'premium';
+  registrationNo?: string;
   status: 'active' | 'inactive';
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
@@ -38,6 +45,33 @@ const schoolSchema = new Schema<ISchool>(
       required: [true, 'School name is required'],
       trim: true,
       maxlength: [200, 'School name cannot exceed 200 characters'],
+    },
+    organizationType: {
+      type: String,
+      required: [true, 'Organization type is required'],
+      enum: ['school', 'university', 'training_center', 'private'],
+    },
+    subdomain: {
+      type: String,
+      required: [true, 'Subdomain is required'],
+      trim: true,
+      lowercase: true,
+      unique: true,
+      minlength: [3, 'Subdomain must be at least 3 characters'],
+      maxlength: [63, 'Subdomain cannot exceed 63 characters'],
+      match: [/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Subdomain may only contain lowercase letters, numbers, and hyphens'],
+    },
+    country: {
+      type: String,
+      required: [true, 'Country is required'],
+      trim: true,
+      maxlength: [100, 'Country cannot exceed 100 characters'],
+    },
+    city: {
+      type: String,
+      required: [true, 'City is required'],
+      trim: true,
+      maxlength: [100, 'City cannot exceed 100 characters'],
     },
     orgId: {
       type: String,
@@ -82,6 +116,21 @@ const schoolSchema = new Schema<ISchool>(
       type: String,
       default: '',
       trim: true,
+    },
+    estimatedStudents: {
+      type: String,
+      enum: ['<50', '50-200', '200-1000', '1000+'],
+    },
+    subscriptionPlan: {
+      type: String,
+      enum: ['free_trial', 'basic', 'premium'],
+      default: 'free_trial',
+    },
+    registrationNo: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: [100, 'Registration number cannot exceed 100 characters'],
     },
     status: {
       type: String,

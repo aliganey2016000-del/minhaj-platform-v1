@@ -7,6 +7,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { VideoGatedSettingsModal, type VideoGatingSettings } from '../components/video-gated-settings-modal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,6 +50,7 @@ interface Course {
   class?: ClassInfo | null;
   startDate?: string;
   createdAt: string;
+  accessMode?: 'open' | 'restricted';
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +393,8 @@ interface CourseCardProps {
   onBuildContent: (course: Course) => void;
   onViewStudents: (course: Course) => void;
   onPreview: (course: Course) => void;
+  onSetAccessMode: (course: Course) => void;
+  onSetVideoGating: (course: Course) => void;
 }
 
 function CourseCard({
@@ -403,6 +407,8 @@ function CourseCard({
   onBuildContent,
   onViewStudents,
   onPreview,
+  onSetAccessMode,
+  onSetVideoGating,
 }: CourseCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -510,6 +516,24 @@ function CourseCard({
                 >
                   <span className="w-4 text-center flex-shrink-0">🏗️</span>
                   <span>Build Course Content</span>
+                </button>
+
+                {/* Course Progression Settings */}
+                <button
+                  onClick={() => handleAction(() => onSetAccessMode(course))}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"
+                >
+                  <span className="w-4 text-center flex-shrink-0">{course.accessMode === 'restricted' ? '🔒' : '🔓'}</span>
+                  <span>Course Progression Settings</span>
+                </button>
+
+                {/* Video-Gated Lesson Settings */}
+                <button
+                  onClick={() => handleAction(() => onSetVideoGating(course))}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"
+                >
+                  <span className="w-4 text-center flex-shrink-0">🎬</span>
+                  <span>Video-Gated Lesson Settings</span>
                 </button>
 
                 {/* View Enrolled Students */}
@@ -646,6 +670,105 @@ function InfoRow({ icon, label, value, highlight }: { icon: string; label: strin
 }
 
 // ---------------------------------------------------------------------------
+// Course Progression Settings Modal
+// ---------------------------------------------------------------------------
+
+function AccessModeModal({
+  course,
+  onClose,
+  onSave,
+}: {
+  course: Course;
+  onClose: () => void;
+  onSave: (id: string, accessMode: 'open' | 'restricted') => Promise<void>;
+}) {
+  const [selected, setSelected] = useState<'open' | 'restricted'>(course.accessMode || 'open');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      await onSave(course._id, selected);
+      onClose();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to save progression settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const options: { value: 'open' | 'restricted'; icon: string; title: string; description: string }[] = [
+    {
+      value: 'open',
+      icon: '🔓',
+      title: 'No Restriction',
+      description: 'All lessons are unlocked from the start — students can watch them in any order.',
+    },
+    {
+      value: 'restricted',
+      icon: '🔒',
+      title: 'Restricted Progression',
+      description: 'Only the first lesson is unlocked. Each next lesson or quiz unlocks once the previous one is completed (e.g. 95% watched) or the quiz is passed.',
+    },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-[var(--color-text-primary)] mb-1">🎯 Course Progression Settings</h2>
+        <p className="text-xs text-[var(--color-text-tertiary)] mb-4">{course.title.en}</p>
+
+        {error && <p className="text-red-500 text-sm mb-3 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{error}</p>}
+
+        <div className="space-y-2.5">
+          {options.map((opt) => (
+            <label
+              key={opt.value}
+              className={`flex items-start gap-3 rounded-xl border p-3.5 cursor-pointer transition-colors ${
+                selected === opt.value
+                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20'
+                  : 'border-[var(--color-border-default)] hover:bg-[var(--color-surface-tertiary)]'
+              }`}
+            >
+              <input
+                type="radio"
+                name="accessMode"
+                value={opt.value}
+                checked={selected === opt.value}
+                onChange={() => setSelected(opt.value)}
+                className="mt-1"
+              />
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-text-primary)] flex items-center gap-1.5">
+                  <span>{opt.icon}</span> {opt.title}
+                </p>
+                <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">{opt.description}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+
+        <div className="flex gap-2 pt-5">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors"
+          >
+            {saving ? 'Saving...' : 'Save Settings'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -656,6 +779,9 @@ export function CoursesManage() {
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | undefined>(undefined);
+  const [accessModeCourse, setAccessModeCourse] = useState<Course | undefined>(undefined);
+  const [videoGatedCourse, setVideoGatedCourse] = useState<Course | undefined>(undefined);
+  const [videoGatingSettings, setVideoGatingSettings] = useState<VideoGatingSettings | undefined>(undefined);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -747,6 +873,27 @@ export function CoursesManage() {
 
   const handlePreview = (course: Course) => {
     navigate(`/admin/courses/${course._id}/preview`);
+  };
+
+  const handleSaveAccessMode = async (id: string, accessMode: 'open' | 'restricted') => {
+    await api.patch(`/courses/${id}`, { accessMode });
+    setCourses((prev) => prev.map((c) => (c._id === id ? { ...c, accessMode } : c)));
+  };
+
+  const handleSaveVideoGatingSettings = async (settings: VideoGatingSettings) => {
+    try {
+      if (videoGatedCourse) {
+        // Save to backend (assuming /courses/:id/video-gating endpoint)
+        await api.post(`/courses/${videoGatedCourse._id}/video-gating`, settings);
+        setVideoGatedCourse(undefined);
+        setVideoGatingSettings(undefined);
+        // Show success message
+        alert('Video-gating settings saved successfully!');
+      }
+    } catch (err: any) {
+      console.error('Failed to save video gating settings:', err);
+      throw err;
+    }
   };
 
   if (loading) return (
@@ -856,6 +1003,8 @@ export function CoursesManage() {
                 onBuildContent={handleBuildContent}
                 onViewStudents={handleViewStudents}
                 onPreview={handlePreview}
+                onSetAccessMode={setAccessModeCourse}
+                onSetVideoGating={setVideoGatedCourse}
               />
             ))}
           </div>
@@ -880,6 +1029,26 @@ export function CoursesManage() {
             setEditingCourse(undefined);
             fetchCourses();
           }}
+        />
+      )}
+
+      {accessModeCourse && (
+        <AccessModeModal
+          course={accessModeCourse}
+          onClose={() => setAccessModeCourse(undefined)}
+          onSave={handleSaveAccessMode}
+        />
+      )}
+
+      {videoGatedCourse && (
+        <VideoGatedSettingsModal
+          courseId={videoGatedCourse._id}
+          initialSettings={videoGatingSettings}
+          onClose={() => {
+            setVideoGatedCourse(undefined);
+            setVideoGatingSettings(undefined);
+          }}
+          onSave={handleSaveVideoGatingSettings}
         />
       )}
     </div>

@@ -16,9 +16,17 @@ import { useAuth } from '../../../store/auth-context';
 // Types
 // ---------------------------------------------------------------------------
 
+type OrganizationType = 'school' | 'university' | 'training_center' | 'private';
+type EstimatedStudents = '<50' | '50-200' | '200-1000' | '1000+';
+type SubscriptionPlan = 'free_trial' | 'basic' | 'premium';
+
 interface School {
   _id: string;
   name: string;
+  organizationType: OrganizationType;
+  subdomain: string;
+  country: string;
+  city: string;
   orgId?: string;
   address: string;
   phone: string;
@@ -26,6 +34,9 @@ interface School {
   principalName: string;
   establishedYear: number;
   website?: string;
+  estimatedStudents?: EstimatedStudents;
+  subscriptionPlan: SubscriptionPlan;
+  registrationNo?: string;
   status: 'active' | 'inactive';
   createdBy?: { _id: string; email: string };
   createdAt: string;
@@ -34,15 +45,32 @@ interface School {
 
 interface SchoolFormData {
   name: string;
+  organizationType: OrganizationType;
+  subdomain: string;
+  country: string;
+  city: string;
   orgId: string;
   address: string;
   phone: string;
   email: string;
+  adminPassword: string;
   principalName: string;
   establishedYear: string;
   website: string;
+  estimatedStudents: EstimatedStudents | '';
+  subscriptionPlan: SubscriptionPlan;
+  registrationNo: string;
   status: 'active' | 'inactive';
 }
+
+// Step field groups for the 3-step "Register Organization" wizard.
+const STEP_FIELDS: Record<number, (keyof SchoolFormData)[]> = {
+  1: ['name', 'organizationType', 'subdomain', 'country', 'city', 'address', 'orgId', 'establishedYear', 'website'],
+  2: ['principalName', 'email', 'adminPassword', 'phone'],
+  3: ['estimatedStudents', 'subscriptionPlan', 'registrationNo'],
+};
+
+const STEP_LABELS = ['Organization Details', 'Org Admin', 'Size & Plan'];
 
 interface PaginationMeta {
   page: number;
@@ -54,13 +82,21 @@ type ToastType = 'success' | 'error' | null;
 
 const INITIAL_FORM: SchoolFormData = {
   name: '',
+  organizationType: 'school',
+  subdomain: '',
+  country: '',
+  city: '',
   orgId: '',
   address: '',
   phone: '',
   email: '',
+  adminPassword: '',
   principalName: '',
   establishedYear: '',
   website: '',
+  estimatedStudents: '',
+  subscriptionPlan: 'free_trial',
+  registrationNo: '',
   status: 'active',
 };
 
@@ -195,6 +231,98 @@ function FormInput({
 }
 
 // ---------------------------------------------------------------------------
+// Select Field — mirrors FormInput's styling/error handling for <select>
+// ---------------------------------------------------------------------------
+
+function FormSelect({
+  label,
+  name,
+  required,
+  value,
+  error,
+  onChange,
+  options,
+  placeholder,
+}: {
+  label: string;
+  name: string;
+  required?: boolean;
+  value: string;
+  error?: string;
+  onChange: (e: ChangeEvent<HTMLSelectElement>) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label htmlFor={name} className="block text-sm font-medium text-[var(--color-text-primary)] mb-1">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      <select
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        className={`w-full rounded-xl border px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors ${
+          error ? 'border-red-400 focus:ring-red-400' : 'border-[var(--color-border-default)]'
+        }`}
+      >
+        {placeholder && <option value="">{placeholder}</option>}
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Step Indicator — used by the 3-step "Register Organization" wizard
+// ---------------------------------------------------------------------------
+
+function StepIndicator({ current }: { current: number }) {
+  return (
+    <div className="flex items-center gap-2 px-6 pt-4">
+      {STEP_LABELS.map((label, idx) => {
+        const stepNum = idx + 1;
+        const isActive = stepNum === current;
+        const isDone = stepNum < current;
+        return (
+          <div key={label} className="flex flex-1 items-center gap-2">
+            <div className="flex items-center gap-2 flex-1">
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors ${
+                  isDone
+                    ? 'bg-primary-600 text-white'
+                    : isActive
+                      ? 'bg-primary-100 text-primary-700 border-2 border-primary-600 dark:bg-primary-950 dark:text-primary-300'
+                      : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-tertiary)]'
+                }`}
+              >
+                {isDone ? '✓' : stepNum}
+              </span>
+              <span
+                className={`hidden sm:block text-xs font-medium ${
+                  isActive ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+            {stepNum < STEP_LABELS.length && (
+              <div className={`h-0.5 flex-1 rounded ${isDone ? 'bg-primary-600' : 'bg-[var(--color-border-default)]'}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -218,6 +346,7 @@ export function SchoolsManage() {
   const [form, setForm] = useState<SchoolFormData>(INITIAL_FORM);
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof SchoolFormData, string>>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [step, setStep] = useState(1);
 
   // ── Delete state ──
   const [deleteTarget, setDeleteTarget] = useState<School | null>(null);
@@ -262,32 +391,89 @@ export function SchoolsManage() {
   };
 
   // ── Validation ──
-  const validate = (): boolean => {
+  // Builds the full error map; `onlyFields` restricts which keys are
+  // actually checked (used by the wizard's per-step Next button) while
+  // still returning a boolean for the whole set so callers can short-circuit.
+  const collectErrors = (onlyFields?: (keyof SchoolFormData)[]): Partial<Record<keyof SchoolFormData, string>> => {
     const errors: Partial<Record<keyof SchoolFormData, string>> = {};
+    const include = (field: keyof SchoolFormData) => !onlyFields || onlyFields.includes(field);
 
-    if (!form.name.trim()) errors.name = 'Organization name is required';
-    else if (form.name.length > 200) errors.name = 'Name cannot exceed 200 characters';
+    if (include('name')) {
+      if (!form.name.trim()) errors.name = 'Organization name is required';
+      else if (form.name.length > 200) errors.name = 'Name cannot exceed 200 characters';
+    }
 
-    if (!form.address.trim()) errors.address = 'Address is required';
-    else if (form.address.length > 500) errors.address = 'Address cannot exceed 500 characters';
+    if (include('organizationType') && !form.organizationType) {
+      errors.organizationType = 'Organization type is required';
+    }
 
-    if (!form.phone.trim()) errors.phone = 'Phone number is required';
-    else if (!/^[+]?[\d\s()-]{7,20}$/.test(form.phone.trim())) errors.phone = 'Enter a valid phone number';
+    if (include('subdomain')) {
+      const sub = form.subdomain.trim().toLowerCase();
+      if (!sub) errors.subdomain = 'Subdomain is required';
+      else if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(sub)) errors.subdomain = 'Use lowercase letters, numbers, and hyphens only';
+      else if (sub.length < 3 || sub.length > 63) errors.subdomain = 'Subdomain must be 3-63 characters';
+    }
 
-    if (!form.email.trim()) errors.email = 'Email is required';
-    else if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) errors.email = 'Enter a valid email address';
+    if (include('country') && !form.country.trim()) errors.country = 'Country is required';
+    if (include('city') && !form.city.trim()) errors.city = 'City is required';
 
-    if (!form.principalName.trim()) errors.principalName = 'Principal name is required';
-    else if (form.principalName.length > 100) errors.principalName = 'Name cannot exceed 100 characters';
+    if (include('address')) {
+      if (!form.address.trim()) errors.address = 'Address is required';
+      else if (form.address.length > 500) errors.address = 'Address cannot exceed 500 characters';
+    }
 
-    if (!form.establishedYear) errors.establishedYear = 'Established year is required';
-    else {
-      const year = parseInt(form.establishedYear, 10);
-      if (isNaN(year) || year < 1900 || year > getCurrentYear()) {
-        errors.establishedYear = `Year must be between 1900 and ${getCurrentYear()}`;
+    if (include('establishedYear')) {
+      if (!form.establishedYear) errors.establishedYear = 'Established year is required';
+      else {
+        const year = parseInt(form.establishedYear, 10);
+        if (isNaN(year) || year < 1900 || year > getCurrentYear()) {
+          errors.establishedYear = `Year must be between 1900 and ${getCurrentYear()}`;
+        }
       }
     }
 
+    if (include('principalName')) {
+      if (!form.principalName.trim()) errors.principalName = 'Admin full name is required';
+      else if (form.principalName.length > 100) errors.principalName = 'Name cannot exceed 100 characters';
+    }
+
+    if (include('email')) {
+      if (!form.email.trim()) errors.email = 'Login email is required';
+      else if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) errors.email = 'Enter a valid email address';
+    }
+
+    if (include('adminPassword') && !editingSchool) {
+      if (!form.adminPassword) errors.adminPassword = 'Password is required';
+      else if (form.adminPassword.length < 8) errors.adminPassword = 'Password must be at least 8 characters';
+    }
+
+    if (include('phone')) {
+      if (!form.phone.trim()) errors.phone = 'Phone number is required';
+      else if (!/^[+]?[\d\s()-]{7,20}$/.test(form.phone.trim())) errors.phone = 'Enter a valid phone number';
+    }
+
+    if (include('registrationNo') && ['school', 'university'].includes(form.organizationType) && !form.registrationNo.trim()) {
+      errors.registrationNo = 'Registration number is required for schools and universities';
+    }
+
+    return errors;
+  };
+
+  const validateStep = (stepNum: number): boolean => {
+    const stepErrors = collectErrors(STEP_FIELDS[stepNum]);
+    setFormErrors((prev) => {
+      const next = { ...prev };
+      STEP_FIELDS[stepNum].forEach((field) => {
+        if (stepErrors[field]) next[field] = stepErrors[field];
+        else delete next[field];
+      });
+      return next;
+    });
+    return Object.keys(stepErrors).length === 0;
+  };
+
+  const validate = (): boolean => {
+    const errors = collectErrors();
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -311,6 +497,7 @@ export function SchoolsManage() {
     setEditingSchool(null);
     setForm(INITIAL_FORM);
     setFormErrors({});
+    setStep(1);
     setModalOpen(true);
   };
 
@@ -319,31 +506,56 @@ export function SchoolsManage() {
     setEditingSchool(school);
     setForm({
       name: school.name,
+      organizationType: school.organizationType || 'school',
+      subdomain: school.subdomain || '',
+      country: school.country || '',
+      city: school.city || '',
       orgId: school.orgId || '',
       address: school.address,
       phone: school.phone,
       email: school.email,
+      adminPassword: '',
       principalName: school.principalName,
       establishedYear: String(school.establishedYear),
       website: school.website || '',
+      estimatedStudents: school.estimatedStudents || '',
+      subscriptionPlan: school.subscriptionPlan || 'free_trial',
+      registrationNo: school.registrationNo || '',
       status: school.status,
     });
     setFormErrors({});
+    setStep(1);
     setModalOpen(true);
   };
+
+  // ── Wizard navigation (create mode only) ──
+  const goNext = () => {
+    if (validateStep(step)) setStep((s) => Math.min(3, s + 1));
+  };
+  const goBack = () => setStep((s) => Math.max(1, s - 1));
 
   // ── Submit form ──
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
+    // The wizard is one <form> spanning all 3 steps, so an Enter keypress on
+    // an early step could reach here before the final step — treat that as
+    // "advance to next step" instead of submitting.
+    if (!editingSchool && step < 3) {
+      goNext();
+      return;
+    }
+
     if (!validate()) return;
 
     setSubmitting(true);
     try {
-      const payload = {
-        ...form,
+      const { adminPassword, ...rest } = form;
+      const payload: Record<string, unknown> = {
+        ...rest,
         establishedYear: parseInt(form.establishedYear, 10),
       };
+      if (!editingSchool) payload.adminPassword = adminPassword;
 
       if (editingSchool) {
         // Update
@@ -587,7 +799,7 @@ export function SchoolsManage() {
       {/* ── Create / Edit Modal ── */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto pt-10 pb-10 bg-black/40 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-lg rounded-2xl bg-[var(--color-surface-primary)] shadow-elevated border border-[var(--color-border-default)]">
+          <div className="mx-4 w-full max-w-xl rounded-2xl bg-[var(--color-surface-primary)] shadow-elevated border border-[var(--color-border-default)]">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-6 py-4">
               <h2 className="text-lg font-bold text-[var(--color-text-primary)]">
@@ -604,58 +816,142 @@ export function SchoolsManage() {
               </button>
             </div>
 
+            {/* Step Indicator — create mode only; editing is a single flat form */}
+            {!editingSchool && <StepIndicator current={step} />}
+
             {/* Modal Body */}
             <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
-              <FormInput label="Organization Name" name="name" value={form.name} error={formErrors.name} onChange={handleChange} placeholder="e.g., Al-Huda International" required maxLength={200} />
-              <FormInput label="Organization ID" name="orgId" value={form.orgId} error={formErrors.orgId} onChange={handleChange} placeholder="e.g., ORG-101 or school code (optional)" maxLength={50} />
-              <FormInput label="Address" name="address" value={form.address} error={formErrors.address} onChange={handleChange} placeholder="Full organization address" required maxLength={500} />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormInput label="Phone" name="phone" type="tel" value={form.phone} error={formErrors.phone} onChange={handleChange} placeholder="+252 61 2345678" required />
-                <FormInput label="Email" name="email" type="email" value={form.email} error={formErrors.email} onChange={handleChange} placeholder="org@example.com" required />
-              </div>
-              <FormInput label="Principal Name" name="principalName" value={form.principalName} error={formErrors.principalName} onChange={handleChange} placeholder="Full name of the principal" required maxLength={100} />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormInput label="Established Year" name="establishedYear" type="number" value={form.establishedYear} error={formErrors.establishedYear} onChange={handleChange} placeholder={`e.g., ${getCurrentYear() - 10}`} required />
-                {isSuperAdmin && (
-                  <div>
-                    <label htmlFor="status" className="block text-sm font-medium text-[var(--color-text-primary)] mb-1">
-                      Status
-                    </label>
-                    <select
-                      id="status"
+              {/* ── Step 1 / Edit: Organization Details ── */}
+              {(editingSchool || step === 1) && (
+                <>
+                  <FormInput label="Organization Name" name="name" value={form.name} error={formErrors.name} onChange={handleChange} placeholder="e.g., Al-Huda International" required maxLength={200} />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormSelect
+                      label="Organization Type"
+                      name="organizationType"
+                      value={form.organizationType}
+                      error={formErrors.organizationType}
+                      onChange={handleChange}
+                      required
+                      options={[
+                        { value: 'school', label: 'School' },
+                        { value: 'university', label: 'University' },
+                        { value: 'training_center', label: 'Training Center' },
+                        { value: 'private', label: 'Private' },
+                      ]}
+                    />
+                    <FormInput label="Subdomain / Slug" name="subdomain" value={form.subdomain} error={formErrors.subdomain} onChange={handleChange} placeholder="e.g., al-huda" required maxLength={63} />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormInput label="Country" name="country" value={form.country} error={formErrors.country} onChange={handleChange} placeholder="e.g., Somalia" required />
+                    <FormInput label="City" name="city" value={form.city} error={formErrors.city} onChange={handleChange} placeholder="e.g., Mogadishu" required />
+                  </div>
+                  <FormInput label="Address" name="address" value={form.address} error={formErrors.address} onChange={handleChange} placeholder="Full organization address" required maxLength={500} />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormInput label="Organization ID" name="orgId" value={form.orgId} error={formErrors.orgId} onChange={handleChange} placeholder="e.g., ORG-101 (optional)" maxLength={50} />
+                    <FormInput label="Established Year" name="establishedYear" type="number" value={form.establishedYear} error={formErrors.establishedYear} onChange={handleChange} placeholder={`e.g., ${getCurrentYear() - 10}`} required />
+                  </div>
+                  <FormInput label="Website (optional)" name="website" type="url" value={form.website} error={formErrors.website} onChange={handleChange} placeholder="https://www.example.org.so" />
+                  {editingSchool && isSuperAdmin && (
+                    <FormSelect
+                      label="Status"
                       name="status"
                       value={form.status}
                       onChange={handleChange}
-                      className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
-                  </div>
-                )}
-              </div>
-              <FormInput label="Website (optional)" name="website" type="url" value={form.website} error={formErrors.website} onChange={handleChange} placeholder="https://www.example.org.so" />
+                      options={[
+                        { value: 'active', label: 'Active' },
+                        { value: 'inactive', label: 'Inactive' },
+                      ]}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* ── Step 2 / Edit: Org Admin ── */}
+              {(editingSchool || step === 2) && (
+                <>
+                  <FormInput label="Admin Full Name" name="principalName" value={form.principalName} error={formErrors.principalName} onChange={handleChange} placeholder="Full name of the org admin" required maxLength={100} />
+                  <FormInput label="Login Email" name="email" type="email" value={form.email} error={formErrors.email} onChange={handleChange} placeholder="org@example.com" required />
+                  {!editingSchool && (
+                    <FormInput label="Create Password" name="adminPassword" type="password" value={form.adminPassword} error={formErrors.adminPassword} onChange={handleChange} placeholder="At least 8 characters" required />
+                  )}
+                  <FormInput label="Phone Number" name="phone" type="tel" value={form.phone} error={formErrors.phone} onChange={handleChange} placeholder="+252 61 2345678" required />
+                </>
+              )}
+
+              {/* ── Step 3 / Edit: Size & Plan ── */}
+              {(editingSchool || step === 3) && (
+                <>
+                  <FormSelect
+                    label="Estimated Students"
+                    name="estimatedStudents"
+                    value={form.estimatedStudents}
+                    error={formErrors.estimatedStudents}
+                    onChange={handleChange}
+                    placeholder="Select a range"
+                    options={[
+                      { value: '<50', label: '<50' },
+                      { value: '50-200', label: '50-200' },
+                      { value: '200-1000', label: '200-1000' },
+                      { value: '1000+', label: '1000+' },
+                    ]}
+                  />
+                  <FormSelect
+                    label="Subscription Plan"
+                    name="subscriptionPlan"
+                    value={form.subscriptionPlan}
+                    error={formErrors.subscriptionPlan}
+                    onChange={handleChange}
+                    options={[
+                      { value: 'free_trial', label: 'Free Trial' },
+                      { value: 'basic', label: 'Basic' },
+                      { value: 'premium', label: 'Premium' },
+                    ]}
+                  />
+                  {['school', 'university'].includes(form.organizationType) && (
+                    <FormInput
+                      label="Registration No. / Email Domain"
+                      name="registrationNo"
+                      value={form.registrationNo}
+                      error={formErrors.registrationNo}
+                      onChange={handleChange}
+                      placeholder="e.g., MOE-2024-101 or alhuda.edu.so"
+                      required
+                    />
+                  )}
+                </>
+              )}
 
               {/* Form Actions */}
               <div className="flex justify-end gap-3 pt-3 border-t border-[var(--color-border-subtle)]">
                 <button
                   type="button"
-                  onClick={() => setModalOpen(false)}
+                  onClick={() => (!editingSchool && step > 1 ? goBack() : setModalOpen(false))}
                   disabled={submitting}
                   className="rounded-xl border border-[var(--color-border-default)] px-5 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50"
                 >
-                  Cancel
+                  {!editingSchool && step > 1 ? 'Back' : 'Cancel'}
                 </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors disabled:opacity-50"
-                >
-                  {submitting && (
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  )}
-                  {editingSchool ? 'Update Organization' : 'Register Organization'}
-                </button>
+                {!editingSchool && step < 3 ? (
+                  <button
+                    type="button"
+                    onClick={goNext}
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors"
+                  >
+                    Next
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors disabled:opacity-50"
+                  >
+                    {submitting && (
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    )}
+                    {editingSchool ? 'Update Organization' : 'Register Organization'}
+                  </button>
+                )}
               </div>
             </form>
           </div>

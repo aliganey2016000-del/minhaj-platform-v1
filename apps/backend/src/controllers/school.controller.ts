@@ -95,8 +95,14 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
+  const { adminPassword, ...schoolFields } = req.body;
+
+  if (!adminPassword || String(adminPassword).length < 8) {
+    throw new BadRequestError('Admin password is required and must be at least 8 characters');
+  }
+
   const payload = {
-    ...req.body,
+    ...schoolFields,
     createdBy: new mongoose.Types.ObjectId(req.user!.userId),
   };
 
@@ -121,12 +127,13 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
         existingUser.isVerified = true;
         await existingUser.save({ validateBeforeSave: false });
       } else {
-        // Create new org_admin user — password is the raw phone number;
-        // the User model's pre-save hook bcrypt-hashes it exactly once.
-        // Do NOT hash it here too, or comparePassword() will never match.
+        // Create new org_admin user — password is the admin password set
+        // during registration; the User model's pre-save hook bcrypt-hashes
+        // it exactly once. Do NOT hash it here too, or comparePassword()
+        // will never match.
         const orgAdmin = await User.create({
           email: schoolEmail.toLowerCase(),
-          password: (req.body.phone as string) || 'ChangeMe@123',
+          password: adminPassword,
           role: 'org_admin',
           organizationId: school._id,
           isVerified: true,
