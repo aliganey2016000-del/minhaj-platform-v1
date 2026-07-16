@@ -8,6 +8,7 @@ export interface IResult extends Document {
   percentage: number;
   grade: string;
   remarks: string;
+  feedback: string;
   status: 'passed' | 'failed' | 'absent';
   enteredBy: mongoose.Types.ObjectId;
   createdAt: Date;
@@ -23,6 +24,7 @@ const resultSchema = new Schema<IResult>(
     percentage: { type: Number, default: 0 },
     grade: { type: String, default: 'F', maxlength: 5 },
     remarks: { type: String, default: '' },
+    feedback: { type: String, default: '', maxlength: 2000 },
     status: { type: String, enum: ['passed', 'failed', 'absent'], default: 'failed', index: true },
     enteredBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },

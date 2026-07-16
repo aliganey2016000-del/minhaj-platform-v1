@@ -6,7 +6,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
 
-interface ExamBrief { _id: string; title: string; examDate: string; totalMarks: number; passingMarks: number; course?: { _id: string; title: { en: string }; slug: string; category: string }; }
+interface ExamBrief { _id: string; title: string; examDate: string; totalMarks: number; passingMarks: number; resultsPublished?: boolean; course?: { _id: string; title: { en: string }; slug: string; category: string }; }
 
 interface StudentBrief { _id: string; studentId: string; profile?: { firstName: string; lastName: string }; }
 
@@ -56,9 +56,10 @@ export function ResultsManage() {
   // Bulk entry state
   const [selectedExam, setSelectedExam] = useState('');
   const [examStudents, setExamStudents] = useState<StudentBrief[]>([]);
-  const [marks, setMarks] = useState<Record<string, { obtained: string; remarks: string; status: string }>>({});
+  const [marks, setMarks] = useState<Record<string, { obtained: string; remarks: string; feedback: string; status: string }>>({});
   const [selectedExamObj, setSelectedExamObj] = useState<ExamBrief | null>(null);
   const [existingResults, setExistingResults] = useState<ResultRow[]>([]);
+  const [publishing, setPublishing] = useState(false);
 
   useEffect(() => { fetchExams(); fetchResults(); }, []);
 
@@ -100,12 +101,13 @@ export function ResultsManage() {
       const existing: ResultRow[] = resultData.data || [];
       setExistingResults(existing);
 
-      const m: Record<string, { obtained: string; remarks: string; status: string }> = {};
+      const m: Record<string, { obtained: string; remarks: string; feedback: string; status: string }> = {};
       enrolled.forEach(s => {
         const existingR = existing.find(r => r.student?._id === s._id);
         m[s._id] = {
           obtained: existingR ? String(existingR.marksObtained) : '',
           remarks: existingR ? existingR.remarks || '' : '',
+          feedback: existingR ? (existingR as any).feedback || '' : '',
           status: existingR ? existingR.status : 'present',
         };
       });
@@ -133,6 +135,7 @@ export function ResultsManage() {
         marksObtained: marks[s._id]?.status === 'absent' ? 0 : Number(marks[s._id]?.obtained || 0),
         totalMarks: selectedExamObj?.totalMarks,
         remarks: marks[s._id]?.remarks || '',
+        feedback: marks[s._id]?.feedback || '',
         status: marks[s._id]?.status || 'present',
       }));
 
@@ -147,6 +150,21 @@ export function ResultsManage() {
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this result?')) return;
     try { await api.delete(`/results/${id}`); fetchResults(); } catch (err: any) { alert(err.response?.data?.message || 'Failed'); }
+  };
+
+  const handleTogglePublish = async () => {
+    if (!selectedExamObj) return;
+    setPublishing(true);
+    setError('');
+    try {
+      const nextPublished = !selectedExamObj.resultsPublished;
+      await api.patch(`/exams/${selectedExamObj._id}/publish-results`, { published: nextPublished });
+      setSelectedExamObj({ ...selectedExamObj, resultsPublished: nextPublished });
+      setExams(prev => prev.map(e => (e._id === selectedExamObj._id ? { ...e, resultsPublished: nextPublished } : e)));
+      setMessage(nextPublished ? '✅ Results published — students can now see their marks.' : 'Results hidden from students.');
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to update publish status');
+    } finally { setPublishing(false); }
   };
 
   const passed = results.filter(r => r.status === 'passed').length;
@@ -257,9 +275,22 @@ export function ResultsManage() {
                 ))}
               </select>
               {selectedExamObj && (
-                <p className="text-xs text-[var(--color-text-tertiary)] mt-2">
-                  Total Marks: <strong>{selectedExamObj.totalMarks}</strong> | Passing: <strong>{selectedExamObj.passingMarks}</strong> ({Math.round((selectedExamObj.passingMarks / selectedExamObj.totalMarks) * 100)}%)
-                </p>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-[var(--color-text-tertiary)]">
+                    Total Marks: <strong>{selectedExamObj.totalMarks}</strong> | Passing: <strong>{selectedExamObj.passingMarks}</strong> ({Math.round((selectedExamObj.passingMarks / selectedExamObj.totalMarks) * 100)}%)
+                  </p>
+                  <button
+                    onClick={handleTogglePublish}
+                    disabled={publishing}
+                    className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${
+                      selectedExamObj.resultsPublished
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 hover:bg-green-200'
+                        : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
+                    }`}
+                  >
+                    {selectedExamObj.resultsPublished ? '✅ Published to Students' : '🔒 Publish Results to Students'}
+                  </button>
+                </div>
               )}
             </div>
 
@@ -278,6 +309,7 @@ export function ResultsManage() {
                           <th className="text-center px-5 py-3 font-semibold">Marks Obtained</th>
                           <th className="text-center px-5 py-3 font-semibold">Status</th>
                           <th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Remarks</th>
+                          <th className="text-center px-5 py-3 font-semibold hidden lg:table-cell">Feedback</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -305,7 +337,10 @@ export function ResultsManage() {
                               </select>
                             </td>
                             <td className="px-5 py-3 text-center hidden md:table-cell">
-                              <input type="text" value={marks[s._id]?.remarks || ''} onChange={e => handleMarkChange(s._id, 'remarks', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-36" placeholder="Optional" />
+                              <input type="text" value={marks[s._id]?.remarks || ''} onChange={e => handleMarkChange(s._id, 'remarks', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-36" placeholder="Internal only" />
+                            </td>
+                            <td className="px-5 py-3 text-center hidden lg:table-cell">
+                              <input type="text" value={marks[s._id]?.feedback || ''} onChange={e => handleMarkChange(s._id, 'feedback', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-36" placeholder="Shown to student" />
                             </td>
                           </tr>
                         ))}

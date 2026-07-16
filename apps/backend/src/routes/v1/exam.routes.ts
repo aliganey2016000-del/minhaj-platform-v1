@@ -11,9 +11,10 @@ router.use(authMiddleware);
 router.get('/', adminOrTeacher, asyncHandler(examController.getAll));
 router.get('/my', roleMiddleware(['student']), asyncHandler(examController.getMyExams));
 router.get('/:id', adminOrTeacher, asyncHandler(examController.getById));
-router.post('/', adminOnly, asyncHandler(examController.create));
-router.patch('/:id', adminOnly, asyncHandler(examController.update));
-router.delete('/:id', adminOnly, asyncHandler(examController.remove));
-router.patch('/:id/status', adminOnly, asyncHandler(examController.updateStatus));
+router.post('/', adminOrTeacher, asyncHandler(examController.create));
+router.patch('/:id', adminOrTeacher, asyncHandler(examController.update));
+router.delete('/:id', adminOrTeacher, asyncHandler(examController.remove));
+router.patch('/:id/status', adminOrTeacher, asyncHandler(examController.updateStatus));
+router.patch('/:id/publish-results', adminOrTeacher, asyncHandler(examController.publishResults));
 
 export default router;

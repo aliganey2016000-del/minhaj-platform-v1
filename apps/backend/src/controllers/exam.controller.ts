@@ -1,9 +1,25 @@
 import { Request, Response } from 'express';
-import mongoose from 'mongoose';
 import Exam from '../models/exam.model';
+import Course from '../models/course.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
+import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord } from '../utils/tenant-scope';
+
+/**
+ * Throws ForbiddenError if the caller is a `teacher` and the given exam's
+ * course isn't assigned to them. No-op for admin/org_admin.
+ */
+async function assertOwnsExamIfTeacher(req: Request, exam: { course: any }): Promise<void> {
+  if (req.user?.role !== 'teacher') return;
+  const teacher = await getOwnTeacherRecord(req);
+  const courseId = (exam.course as any)?._id ? (exam.course as any)._id.toString() : (exam.course as any)?.toString();
+  const course = courseId ? await Course.findById(courseId).select('teacher').lean() : null;
+  const courseTeacherId = (course as any)?.teacher?.toString();
+  if (!teacher || !course || courseTeacherId !== teacher._id.toString()) {
+    throw new ForbiddenError('You can only manage exams for your own courses.');
+  }
+}
 
 // GET /exams — List all with optional filters
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
@@ -14,18 +30,27 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   if (status && ['scheduled', 'ongoing', 'completed', 'cancelled'].includes(status as string))
     filter.status = status;
 
+  const scopedFilter = applyOrgFilter(req, filter, 'school');
+
+  // Teacher: assigned-only access — only exams for courses assigned to them.
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    const teacherCourseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
+    scopedFilter.course = { $in: teacherCourseIds };
+  }
+
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(200, parseInt(limit as string, 10) || 50));
 
   const [exams, total] = await Promise.all([
-    Exam.find(filter)
+    Exam.find(scopedFilter)
       .populate('course', 'title.en slug category')
       .populate('createdBy', 'email')
       .sort({ examDate: 1, startTime: 1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
       .lean(),
-    Exam.countDocuments(filter),
+    Exam.countDocuments(scopedFilter),
   ]);
 
   let result = exams;
@@ -49,17 +74,33 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 // GET /exams/:id
 export const getById = async (req: Request, res: Response): Promise<Response> => {
   const exam = await Exam.findById(req.params.id)
-    .populate('course', 'title.en slug category enrolledStudents maxStudents')
+    .populate('course', 'title.en slug category enrolledStudents maxStudents teacher')
     .populate('createdBy', 'email')
     .lean();
 
   if (!exam) throw new NotFoundError('Exam');
+  assertOwnsOrg(req, exam, 'school');
+  await assertOwnsExamIfTeacher(req, exam);
+
   return ApiResponse.success(res, exam);
 };
 
 // POST /exams
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const payload = { ...req.body, createdBy: req.user!.userId };
+  const { course: courseId } = req.body;
+  if (!courseId) throw new BadRequestError('course is required');
+
+  const course = await Course.findById(courseId).select('school teacher');
+  if (!course) throw new NotFoundError('Course');
+  assertOwnsOrg(req, course, 'school');
+  await assertOwnsExamIfTeacher(req, { course });
+
+  const payload = {
+    ...req.body,
+    // Always stamped from the course's own org — never trust the client here.
+    school: course.school || null,
+    createdBy: req.user!.userId,
+  };
   const exam = await Exam.create(payload);
   const populated = await Exam.findById(exam._id)
     .populate('course', 'title.en slug category')
@@ -71,7 +112,20 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
 // PATCH /exams/:id
 export const update = async (req: Request, res: Response): Promise<Response> => {
-  const exam = await Exam.findByIdAndUpdate(req.params.id, req.body, {
+  const existing = await Exam.findById(req.params.id).populate('course', 'school teacher');
+  if (!existing) throw new NotFoundError('Exam');
+  assertOwnsOrg(req, existing, 'school');
+  await assertOwnsExamIfTeacher(req, existing);
+
+  // Nobody may move an exam to a different course/org via this endpoint —
+  // that would bypass the ownership checks above. Delete the exam and
+  // create a new one instead if it truly needs to move.
+  const updates = { ...req.body };
+  delete updates.course;
+  delete updates.school;
+  delete updates.createdBy;
+
+  const exam = await Exam.findByIdAndUpdate(req.params.id, updates, {
     new: true,
     runValidators: true,
   })
@@ -85,8 +139,12 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
 // DELETE /exams/:id
 export const remove = async (req: Request, res: Response): Promise<Response> => {
-  const exam = await Exam.findByIdAndDelete(req.params.id);
-  if (!exam) throw new NotFoundError('Exam');
+  const existing = await Exam.findById(req.params.id).populate('course', 'school teacher');
+  if (!existing) throw new NotFoundError('Exam');
+  assertOwnsOrg(req, existing, 'school');
+  await assertOwnsExamIfTeacher(req, existing);
+
+  await Exam.findByIdAndDelete(req.params.id);
   return ApiResponse.noContent(res, 'Exam deleted');
 };
 
@@ -111,6 +169,11 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
     throw new BadRequestError('Valid status required: scheduled, ongoing, completed, or cancelled');
   }
 
+  const existing = await Exam.findById(req.params.id).populate('course', 'school teacher');
+  if (!existing) throw new NotFoundError('Exam');
+  assertOwnsOrg(req, existing, 'school');
+  await assertOwnsExamIfTeacher(req, existing);
+
   const exam = await Exam.findByIdAndUpdate(
     req.params.id,
     { status },
@@ -121,4 +184,26 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
 
   if (!exam) throw new NotFoundError('Exam');
   return ApiResponse.success(res, exam, `Exam status updated to ${status}`);
+};
+
+// PATCH /exams/:id/publish-results — Reveal (or hide) this exam's results to students
+export const publishResults = async (req: Request, res: Response): Promise<Response> => {
+  const { published } = req.body;
+  if (typeof published !== 'boolean') throw new BadRequestError('published must be true or false');
+
+  const existing = await Exam.findById(req.params.id).populate('course', 'school teacher');
+  if (!existing) throw new NotFoundError('Exam');
+  assertOwnsOrg(req, existing, 'school');
+  await assertOwnsExamIfTeacher(req, existing);
+
+  const exam = await Exam.findByIdAndUpdate(
+    req.params.id,
+    { resultsPublished: published },
+    { new: true }
+  )
+    .populate('course', 'title.en slug')
+    .lean();
+
+  if (!exam) throw new NotFoundError('Exam');
+  return ApiResponse.success(res, exam, published ? 'Results published to students' : 'Results hidden from students');
 };

@@ -2,9 +2,54 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Result from '../models/result.model';
 import Exam from '../models/exam.model';
+import Course from '../models/course.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
+import ensureStudentRecord from '../utils/ensure-student';
+import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord } from '../utils/tenant-scope';
+
+/**
+ * Returns the Mongo `_id` list of exams the caller is allowed to touch:
+ *   - admin: null (no restriction)
+ *   - org_admin: exams whose course belongs to their org
+ *   - teacher: exams for courses assigned to them
+ * Used to scope Result queries, since Result itself has no `school` field —
+ * ownership always flows through its parent Exam -> Course.
+ */
+async function resolveAllowedExamIds(req: Request): Promise<mongoose.Types.ObjectId[] | null> {
+  if (req.user?.role === 'admin') return null;
+
+  if (req.user?.role === 'org_admin') {
+    const scoped = applyOrgFilter(req, {}, 'school');
+    return Exam.find(scoped).distinct('_id');
+  }
+
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    const courseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
+    return Exam.find({ course: { $in: courseIds } }).distinct('_id');
+  }
+
+  return [];
+}
+
+/** Throws ForbiddenError unless the caller may enter/edit results for this exam. */
+async function assertCanManageExamResults(req: Request, examId: string): Promise<void> {
+  if (req.user?.role === 'admin') return;
+
+  const exam = await Exam.findById(examId).populate('course', 'school teacher');
+  if (!exam) throw new NotFoundError('Exam');
+  assertOwnsOrg(req, exam, 'school');
+
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    const courseTeacherId = (exam.course as any)?.teacher?.toString();
+    if (!teacher || courseTeacherId !== teacher._id.toString()) {
+      throw new ForbiddenError('You can only manage results for your own courses.');
+    }
+  }
+}
 
 // GET /results — List all or by exam
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
@@ -14,6 +59,13 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   if (examId) filter.exam = examId as string;
   if (studentId) filter.student = studentId as string;
   if (status && ['passed', 'failed', 'absent'].includes(status as string)) filter.status = status;
+
+  const allowedExamIds = await resolveAllowedExamIds(req);
+  if (allowedExamIds !== null) {
+    filter.exam = filter.exam
+      ? { $in: allowedExamIds.filter((id) => id.toString() === filter.exam) }
+      : { $in: allowedExamIds };
+  }
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(200, parseInt(limit as string, 10) || 50));
@@ -45,11 +97,31 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   return ApiResponse.paginated(res, resultList, { page: pageNum, limit: limitNum, total: search ? resultList.length : total });
 };
 
+// GET /results/my — Student's own results, only for exams with published results
+export const getMyResults = async (req: Request, res: Response): Promise<Response> => {
+  const student = await ensureStudentRecord(req.user!.userId);
+
+  const publishedExamIds = await Exam.find({ resultsPublished: true }).distinct('_id');
+
+  const results = await Result.find({ student: student._id, exam: { $in: publishedExamIds } })
+    .populate({
+      path: 'exam',
+      select: 'title examDate totalMarks passingMarks course',
+      populate: { path: 'course', select: 'title.en slug category' },
+    })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return ApiResponse.success(res, results);
+};
+
 // POST /results — Enter single result
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { exam: examId, student: studentId, marksObtained, totalMarks, remarks, status } = req.body;
+  const { exam: examId, student: studentId, marksObtained, totalMarks, remarks, feedback, status } = req.body;
 
-  // Validate exam and student exist
+  if (!examId) throw new BadRequestError('exam is required');
+  await assertCanManageExamResults(req, examId);
+
   const [exam, student] = await Promise.all([
     Exam.findById(examId).lean(),
     Student.findById(studentId).lean(),
@@ -63,6 +135,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     marksObtained: marksObtained ?? 0,
     totalMarks: totalMarks || exam.totalMarks,
     remarks: remarks || '',
+    feedback: feedback || '',
     status: status || (marksObtained == null ? 'absent' : undefined),
       enteredBy: new mongoose.Types.ObjectId(req.user!.userId),
   };
@@ -91,6 +164,7 @@ export const bulkCreate = async (req: Request, res: Response): Promise<Response>
   if (!examId || !resultsArray || !Array.isArray(resultsArray) || resultsArray.length === 0) {
     throw new BadRequestError('exam and results array are required');
   }
+  await assertCanManageExamResults(req, examId);
 
   const exam = await Exam.findById(examId).lean();
   if (!exam) throw new NotFoundError('Exam');
@@ -103,6 +177,7 @@ export const bulkCreate = async (req: Request, res: Response): Promise<Response>
           marksObtained: r.marksObtained ?? 0,
           totalMarks: r.totalMarks || exam.totalMarks,
           remarks: r.remarks || '',
+          feedback: r.feedback || '',
           status: r.status || (r.marksObtained == null ? 'absent' : undefined),
           enteredBy: new mongoose.Types.ObjectId(req.user!.userId),
         },
@@ -134,7 +209,16 @@ export const bulkCreate = async (req: Request, res: Response): Promise<Response>
 
 // PATCH /results/:id
 export const update = async (req: Request, res: Response): Promise<Response> => {
-  const result = await Result.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+  const existing = await Result.findById(req.params.id);
+  if (!existing) throw new NotFoundError('Result');
+  await assertCanManageExamResults(req, existing.exam.toString());
+
+  const updates = { ...req.body };
+  delete updates.exam;
+  delete updates.student;
+  delete updates.enteredBy;
+
+  const result = await Result.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true })
     .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
     .populate('exam', 'title totalMarks')
     .lean();
@@ -145,7 +229,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
 // DELETE /results/:id
 export const remove = async (req: Request, res: Response): Promise<Response> => {
-  const result = await Result.findByIdAndDelete(req.params.id);
-  if (!result) throw new NotFoundError('Result');
+  const existing = await Result.findById(req.params.id);
+  if (!existing) throw new NotFoundError('Result');
+  await assertCanManageExamResults(req, existing.exam.toString());
+
+  await Result.findByIdAndDelete(req.params.id);
   return ApiResponse.noContent(res, 'Result deleted');
 };

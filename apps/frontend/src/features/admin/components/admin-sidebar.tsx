@@ -4,6 +4,7 @@
  * Full admin portal navigation with:
  * - Collapsible mobile drawer (Framer Motion spring)
  * - Fixed desktop sidebar
+ * - Collapsible nested sub-menus (e.g. Exam Management)
  * - Active route highlighting
  * - Islamic green/gold premium accents
  * - Section grouping for main management, content, and system
@@ -15,10 +16,19 @@ import { useAuth } from '../../../store/auth-context';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ---------------------------------------------------------------------------
-// Navigation Items — grouped by section
+// Navigation Items — grouped by section; items may nest a `children` list
+// to render as a collapsible sub-menu instead of a direct link.
 // ---------------------------------------------------------------------------
 
-const navSections = [
+interface NavLeaf { path: string; label: string; icon: string; }
+interface NavGroup { label: string; icon: string; children: NavLeaf[]; }
+type NavEntry = NavLeaf | NavGroup;
+
+function isGroup(entry: NavEntry): entry is NavGroup {
+  return 'children' in entry;
+}
+
+const navSections: { title: string; items: NavEntry[] }[] = [
   {
     title: 'Main',
     items: [
@@ -35,8 +45,17 @@ const navSections = [
     title: 'Academic',
     items: [
       { path: '/admin/attendance',   label: 'Attendance',         icon: '📅' },
-      { path: '/admin/exams',        label: 'Exams',              icon: '📝' },
-      { path: '/admin/results',      label: 'Results',            icon: '📊' },
+      {
+        label: 'Exam Management', icon: '📝',
+        children: [
+          { path: '/admin/exams',             label: 'Exam Scheduling',      icon: '🗓️' },
+          { path: '/admin/exams/rooms',        label: 'Room Allocation',      icon: '🏛️' },
+          { path: '/admin/exams/attendance',   label: 'Exam Attendance',      icon: '✅' },
+          { path: '/admin/exams/papers',       label: 'Papers & Approval',    icon: '📄' },
+          { path: '/admin/results',           label: 'Results Management',   icon: '📊' },
+          { path: '/admin/exams/compliance',   label: 'Compliances & Issues', icon: '⚠️' },
+        ],
+      },
       { path: '/admin/payments',     label: 'Payments',           icon: '💰' },
       { path: '/admin/certificates', label: 'Certificates',       icon: '🏆' },
     ],
@@ -82,6 +101,20 @@ export function AdminSidebar() {
     return location.pathname.startsWith(path);
   };
 
+  const groupHasActiveChild = (group: NavGroup) => group.children.some((c) => isActive(c.path));
+
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const section of navSections) {
+      for (const item of section.items) {
+        if (isGroup(item) && groupHasActiveChild(item)) initial[item.label] = true;
+      }
+    }
+    return initial;
+  });
+
+  const toggleGroup = (label: string) => setOpenGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+
   const sidebarContent = (
     <aside className="flex h-full flex-col bg-[var(--color-surface-primary)] border-r border-[var(--color-border-subtle)]">
       {/* ── Logo / Header ── */}
@@ -105,25 +138,83 @@ export function AdminSidebar() {
               {section.title}
             </p>
             <ul className="space-y-0.5">
-              {section.items.map((item) => (
-                <li key={item.path}>
-                  <Link
-                    to={item.path}
-                    onClick={() => setIsMobileOpen(false)}
-                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200
-                      ${isActive(item.path)
-                        ? 'bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 shadow-sm'
-                        : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
-                      }`}
-                  >
-                    <span className="text-lg flex-shrink-0 w-7 text-center">{item.icon}</span>
-                    <span className="truncate">{item.label}</span>
-                    {isActive(item.path) && (
-                      <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary-500 flex-shrink-0" />
-                    )}
-                  </Link>
-                </li>
-              ))}
+              {section.items.map((item) => {
+                if (isGroup(item)) {
+                  const open = !!openGroups[item.label];
+                  const active = groupHasActiveChild(item);
+                  return (
+                    <li key={item.label}>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(item.label)}
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200
+                          ${active
+                            ? 'text-primary-700 dark:text-primary-300'
+                            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
+                          }`}
+                        aria-expanded={open}
+                      >
+                        <span className="text-lg flex-shrink-0 w-7 text-center">{item.icon}</span>
+                        <span className="truncate flex-1 text-left">{item.label}</span>
+                        <svg className={`h-4 w-4 flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                      <AnimatePresence initial={false}>
+                        {open && (
+                          <motion.ul
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden ms-4 border-s border-[var(--color-border-subtle)] ps-2 mt-0.5 space-y-0.5"
+                          >
+                            {item.children.map((child) => (
+                              <li key={child.path}>
+                                <Link
+                                  to={child.path}
+                                  onClick={() => setIsMobileOpen(false)}
+                                  className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200
+                                    ${isActive(child.path)
+                                      ? 'bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 shadow-sm'
+                                      : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
+                                    }`}
+                                >
+                                  <span className="text-base flex-shrink-0 w-6 text-center">{child.icon}</span>
+                                  <span className="truncate">{child.label}</span>
+                                  {isActive(child.path) && (
+                                    <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary-500 flex-shrink-0" />
+                                  )}
+                                </Link>
+                              </li>
+                            ))}
+                          </motion.ul>
+                        )}
+                      </AnimatePresence>
+                    </li>
+                  );
+                }
+
+                return (
+                  <li key={item.path}>
+                    <Link
+                      to={item.path}
+                      onClick={() => setIsMobileOpen(false)}
+                      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200
+                        ${isActive(item.path)
+                          ? 'bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 shadow-sm'
+                          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
+                        }`}
+                    >
+                      <span className="text-lg flex-shrink-0 w-7 text-center">{item.icon}</span>
+                      <span className="truncate">{item.label}</span>
+                      {isActive(item.path) && (
+                        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary-500 flex-shrink-0" />
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ))}
