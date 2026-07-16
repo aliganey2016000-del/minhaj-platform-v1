@@ -44,6 +44,12 @@ const StudentExamSeating = lazy(() =>
 const StudentExamAttendance = lazy(() =>
   import('../features/student/pages/student-exam-attendance').then((m) => ({ default: m.StudentExamAttendance }))
 );
+const StudentExamActive = lazy(() =>
+  import('../features/student/pages/student-exam-active').then((m) => ({ default: m.StudentExamActive }))
+);
+const StudentExamAppeals = lazy(() =>
+  import('../features/student/pages/student-exam-appeals').then((m) => ({ default: m.StudentExamAppeals }))
+);
 const StudentAttendance = lazy(() =>
   import('../features/student/pages/student-attendance').then((m) => ({ default: m.StudentAttendance }))
 );
@@ -67,9 +73,6 @@ const StudentCourseLearn = lazy(() =>
 );
 const StudentCourseDetail = lazy(() =>
   import('../features/student/pages/student-course-detail').then((m) => ({ default: m.StudentCourseDetail }))
-);
-const StudentPage = lazy(() =>
-  import('../features/student/pages/generic-page').then((m) => ({ default: m.StudentPage }))
 );
 const AdminLayout = lazy(() =>
   import('../features/admin/components/admin-layout').then((m) => ({ default: m.AdminLayout }))
@@ -127,6 +130,12 @@ const ExamRoomsManage = lazy(() =>
 );
 const ExamAttendanceManage = lazy(() =>
   import('../features/admin/pages/exam-attendance-manage').then((m) => ({ default: m.ExamAttendanceManage }))
+);
+const ExamPapersManage = lazy(() =>
+  import('../features/admin/pages/exam-papers-manage').then((m) => ({ default: m.ExamPapersManage }))
+);
+const ExamComplianceManage = lazy(() =>
+  import('../features/admin/pages/exam-compliance-manage').then((m) => ({ default: m.ExamComplianceManage }))
 );
 const CertificatesManage = lazy(() =>
   import('../features/admin/pages/certificates-manage').then((m) => ({ default: m.CertificatesManage }))
@@ -203,10 +212,10 @@ export const router = createBrowserRouter([
       { path: 'assignments', element: L(<StudentAssignments />) },
       { path: 'exams', element: L(<StudentExams />) },
       { path: 'exams/seating', element: L(<StudentExamSeating />) },
-      { path: 'exams/active', element: L(<StudentPage />) },
+      { path: 'exams/active', element: L(<StudentExamActive />) },
       { path: 'exams/attendance', element: L(<StudentExamAttendance />) },
       { path: 'exams/results', element: L(<StudentExamResults />) },
-      { path: 'exams/appeals', element: L(<StudentPage />) },
+      { path: 'exams/appeals', element: L(<StudentExamAppeals />) },
       { path: 'certificates', element: L(<StudentCertificates />) },
       { path: 'attendance', element: L(<StudentAttendance />) },
       { path: 'downloads', element: L(<StudentDownloads />) },
@@ -243,8 +252,8 @@ export const router = createBrowserRouter([
       { path: 'exams', element: L(<ExamsManage />) },
       { path: 'exams/rooms', element: L(<ExamRoomsManage />) },
       { path: 'exams/attendance', element: L(<ExamAttendanceManage />) },
-      { path: 'exams/papers', element: L(<PortalPage />) },
-      { path: 'exams/compliance', element: L(<PortalPage />) },
+      { path: 'exams/papers', element: L(<ExamPapersManage />) },
+      { path: 'exams/compliance', element: L(<ExamComplianceManage />) },
       { path: 'results', element: L(<ResultsManage />) },
       { path: 'payments', element: L(<PaymentsManage />) },
       { path: 'certificates', element: L(<CertificatesManage />) },
