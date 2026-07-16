@@ -283,7 +283,7 @@ schoolSchema.pre<ISchool>('validate', async function (next) {
 
 schoolSchema.index({ name: 1 });
 schoolSchema.index({ createdBy: 1 });
-schoolSchema.index({ slug: 1 }, { unique: true, sparse: true });
+// slug unique index is already declared inline via `unique: true` on the field
 
 // ---------------------------------------------------------------------------
 // Model Interface (with static methods)
