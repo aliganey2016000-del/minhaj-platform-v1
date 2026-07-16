@@ -34,6 +34,23 @@ import './models/school.model';
 import './models/resource.model';
 import './models/notification.model';
 import './models/course-content.model';
+import './models/course.model';
+import './models/class.model';
+import './models/attendance.model';
+import './models/teacher.model';
+import './models/student.model';
+import './models/user.model';
+import './models/profile.model';
+import './models/forum.model';
+import './models/exam-room.model';
+import './models/exam-attendance.model';
+import './models/exam-incident.model';
+import './models/exam-appeal.model';
+import './models/exam-paper.model';
+import './models/exam-attempt.model';
+import './models/sidebar-setting.model';
+import './models/seat-allocation.model';
+import './models/progress.model';
 
 import app from './app';
 
