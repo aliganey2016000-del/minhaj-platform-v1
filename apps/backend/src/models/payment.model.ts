@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IPayment extends Document {
   student: mongoose.Types.ObjectId;
+  school?: mongoose.Types.ObjectId;
   amount: number;
   type: 'tuition' | 'registration' | 'exam' | 'material' | 'donation' | 'other';
   method: 'cash' | 'bank_transfer' | 'mobile_money' | 'online';
@@ -16,6 +17,9 @@ export interface IPayment extends Document {
 const paymentSchema = new Schema<IPayment>(
   {
     student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
+    // Stamped from the student's own org at creation — keeps payments
+    // queryable/scoped the same way Course/Class/Exam already are.
+    school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
     amount: { type: Number, required: true, min: 0.01 },
     type: { type: String, enum: ['tuition', 'registration', 'exam', 'material', 'donation', 'other'], default: 'tuition' },
     method: { type: String, enum: ['cash', 'bank_transfer', 'mobile_money', 'online'], default: 'cash' },

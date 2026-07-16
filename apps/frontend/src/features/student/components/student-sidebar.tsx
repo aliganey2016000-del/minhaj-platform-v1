@@ -85,6 +85,7 @@ export function StudentSidebar() {
         { path: '/student/attendance', label: t('attendance'), icon: '📅' },
         { path: '/student/certificates', label: t('certificates'), icon: '🏆' },
         { path: '/student/bookmarks', label: t('bookmarks'), icon: '🔖' },
+        { path: '/student/payments', label: 'My Fees & Payments', icon: '💰' },
       ],
     },
     {

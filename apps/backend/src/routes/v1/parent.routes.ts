@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import * as parentController from '../../controllers/parent.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { adminOnly } from '../../middleware/role.middleware';
+import { adminOnly, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
 
 router.use(authMiddleware);
+
+// Parent self-service — must be registered before the adminOnly gate below.
+router.get('/me/children', roleMiddleware(['parent']), asyncHandler(parentController.getMyChildren));
+
 router.use(adminOnly);
 
 router.get('/', asyncHandler(parentController.getAll));

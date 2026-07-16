@@ -8,13 +8,21 @@ const router = Router();
 
 router.use(authMiddleware);
 
-// Admin only
+// ---------------------------------------------------------------------------
+// IMPORTANT: literal /my, /stats, /outstanding routes MUST come before the
+// /student/:studentId wildcard route below to avoid ambiguity.
+// ---------------------------------------------------------------------------
+
+router.get('/my', roleMiddleware(['student']), asyncHandler(paymentController.getMyPayments));
+
+// Admin / org_admin — scoped to their own org inside the controller.
 router.get('/', adminOnly, asyncHandler(paymentController.getAll));
 router.post('/', adminOnly, asyncHandler(paymentController.recordPayment));
 router.get('/stats', adminOnly, asyncHandler(paymentController.getPaymentStats));
+router.get('/outstanding', adminOnly, asyncHandler(paymentController.getOutstanding));
 router.patch('/:id/status', adminOnly, asyncHandler(paymentController.updateStatus));
 
-// Admin / Parent / Student
-router.get('/student/:studentId', roleMiddleware(['admin', 'parent', 'student']), asyncHandler(paymentController.getStudentPayments));
+// Admin / org_admin / parent / student — ownership enforced in the controller.
+router.get('/student/:studentId', roleMiddleware(['admin', 'org_admin', 'parent', 'student']), asyncHandler(paymentController.getStudentPayments));
 
 export default router;

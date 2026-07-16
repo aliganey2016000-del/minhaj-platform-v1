@@ -4,6 +4,8 @@ import Payment from '../models/payment.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/tenant-scope';
+import ensureStudentRecord from '../utils/ensure-student';
 
 // ---------------------------------------------------------------------------
 // POST /payments — Record a payment with full transaction history
@@ -18,10 +20,13 @@ export const recordPayment = async (req: Request, res: Response): Promise<Respon
 
   const student = await Student.findById(studentId);
   if (!student) throw new NotFoundError('Student');
+  // org_admin can only record payments for students in their own org.
+  assertOwnsOrg(req, student, 'school');
 
   // Create payment record
   const payment = await Payment.create({
     student: studentId,
+    school: student.school || null,
     amount,
     type: type || 'tuition',
     method: method || 'cash',
@@ -59,18 +64,20 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   if (type && ['tuition', 'registration', 'exam', 'material', 'donation', 'other'].includes(type as string)) filter.type = type;
   if (method && ['cash', 'bank_transfer', 'mobile_money', 'online'].includes(method as string)) filter.method = method;
 
+  const scopedFilter = applyOrgFilter(req, filter, 'school');
+
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 20));
 
   const [payments, total] = await Promise.all([
-    Payment.find(filter)
+    Payment.find(scopedFilter)
       .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId totalFeesPaid totalFeesDue' })
       .populate('recordedBy', 'email')
       .sort({ createdAt: -1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
       .lean(),
-    Payment.countDocuments(filter),
+    Payment.countDocuments(scopedFilter),
   ]);
 
   let result = payments;
@@ -88,34 +95,25 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 };
 
 // ---------------------------------------------------------------------------
-// GET /payments/stats — Payment statistics
+// GET /payments/stats — Payment statistics (org-scoped for org_admin)
 // ---------------------------------------------------------------------------
 
-export const getPaymentStats = async (_req: Request, res: Response): Promise<Response> => {
-  const [stats, paymentCounts] = await Promise.all([
+export const getPaymentStats = async (req: Request, res: Response): Promise<Response> => {
+  const studentFilter = applyOrgFilter(req, {}, 'school');
+  const paymentFilter = applyOrgFilter(req, {}, 'school');
+
+  const [stats, paymentCounts, studentsWithDebt, fullyPaid] = await Promise.all([
     Student.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalPaid: { $sum: '$totalFeesPaid' },
-          totalDue: { $sum: '$totalFeesDue' },
-          count: { $sum: 1 },
-        },
-      },
+      { $match: studentFilter },
+      { $group: { _id: null, totalPaid: { $sum: '$totalFeesPaid' }, totalDue: { $sum: '$totalFeesDue' }, count: { $sum: 1 } } },
     ]),
     Payment.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalTransactions: { $sum: 1 },
-          totalAmount: { $sum: '$amount' },
-        },
-      },
+      { $match: paymentFilter },
+      { $group: { _id: null, totalTransactions: { $sum: 1 }, totalAmount: { $sum: '$amount' } } },
     ]),
+    Student.countDocuments({ ...studentFilter, totalFeesDue: { $gt: 0 } }),
+    Student.countDocuments({ ...studentFilter, totalFeesDue: 0, totalFeesPaid: { $gt: 0 } }),
   ]);
-
-  const studentsWithDebt = await Student.countDocuments({ totalFeesDue: { $gt: 0 } });
-  const fullyPaid = await Student.countDocuments({ totalFeesDue: 0, totalFeesPaid: { $gt: 0 } });
 
   const s = stats[0] || { totalPaid: 0, totalDue: 0, count: 0 };
   const total = s.totalPaid + s.totalDue;
@@ -133,16 +131,38 @@ export const getPaymentStats = async (_req: Request, res: Response): Promise<Res
 };
 
 // ---------------------------------------------------------------------------
-// GET /payments/student/:studentId — Get student payment history
+// GET /payments/outstanding — Students with an outstanding balance (org-scoped)
+// ---------------------------------------------------------------------------
+
+export const getOutstanding = async (req: Request, res: Response): Promise<Response> => {
+  const filter = applyOrgFilter(req, { totalFeesDue: { $gt: 0 } }, 'school');
+
+  const students = await Student.find(filter)
+    .populate('profile', 'firstName lastName')
+    .populate('school', 'name')
+    .populate('class', 'title section')
+    .select('studentId profile school class totalFeesPaid totalFeesDue')
+    .sort({ totalFeesDue: -1 })
+    .lean();
+
+  return ApiResponse.success(res, students);
+};
+
+// ---------------------------------------------------------------------------
+// GET /payments/student/:studentId — Get a student's payment history
+// (admin/org_admin, the student themselves, or their linked parent)
 // ---------------------------------------------------------------------------
 
 export const getStudentPayments = async (req: Request, res: Response): Promise<Response> => {
   const student = await Student.findById(req.params.studentId)
-    .select('studentId totalFeesPaid totalFeesDue')
+    .select('studentId school user enrolledCourses')
     .populate('profile', 'firstName lastName')
     .lean();
 
   if (!student) throw new NotFoundError('Student');
+  await assertCanAccessStudent(req, student);
+
+  const fullStudent = await Student.findById(req.params.studentId).select('totalFeesPaid totalFeesDue').lean();
 
   const payments = await Payment.find({ student: req.params.studentId })
     .populate('recordedBy', 'email')
@@ -153,9 +173,27 @@ export const getStudentPayments = async (req: Request, res: Response): Promise<R
     student: {
       studentId: (student as any).studentId,
       name: `${(student as any).profile?.firstName} ${(student as any).profile?.lastName}`,
-      totalFeesPaid: (student as any).totalFeesPaid || 0,
-      totalFeesDue: (student as any).totalFeesDue || 0,
+      totalFeesPaid: (fullStudent as any)?.totalFeesPaid || 0,
+      totalFeesDue: (fullStudent as any)?.totalFeesDue || 0,
     },
+    payments,
+  });
+};
+
+// ---------------------------------------------------------------------------
+// GET /payments/my — Student self-service payment history
+// ---------------------------------------------------------------------------
+
+export const getMyPayments = async (req: Request, res: Response): Promise<Response> => {
+  const student = await ensureStudentRecord(req.user!.userId);
+
+  const payments = await Payment.find({ student: student._id })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return ApiResponse.success(res, {
+    totalFeesPaid: (student as any).totalFeesPaid || 0,
+    totalFeesDue: (student as any).totalFeesDue || 0,
     payments,
   });
 };
@@ -169,6 +207,10 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
   if (!status || !['completed', 'pending', 'refunded'].includes(status)) {
     throw new BadRequestError('Valid status required: completed, pending, or refunded');
   }
+
+  const existing = await Payment.findById(req.params.id);
+  if (!existing) throw new NotFoundError('Payment');
+  assertOwnsOrg(req, existing, 'school');
 
   const payment = await Payment.findByIdAndUpdate(
     req.params.id,

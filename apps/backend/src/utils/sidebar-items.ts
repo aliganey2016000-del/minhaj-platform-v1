@@ -34,6 +34,7 @@ export const STUDENT_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'student/attendance', label: 'Attendance', section: 'Performance' },
   { key: 'student/certificates', label: 'Certificates', section: 'Performance' },
   { key: 'student/bookmarks', label: 'Bookmarks', section: 'Performance' },
+  { key: 'student/payments', label: 'My Fees & Payments', section: 'Performance' },
 
   { key: 'student/forum', label: 'Forum', section: 'Communication' },
 
@@ -65,7 +66,11 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/exams/papers', label: 'Papers & Approval', section: 'Academic' },
   { key: 'admin/results', label: 'Results Management', section: 'Academic' },
   { key: 'admin/exams/compliance', label: 'Compliances & Issues', section: 'Academic' },
-  { key: 'admin/payments', label: 'Payments', section: 'Academic' },
+  { key: 'group:payments', label: 'Payments (entire menu)', section: 'Academic' },
+  { key: 'admin/payments', label: 'Payments Overview', section: 'Academic' },
+  { key: 'admin/payments/record', label: 'Record Payment', section: 'Academic' },
+  { key: 'admin/payments/history', label: 'Payment History', section: 'Academic' },
+  { key: 'admin/payments/outstanding', label: 'Outstanding Dues', section: 'Academic' },
   { key: 'admin/certificates', label: 'Certificates', section: 'Academic' },
 
   { key: 'admin/forum', label: 'Forum', section: 'Communication' },

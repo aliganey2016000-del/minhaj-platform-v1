@@ -63,7 +63,15 @@ const navSections: { title: string; items: NavEntry[] }[] = [
           { path: '/admin/exams/compliance',   label: 'Compliances & Issues', icon: '⚠️' },
         ],
       },
-      { path: '/admin/payments',     label: 'Payments',           icon: '💰' },
+      {
+        key: 'group:payments', label: 'Payments', icon: '💰',
+        children: [
+          { path: '/admin/payments',             label: 'Overview',         icon: '📊' },
+          { path: '/admin/payments/record',       label: 'Record Payment',   icon: '💳' },
+          { path: '/admin/payments/history',      label: 'Payment History',  icon: '📋' },
+          { path: '/admin/payments/outstanding',  label: 'Outstanding Dues', icon: '⚠️' },
+        ],
+      },
       { path: '/admin/certificates', label: 'Certificates',       icon: '🏆' },
     ],
   },

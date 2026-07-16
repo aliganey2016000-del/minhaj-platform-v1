@@ -74,6 +74,9 @@ const StudentCourseLearn = lazy(() =>
 const StudentSchedule = lazy(() =>
   import('../features/student/pages/student-schedule').then((m) => ({ default: m.StudentSchedule }))
 );
+const StudentPayments = lazy(() =>
+  import('../features/student/pages/student-payments').then((m) => ({ default: m.StudentPayments }))
+);
 const StudentCourseDetail = lazy(() =>
   import('../features/student/pages/student-course-detail').then((m) => ({ default: m.StudentCourseDetail }))
 );
@@ -82,6 +85,9 @@ const AdminLayout = lazy(() =>
 );
 const ParentLayout = lazy(() =>
   import('../features/parent/components/parent-layout').then((m) => ({ default: m.ParentLayout }))
+);
+const ParentPayments = lazy(() =>
+  import('../features/parent/pages/parent-payments').then((m) => ({ default: m.ParentPayments }))
 );
 const AdminDashboard = lazy(() =>
   import('../features/admin/pages/admin-dashboard').then((m) => ({ default: m.AdminDashboard }))
@@ -107,8 +113,17 @@ const SchoolsManage = lazy(() =>
 const StudentsManage = lazy(() =>
   import('../features/admin/pages/students-manage').then((m) => ({ default: m.StudentsManage }))
 );
-const PaymentsManage = lazy(() =>
-  import('../features/admin/pages/payments-manage').then((m) => ({ default: m.PaymentsManage }))
+const PaymentsOverview = lazy(() =>
+  import('../features/admin/pages/payments-overview').then((m) => ({ default: m.PaymentsOverview }))
+);
+const PaymentsRecord = lazy(() =>
+  import('../features/admin/pages/payments-record').then((m) => ({ default: m.PaymentsRecord }))
+);
+const PaymentsHistory = lazy(() =>
+  import('../features/admin/pages/payments-history').then((m) => ({ default: m.PaymentsHistory }))
+);
+const PaymentsOutstanding = lazy(() =>
+  import('../features/admin/pages/payments-outstanding').then((m) => ({ default: m.PaymentsOutstanding }))
 );
 const AttendanceManage = lazy(() =>
   import('../features/admin/pages/attendance-manage').then((m) => ({ default: m.AttendanceManage }))
@@ -233,6 +248,7 @@ export const router = createBrowserRouter([
       { path: 'attendance', element: L(<StudentAttendance />) },
       { path: 'downloads', element: L(<StudentDownloads />) },
       { path: 'bookmarks', element: L(<StudentBookmarks />) },
+      { path: 'payments', element: L(<StudentPayments />) },
       { path: 'notifications', element: L(<StudentNotifications />) },
       { path: 'forum', element: L(<ForumPage />) },
       { path: 'profile', element: L(<StudentProfileView />) },
@@ -269,7 +285,10 @@ export const router = createBrowserRouter([
       { path: 'exams/papers', element: L(<ExamPapersManage />) },
       { path: 'exams/compliance', element: L(<ExamComplianceManage />) },
       { path: 'results', element: L(<ResultsManage />) },
-      { path: 'payments', element: L(<PaymentsManage />) },
+      { path: 'payments', element: L(<PaymentsOverview />) },
+      { path: 'payments/record', element: L(<PaymentsRecord />) },
+      { path: 'payments/history', element: L(<PaymentsHistory />) },
+      { path: 'payments/outstanding', element: L(<PaymentsOutstanding />) },
       { path: 'certificates', element: L(<CertificatesManage />) },
       { path: 'announcements', element: L(<AnnouncementsManage />) },
       { path: 'news', element: L(<NewsManage />) },
@@ -295,7 +314,7 @@ export const router = createBrowserRouter([
       { path: 'children', element: L(<PortalPage />) },
       { path: 'attendance', element: L(<PortalPage />) },
       { path: 'results', element: L(<PortalPage />) },
-      { path: 'fees', element: L(<PortalPage />) },
+      { path: 'fees', element: L(<ParentPayments />) },
       { path: 'teachers', element: L(<PortalPage />) },
       { path: 'events', element: L(<PortalPage />) },
       { path: 'notifications', element: L(<PortalPage />) },

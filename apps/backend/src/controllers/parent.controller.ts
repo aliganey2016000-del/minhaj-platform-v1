@@ -228,6 +228,27 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
 };
 
 // ---------------------------------------------------------------------------
+// GET /parents/me/children — Self-service: the logged-in parent's own children
+// ---------------------------------------------------------------------------
+
+export const getMyChildren = async (req: Request, res: Response): Promise<Response> => {
+  const parent = await Parent.findOne({ user: req.user!.userId })
+    .populate({
+      path: 'children',
+      populate: [
+        { path: 'profile', select: 'firstName lastName' },
+        { path: 'enrolledCourses', select: 'title slug' },
+      ],
+      select: 'studentId status attendancePercentage gpa totalFeesPaid totalFeesDue',
+    })
+    .lean();
+
+  if (!parent) throw new NotFoundError('Parent record for this account');
+
+  return ApiResponse.success(res, (parent as any).children || []);
+};
+
+// ---------------------------------------------------------------------------
 // GET /parents/:id/children — Get parent's linked children
 // ---------------------------------------------------------------------------
 
