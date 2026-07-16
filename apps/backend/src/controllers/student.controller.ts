@@ -12,10 +12,11 @@ import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import Progress from '../models/progress.model';
 import CourseContent from '../models/course-content.model';
-import { BadRequestError, NotFoundError, ForbiddenError, ConflictError } from '../utils/api-error';
+import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
-import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import Course from '../models/course.model';
+import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, assertCanAccessStudent, getOwnTeacherRecord } from '../utils/tenant-scope';
 
 // ---------------------------------------------------------------------------
 // List Students (Admin & Teacher only)
@@ -47,7 +48,11 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   }
 
   if (req.user?.role === 'teacher') {
-    // In production, filter by teacher's assigned courses
+    // Assigned-only access — only students enrolled in one of this
+    // teacher's own courses.
+    const teacher = await getOwnTeacherRecord(req);
+    const teacherCourseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
+    filter.enrolledCourses = { $in: teacherCourseIds };
   }
 
   if (search) {
@@ -123,19 +128,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
 
   if (!student) throw new NotFoundError('Student');
 
-  assertOwnsOrg(req, student, 'school');
-
-  const userId = req.user?.userId;
-  const role = req.user?.role;
-
-  if (role === 'student' && (student as any).user?._id?.toString() !== userId) {
-    throw new ForbiddenError('You can only view your own profile');
-  }
-
-  if (role === 'parent') {
-    const parentId = (student as any).parent?._id?.toString();
-    if (!parentId) throw new ForbiddenError('You can only view your linked children');
-  }
+  await assertCanAccessStudent(req, student);
 
   return ApiResponse.success(res, student);
 };
@@ -283,6 +276,7 @@ export const getCourses = async (req: Request, res: Response): Promise<Response>
     .lean();
 
   if (!student) throw new NotFoundError('Student');
+  await assertCanAccessStudent(req, student);
   return ApiResponse.success(res, (student as any).enrolledCourses || []);
 };
 
@@ -357,8 +351,9 @@ export const getMyCourses = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 
 export const getAttendance = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findById(req.params.id).select('attendancePercentage').lean();
+  const student = await Student.findById(req.params.id).select('attendancePercentage school user enrolledCourses').lean();
   if (!student) throw new NotFoundError('Student');
+  await assertCanAccessStudent(req, student);
   return ApiResponse.success(res, { attendancePercentage: (student as any).attendancePercentage || 0 });
 };
 
@@ -367,8 +362,9 @@ export const getAttendance = async (req: Request, res: Response): Promise<Respon
 // ---------------------------------------------------------------------------
 
 export const getResults = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findById(req.params.id).select('gpa').lean();
+  const student = await Student.findById(req.params.id).select('gpa school user enrolledCourses').lean();
   if (!student) throw new NotFoundError('Student');
+  await assertCanAccessStudent(req, student);
   return ApiResponse.success(res, { gpa: (student as any).gpa || 0 });
 };
 
@@ -377,8 +373,9 @@ export const getResults = async (req: Request, res: Response): Promise<Response>
 // ---------------------------------------------------------------------------
 
 export const getPayments = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findById(req.params.id).select('totalFeesPaid totalFeesDue').lean();
+  const student = await Student.findById(req.params.id).select('totalFeesPaid totalFeesDue school user enrolledCourses').lean();
   if (!student) throw new NotFoundError('Student');
+  await assertCanAccessStudent(req, student);
   return ApiResponse.success(res, { totalFeesPaid: (student as any).totalFeesPaid || 0, totalFeesDue: (student as any).totalFeesDue || 0 });
 };
 

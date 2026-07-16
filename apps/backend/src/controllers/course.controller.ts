@@ -8,11 +8,24 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Course from '../models/course.model';
 import Student from '../models/student.model';
-import Teacher from '../models/teacher.model';
 import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
-import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
+
+/**
+ * Throws ForbiddenError if the caller is a `teacher` and this course isn't
+ * directly assigned to them. No-op for admin/org_admin (already checked via
+ * assertOwnsOrg).
+ */
+async function assertOwnsCourseIfTeacher(req: Request, course: { teacher?: unknown }): Promise<void> {
+  if (req.user?.role !== 'teacher') return;
+  const teacher = await getOwnTeacherRecord(req);
+  const teacherId = (course.teacher as any)?._id ? (course.teacher as any)._id.toString() : (course.teacher as any)?.toString();
+  if (!teacher || teacherId !== teacher._id.toString()) {
+    throw new ForbiddenError('You can only access courses assigned to you.');
+  }
+}
 
 // ---------------------------------------------------------------------------
 // List Courses (Public — only published)
@@ -72,6 +85,14 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
   if (category) filter.category = category;
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
+
+  // Teacher: assigned-only access — only courses directly assigned to them,
+  // regardless of organization (their own org is implied since a teacher can
+  // only be assigned courses within their own school in the first place).
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    scopedFilter.teacher = teacher ? teacher._id : null;
+  }
 
   const [courses, total] = await Promise.all([
     Course.find(scopedFilter)
@@ -133,6 +154,7 @@ export const getByIdAdmin = async (req: Request, res: Response): Promise<Respons
     throw new NotFoundError('Course');
   }
   assertOwnsOrg(req, course, 'school');
+  await assertOwnsCourseIfTeacher(req, course);
 
   return ApiResponse.success(res, course);
 };
@@ -250,13 +272,7 @@ export const toggleLive = async (req: Request, res: Response): Promise<Response>
   const course = await Course.findById(req.params.id);
   if (!course) throw new NotFoundError('Course');
   assertOwnsOrg(req, course, 'school');
-
-  if (req.user?.role === 'teacher') {
-    const teacher = await Teacher.findOne({ user: req.user.userId });
-    if (!teacher || course.teacher?.toString() !== teacher._id.toString()) {
-      throw new ForbiddenError('You can only go live for your own course');
-    }
-  }
+  await assertOwnsCourseIfTeacher(req, course);
 
   const { isLive } = req.body;
   if (typeof isLive !== 'boolean') {
@@ -283,9 +299,10 @@ export const toggleLive = async (req: Request, res: Response): Promise<Response>
 // ---------------------------------------------------------------------------
 
 export const getVideoGating = async (req: Request, res: Response): Promise<Response> => {
-  const course = await Course.findById(req.params.id).select('videoGating school');
+  const course = await Course.findById(req.params.id).select('videoGating school teacher');
   if (!course) throw new NotFoundError('Course');
   assertOwnsOrg(req, course, 'school');
+  await assertOwnsCourseIfTeacher(req, course);
 
   return ApiResponse.success(res, course.videoGating || null);
 };
@@ -294,6 +311,7 @@ export const updateVideoGating = async (req: Request, res: Response): Promise<Re
   const course = await Course.findById(req.params.id);
   if (!course) throw new NotFoundError('Course');
   assertOwnsOrg(req, course, 'school');
+  await assertOwnsCourseIfTeacher(req, course);
 
   const {
     enabled,
@@ -423,6 +441,11 @@ export const getEnrolledStudents = async (req: Request, res: Response): Promise<
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 20;
 
+  const course = await Course.findById(req.params.id).select('school teacher');
+  if (!course) throw new NotFoundError('Course');
+  assertOwnsOrg(req, course, 'school');
+  await assertOwnsCourseIfTeacher(req, course);
+
   const students = await Student.find({ enrolledCourses: req.params.id })
     .populate('user', 'email role isActive')
     .populate('profile', 'firstName lastName avatar')
@@ -448,6 +471,14 @@ export const selfEnroll = async (req: Request, res: Response): Promise<Response>
   if (course.status !== 'published') throw new BadRequestError('Cannot enroll in a course that is not published');
   if (course.enrolledStudents >= course.maxStudents) throw new BadRequestError('Course has reached maximum capacity');
   if (student.enrolledCourses.some((id: any) => id.toString() === req.params.id)) throw new ConflictError('You are already enrolled in this course');
+
+  const studentSchoolId = (student as any).school?.toString();
+  const studentClassId = (student as any).class?.toString();
+  const courseSchoolId = course.school?.toString();
+  const courseClassId = course.class?.toString();
+  if (courseSchoolId !== studentSchoolId || (courseClassId && courseClassId !== studentClassId)) {
+    throw new ForbiddenError('This course is not available to your organization or class.');
+  }
 
   student.enrolledCourses.push(course._id);
   course.enrolledStudents += 1;
@@ -484,6 +515,17 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
   const level = req.query.level as string | undefined;
   const search = req.query.search as string | undefined;
 
+  // Resolve the student's own org/class first — a student must only ever
+  // see courses offered to their organization, and (when the course is
+  // class-specific) their exact class. Courses with no `class` set are
+  // school-wide electives open to every class in that school.
+  let student: Awaited<ReturnType<typeof ensureStudentRecord>> | null = null;
+  try {
+    student = req.user?.userId ? await ensureStudentRecord(req.user.userId) : null;
+  } catch {
+    student = null;
+  }
+
   const filter: Record<string, unknown> = { status: 'published' };
   if (category) filter.category = category;
   if (level) filter.level = level;
@@ -494,6 +536,10 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
       { 'title.ar': { $regex: search, $options: 'i' } },
       { 'description.en': { $regex: search, $options: 'i' } },
     ];
+  }
+  if (student) {
+    filter.school = (student as any).school || null;
+    filter.class = { $in: [(student as any).class || null, null] };
   }
 
   const [courses, total] = await Promise.all([
@@ -513,16 +559,9 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
     Course.countDocuments(filter),
   ]);
 
-  let enrolledIds: string[] = [];
-  if (req.user?.userId) {
-    try {
-      const student = await ensureStudentRecord(req.user.userId);
-      enrolledIds = (student.enrolledCourses || []).map((id: any) => id.toString());
-    } catch {
-      // If student record can't be created (e.g. no profile), just show no enrollments
-      enrolledIds = [];
-    }
-  }
+  const enrolledIds: string[] = student
+    ? (student.enrolledCourses || []).map((id: any) => id.toString())
+    : [];
 
   const coursesWithStatus = courses.map((c: any) => ({ ...c, isEnrolled: enrolledIds.includes(c._id.toString()) }));
   return ApiResponse.paginated(res, coursesWithStatus, { page, limit, total });

@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import ClassModel from '../models/class.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
-import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
 
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -20,6 +20,12 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   if (status && ['active', 'inactive', 'completed'].includes(status as string)) filter.status = status;
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
+
+  // Teacher: confined to their own school's classes.
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    scopedFilter.school = teacher?.school || null;
+  }
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(200, parseInt(limit as string, 10) || 50));
