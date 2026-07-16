@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IExam extends Document {
   title: string;
   course: mongoose.Types.ObjectId;
+  school?: mongoose.Types.ObjectId;
   examDate: Date;
   startTime: string;
   endTime: string;
@@ -12,6 +13,7 @@ export interface IExam extends Document {
   room?: string;
   instructions?: string;
   status: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
+  resultsPublished: boolean;
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -21,6 +23,9 @@ const examSchema = new Schema<IExam>(
   {
     title: { type: String, required: true, trim: true, maxlength: 200 },
     course: { type: Schema.Types.ObjectId, ref: 'Course', required: true, index: true },
+    // Stamped server-side from the linked course's own org — keeps exams
+    // queryable/scoped the same way Course/Class/Student already are.
+    school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
     examDate: { type: Date, required: true },
     startTime: { type: String, required: true, match: /^([01]\d|2[0-3]):([0-5]\d)$/ },
     endTime: { type: String, required: true, match: /^([01]\d|2[0-3]):([0-5]\d)$/ },
@@ -30,6 +35,7 @@ const examSchema = new Schema<IExam>(
     room: { type: String, default: '' },
     instructions: { type: String, default: '' },
     status: { type: String, enum: ['scheduled', 'ongoing', 'completed', 'cancelled'], default: 'scheduled', index: true },
+    resultsPublished: { type: Boolean, default: false },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }

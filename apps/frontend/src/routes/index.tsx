@@ -35,6 +35,9 @@ const StudentDownloads = lazy(() =>
 const StudentExams = lazy(() =>
   import('../features/student/pages/student-exams').then((m) => ({ default: m.StudentExams }))
 );
+const StudentExamResults = lazy(() =>
+  import('../features/student/pages/student-exam-results').then((m) => ({ default: m.StudentExamResults }))
+);
 const StudentAttendance = lazy(() =>
   import('../features/student/pages/student-attendance').then((m) => ({ default: m.StudentAttendance }))
 );
@@ -187,6 +190,11 @@ export const router = createBrowserRouter([
       { path: 'available', element: L(<StudentAvailable />) },
       { path: 'assignments', element: L(<StudentAssignments />) },
       { path: 'exams', element: L(<StudentExams />) },
+      { path: 'exams/seating', element: L(<StudentPage />) },
+      { path: 'exams/active', element: L(<StudentPage />) },
+      { path: 'exams/attendance', element: L(<StudentPage />) },
+      { path: 'exams/results', element: L(<StudentExamResults />) },
+      { path: 'exams/appeals', element: L(<StudentPage />) },
       { path: 'certificates', element: L(<StudentCertificates />) },
       { path: 'attendance', element: L(<StudentAttendance />) },
       { path: 'downloads', element: L(<StudentDownloads />) },
@@ -221,6 +229,10 @@ export const router = createBrowserRouter([
       { path: 'classes', element: L(<ClassesManage />) },
       { path: 'attendance', element: L(<AttendanceManage />) },
       { path: 'exams', element: L(<ExamsManage />) },
+      { path: 'exams/rooms', element: L(<PortalPage />) },
+      { path: 'exams/attendance', element: L(<PortalPage />) },
+      { path: 'exams/papers', element: L(<PortalPage />) },
+      { path: 'exams/compliance', element: L(<PortalPage />) },
       { path: 'results', element: L(<ResultsManage />) },
       { path: 'payments', element: L(<PaymentsManage />) },
       { path: 'certificates', element: L(<CertificatesManage />) },
