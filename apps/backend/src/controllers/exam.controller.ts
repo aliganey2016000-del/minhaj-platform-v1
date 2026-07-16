@@ -2,24 +2,9 @@ import { Request, Response } from 'express';
 import Exam from '../models/exam.model';
 import Course from '../models/course.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
+import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
-import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord } from '../utils/tenant-scope';
-
-/**
- * Throws ForbiddenError if the caller is a `teacher` and the given exam's
- * course isn't assigned to them. No-op for admin/org_admin.
- */
-async function assertOwnsExamIfTeacher(req: Request, exam: { course: any }): Promise<void> {
-  if (req.user?.role !== 'teacher') return;
-  const teacher = await getOwnTeacherRecord(req);
-  const courseId = (exam.course as any)?._id ? (exam.course as any)._id.toString() : (exam.course as any)?.toString();
-  const course = courseId ? await Course.findById(courseId).select('teacher').lean() : null;
-  const courseTeacherId = (course as any)?.teacher?.toString();
-  if (!teacher || !course || courseTeacherId !== teacher._id.toString()) {
-    throw new ForbiddenError('You can only manage exams for your own courses.');
-  }
-}
+import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, assertOwnsExamIfTeacher } from '../utils/tenant-scope';
 
 // GET /exams — List all with optional filters
 export const getAll = async (req: Request, res: Response): Promise<Response> => {

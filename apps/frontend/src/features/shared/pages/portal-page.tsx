@@ -14,8 +14,6 @@ const adminPages: Record<string, { title: string; icon: string; desc: string }> 
   '/admin/courses':      { title: 'Manage Courses',       icon: '📚', desc: 'Create and manage course catalog' },
   '/admin/classes':      { title: 'Manage Classes',       icon: '🏫', desc: 'Schedule and manage class sessions' },
   '/admin/attendance':   { title: 'Attendance',           icon: '📅', desc: 'Track and manage student attendance' },
-  '/admin/exams/rooms':  { title: 'Room Allocation',      icon: '🏛️', desc: 'Assign students to halls, set capacities, and generate desk numbers — coming soon' },
-  '/admin/exams/attendance': { title: 'Exam Attendance',  icon: '✅', desc: 'Invigilator portal for marking exam-day attendance — coming soon' },
   '/admin/exams/papers': { title: 'Papers & Approval',    icon: '📄', desc: 'Instructor paper submission with admin proofreading and approval — coming soon' },
   '/admin/exams/compliance': { title: 'Compliances & Issues', icon: '⚠️', desc: 'Log exam violations, cheating, or special accommodations — coming soon' },
   '/admin/payments':     { title: 'Payments',             icon: '💰', desc: 'Manage fees, payments, and invoices' },

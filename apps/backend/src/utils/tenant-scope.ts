@@ -150,3 +150,22 @@ export async function assertCanAccessStudent(req: Request, student: any): Promis
 
   throw new ForbiddenError('You do not have permission to access this data.');
 }
+
+/**
+ * Throws ForbiddenError if the caller is a `teacher` and the given exam's
+ * course isn't assigned to them. No-op for admin/org_admin (org isolation
+ * for those two is handled separately via assertOwnsOrg on the exam itself).
+ *
+ * `exam` should have a `course` field — either a raw ObjectId or a
+ * populated course document/ref.
+ */
+export async function assertOwnsExamIfTeacher(req: Request, exam: { course: any }): Promise<void> {
+  if (req.user?.role !== 'teacher') return;
+  const teacher = await getOwnTeacherRecord(req);
+  const courseId = (exam.course as any)?._id ? (exam.course as any)._id.toString() : (exam.course as any)?.toString();
+  const course = courseId ? await Course.findById(courseId).select('teacher').lean() : null;
+  const courseTeacherId = (course as any)?.teacher?.toString();
+  if (!teacher || !course || courseTeacherId !== teacher._id.toString()) {
+    throw new ForbiddenError('You can only manage exams for your own courses.');
+  }
+}
