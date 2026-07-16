@@ -148,13 +148,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ------------------------------------------------------------------
 
   const logout = useCallback(async () => {
-    try {
-      await api.post('/auth/logout');
-    } catch {
-      // Even if logout API fails, clear local state
-    }
+    // Clear local session state and redirect immediately — the click must
+    // take effect right away regardless of how long the network call takes.
+    // The server-side call (invalidating the refresh token) happens in the
+    // background; a failure there shouldn't block the user from leaving.
     localStorage.removeItem('accessToken');
     setUser(null);
+    api.post('/auth/logout').catch(() => {});
+    window.location.href = '/auth/login';
   }, []);
 
   // ------------------------------------------------------------------
