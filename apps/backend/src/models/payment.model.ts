@@ -4,6 +4,7 @@ export interface IPayment extends Document {
   student: mongoose.Types.ObjectId;
   school?: mongoose.Types.ObjectId;
   amount: number;
+  discount?: number;           // discount applied to this payment (reduces amount)
   type: 'tuition' | 'registration' | 'exam' | 'material' | 'donation' | 'other';
   method: 'cash' | 'bank_transfer' | 'mobile_money' | 'online';
   status: 'completed' | 'pending' | 'refunded';
@@ -17,10 +18,9 @@ export interface IPayment extends Document {
 const paymentSchema = new Schema<IPayment>(
   {
     student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
-    // Stamped from the student's own org at creation — keeps payments
-    // queryable/scoped the same way Course/Class/Exam already are.
     school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
-    amount: { type: Number, required: true, min: 0.01 },
+    amount: { type: Number, required: true, min: 0 },
+    discount: { type: Number, default: 0, min: 0 },
     type: { type: String, enum: ['tuition', 'registration', 'exam', 'material', 'donation', 'other'], default: 'tuition' },
     method: { type: String, enum: ['cash', 'bank_transfer', 'mobile_money', 'online'], default: 'cash' },
     status: { type: String, enum: ['completed', 'pending', 'refunded'], default: 'completed', index: true },
@@ -33,5 +33,10 @@ const paymentSchema = new Schema<IPayment>(
 
 paymentSchema.index({ student: 1, createdAt: -1 });
 paymentSchema.index({ type: 1 });
+
+// Virtual: effective amount after discount
+paymentSchema.virtual('effectiveAmount').get(function (this: IPayment) {
+  return Math.max(0, this.amount - (this.discount || 0));
+});
 
 export default mongoose.model<IPayment>('Payment', paymentSchema);

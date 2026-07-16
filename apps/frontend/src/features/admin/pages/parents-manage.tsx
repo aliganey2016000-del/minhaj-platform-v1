@@ -1,10 +1,16 @@
 /**
  * Parent Management — Admin Full CRUD
  * Lists, creates, edits, views, links children, deletes parents via /api/v1/parents
+ *
+ * Smart Loading:
+ *   - No data fetched on initial mount — shows "Please apply a filter to view records."
+ *   - Super admin MUST pick an Organization before fetching.
+ *   - org_admin auto-loads with their own scoped data.
  */
 
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,6 +61,12 @@ interface ParentForm {
   occupation: string;
   relationship: string;
   address: string;
+}
+
+interface School {
+  _id: string;
+  name: string;
+  status: 'active' | 'inactive';
 }
 
 const emptyForm: ParentForm = {
@@ -136,8 +148,6 @@ function ParentModal({
         relationship: form.relationship,
         address: form.address,
       };
-      // On edit, a blank password means "keep the current password" — only
-      // send it when the admin actually typed a new one.
       if (form.password) payload.password = form.password;
 
       if (isEdit) {
@@ -294,8 +304,6 @@ function ViewModal({ parent, onClose }: { parent: Parent; onClose: () => void })
         {/* Children Section */}
         <div className="mt-4 pt-4 border-t border-[var(--color-border-subtle)]">
           <h3 className="text-sm font-bold mb-3">👶 Linked Children</h3>
-
-          {/* Link a child */}
           <div className="flex gap-2 mb-3">
             <input
               className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs"
@@ -364,38 +372,79 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 // ---------------------------------------------------------------------------
 
 export function ParentsManage() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'admin';
+  const isOrgAdmin = user?.role === 'org_admin';
+
   const [parents, setParents] = useState<Parent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [schools, setSchools] = useState<School[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [filterSchool, setFilterSchool] = useState('');
+  const [hasFetched, setHasFetched] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editingParent, setEditingParent] = useState<Parent | undefined>(undefined);
   const [viewingParent, setViewingParent] = useState<Parent | undefined>(undefined);
 
   const limit = 15;
 
-  const fetchParents = useCallback(async () => {
+  // ── Load schools on mount ──
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get('/schools', { params: { limit: '100' } });
+        setSchools(data.data || []);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  // ── Fetch parents (called only when filters are applied) ──
+  const fetchParents = useCallback(async (pageNum = 1) => {
     setLoading(true);
     setError('');
     try {
-      const params: any = { page: String(page), limit: String(limit) };
+      const params: any = { page: String(pageNum), limit: String(limit) };
       if (search) params.search = search;
       if (statusFilter) params.status = statusFilter;
+      if (filterSchool) params.school = filterSchool;
 
       const { data } = await api.get('/parents', { params });
       setParents(data.data || []);
       setTotal(data.meta?.total || 0);
+      setHasFetched(true);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load parents');
     } finally {
       setLoading(false);
     }
-  }, [page, search, statusFilter]);
+  }, [page, search, statusFilter, filterSchool]);
 
-  useEffect(() => { fetchParents(); }, [fetchParents]);
+  // ── org_admin has no organization to pick — their own org is implicit
+  // (enforced server-side), so load immediately rather than waiting for a
+  // manual "Apply Filters" click. ──
+  useEffect(() => {
+    if (isOrgAdmin) fetchParents(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOrgAdmin]);
+
+  // ── Apply Filters ──
+  const handleApplyFilters = () => {
+    if (isSuperAdmin && !filterSchool) {
+      setError('Please select an organization to view parents.');
+      return;
+    }
+    setPage(1);
+    fetchParents(1);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    fetchParents(newPage);
+  };
 
   const handleStatusChange = async (id: string, newStatus: string) => {
     try {
@@ -410,11 +459,7 @@ export function ParentsManage() {
     if (!window.confirm('Delete this parent? Their children will be unlinked.')) return;
     try {
       await api.delete(`/parents/${id}`);
-      if (parents.length === 1 && page > 1) {
-        setPage((p) => p - 1);
-      } else {
-        fetchParents();
-      }
+      fetchParents(page);
     } catch (err: any) {
       alert(err.response?.data?.message || 'Failed to delete');
     }
@@ -425,14 +470,6 @@ export function ParentsManage() {
   const inactiveCount = parents.filter((p) => p.status === 'inactive').length;
   const totalChildren = parents.reduce((sum, p) => sum + (p.children?.length || 0), 0);
 
-  if (loading && parents.length === 0) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
-      </div>
-    );
-  }
-
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -441,7 +478,9 @@ export function ParentsManage() {
           <div>
             <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">👨‍👩‍👧‍👦 Manage Parents</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-              {total} total — {activeCount} active, {inactiveCount} inactive, {totalChildren} children linked
+              {hasFetched
+                ? `${total} total — ${activeCount} active, ${inactiveCount} inactive, ${totalChildren} children linked`
+                : 'Apply a filter to view parents'}
             </p>
           </div>
           <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">
@@ -449,67 +488,125 @@ export function ParentsManage() {
           </button>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-green-700 dark:text-green-300">{activeCount}</p>
-            <p className="text-xs text-green-600 dark:text-green-400">Active</p>
-          </div>
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/30 p-4 text-center">
-            <p className="text-2xl font-bold text-gray-600 dark:text-gray-400">{inactiveCount}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-500">Inactive</p>
-          </div>
-          <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{totalChildren}</p>
-            <p className="text-xs text-blue-600 dark:text-blue-400">Children</p>
-          </div>
-        </div>
+        {/* Filter Bar */}
+        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Organization filter */}
+            {isOrgAdmin ? (
+              <div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">
+                {schools[0]?.name || 'Your Organization'}
+              </div>
+            ) : (
+              <select
+                value={filterSchool}
+                onChange={(e) => { setFilterSchool(e.target.value); setHasFetched(false); }}
+                className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+              >
+                <option value="">
+                  {isSuperAdmin ? 'Select an Organization...' : 'Select Organization...'}
+                </option>
+                {schools.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+              </select>
+            )}
 
-        {/* Search & Filter */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            placeholder="Search by name, email, or parent ID..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
-          />
-          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm">
-            <option value="">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
+            <input
+              type="text"
+              placeholder="Search by name, email, or parent ID..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setHasFetched(false); }}
+              className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleApplyFilters(); }}
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setHasFetched(false); }}
+              className="flex-1 sm:flex-none sm:w-40 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+            >
+              <option value="">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+
+            <button
+              onClick={handleApplyFilters}
+              className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors whitespace-nowrap"
+            >
+              🔍 Apply Filters
+            </button>
+          </div>
         </div>
 
         {error && (
           <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center">
             <p className="text-red-600 text-sm mb-2">{error}</p>
-            <button onClick={fetchParents} className="text-primary-600 font-medium text-sm hover:underline">Retry</button>
+            <button onClick={handleApplyFilters} className="text-primary-600 font-medium text-sm hover:underline">Retry</button>
+          </div>
+        )}
+
+        {/* ── Loading ── */}
+        {loading && (
+          <div className="flex justify-center py-10">
+            <div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
+          </div>
+        )}
+
+        {/* ── Empty State (no filters applied) ── */}
+        {!loading && !hasFetched && (
+          <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card">
+            <p className="text-4xl mb-4">🔍</p>
+            <p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">Please apply a filter to view records.</p>
+            <p className="text-sm text-[var(--color-text-tertiary)]">
+              {isSuperAdmin
+                ? 'Select an organization and click "Apply Filters" to load parents.'
+                : 'Click "Apply Filters" to load parents for your organization.'}
+            </p>
+          </div>
+        )}
+
+        {/* ── No Results ── */}
+        {!loading && hasFetched && parents.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card">
+            <p className="text-4xl mb-4">👨‍👩‍👧‍👦</p>
+            <p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No parents found</p>
+            <p className="text-sm text-[var(--color-text-tertiary)]">Try adjusting your filters or click "+ Add Parent" to create one.</p>
+          </div>
+        )}
+
+        {/* Stats (only when data loaded) */}
+        {!loading && hasFetched && parents.length > 0 && (
+          <div className="grid grid-cols-3 gap-4">
+            <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
+              <p className="text-2xl font-bold text-green-700 dark:text-green-300">{activeCount}</p>
+              <p className="text-xs text-green-600 dark:text-green-400">Active</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/30 p-4 text-center">
+              <p className="text-2xl font-bold text-gray-600 dark:text-gray-400">{inactiveCount}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-500">Inactive</p>
+            </div>
+            <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 p-4 text-center">
+              <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{totalChildren}</p>
+              <p className="text-xs text-blue-600 dark:text-blue-400">Children</p>
+            </div>
           </div>
         )}
 
         {/* Table */}
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
-                <tr>
-                  <th className="text-left px-5 py-3 font-semibold">Parent</th>
-                  <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">ID</th>
-                  <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Relationship</th>
-                  <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Children</th>
-                  <th className="text-center px-5 py-3 font-semibold">Status</th>
-                  <th className="text-center px-5 py-3 font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {parents.length === 0 ? (
-                  <tr><td colSpan={6} className="text-center py-16 text-[var(--color-text-tertiary)]">
-                    <p className="text-lg mb-1">👨‍👩‍👧‍👦 No parents found</p>
-                    <p className="text-sm">Click "+ Add Parent" to create one.</p>
-                  </td></tr>
-                ) : (
-                  parents.map((p) => (
+        {!loading && hasFetched && parents.length > 0 && (
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
+                  <tr>
+                    <th className="text-left px-5 py-3 font-semibold">Parent</th>
+                    <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">ID</th>
+                    <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Relationship</th>
+                    <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Children</th>
+                    <th className="text-center px-5 py-3 font-semibold">Status</th>
+                    <th className="text-center px-5 py-3 font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parents.map((p) => (
                     <tr key={p._id} className="border-b hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingParent(p)}>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
@@ -538,25 +635,25 @@ export function ParentsManage() {
                         </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-center gap-3">
-            <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed">← Prev</button>
+            <button disabled={page <= 1} onClick={() => handlePageChange(page - 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed">← Prev</button>
             <span className="text-sm text-[var(--color-text-tertiary)]">Page {page} of {totalPages}</span>
-            <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed">Next →</button>
+            <button disabled={page >= totalPages} onClick={() => handlePageChange(page + 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed">Next →</button>
           </div>
         )}
       </div>
 
-      {showCreate && <ParentModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchParents(); }} />}
-      {editingParent && <ParentModal parent={editingParent} onClose={() => setEditingParent(undefined)} onSaved={() => { setEditingParent(undefined); fetchParents(); }} />}
+      {showCreate && <ParentModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchParents(page); }} />}
+      {editingParent && <ParentModal parent={editingParent} onClose={() => setEditingParent(undefined)} onSaved={() => { setEditingParent(undefined); fetchParents(page); }} />}
       {viewingParent && <ViewModal parent={viewingParent} onClose={() => setViewingParent(undefined)} />}
     </div>
   );

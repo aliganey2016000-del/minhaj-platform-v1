@@ -4,6 +4,12 @@
  * CRUD for class schedules + time-locked status check endpoint
  * that determines whether a teacher can currently take attendance
  * for a given course.
+ *
+ * GET /class-schedules supports:
+ *   ?school=<id>   — filter by organization (super admin); org_admin auto-scoped
+ *   ?day=<0-6>     — filter by day of week (0=Sunday…6=Saturday)
+ *   ?search=<term> — search by course title, teacher name, or class title
+ *   ?page=&limit=  — pagination
  */
 
 import { Request, Response } from 'express';
@@ -15,26 +21,69 @@ import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter } from '../utils/tenant-scope';
 
 // ---------------------------------------------------------------------------
-// GET /class-schedules — List schedules (filterable by school, teacher, course)
+// GET /class-schedules — List schedules (paginated, filterable)
 // ---------------------------------------------------------------------------
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const filter = applyOrgFilter(req, {}, 'school');
-  const { course, teacher, class: classId } = req.query;
+  const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
 
-  if (course) (filter as any).course = course;
-  if (teacher) (filter as any).teacher = teacher;
-  if (classId) (filter as any).class = classId;
+  const { course, teacher, class: classId, day, search } = req.query;
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
 
-  const schedules = await ClassSchedule.find(filter)
-    .populate('school', 'name')
-    .populate('class', 'title section')
-    .populate('course', 'title')
-    .populate('teacher')
-    .sort({ dayOfWeek: 1, startTime: 1 })
-    .lean();
+  if (course) filter.course = course;
+  if (teacher) filter.teacher = teacher;
+  if (classId) filter.class = classId;
+  if (day !== undefined && day !== '') {
+    const dayNum = parseInt(day as string, 10);
+    if (!isNaN(dayNum) && dayNum >= 0 && dayNum <= 6) {
+      filter.dayOfWeek = dayNum;
+    }
+  }
 
-  return ApiResponse.success(res, schedules);
+  // For search we need to build an $or across populated fields — but populate
+  // happens after find(), so we do search post-query for simplicity.
+  const hasSearch = typeof search === 'string' && search.trim().length > 0;
+
+  const [schedules, total] = await Promise.all([
+    ClassSchedule.find(filter)
+      .populate('school', 'name')
+      .populate('class', 'title section')
+      .populate('course', 'title')
+      .populate('teacher', 'user profile')
+      .sort({ dayOfWeek: 1, startTime: 1 })
+      .lean(),
+    ClassSchedule.countDocuments(filter),
+  ]);
+
+  // Post-populate search + pagination
+  let filtered = schedules;
+  if (hasSearch) {
+    const s = (search as string).toLowerCase();
+    filtered = schedules.filter((sch: any) => {
+      const courseTitle = (sch.course?.title?.en || sch.course?.title || '').toLowerCase();
+      const teacherName = [
+        sch.teacher?.profile?.firstName,
+        sch.teacher?.profile?.lastName,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      const className = (sch.class?.title || '').toLowerCase();
+      const schoolName = (sch.school?.name || '').toLowerCase();
+      return (
+        courseTitle.includes(s) ||
+        teacherName.includes(s) ||
+        className.includes(s) ||
+        schoolName.includes(s)
+      );
+    });
+  }
+
+  const totalFiltered = filtered.length;
+  const paginated = filtered.slice((page - 1) * limit, page * limit);
+
+  return ApiResponse.paginated(res, paginated, { page, limit, total: totalFiltered });
 };
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,13 @@
 /**
  * Results Management — Admin
  * Enter exam results (bulk or individual), view, filter, search
+ *
+ * Fixes:
+ *   1. % calculation: (obtainedMarks / totalMarks) * 100 — computed server-side
+ *   2. Grade: dynamically assigned based on percentage (A+, A, B, C, D, F)
+ *   3. Stats cards: dynamically counted from results
+ *   4. Status column: pulled from Exam Attendance records (present/absent/late/excused)
  */
-
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
 
@@ -20,24 +25,40 @@ interface ResultRow {
   grade: string;
   remarks: string;
   status: 'passed' | 'failed' | 'absent';
+  attendanceStatus?: 'present' | 'absent' | 'late' | 'excused'; // from ExamAttendance model
   enteredBy?: { _id: string; email: string };
   createdAt: string;
 }
 
-function StatusBadge({ status }: { status: string }) {
+function ResultStatusBadge({ status }: { status: string }) {
   const c: Record<string, string> = {
     passed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
     failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
     absent: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
   };
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${c[status] || c.inactive}`}>{status}</span>;
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${c[status] || 'bg-gray-100'}`}>{status}</span>;
+}
+
+function AttendanceBadge({ status }: { status?: string }) {
+  const c: Record<string, string> = {
+    present: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    absent: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+    late: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+    excused: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  };
+  const label = status || 'unknown';
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${c[label] || 'bg-gray-100 text-gray-600'}`}>{label}</span>;
 }
 
 function GradeBadge({ grade }: { grade: string }) {
   const c: Record<string, string> = {
-    'A+': 'bg-emerald-100 text-emerald-700', 'A': 'bg-green-100 text-green-700',
-    'B': 'bg-blue-100 text-blue-700', 'C': 'bg-amber-100 text-amber-700',
-    'D': 'bg-orange-100 text-orange-700', 'F': 'bg-red-100 text-red-700', 'N/A': 'bg-gray-100 text-gray-600',
+    'A+': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    'A': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+    'B': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+    'C': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+    'D': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+    'F': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+    'N/A': 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
   };
   return <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${c[grade] || 'bg-gray-100 text-gray-600'}`}>{grade}</span>;
 }
@@ -61,9 +82,7 @@ export function ResultsManage() {
   const [existingResults, setExistingResults] = useState<ResultRow[]>([]);
   const [publishing, setPublishing] = useState(false);
 
-  useEffect(() => { fetchExams(); fetchResults(); }, []);
-
-  useEffect(() => { fetchResults(); }, [search, statusFilter]);
+  useEffect(() => { fetchExams(); }, []);
 
   const fetchExams = async () => {
     try { const { data } = await api.get('/exams'); setExams(data.data || []); } catch {}
@@ -83,6 +102,8 @@ export function ResultsManage() {
     } finally { setLoading(false); }
   }, [search, statusFilter]);
 
+  useEffect(() => { fetchResults(); }, [fetchResults]);
+
   const loadExamForEntry = async (examId: string) => {
     if (!examId) return;
     setSelectedExam(examId);
@@ -97,7 +118,7 @@ export function ResultsManage() {
       setExamStudents(enrolled);
 
       // Get existing results for this exam to pre-fill
-      const { data: resultData } = await api.get(`/results?examId=${examId}`);
+      const { data: resultData } = await api.get(`/results?examId=${examId}&limit=200`);
       const existing: ResultRow[] = resultData.data || [];
       setExistingResults(existing);
 
@@ -108,7 +129,7 @@ export function ResultsManage() {
           obtained: existingR ? String(existingR.marksObtained) : '',
           remarks: existingR ? existingR.remarks || '' : '',
           feedback: existingR ? (existingR as any).feedback || '' : '',
-          status: existingR ? existingR.status : 'present',
+          status: existingR ? (existingR.attendanceStatus || existingR.status || 'present') : 'present',
         };
       });
       setMarks(m);
@@ -167,6 +188,7 @@ export function ResultsManage() {
     } finally { setPublishing(false); }
   };
 
+  // ── Dynamic stats from the current results ──
   const passed = results.filter(r => r.status === 'passed').length;
   const failed = results.filter(r => r.status === 'failed').length;
   const absent = results.filter(r => r.status === 'absent').length;
@@ -200,11 +222,20 @@ export function ResultsManage() {
         {/* ── View Results Tab ── */}
         {tab === 'view' && (
           <>
-            {/* Stats */}
+            {/* Stats — dynamically computed */}
             <div className="grid grid-cols-3 gap-4">
-              <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-300">{passed}</p><p className="text-xs text-green-600 dark:text-green-400">Passed</p></div>
-              <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-2xl font-bold text-red-700 dark:text-red-300">{failed}</p><p className="text-xs text-red-600 dark:text-red-400">Failed</p></div>
-              <div className="rounded-xl border border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/30 p-4 text-center"><p className="text-2xl font-bold text-gray-600 dark:text-gray-400">{absent}</p><p className="text-xs text-gray-500 dark:text-gray-500">Absent</p></div>
+              <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
+                <p className="text-2xl font-bold text-green-700 dark:text-green-300">{passed}</p>
+                <p className="text-xs text-green-600 dark:text-green-400">Passed</p>
+              </div>
+              <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center">
+                <p className="text-2xl font-bold text-red-700 dark:text-red-300">{failed}</p>
+                <p className="text-xs text-red-600 dark:text-red-400">Failed</p>
+              </div>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/30 p-4 text-center">
+                <p className="text-2xl font-bold text-gray-600 dark:text-gray-400">{absent}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-500">Absent</p>
+              </div>
             </div>
 
             {/* Filters */}
@@ -226,13 +257,14 @@ export function ResultsManage() {
                       <th className="text-center px-5 py-3 font-semibold">Marks</th>
                       <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">%</th>
                       <th className="text-center px-5 py-3 font-semibold">Grade</th>
-                      <th className="text-center px-5 py-3 font-semibold">Status</th>
+                      <th className="text-center px-5 py-3 font-semibold">Attendance</th>
+                      <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Result</th>
                       <th className="text-center px-5 py-3 font-semibold">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {results.length === 0 ? (
-                      <tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">📊 No results found</p><p className="text-sm">Switch to "Enter Results" to add exam results.</p></td></tr>
+                      <tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">📊 No results found</p><p className="text-sm">Switch to "Enter Results" to add exam results.</p></td></tr>
                     ) : results.map(r => (
                       <tr key={r._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
                         <td className="px-5 py-4">
@@ -250,7 +282,12 @@ export function ResultsManage() {
                           <span className={`text-sm font-bold ${r.percentage >= 50 ? 'text-green-600' : 'text-red-600'}`}>{r.percentage}%</span>
                         </td>
                         <td className="px-5 py-4 text-center"><GradeBadge grade={r.grade} /></td>
-                        <td className="px-5 py-4 text-center"><StatusBadge status={r.status} /></td>
+                        <td className="px-5 py-4 text-center">
+                          <AttendanceBadge status={r.attendanceStatus} />
+                        </td>
+                        <td className="px-5 py-4 text-center hidden sm:table-cell">
+                          <ResultStatusBadge status={r.status} />
+                        </td>
                         <td className="px-5 py-4 text-center">
                           <button onClick={() => handleDelete(r._id)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete">🗑️</button>
                         </td>
@@ -307,7 +344,7 @@ export function ResultsManage() {
                           <th className="text-left px-5 py-3 font-semibold">Student</th>
                           <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">ID</th>
                           <th className="text-center px-5 py-3 font-semibold">Marks Obtained</th>
-                          <th className="text-center px-5 py-3 font-semibold">Status</th>
+                          <th className="text-center px-5 py-3 font-semibold">Attendance</th>
                           <th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Remarks</th>
                           <th className="text-center px-5 py-3 font-semibold hidden lg:table-cell">Feedback</th>
                         </tr>
@@ -334,6 +371,8 @@ export function ResultsManage() {
                               <select value={marks[s._id]?.status || 'present'} onChange={e => handleMarkChange(s._id, 'status', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer">
                                 <option value="present">Present</option>
                                 <option value="absent">Absent</option>
+                                <option value="late">Late</option>
+                                <option value="excused">Excused</option>
                               </select>
                             </td>
                             <td className="px-5 py-3 text-center hidden md:table-cell">

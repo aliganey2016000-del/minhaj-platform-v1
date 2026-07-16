@@ -101,8 +101,8 @@ export function PaymentsOverview() {
             <div className="grid gap-4 sm:grid-cols-3">
               <Link to="/admin/payments/record" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
                 <p className="text-2xl mb-2">💳</p>
-                <p className="font-semibold">Record Payment</p>
-                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Log a new transaction</p>
+                <p className="font-semibold">Payment Center</p>
+                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Record payments, set fees, and bulk charge</p>
               </Link>
               <Link to="/admin/payments/history" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
                 <p className="text-2xl mb-2">📋</p>

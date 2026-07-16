@@ -28,8 +28,10 @@ export interface IStudent extends Document {
   // Summary fields for fast dashboard lookups
   attendancePercentage?: number;
   gpa?: number;
-  totalFeesPaid?: number;
-  totalFeesDue?: number;
+    totalFees?: number;          // total amount expected from this student
+    totalFeesPaid?: number;      // sum of completed payments
+    totalFeesDue?: number;       // remaining = totalFees - totalFeesPaid (computed)
+    discount?: number;           // total discount granted
 
   createdAt: Date;
   updatedAt: Date;
@@ -128,12 +130,22 @@ const studentSchema = new Schema<IStudent>(
       min: 0,
       max: 4.0,
     },
+    totalFees: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     totalFeesPaid: {
       type: Number,
       default: 0,
       min: 0,
     },
     totalFeesDue: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    discount: {
       type: Number,
       default: 0,
       min: 0,

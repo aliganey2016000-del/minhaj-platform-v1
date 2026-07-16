@@ -1,10 +1,16 @@
 /**
  * Teacher Management — Admin CRUD
  * Lists, creates, edits, deletes teachers via /api/v1/teachers
+ *
+ * Smart Loading:
+ *   - No data fetched on initial mount — shows "Please apply a filter to view records."
+ *   - Super admin MUST pick an Organization before fetching.
+ *   - org_admin auto-loads with their own scoped data.
  */
 
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,14 +132,13 @@ function TeacherModal({
   const [schools, setSchools] = useState<School[]>([]);
   const [schoolsLoading, setSchoolsLoading] = useState(true);
 
-  // Load schools for dropdown
   useEffect(() => {
     const fetchSchools = async () => {
       try {
         const { data } = await api.get('/schools', { params: { limit: '100' } });
         setSchools(data.data || []);
       } catch {
-        // Silently fail — dropdown will just be empty
+        // Silently fail
       } finally {
         setSchoolsLoading(false);
       }
@@ -192,7 +197,6 @@ function TeacherModal({
         <h2 className="text-xl font-bold mb-4">{isEdit ? '✏️ Edit Teacher' : '➕ Add Teacher'}</h2>
         {error && <p className="text-red-500 text-sm mb-3 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{error}</p>}
         <form onSubmit={handleSubmit} className="space-y-3">
-          {/* Row: First + Last */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">First Name *</label>
@@ -203,8 +207,6 @@ function TeacherModal({
               <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.lastName} onChange={(e) => handleChange('lastName', e.target.value)} required />
             </div>
           </div>
-
-          {/* Gender */}
           <div>
             <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Gender *</label>
             <select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.gender} onChange={(e) => handleChange('gender', e.target.value)}>
@@ -212,8 +214,6 @@ function TeacherModal({
               <option value="female">Female</option>
             </select>
           </div>
-
-          {/* School */}
           <div>
             <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Organization *</label>
             <select
@@ -231,8 +231,6 @@ function TeacherModal({
                 ))}
             </select>
           </div>
-
-          {/* Email + Password (create only) */}
           {!isEdit && (
             <>
               <div>
@@ -249,20 +247,14 @@ function TeacherModal({
               </div>
             </>
           )}
-
-          {/* Qualification */}
           <div>
             <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Qualification</label>
             <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" placeholder="e.g. Bachelor's in Islamic Studies" value={form.qualification} onChange={(e) => handleChange('qualification', e.target.value)} />
           </div>
-
-          {/* Specialization */}
           <div>
             <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Specialization (comma separated)</label>
             <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" placeholder="e.g. Tajweed, Fiqh, Hadith" value={form.specialization} onChange={(e) => handleChange('specialization', e.target.value)} />
           </div>
-
-          {/* Row: Experience + Joining Date */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Experience (years)</label>
@@ -273,14 +265,10 @@ function TeacherModal({
               <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="date" value={form.joiningDate} onChange={(e) => handleChange('joiningDate', e.target.value)} />
             </div>
           </div>
-
-          {/* Bio */}
           <div>
             <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Bio</label>
             <textarea className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" rows={2} value={form.bio} onChange={(e) => handleChange('bio', e.target.value)} />
           </div>
-
-          {/* Buttons */}
           <div className="flex gap-2 pt-3">
             <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
             <button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors">
@@ -308,7 +296,6 @@ function ViewModal({ teacher, onClose }: { teacher: Teacher; onClose: () => void
           <h2 className="text-xl font-bold">👨‍🏫 Teacher Details</h2>
           <button onClick={onClose} className="text-2xl leading-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]">&times;</button>
         </div>
-
         <div className="space-y-3">
           <div className="text-center pb-3 border-b">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-2xl font-bold text-primary-600 mb-2">
@@ -317,7 +304,6 @@ function ViewModal({ teacher, onClose }: { teacher: Teacher; onClose: () => void
             <p className="text-lg font-bold">{teacher.profile?.firstName} {teacher.profile?.lastName}</p>
             <p className="text-sm text-[var(--color-text-tertiary)]">{teacher.teacherId}</p>
           </div>
-
           <DetailRow label="Email" value={teacher.user?.email} />
           <DetailRow label="Organization" value={teacher.school?.name || '—'} />
           <DetailRow label="Qualification" value={teacher.qualification || '—'} />
@@ -328,7 +314,6 @@ function ViewModal({ teacher, onClose }: { teacher: Teacher; onClose: () => void
           <DetailRow label="Joined" value={teacher.joiningDate ? new Date(teacher.joiningDate).toLocaleDateString() : '—'} />
           <DetailRow label="Bio" value={teacher.bio || '—'} />
         </div>
-
         <button onClick={onClose} className="mt-5 w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Close</button>
       </div>
     </div>
@@ -362,33 +347,68 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 export function TeachersManage() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'admin';
+  const isOrgAdmin = user?.role === 'org_admin';
+
   const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [schools, setSchools] = useState<School[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | undefined>(undefined);
   const [viewingTeacher, setViewingTeacher] = useState<Teacher | undefined>(undefined);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [filterSchool, setFilterSchool] = useState('');
+  const [hasFetched, setHasFetched] = useState(false);
 
+  // ── Load schools on mount ──
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get('/schools', { params: { limit: '100' } });
+        setSchools(data.data || []);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  // ── Fetch teachers (called only when filters are applied) ──
   const fetchTeachers = useCallback(async () => {
+    setLoading(true);
+    setError('');
     try {
       const params: any = {};
       if (search) params.search = search;
       if (statusFilter) params.status = statusFilter;
+      if (filterSchool) params.school = filterSchool;
 
       const { data } = await api.get('/teachers', { params });
       setTeachers(data.data || []);
+      setHasFetched(true);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load teachers');
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter]);
+  }, [search, statusFilter, filterSchool]);
 
+  // ── org_admin has no organization to pick — their own org is implicit
+  // (enforced server-side), so load immediately rather than waiting for a
+  // manual "Apply Filters" click. ──
   useEffect(() => {
+    if (isOrgAdmin) fetchTeachers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOrgAdmin]);
+
+  // ── Apply Filters ──
+  const handleApplyFilters = () => {
+    if (isSuperAdmin && !filterSchool) {
+      setError('Please select an organization to view teachers.');
+      return;
+    }
     fetchTeachers();
-  }, [fetchTeachers]);
+  };
 
   const handleDelete = async (id: string, name: string) => {
     if (!window.confirm(`Delete teacher "${name}"? This will also remove their user account.`)) return;
@@ -412,25 +432,6 @@ export function TeachersManage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-500 mb-4">{error}</p>
-          <button onClick={fetchTeachers} className="rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700">Retry</button>
-        </div>
-      </div>
-    );
-  }
-
   const activeCount = teachers.filter((t) => t.status === 'active').length;
   const inactiveCount = teachers.filter((t) => t.status === 'inactive').length;
   const onLeaveCount = teachers.filter((t) => t.status === 'on_leave').length;
@@ -443,7 +444,9 @@ export function TeachersManage() {
           <div>
             <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">👨‍🏫 Manage Teachers</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-              {teachers.length} total — {activeCount} active, {inactiveCount} inactive, {onLeaveCount} on leave
+              {hasFetched
+                ? `${teachers.length} total — ${activeCount} active, ${inactiveCount} inactive, ${onLeaveCount} on leave`
+                : 'Apply a filter to view teachers'}
             </p>
           </div>
           <button
@@ -454,66 +457,125 @@ export function TeachersManage() {
           </button>
         </div>
 
-        {/* ── Filters ── */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input
-            className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
-            placeholder="Search by name, email, or ID..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <select
-            className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="on_leave">On Leave</option>
-          </select>
+        {/* ── Filter Bar ── */}
+        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Organization filter */}
+            {isOrgAdmin ? (
+              <div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">
+                {schools[0]?.name || 'Your Organization'}
+              </div>
+            ) : (
+              <select
+                value={filterSchool}
+                onChange={(e) => { setFilterSchool(e.target.value); setHasFetched(false); }}
+                className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+              >
+                <option value="">
+                  {isSuperAdmin ? 'Select an Organization...' : 'Select Organization...'}
+                </option>
+                {schools.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+              </select>
+            )}
+
+            <input
+              className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+              placeholder="Search by name, email, or ID..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setHasFetched(false); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleApplyFilters(); }}
+            />
+            <select
+              className="flex-1 sm:flex-none sm:w-40 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setHasFetched(false); }}
+            >
+              <option value="">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="on_leave">On Leave</option>
+            </select>
+
+            <button
+              onClick={handleApplyFilters}
+              className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors whitespace-nowrap"
+            >
+              🔍 Apply Filters
+            </button>
+          </div>
         </div>
 
-        {/* ── Stats Cards ── */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-green-700 dark:text-green-300">{activeCount}</p>
-            <p className="text-xs text-green-600 dark:text-green-400">Active</p>
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center">
+            <p className="text-red-600 text-sm mb-2">{error}</p>
+            <button onClick={handleApplyFilters} className="text-primary-600 font-medium text-sm hover:underline">Retry</button>
           </div>
-          <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{onLeaveCount}</p>
-            <p className="text-xs text-amber-600 dark:text-amber-400">On Leave</p>
+        )}
+
+        {/* ── Loading ── */}
+        {loading && (
+          <div className="flex justify-center py-10">
+            <div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
           </div>
-          <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-red-700 dark:text-red-300">{inactiveCount}</p>
-            <p className="text-xs text-red-600 dark:text-red-400">Inactive</p>
+        )}
+
+        {/* ── Empty State (no filters applied) ── */}
+        {!loading && !hasFetched && (
+          <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card">
+            <p className="text-4xl mb-4">🔍</p>
+            <p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">Please apply a filter to view records.</p>
+            <p className="text-sm text-[var(--color-text-tertiary)]">
+              {isSuperAdmin
+                ? 'Select an organization and click "Apply Filters" to load teachers.'
+                : 'Click "Apply Filters" to load teachers for your organization.'}
+            </p>
           </div>
-        </div>
+        )}
+
+        {/* ── No Results ── */}
+        {!loading && hasFetched && teachers.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card">
+            <p className="text-4xl mb-4">👨‍🏫</p>
+            <p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No teachers found</p>
+            <p className="text-sm text-[var(--color-text-tertiary)]">Try adjusting your filters or click "+ Add Teacher" to create one.</p>
+          </div>
+        )}
+
+        {/* ── Stats Cards (only when data loaded) ── */}
+        {!loading && hasFetched && teachers.length > 0 && (
+          <div className="grid grid-cols-3 gap-4">
+            <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
+              <p className="text-2xl font-bold text-green-700 dark:text-green-300">{activeCount}</p>
+              <p className="text-xs text-green-600 dark:text-green-400">Active</p>
+            </div>
+            <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-4 text-center">
+              <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{onLeaveCount}</p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">On Leave</p>
+            </div>
+            <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center">
+              <p className="text-2xl font-bold text-red-700 dark:text-red-300">{inactiveCount}</p>
+              <p className="text-xs text-red-600 dark:text-red-400">Inactive</p>
+            </div>
+          </div>
+        )}
 
         {/* ── Table ── */}
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
-                <tr>
-                  <th className="text-left px-5 py-3 font-semibold">Teacher</th>
-                  <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">ID</th>
-                  <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Specialization</th>
-                  <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Courses</th>
-                  <th className="text-center px-5 py-3 font-semibold">Status</th>
-                  <th className="text-center px-5 py-3 font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teachers.length === 0 ? (
+        {!loading && hasFetched && teachers.length > 0 && (
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                   <tr>
-                    <td colSpan={6} className="text-center py-16 text-[var(--color-text-tertiary)]">
-                      <p className="text-lg mb-1">👨‍🏫 No teachers found</p>
-                      <p className="text-sm">Click "+ Add Teacher" to create one.</p>
-                    </td>
+                    <th className="text-left px-5 py-3 font-semibold">Teacher</th>
+                    <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th>
+                    <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Specialization</th>
+                    <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Courses</th>
+                    <th className="text-center px-5 py-3 font-semibold">Status</th>
+                    <th className="text-center px-5 py-3 font-semibold">Actions</th>
                   </tr>
-                ) : (
-                  teachers.map((teacher) => (
+                </thead>
+                <tbody>
+                  {teachers.map((teacher) => (
                     <tr
                       key={teacher._id}
                       className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer"
@@ -530,8 +592,8 @@ export function TeachersManage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-4 hidden md:table-cell">
-                        <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{teacher.teacherId}</code>
+                      <td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">
+                        {teacher.school?.name || '—'}
                       </td>
                       <td className="px-5 py-4 hidden lg:table-cell">
                         <div className="flex flex-wrap gap-1">
@@ -576,12 +638,12 @@ export function TeachersManage() {
                         </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* ── Modals ── */}
@@ -594,7 +656,6 @@ export function TeachersManage() {
           }}
         />
       )}
-
       {editingTeacher && (
         <TeacherModal
           teacher={editingTeacher}
@@ -605,7 +666,6 @@ export function TeachersManage() {
           }}
         />
       )}
-
       {viewingTeacher && (
         <ViewModal
           teacher={viewingTeacher}

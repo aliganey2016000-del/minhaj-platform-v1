@@ -67,7 +67,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
         key: 'group:payments', label: 'Payments', icon: '💰',
         children: [
           { path: '/admin/payments',             label: 'Overview',         icon: '📊' },
-          { path: '/admin/payments/record',       label: 'Record Payment',   icon: '💳' },
+          { path: '/admin/payments/record',       label: 'Payment Center',   icon: '💳' },
           { path: '/admin/payments/history',      label: 'Payment History',  icon: '📋' },
           { path: '/admin/payments/outstanding',  label: 'Outstanding Dues', icon: '⚠️' },
         ],

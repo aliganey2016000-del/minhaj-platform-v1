@@ -3,10 +3,16 @@
  * Tabs: All | Approved | Pending | Rejected
  * Self-registered students → Pending → auto-assigned Public School/Class
  * Admin-created students → Approved (default)
+ *
+ * Smart Loading:
+ *   - No data fetched on initial mount — shows "Please apply a filter to view records."
+ *   - Super admin MUST pick an Organization before fetching.
+ *   - org_admin auto-loads with their own organization.
  */
 
 import { useEffect, useState, useCallback, type FormEvent, type ChangeEvent } from 'react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -201,7 +207,6 @@ function StudentModal({ student, schools, onClose, onSaved }: {
           </div>
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Medical Notes</label><textarea className={ic('medicalNotes')} name="medicalNotes" rows={2} value={form.medicalNotes} onChange={handleChange} /></div>
 
-          {/* ───── Parent / Guardian Information ───── */}
           {!isEdit && (
             <div className="border-t border-[var(--color-border-subtle)] pt-3">
               <p className="text-xs font-bold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">👨‍👩‍👧 Parent / Guardian Information (Optional)</p>
@@ -346,40 +351,79 @@ function DR({ label, value }: { label: string; value: React.ReactNode }) {
 // ---------------------------------------------------------------------------
 
 export function StudentsManage() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'admin';
+  const isOrgAdmin = user?.role === 'org_admin';
+
   const [students, setStudents] = useState<Student[]>([]);
   const [schools, setSchools] = useState<SchoolBrief[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [filterSchool, setFilterSchool] = useState('');
   const [activeTab, setActiveTab] = useState<TabKey>('all');
+  const [hasFetched, setHasFetched] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | undefined>(undefined);
   const [viewingStudent, setViewingStudent] = useState<Student | undefined>(undefined);
   const [approvingStudent, setApprovingStudent] = useState<Student | undefined>(undefined);
   const limit = 15;
 
-  const fetchStudents = useCallback(async () => {
+  // ── Load schools on mount ──
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get('/schools', { params: { limit: '100' } });
+        setSchools(data.data || []);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  // ── Fetch students (called only when filters are applied) ──
+  const fetchStudents = useCallback(async (pageNum = 1) => {
     setLoading(true); setError('');
     try {
-      const params: any = { page: String(page), limit: String(limit) };
+      const params: any = { page: String(pageNum), limit: String(limit) };
       if (search) params.search = search;
       if (statusFilter) params.status = statusFilter;
       if (activeTab === 'pending') params.approvalStatus = 'pending';
       else if (activeTab === 'approved') params.approvalStatus = 'approved';
       else if (activeTab === 'rejected') params.approvalStatus = 'rejected';
+      if (filterSchool) params.school = filterSchool;
 
-      const [studentsRes, schoolsRes] = await Promise.all([api.get('/students', { params }), api.get('/schools', { params: { limit: '100' } })]);
-      setStudents(studentsRes.data.data || []);
-      setTotal(studentsRes.data.meta?.total || 0);
-      setSchools(schoolsRes.data.data || []);
+      const { data } = await api.get('/students', { params });
+      setStudents(data.data || []);
+      setTotal(data.meta?.total || 0);
+      setHasFetched(true);
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to load students'); }
     finally { setLoading(false); }
-  }, [page, search, statusFilter, activeTab]);
+  }, [search, statusFilter, activeTab, filterSchool]);
 
-  useEffect(() => { fetchStudents(); }, [fetchStudents]);
+  // ── org_admin has no organization to pick — their own org is implicit
+  // (enforced server-side), so load immediately rather than waiting for a
+  // manual "Apply Filters" click. ──
+  useEffect(() => {
+    if (isOrgAdmin) fetchStudents(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOrgAdmin]);
+
+  // ── Apply Filters ──
+  const handleApplyFilters = () => {
+    if (isSuperAdmin && !filterSchool) {
+      setError('Please select an organization to view students.');
+      return;
+    }
+    setPage(1);
+    fetchStudents(1);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    fetchStudents(newPage);
+  };
 
   const handleStatusChange = async (id: string, newStatus: string) => {
     try { await api.patch(`/students/${id}/status`, { status: newStatus }); setStudents(p => p.map(s => s._id === id ? { ...s, status: newStatus as Student['status'] } : s)); }
@@ -388,66 +432,143 @@ export function StudentsManage() {
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Deactivate this student?')) return;
-    try { await api.delete(`/students/${id}`); if (students.length === 1 && page > 1) setPage(p => p - 1); else fetchStudents(); }
+    try { await api.delete(`/students/${id}`); fetchStudents(page); }
     catch (err: any) { alert(err.response?.data?.message || 'Failed to deactivate'); }
   };
 
   const handleReject = async (id: string) => {
     if (!window.confirm('Reject this student?')) return;
-    try { await api.patch(`/students/${id}/reject`); fetchStudents(); }
+    try { await api.patch(`/students/${id}/reject`); fetchStudents(page); }
     catch (err: any) { alert(err.response?.data?.message || 'Failed to reject'); }
   };
 
   const totalPages = Math.ceil(total / limit);
-
-  if (loading && students.length === 0) return <div className="flex min-h-[400px] items-center justify-center"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>;
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-6xl space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div><h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🎓 Manage Students</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} total students</p></div>
+          <div>
+            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🎓 Manage Students</h1>
+            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
+              {hasFetched ? `${total} total students` : 'Apply a filter to view students'}
+            </p>
+          </div>
           <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">+ Add Student</button>
         </div>
 
         {/* Tabs */}
         <div className="flex gap-2 overflow-x-auto pb-1">
           {tabs.map(t => (
-            <button key={t.key} onClick={() => { setActiveTab(t.key); setPage(1); }}
+            <button key={t.key} onClick={() => { setActiveTab(t.key); setHasFetched(false); }}
               className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === t.key ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-primary)] border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
               <span>{t.icon}</span> {t.label}
             </button>
           ))}
         </div>
 
-        {/* Search & Filter */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input type="text" placeholder="Search by name, email, or student ID..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20" />
-          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="graduated">Graduated</option><option value="suspended">Suspended</option></select>
+        {/* Filter Bar */}
+        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Organization filter — super admin must select */}
+            {isOrgAdmin ? (
+              <div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">
+                {schools[0]?.name || 'Your Organization'}
+              </div>
+            ) : (
+              <select
+                value={filterSchool}
+                onChange={(e) => { setFilterSchool(e.target.value); setHasFetched(false); }}
+                className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+              >
+                <option value="">
+                  {isSuperAdmin ? 'Select an Organization...' : 'Select Organization...'}
+                </option>
+                {schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
+              </select>
+            )}
+
+            {/* Search */}
+            <input
+              type="text"
+              placeholder="Search by name, email, or student ID..."
+              value={search}
+              onChange={e => { setSearch(e.target.value); setHasFetched(false); }}
+              className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleApplyFilters(); }}
+            />
+
+            {/* Status */}
+            <select
+              value={statusFilter}
+              onChange={e => { setStatusFilter(e.target.value); setHasFetched(false); }}
+              className="flex-1 sm:flex-none sm:w-40 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+            >
+              <option value="">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="graduated">Graduated</option>
+              <option value="suspended">Suspended</option>
+            </select>
+
+            <button
+              onClick={handleApplyFilters}
+              className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors whitespace-nowrap"
+            >
+              🔍 Apply Filters
+            </button>
+          </div>
         </div>
 
-        {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-red-600 text-sm mb-2">{error}</p><button onClick={fetchStudents} className="text-primary-600 font-medium text-sm hover:underline">Retry</button></div>}
+        {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-red-600 text-sm mb-2">{error}</p><button onClick={() => handleApplyFilters()} className="text-primary-600 font-medium text-sm hover:underline">Retry</button></div>}
+
+        {/* ── Loading ── */}
+        {loading && (
+          <div className="flex justify-center py-10">
+            <div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
+          </div>
+        )}
+
+        {/* ── Empty State (no filters applied) ── */}
+        {!loading && !hasFetched && (
+          <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card">
+            <p className="text-4xl mb-4">🔍</p>
+            <p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">Please apply a filter to view records.</p>
+            <p className="text-sm text-[var(--color-text-tertiary)]">
+              {isSuperAdmin
+                ? 'Select an organization and click "Apply Filters" to load students.'
+                : 'Click "Apply Filters" to load students for your organization.'}
+            </p>
+          </div>
+        )}
+
+        {/* ── No Results ── */}
+        {!loading && hasFetched && students.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card">
+            <p className="text-4xl mb-4">🎓</p>
+            <p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No students found</p>
+            <p className="text-sm text-[var(--color-text-tertiary)]">Try adjusting your filters or click "+ Add Student" to create one.</p>
+          </div>
+        )}
 
         {/* Table */}
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
-                <tr>
-                  <th className="text-left px-5 py-3 font-semibold">Student</th>
-                  <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th>
-                  <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Class</th>
-                  <th className="text-center px-5 py-3 font-semibold">Approval</th>
-                  <th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Status</th>
-                  <th className="text-center px-5 py-3 font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {students.length === 0 ? (
-                  <tr><td colSpan={6} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🎓 No students found</p><p className="text-sm">Click "+ Add Student" to create one.</p></td></tr>
-                ) : (
-                  students.map(st => (
+        {!loading && hasFetched && students.length > 0 && (
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
+                  <tr>
+                    <th className="text-left px-5 py-3 font-semibold">Student</th>
+                    <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th>
+                    <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Class</th>
+                    <th className="text-center px-5 py-3 font-semibold">Approval</th>
+                    <th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Status</th>
+                    <th className="text-center px-5 py-3 font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map(st => (
                     <tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
@@ -473,28 +594,28 @@ export function StudentsManage() {
                         </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-center gap-3">
-            <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">← Prev</button>
+            <button disabled={page <= 1} onClick={() => handlePageChange(page - 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">← Prev</button>
             <span className="text-sm text-[var(--color-text-tertiary)]">Page {page} of {totalPages}</span>
-            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">Next →</button>
+            <button disabled={page >= totalPages} onClick={() => handlePageChange(page + 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">Next →</button>
           </div>
         )}
       </div>
 
       {/* Modals */}
-      {showCreate && <StudentModal schools={schools} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchStudents(); }} />}
-      {editingStudent && <StudentModal student={editingStudent} schools={schools} onClose={() => setEditingStudent(undefined)} onSaved={() => { setEditingStudent(undefined); fetchStudents(); }} />}
+      {showCreate && <StudentModal schools={schools} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchStudents(page); }} />}
+      {editingStudent && <StudentModal student={editingStudent} schools={schools} onClose={() => setEditingStudent(undefined)} onSaved={() => { setEditingStudent(undefined); fetchStudents(page); }} />}
       {viewingStudent && <ViewModal student={viewingStudent} onClose={() => setViewingStudent(undefined)} />}
-      {approvingStudent && <ApproveModal student={approvingStudent} schools={schools} onClose={() => setApprovingStudent(undefined)} onDone={fetchStudents} />}
+      {approvingStudent && <ApproveModal student={approvingStudent} schools={schools} onClose={() => setApprovingStudent(undefined)} onDone={() => fetchStudents(page)} />}
     </div>
   );
 }
