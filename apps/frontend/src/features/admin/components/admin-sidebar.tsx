@@ -44,6 +44,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
   {
     title: 'Academic',
     items: [
+      { path: '/admin/schedules',    label: 'Class Schedules',    icon: '🕐' },
       { path: '/admin/attendance',   label: 'Attendance',         icon: '📅' },
       {
         label: 'Exam Management', icon: '📝',

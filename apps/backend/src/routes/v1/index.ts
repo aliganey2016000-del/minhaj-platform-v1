@@ -32,6 +32,7 @@ import aiRoutes from './ai.routes';
 import forumRoutes from './forum.routes';
 import sidebarSettingRoutes from './sidebar-setting.routes';
 import tenantRoutes from './tenant.routes';
+import classScheduleRoutes from './class-schedule.routes';
 
 const router = Router();
 
@@ -68,6 +69,7 @@ router.use('/ai', aiRoutes);
 router.use('/forum', forumRoutes);
 router.use('/sidebar-settings', sidebarSettingRoutes);
 router.use('/tenant', tenantRoutes);
+router.use('/class-schedules', classScheduleRoutes);
 
 // ---------------------------------------------------------------------------
 // Health Check Endpoint

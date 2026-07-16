@@ -51,6 +51,7 @@ import './models/exam-attempt.model';
 import './models/sidebar-setting.model';
 import './models/seat-allocation.model';
 import './models/progress.model';
+import './models/class-schedule.model';
 
 import app from './app';
 

@@ -110,6 +110,9 @@ const PaymentsManage = lazy(() =>
 const AttendanceManage = lazy(() =>
   import('../features/admin/pages/attendance-manage').then((m) => ({ default: m.AttendanceManage }))
 );
+const SchedulesManage = lazy(() =>
+  import('../features/admin/pages/schedules-manage').then((m) => ({ default: m.SchedulesManage }))
+);
 const ClassesManage = lazy(() =>
   import('../features/admin/pages/classes-manage').then((m) => ({ default: m.ClassesManage }))
 );
@@ -251,6 +254,7 @@ export const router = createBrowserRouter([
       },
       { path: 'schools', element: L(<SchoolsManage />) },
       { path: 'classes', element: L(<ClassesManage />) },
+      { path: 'schedules', element: L(<SchedulesManage />) },
       { path: 'attendance', element: L(<AttendanceManage />) },
       { path: 'exams', element: L(<ExamsManage />) },
       { path: 'exams/rooms', element: L(<ExamRoomsManage />) },
