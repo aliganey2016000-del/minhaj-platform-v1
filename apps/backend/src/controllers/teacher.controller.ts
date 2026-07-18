@@ -126,6 +126,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     email: email.toLowerCase(),
     password,
     role: 'teacher',
+    organizationId: resolveOrgIdForCreate(req, school) || undefined,
     phone: phone || undefined,
     isVerified: true, // admin-created teachers are pre-verified
     preferredLanguage: 'en',

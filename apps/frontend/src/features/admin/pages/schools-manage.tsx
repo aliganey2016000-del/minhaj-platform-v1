@@ -206,23 +206,38 @@ function FormInput({
   error?: string;
   onChange: (e: ChangeEvent<HTMLInputElement>) => void;
 }) {
+  const [revealed, setRevealed] = useState(false);
+  const isPassword = type === 'password';
   return (
     <div>
       <label htmlFor={name} className="block text-sm font-medium text-[var(--color-text-primary)] mb-1">
         {label} {required && <span className="text-red-500">*</span>}
       </label>
-      <input
-        id={name}
-        name={name}
-        type={type}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        maxLength={maxLength}
-        className={`w-full rounded-xl border px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors ${
-          error ? 'border-red-400 focus:ring-red-400' : 'border-[var(--color-border-default)]'
-        }`}
-      />
+      <div className="relative">
+        <input
+          id={name}
+          name={name}
+          type={isPassword && revealed ? 'text' : type}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          maxLength={maxLength}
+          className={`w-full rounded-xl border px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors ${
+            isPassword ? 'pr-11' : ''
+          } ${error ? 'border-red-400 focus:ring-red-400' : 'border-[var(--color-border-default)]'}`}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setRevealed((r) => !r)}
+            tabIndex={-1}
+            className="absolute inset-y-0 right-0 flex items-center px-3 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+            aria-label={revealed ? 'Hide password' : 'Show password'}
+          >
+            {revealed ? '🙈' : '👁️'}
+          </button>
+        )}
+      </div>
       {error && (
         <p className="mt-1 text-xs text-red-500">{error}</p>
       )}
@@ -442,9 +457,13 @@ export function SchoolsManage() {
       else if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) errors.email = 'Enter a valid email address';
     }
 
-    if (include('adminPassword') && !editingSchool) {
-      if (!form.adminPassword) errors.adminPassword = 'Password is required';
-      else if (form.adminPassword.length < 8) errors.adminPassword = 'Password must be at least 8 characters';
+    if (include('adminPassword')) {
+      if (!editingSchool) {
+        if (!form.adminPassword) errors.adminPassword = 'Password is required';
+        else if (form.adminPassword.length < 8) errors.adminPassword = 'Password must be at least 8 characters';
+      } else if (form.adminPassword && form.adminPassword.length < 8) {
+        errors.adminPassword = 'Password must be at least 8 characters';
+      }
     }
 
     if (include('phone')) {
@@ -555,7 +574,7 @@ export function SchoolsManage() {
         ...rest,
         establishedYear: parseInt(form.establishedYear, 10),
       };
-      if (!editingSchool) payload.adminPassword = adminPassword;
+      if (!editingSchool || adminPassword) payload.adminPassword = adminPassword;
 
       if (editingSchool) {
         // Update
@@ -872,9 +891,11 @@ export function SchoolsManage() {
                 <>
                   <FormInput label="Admin Full Name" name="principalName" value={form.principalName} error={formErrors.principalName} onChange={handleChange} placeholder="Full name of the org admin" required maxLength={100} />
                   <FormInput label="Login Email" name="email" type="email" value={form.email} error={formErrors.email} onChange={handleChange} placeholder="org@example.com" required />
-                  {!editingSchool && (
+                  {!editingSchool ? (
                     <FormInput label="Create Password" name="adminPassword" type="password" value={form.adminPassword} error={formErrors.adminPassword} onChange={handleChange} placeholder="At least 8 characters" required />
-                  )}
+                  ) : isSuperAdmin ? (
+                    <FormInput label="Reset Password" name="adminPassword" type="password" value={form.adminPassword} error={formErrors.adminPassword} onChange={handleChange} placeholder="Leave blank to keep current password" />
+                  ) : null}
                   <FormInput label="Phone Number" name="phone" type="tel" value={form.phone} error={formErrors.phone} onChange={handleChange} placeholder="+252 61 2345678" required />
                 </>
               )}

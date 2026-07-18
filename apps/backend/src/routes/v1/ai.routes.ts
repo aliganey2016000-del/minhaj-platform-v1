@@ -43,4 +43,10 @@ router.post('/generate-lesson/document', upload.single('file'), asyncHandler(aiC
 // POST /api/v1/ai/generate-quiz  { mode: 'content' | 'topic', ..., questionCounts: [{type, count}] }
 router.post('/generate-quiz', asyncHandler(aiController.generateQuiz));
 
+// POST /api/v1/ai/generate-stop-check-question  { blockText: string }
+router.post('/generate-stop-check-question', asyncHandler(aiController.generateStopCheck));
+
+// POST /api/v1/ai/split-lesson  { html: string }
+router.post('/split-lesson', asyncHandler(aiController.splitLesson));
+
 export default router;

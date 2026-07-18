@@ -11,6 +11,9 @@ import mongoose from 'mongoose';
 import School from '../models/school.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
+import Student from '../models/student.model';
+import Teacher from '../models/teacher.model';
+import Parent from '../models/parent.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 
@@ -177,6 +180,8 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
 export const update = async (req: Request, res: Response): Promise<Response> => {
   const updates = { ...req.body };
+  const adminPassword = updates.adminPassword as string | undefined;
+  delete updates.adminPassword;
 
   if (req.user?.role === 'org_admin') {
     if (req.params.id !== req.user.organizationId) {
@@ -187,6 +192,75 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     // through the general-purpose update endpoint.
     delete updates.status;
     delete updates.createdBy;
+  }
+
+  // ── Reset the org admin's login password, if the caller provided a new
+  // one. Left blank on the edit form = leave the existing password alone.
+  // Self-heals orgs whose org_admin login account never got provisioned
+  // (e.g. a past registration where the auto-create step silently failed) —
+  // find by org binding first, fall back to email, and create one from
+  // scratch as a last resort so "Reset Password" always leaves a working
+  // login behind rather than a silent no-op. ──
+  if (adminPassword) {
+    if (String(adminPassword).length < 8) {
+      throw new BadRequestError('Admin password must be at least 8 characters');
+    }
+
+    const loginEmail = ((updates.email as string | undefined) || '').toLowerCase().trim();
+
+    const byOrg = await User.findOne({ organizationId: req.params.id, role: 'org_admin' }).select('+password +failedLoginAttempts +lockedUntil');
+    const byEmail = !byOrg && loginEmail
+      ? await User.findOne({ email: loginEmail }).select('+password +failedLoginAttempts +lockedUntil')
+      : null;
+
+    // A match found only by email (no org_admin already bound to this org)
+    // must already BE an org_admin — otherwise it's someone else's account
+    // (a parent, student, teacher...) that happens to share this email, and
+    // silently repurposing their role/org would hijack it out from under them.
+    if (byEmail && byEmail.role !== 'org_admin') {
+      throw new BadRequestError(
+        `"${loginEmail}" already belongs to an existing ${byEmail.role} account. Choose a different login email for this organization's admin, or change that account's role first.`
+      );
+    }
+
+    const orgAdminUser = byOrg || byEmail;
+
+    if (orgAdminUser) {
+      orgAdminUser.password = adminPassword; // pre-save hook hashes it
+      orgAdminUser.role = 'org_admin';
+      orgAdminUser.organizationId = new mongoose.Types.ObjectId(req.params.id);
+      // The account may have been linked by organizationId while its stored
+      // email drifted from what's shown on the org record (legacy data) —
+      // keep them in sync so login with the displayed "Login Email" works.
+      if (loginEmail && orgAdminUser.email !== loginEmail) {
+        const emailTaken = await User.exists({ email: loginEmail, _id: { $ne: orgAdminUser._id } });
+        if (emailTaken) {
+          throw new BadRequestError(`Another account already uses "${loginEmail}" as its login email.`);
+        }
+        orgAdminUser.email = loginEmail;
+      }
+      orgAdminUser.isActive = true;
+      orgAdminUser.isVerified = true;
+      orgAdminUser.failedLoginAttempts = 0;
+      orgAdminUser.lockedUntil = undefined;
+      await orgAdminUser.save();
+    } else if (loginEmail) {
+      const created = await User.create({
+        email: loginEmail,
+        password: adminPassword,
+        role: 'org_admin',
+        organizationId: req.params.id,
+        isVerified: true,
+        isActive: true,
+        preferredLanguage: 'en',
+      });
+      await Profile.create({
+        user: created._id,
+        firstName: (updates.principalName as string) || 'Org',
+        lastName: 'Admin',
+        gender: 'male',
+      });
+    }
   }
 
   const school = await School.findByIdAndUpdate(
@@ -235,6 +309,22 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 
 export const remove = async (req: Request, res: Response): Promise<Response> => {
+  // This is a hard delete with no undo — refuse it while the organization
+  // still has real people in it, so it can't wipe out an org's data by
+  // mistake. Deactivate the org (PATCH /:id/status) instead if the goal is
+  // to disable it without destroying anything.
+  const [studentCount, teacherCount, parentCount] = await Promise.all([
+    Student.countDocuments({ school: req.params.id }),
+    Teacher.countDocuments({ school: req.params.id }),
+    Parent.countDocuments({ school: req.params.id }),
+  ]);
+  const total = studentCount + teacherCount + parentCount;
+  if (total > 0) {
+    throw new BadRequestError(
+      `Cannot delete: this organization still has ${studentCount} student(s), ${teacherCount} teacher(s), and ${parentCount} parent(s) linked. Reassign or remove them first, or deactivate the organization instead of deleting it.`
+    );
+  }
+
   const school = await School.findByIdAndDelete(req.params.id);
 
   if (!school) {

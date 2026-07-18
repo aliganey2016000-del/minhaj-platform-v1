@@ -62,9 +62,6 @@ export function StudentDashboard() {
   const fullName = data.profile
     ? `${data.profile.firstName} ${data.profile.lastName}`.trim()
     : (user?.email || 'Student');
-  const firstName = data.profile?.firstName || fullName.split(' ')[0] || 'Student';
-  const schoolName = data.school?.name || 'Masjid Al-Rahma Institute';
-  const schoolInitial = schoolName.charAt(0).toUpperCase();
 
   // Dynamic date
   const now = new Date();
@@ -109,66 +106,23 @@ export function StudentDashboard() {
 
   return (
     <div className="min-h-screen bg-[var(--color-surface-primary)]">
-      {/* ── Organization Header Banner ── */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-emerald-900 to-slate-900">
-        {/* Abstract background pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500 rounded-full blur-3xl translate-x-1/3 -translate-y-1/3" />
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-amber-500 rounded-full blur-3xl -translate-x-1/3 translate-y-1/3" />
-          <div className="absolute top-1/2 left-1/2 w-48 h-48 bg-blue-500 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
-        </div>
-
-        <div className="relative mx-auto max-w-6xl px-6 py-8 lg:py-12 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            {/* School Logo/Avatar */}
-            <div className="flex-shrink-0 flex h-14 w-14 lg:h-16 lg:w-16 items-center justify-center rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 shadow-xl">
-              {data.school?.logo ? (
-                <img src={data.school.logo} alt={schoolName} className="h-10 w-10 object-contain" />
-              ) : (
-                <span className="text-xl lg:text-2xl font-bold text-emerald-300">{schoolInitial}</span>
-              )}
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400/80 mb-1">
-                {lang === 'so' ? 'Xarunta Waxbarashada' : lang === 'ar' ? 'المنظمة التعليمية' : 'Learning Organization'}
-              </p>
-              <h2 className="text-lg lg:text-xl font-bold text-white tracking-tight">{schoolName}</h2>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/15">
-            <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-medium text-emerald-300 uppercase tracking-wider">
-              {lang === 'so' ? 'Firfircoon' : lang === 'ar' ? 'نشط' : 'Active'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Dashboard Content ── */}
-      <div className="mx-auto max-w-6xl px-6 -mt-6 space-y-6 pb-12">
-        {/* ── Welcome Hero ── */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[var(--color-surface-primary)] to-emerald-50 dark:to-emerald-950/30 border border-[var(--color-border-default)] shadow-card p-6 lg:p-8">
-          <div className="absolute top-0 right-0 w-40 h-40 bg-emerald-100 dark:bg-emerald-900/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 opacity-60" />
-          <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600 dark:text-emerald-400 mb-2">{dateStr}</p>
-              <h1 className="text-2xl lg:text-3xl font-bold text-[var(--color-text-primary)]">
-                {lang === 'so' ? 'Ku soo dhawoow' : lang === 'ar' ? 'مرحباً بعودتك' : 'Welcome back'},{' '}
-                <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">{firstName}</span>
-                <span className="ml-1">👋</span>
-              </h1>
-              <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-                {fullName} · <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-0.5 text-xs font-mono font-medium text-emerald-700 dark:text-emerald-300">{data.studentId}</span>
-              </p>
-            </div>
-            <Link
-              to="/student/courses"
-              className="inline-flex items-center gap-2 self-start rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 hover:shadow-emerald-600/40 transition-all active:scale-95"
-            >
-              {lang === 'so' ? 'Sii wad waxbarashada' : lang === 'ar' ? 'مواصلة التعلم' : 'Continue Learning'}
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
-            </Link>
-          </div>
+      {/* ── Dashboard Content (header is rendered by StudentLayout) ── */}
+      <div className="mx-auto max-w-6xl px-6 space-y-6 pb-12">
+        {/* ── Student ID badge ── */}
+        <div className="flex items-center gap-3 pt-4">
+          <span className="text-xs text-[var(--color-text-tertiary)] uppercase tracking-wider">
+            {lang === 'so' ? 'Ardayga' : lang === 'ar' ? 'الطالب' : 'Student'}
+          </span>
+          <span className="rounded-full bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 text-xs font-mono font-medium text-emerald-700 dark:text-emerald-300">
+            {data.studentId}
+          </span>
+          <Link
+            to="/student/courses"
+            className="ml-auto inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 transition-all active:scale-95"
+          >
+            {lang === 'so' ? 'Sii wad waxbarashada' : lang === 'ar' ? 'مواصلة التعلم' : 'Continue Learning'}
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+          </Link>
         </div>
 
         {/* ── Metric Cards ── */}

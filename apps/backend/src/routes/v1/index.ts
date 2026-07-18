@@ -28,10 +28,12 @@ import contentRoutes from './content.routes';
 import systemRoutes from './system.routes';
 import schoolRoutes from './school.routes';
 import courseContentRoutes from './course-content.routes';
+import lessonBlockProgressRoutes from './lesson-block-progress.routes';
 import aiRoutes from './ai.routes';
 import forumRoutes from './forum.routes';
 import sidebarSettingRoutes from './sidebar-setting.routes';
 import tenantRoutes from './tenant.routes';
+import userRoutes from './user.routes';
 import classScheduleRoutes from './class-schedule.routes';
 
 const router = Router();
@@ -65,10 +67,12 @@ router.use('/gallery', contentRoutes('Gallery'));
 router.use('/system', systemRoutes);
 router.use('/schools', schoolRoutes);
 router.use('/courses/:courseId/content', courseContentRoutes);
+router.use('/courses/:courseId/lessons/:lessonId/gate', lessonBlockProgressRoutes);
 router.use('/ai', aiRoutes);
 router.use('/forum', forumRoutes);
 router.use('/sidebar-settings', sidebarSettingRoutes);
 router.use('/tenant', tenantRoutes);
+router.use('/users', userRoutes);
 router.use('/class-schedules', classScheduleRoutes);
 
 // ---------------------------------------------------------------------------

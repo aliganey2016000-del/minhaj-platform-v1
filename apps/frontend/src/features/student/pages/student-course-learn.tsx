@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/axios';
 import type { Chapter, LessonItem, QuizItem, AssignmentItem } from '../../admin/pages/course-builder.types';
 import { QuestionPreview } from '../../../components/shared/quiz-question-preview';
+import { InteractiveGateLessonView } from '../components/interactive-gate-lesson-view';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -146,6 +147,8 @@ export function StudentCourseLearn() {
   const [locallyCompleted, setLocallyCompleted] = useState<Set<number>>(new Set());
   // Track whether quiz is finished (hide mark-complete during active quiz)
   const [quizFinished, setQuizFinished] = useState(false);
+  // Track which flat-item indices have cleared their Interactive Gate (all Stop & Check blocks passed)
+  const [gateCleared, setGateCleared] = useState<Set<number>>(new Set());
 
   const getTitle = (c: EnrolledCourse) => {
     if (lang === 'so' && c.title?.so) return c.title.so;
@@ -635,12 +638,33 @@ export function StudentCourseLearn() {
 
                 <hr className="border-[var(--color-border-default)]" />
 
-                {currentItem.item.type === 'lesson' && <LessonView lesson={currentItem.item as LessonItem} />}
+                {currentItem.item.type === 'lesson' && (
+                  (currentItem.item as LessonItem).deliveryMode === 'interactive_gate' ? (
+                    <InteractiveGateLessonView
+                      lesson={currentItem.item as LessonItem}
+                      courseId={courseId!}
+                      onGateCleared={() => setGateCleared((prev) => new Set(prev).add(activeItemIdx))}
+                    />
+                  ) : (
+                    <LessonView lesson={currentItem.item as LessonItem} />
+                  )
+                )}
                 {currentItem.item.type === 'quiz' && <QuizView quiz={currentItem.item as QuizItem} onComplete={() => setQuizFinished(true)} />}
                 {currentItem.item.type === 'assignment' && <AssignmentView assignment={currentItem.item as AssignmentItem} />}
 
-                {/* ── Mark as Completed Button (hidden during live quiz) ── */}
-                {!(currentItem.item.type === 'quiz' && !quizFinished) && (
+                {/* ── Mark as Completed Button (hidden during live quiz, or while an Interactive Gate lesson is still locked) ── */}
+                {(() => {
+                  const isGateLesson = currentItem.item.type === 'lesson' && (currentItem.item as LessonItem).deliveryMode === 'interactive_gate';
+                  const isGateLocked = isGateLesson && !isCurrentItemCompleted && !gateCleared.has(activeItemIdx);
+                  if (currentItem.item.type === 'quiz' && !quizFinished) return null;
+                  if (isGateLocked) {
+                    return (
+                      <div className="rounded-2xl bg-[var(--color-surface-secondary)] border border-[var(--color-border-default)] px-6 py-4 text-center text-sm text-[var(--color-text-tertiary)]">
+                        🔒 Complete every Stop &amp; Check block above to unlock "Mark as Completed".
+                      </div>
+                    );
+                  }
+                  return (
                 <div className="pt-2">
                   {isCurrentItemCompleted ? (
                     <div className="flex items-center justify-center gap-2 rounded-2xl bg-green-50 dark:bg-green-950/20 border-2 border-green-300 dark:border-green-700 px-6 py-4 text-green-700 dark:text-green-300">
@@ -667,7 +691,8 @@ export function StudentCourseLearn() {
                     </button>
                   )}
                 </div>
-                )}
+                  );
+                })()}
 
                 {/* Navigation */}
                 <hr className="border-[var(--color-border-default)]" />

@@ -201,6 +201,199 @@ ${countsList}
 }
 
 // ---------------------------------------------------------------------------
+// AI Stop & Check Generator — one short comprehension question per lesson
+// content block, for "Interactive Gate" delivery mode.
+// ---------------------------------------------------------------------------
+
+export interface StopCheckQuestion {
+  type: 'mcq' | 'true_false';
+  question: string;
+  options?: string[];
+  correctOptionIndex?: number;
+  correctAnswer?: boolean;
+  explanation?: string;
+  aiGenerated: true;
+}
+
+const STOP_CHECK_SYSTEM_PROMPT = `You write one short comprehension-check question for a single paragraph of lesson content, used to verify a student actually read it before moving on.
+
+Return ONLY a single JSON object — no markdown, no code fences, no commentary:
+- MCQ: { "type": "mcq", "question": string, "options": string[] (exactly 3), "correctOptionIndex": number (0-based), "explanation": string }
+- True/False: { "type": "true_false", "question": string, "correctAnswer": boolean, "explanation": string }
+
+Rules:
+- The question must be answerable purely from the paragraph given — do not require outside knowledge.
+- Prefer MCQ unless the paragraph makes a single clear factual claim well suited to true/false.
+- Keep the question short and unambiguous, one correct answer only.
+- For MCQ, the two incorrect options must be plausible-sounding but clearly wrong to someone who read the paragraph.
+- "explanation" is one short sentence shown to the student ONLY if they answer incorrectly — it should point back to what the paragraph actually says, not just restate the correct option.`;
+
+export async function generateStopCheckQuestion(blockText: string): Promise<StopCheckQuestion> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new InternalServerError('AI question generation is not configured on this server (missing DEEPSEEK_API_KEY).');
+  }
+
+  const trimmed = (blockText || '').trim();
+  if (!trimmed) {
+    throw new BadRequestError('No content block text to generate a question from.');
+  }
+
+  const clipped = trimmed.length > 4000 ? trimmed.slice(0, 4000) : trimmed;
+
+  let response;
+  try {
+    response = await axios.post(
+      DEEPSEEK_API_URL,
+      {
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: STOP_CHECK_SYSTEM_PROMPT },
+          { role: 'user', content: clipped },
+        ],
+        temperature: 0.4,
+        max_tokens: 500,
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30_000,
+      }
+    );
+  } catch (err: any) {
+    const status = err.response?.status;
+    const detail = err.response?.data?.error?.message || err.message;
+    throw new InternalServerError(`DeepSeek request failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+
+  const raw: string = response.data?.choices?.[0]?.message?.content || '{}';
+  let parsed: any;
+  try {
+    parsed = JSON.parse(stripCodeFences(raw));
+  } catch {
+    throw new InternalServerError('DeepSeek returned malformed JSON. Please try again.');
+  }
+
+  return normalizeStopCheckQuestion(parsed);
+}
+
+/** Same defensive-normalization philosophy as normalizeAiQuestion, scoped to the 2 gate question types. */
+function normalizeStopCheckQuestion(raw: any): StopCheckQuestion {
+  const question = String(raw?.question || '').trim() || 'What does this paragraph say?';
+  const explanation = String(raw?.explanation || '').trim();
+
+  if (raw?.type === 'true_false') {
+    return {
+      type: 'true_false',
+      question,
+      correctAnswer: typeof raw.correctAnswer === 'boolean' ? raw.correctAnswer : true,
+      explanation,
+      aiGenerated: true,
+    };
+  }
+
+  let options = Array.isArray(raw?.options) ? raw.options.map(String).slice(0, 3) : [];
+  while (options.length < 3) options.push('');
+  const correctOptionIndex =
+    typeof raw?.correctOptionIndex === 'number' && raw.correctOptionIndex >= 0 && raw.correctOptionIndex < options.length
+      ? raw.correctOptionIndex
+      : 0;
+
+  return { type: 'mcq', question, options, correctOptionIndex, explanation, aiGenerated: true };
+}
+
+// ---------------------------------------------------------------------------
+// AI Lesson Splitter — turns one Traditional-mode lesson body into ordered
+// "Content Blocks" for Interactive Gate delivery mode.
+// ---------------------------------------------------------------------------
+
+export interface SplitLessonBlock {
+  title: string;
+  content: string; // HTML, heading tags stripped (title carries that instead)
+}
+
+const SPLIT_LESSON_SYSTEM_PROMPT = `You split a lesson's HTML content into logical teaching sections for a "Stop and Check" interactive reading flow, where a student reads one section at a time.
+
+Return ONLY a single JSON object — no markdown, no code fences, no commentary:
+{"blocks": [{"title": string, "content": string}, ...]}
+
+Rules:
+- Split at natural topic boundaries: existing headings (h1-h4), or clear shifts in subject within a long section.
+- "title" is a short heading for the section (use the source heading text if there is one, otherwise write a short 3-6 word summary of that section).
+- "content" is clean HTML for just that section's body (paragraphs, lists, blockquotes as needed) — do NOT include any heading tag in "content", the heading goes in "title" only.
+- Preserve the original wording exactly — you are splitting, not rewriting or summarizing.
+- Each block should be readable in well under a minute — split a long section into multiple blocks if needed.
+- Produce between 2 and 10 blocks depending on the source length. Never return just 1 block unless the source is a single short paragraph.`;
+
+export async function splitLessonWithAi(html: string): Promise<SplitLessonBlock[]> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new InternalServerError('AI lesson splitting is not configured on this server (missing DEEPSEEK_API_KEY).');
+  }
+
+  const trimmed = (html || '').trim();
+  if (!trimmed) {
+    throw new BadRequestError('No lesson content to split.');
+  }
+
+  const clipped =
+    trimmed.length > MAX_SOURCE_CHARS
+      ? `${trimmed.slice(0, MAX_SOURCE_CHARS)}\n\n[...source truncated for length...]`
+      : trimmed;
+
+  let response;
+  try {
+    response = await axios.post(
+      DEEPSEEK_API_URL,
+      {
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: SPLIT_LESSON_SYSTEM_PROMPT },
+          { role: 'user', content: `Split this lesson content:\n\n${clipped}` },
+        ],
+        temperature: 0.2,
+        max_tokens: 4000,
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 90_000,
+      }
+    );
+  } catch (err: any) {
+    const status = err.response?.status;
+    const detail = err.response?.data?.error?.message || err.message;
+    throw new InternalServerError(`DeepSeek request failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+
+  const raw: string = response.data?.choices?.[0]?.message?.content || '{}';
+  let parsed: any;
+  try {
+    parsed = JSON.parse(stripCodeFences(raw));
+  } catch {
+    throw new InternalServerError('DeepSeek returned malformed JSON. Please try again.');
+  }
+
+  const blocks = Array.isArray(parsed?.blocks) ? parsed.blocks : [];
+  if (blocks.length === 0) {
+    throw new InternalServerError('DeepSeek did not return any sections. Please try again.');
+  }
+
+  return blocks
+    .map((b: any) => ({
+      title: String(b?.title || '').trim(),
+      content: String(b?.content || '').trim(),
+    }))
+    .filter((b: SplitLessonBlock) => b.content.length > 0);
+}
+
+// ---------------------------------------------------------------------------
 // AI Question Normalizer — guarantees every question has the correct shape
 // for its type, preventing frontend validation failures at save time.
 // ---------------------------------------------------------------------------

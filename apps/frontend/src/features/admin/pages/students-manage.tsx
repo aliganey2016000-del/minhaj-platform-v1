@@ -24,6 +24,12 @@ interface ClassBrief { _id: string; title: string; section: string; }
 interface StudentProfile { _id: string; firstName: string; lastName: string; avatar?: string; gender: string; }
 interface StudentUser { _id: string; email: string; role: string; isActive: boolean; isVerified: boolean; preferredLanguage: string; }
 interface EnrolledCourse { _id: string; title: { en: string }; slug: string; }
+interface GuardianInfo {
+  _id: string;
+  relationship?: string;
+  user?: { email: string; phone?: string };
+  profile?: { firstName: string; lastName: string };
+}
 
 interface Student {
   _id: string;
@@ -32,6 +38,7 @@ interface Student {
   profile?: StudentProfile;
   school?: { _id: string; name: string };
   class?: { _id: string; title: string; section: string };
+  parent?: GuardianInfo;
   enrolledCourses?: EnrolledCourse[];
   status: 'active' | 'inactive' | 'graduated' | 'suspended';
   approvalStatus: 'pending' | 'approved' | 'rejected';
@@ -108,6 +115,48 @@ function ApprovalBadge({ status }: { status: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Password Input — with a show/hide toggle, matching the styling passed in
+// via `className` so it drops into the same form grid as a plain <input>.
+// ---------------------------------------------------------------------------
+
+function PasswordInput({ className, name, value, onChange, placeholder, required }: {
+  className: string;
+  name: string;
+  value: string;
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  placeholder?: string;
+  required?: boolean;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        className={`${className} pr-10`}
+        name={name}
+        type={revealed ? 'text' : 'password'}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        required={required}
+        minLength={required ? 8 : undefined}
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={() => setRevealed((r) => !r)}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+      >
+        {revealed ? (
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" /></svg>
+        ) : (
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Create / Edit Modal
 // ---------------------------------------------------------------------------
 
@@ -127,8 +176,13 @@ function StudentModal({ student, schools, onClose, onSaved }: {
     enrollmentDate: student.enrollmentDate ? new Date(student.enrollmentDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
     attendancePercentage: student.attendancePercentage ?? 0, gpa: student.gpa ?? 0,
     totalFeesPaid: student.totalFeesPaid ?? 0, totalFeesDue: student.totalFeesDue ?? 0,
-    guardianFullName: '', guardianEmail: '', guardianPassword: '',
-    guardianPhone: '', guardianRelationship: 'Father',
+    guardianFullName: student.parent ? `${student.parent.profile?.firstName || ''} ${student.parent.profile?.lastName || ''}`.trim() : '',
+    guardianEmail: student.parent?.user?.email || '', guardianPassword: '',
+    guardianPhone: student.parent?.user?.phone || '',
+    guardianRelationship: (() => {
+      const map: Record<string, string> = { father: 'Father', mother: 'Mother', guardian: 'Guardian', other: 'Other' };
+      return map[student.parent?.relationship || 'father'] || 'Father';
+    })(),
   } : emptyForm);
   const [classes, setClasses] = useState<ClassBrief[]>([]);
   const [loading, setLoading] = useState(false);
@@ -145,12 +199,23 @@ function StudentModal({ student, schools, onClose, onSaved }: {
 
   const validate = (): boolean => {
     const errs: Partial<Record<keyof StudentForm, string>> = {};
-    if (!isEdit) { if (!form.email.trim()) errs.email = 'Email is required'; else if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) errs.email = 'Enter a valid email'; if (!form.password) errs.password = 'Password is required'; else if (form.password.length < 8) errs.password = 'Min 8 characters'; }
+    if (!form.email.trim()) errs.email = 'Email is required';
+    else if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) errs.email = 'Enter a valid email';
+    if (!isEdit) {
+      if (!form.password) errs.password = 'Password is required';
+      else if (form.password.length < 8) errs.password = 'Min 8 characters';
+    } else if (form.password && form.password.length < 8) {
+      errs.password = 'Min 8 characters';
+    }
     if (!form.firstName.trim()) errs.firstName = 'First name is required';
     if (!form.lastName.trim()) errs.lastName = 'Last name is required';
     if (!form.school) errs.school = 'Organization is required';
     if (!form.classId) errs.classId = 'Class is required';
     if (form.guardianFullName.trim() && form.guardianEmail.trim() && !/^\S+@\S+\.\S+$/.test(form.guardianEmail.trim())) errs.guardianEmail = 'Enter a valid guardian email';
+    // Leave blank to keep the existing guardian's password, or to link an
+    // already-existing guardian account by email without changing it — the
+    // server only requires this when it needs to create a brand-new login.
+    if (form.guardianPassword && form.guardianPassword.length < 8) errs.guardianPassword = 'Min 8 characters';
     setErrors(errs); return Object.keys(errs).length === 0;
   };
 
@@ -171,9 +236,25 @@ function StudentModal({ student, schools, onClose, onSaved }: {
         guardianPhone: form.guardianPhone.trim() || undefined,
         guardianRelationship: form.guardianRelationship,
       } : {};
-      const payload = { firstName: form.firstName, lastName: form.lastName, gender: form.gender, school: form.school, classId: form.classId, grade: form.grade || undefined, medicalNotes: form.medicalNotes || undefined, enrollmentDate: form.enrollmentDate, attendancePercentage: Number(form.attendancePercentage), gpa: Number(form.gpa), totalFeesPaid: Number(form.totalFeesPaid), totalFeesDue: Number(form.totalFeesDue), ...guardian, ...(isEdit ? {} : { email: form.email, password: form.password }) };
-      if (isEdit) await api.patch(`/students/${student._id}`, payload);
-      else { if (!form.email || !form.password) throw new Error('Email and password are required'); await api.post('/students', payload); }
+      const payload: Record<string, unknown> = {
+        firstName: form.firstName, lastName: form.lastName, gender: form.gender, school: form.school, classId: form.classId,
+        grade: form.grade || undefined, medicalNotes: form.medicalNotes || undefined, enrollmentDate: form.enrollmentDate,
+        attendancePercentage: Number(form.attendancePercentage), gpa: Number(form.gpa),
+        totalFeesPaid: Number(form.totalFeesPaid), totalFeesDue: Number(form.totalFeesDue),
+        email: form.email, ...guardian,
+      };
+      if (!isEdit || form.password) payload.password = form.password;
+
+      const { data } = isEdit
+        ? await api.patch(`/students/${student._id}`, payload)
+        : await api.post('/students', payload);
+
+      // The server may report a soft warning (e.g. guardian login couldn't
+      // be created/linked) even on an otherwise-successful save — surface it
+      // instead of silently swallowing it.
+      if (data?.message && !/^Student (created|updated) successfully$/.test(data.message)) {
+        alert(data.message);
+      }
       onSaved(); onClose();
     } catch (err: any) { setError(err.response?.data?.message || err.message || 'Failed to save student'); }
     finally { setLoading(false); }
@@ -195,10 +276,12 @@ function StudentModal({ student, schools, onClose, onSaved }: {
             <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Last Name *</label><input className={ic('lastName')} name="lastName" value={form.lastName} onChange={handleChange} required />{errors.lastName && <p className="mt-1 text-xs text-red-500">{errors.lastName}</p>}</div>
           </div>
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Gender *</label><select className={ic('gender')} name="gender" value={form.gender} onChange={handleChange}><option value="male">Male</option><option value="female">Female</option></select></div>
-          {!isEdit && (<>
-            <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Email *</label><input className={ic('email')} name="email" type="email" value={form.email} onChange={handleChange} required />{errors.email && <p className="mt-1 text-xs text-red-500">{errors.email}</p>}</div>
-            <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Password *</label><input className={ic('password')} name="password" type="password" value={form.password} onChange={handleChange} required minLength={8} />{errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}</div>
-          </>)}
+          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Email *</label><input className={ic('email')} name="email" type="email" value={form.email} onChange={handleChange} required />{errors.email && <p className="mt-1 text-xs text-red-500">{errors.email}</p>}</div>
+          <div>
+            <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">{isEdit ? 'Reset Password' : 'Password *'}</label>
+            <PasswordInput className={ic('password')} name="password" value={form.password} onChange={handleChange} required={!isEdit} placeholder={isEdit ? 'Leave blank to keep current password' : undefined} />
+            {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}
+          </div>
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Organization *</label><select className={ic('school')} name="school" value={form.school} onChange={handleChange}><option value="">Select an organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>{errors.school && <p className="mt-1 text-xs text-red-500">{errors.school}</p>}</div>
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Class *</label><select className={ic('classId')} name="classId" value={form.classId} onChange={handleChange} disabled={!form.school}><option value="">{form.school ? 'Select a class...' : 'Select an organization first'}</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title} — Section {c.section}</option>)}</select>{errors.classId && <p className="mt-1 text-xs text-red-500">{errors.classId}</p>}</div>
           <div className="grid grid-cols-2 gap-3">
@@ -207,22 +290,24 @@ function StudentModal({ student, schools, onClose, onSaved }: {
           </div>
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Medical Notes</label><textarea className={ic('medicalNotes')} name="medicalNotes" rows={2} value={form.medicalNotes} onChange={handleChange} /></div>
 
-          {!isEdit && (
-            <div className="border-t border-[var(--color-border-subtle)] pt-3">
-              <p className="text-xs font-bold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">👨‍👩‍👧 Parent / Guardian Information (Optional)</p>
-              <div className="space-y-3">
-                <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Full Name</label><input className={ic('guardianFullName')} name="guardianFullName" placeholder="e.g. Mohamed Ali" value={form.guardianFullName} onChange={handleChange} />{errors.guardianFullName && <p className="mt-1 text-xs text-red-500">{errors.guardianFullName}</p>}</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Email</label><input className={ic('guardianEmail')} name="guardianEmail" type="email" placeholder="guardian@example.com" value={form.guardianEmail} onChange={handleChange} />{errors.guardianEmail && <p className="mt-1 text-xs text-red-500">{errors.guardianEmail}</p>}</div>
-                  <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Password</label><input className={ic('guardianPassword')} name="guardianPassword" type="password" placeholder="Min 8 characters" value={form.guardianPassword} onChange={handleChange} />{errors.guardianPassword && <p className="mt-1 text-xs text-red-500">{errors.guardianPassword}</p>}</div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Phone Number</label><input className={ic('guardianPhone')} name="guardianPhone" type="tel" placeholder="+252XXXXXXXXX" value={form.guardianPhone} onChange={handleChange} />{errors.guardianPhone && <p className="mt-1 text-xs text-red-500">{errors.guardianPhone}</p>}</div>
-                  <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Relationship to Student</label><select className={ic('guardianRelationship')} name="guardianRelationship" value={form.guardianRelationship} onChange={handleChange}><option value="Father">Father</option><option value="Mother">Mother</option><option value="Guardian">Guardian</option><option value="Other">Other</option></select>{errors.guardianRelationship && <p className="mt-1 text-xs text-red-500">{errors.guardianRelationship}</p>}</div>
+          <div className="border-t border-[var(--color-border-subtle)] pt-3">
+            <p className="text-xs font-bold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">👨‍👩‍👧 Parent / Guardian Information (Optional)</p>
+            <div className="space-y-3">
+              <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Full Name</label><input className={ic('guardianFullName')} name="guardianFullName" placeholder="e.g. Mohamed Ali" value={form.guardianFullName} onChange={handleChange} />{errors.guardianFullName && <p className="mt-1 text-xs text-red-500">{errors.guardianFullName}</p>}</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Email</label><input className={ic('guardianEmail')} name="guardianEmail" type="email" placeholder="guardian@example.com" value={form.guardianEmail} onChange={handleChange} />{errors.guardianEmail && <p className="mt-1 text-xs text-red-500">{errors.guardianEmail}</p>}</div>
+                <div>
+                  <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">{student?.parent ? 'Reset Guardian Password' : 'Guardian Password'}</label>
+                  <PasswordInput className={ic('guardianPassword')} name="guardianPassword" value={form.guardianPassword} onChange={handleChange} placeholder={student?.parent ? 'Leave blank to keep current password' : 'Min 8 characters'} />
+                  {errors.guardianPassword && <p className="mt-1 text-xs text-red-500">{errors.guardianPassword}</p>}
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Guardian Phone Number</label><input className={ic('guardianPhone')} name="guardianPhone" type="tel" placeholder="+252XXXXXXXXX" value={form.guardianPhone} onChange={handleChange} />{errors.guardianPhone && <p className="mt-1 text-xs text-red-500">{errors.guardianPhone}</p>}</div>
+                <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Relationship to Student</label><select className={ic('guardianRelationship')} name="guardianRelationship" value={form.guardianRelationship} onChange={handleChange}><option value="Father">Father</option><option value="Mother">Mother</option><option value="Guardian">Guardian</option><option value="Other">Other</option></select>{errors.guardianRelationship && <p className="mt-1 text-xs text-red-500">{errors.guardianRelationship}</p>}</div>
+              </div>
             </div>
-          )}
+          </div>
 
           {isEdit && (<>
             <div className="border-t border-[var(--color-border-subtle)] pt-3"><p className="text-xs font-bold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">Academic Summary</p>

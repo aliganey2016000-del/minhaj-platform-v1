@@ -42,8 +42,10 @@ async function fixAdmin() {
 
       console.log('✅ Admin user created successfully');
     } else {
-      // Update password and unlock account
+      // Update password, role, and unlock account
       user.password = NEW_PASSWORD;
+      user.role = 'admin';
+      user.organizationId = undefined;
       user.failedLoginAttempts = 0;
       user.lockedUntil = undefined;
       user.isVerified = true;

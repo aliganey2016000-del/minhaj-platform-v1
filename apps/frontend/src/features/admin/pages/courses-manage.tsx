@@ -7,6 +7,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 import { VideoGatedSettingsModal, type VideoGatingSettings } from '../components/video-gated-settings-modal';
 
 // ---------------------------------------------------------------------------
@@ -116,6 +117,8 @@ function CourseModal({
   onSaved: () => void;
 }) {
   const isEdit = !!course;
+  const { user } = useAuth();
+  const isOrgAdmin = user?.role === 'org_admin';
   const [form, setForm] = useState({
     titleEn: course?.title?.en || '',
     category: course?.category || 'quran',
@@ -224,9 +227,9 @@ function CourseModal({
         level: form.level,
         duration: Number(form.duration),
         fee: Number(form.fee),
-        teacher: form.teacher || null,
-        school: form.school || null,
-        class: form.classId || null,
+        teacher: form.teacher || undefined,
+        school: form.school || undefined,
+        class: form.classId || undefined,
         maxStudents: Number(form.maxStudents),
         status: form.status,
         ...(form.thumbnail ? { thumbnail: form.thumbnail } : {}),
@@ -286,18 +289,24 @@ function CourseModal({
           {/* School */}
           <div>
             <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Organization *</label>
-            <select
-              className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
-              value={form.school}
-              onChange={(e) => update('school', e.target.value)}
-              disabled={dataLoading}
-              required={!isEdit}
-            >
-              <option value="">{dataLoading ? 'Loading...' : '-- Select Organization --'}</option>
-              {schools.map((s) => (
-                <option key={s._id} value={s._id}>{s.name}</option>
-              ))}
-            </select>
+            {isOrgAdmin && isEdit ? (
+              <div className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
+                {schools.find(s => s._id === form.school)?.name || course?.school?.name || 'Your Organization'}
+              </div>
+            ) : (
+              <select
+                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
+                value={form.school}
+                onChange={(e) => update('school', e.target.value)}
+                disabled={dataLoading || (isOrgAdmin && isEdit)}
+                required={!isEdit}
+              >
+                <option value="">{dataLoading ? 'Loading...' : '-- Select Organization --'}</option>
+                {schools.map((s) => (
+                  <option key={s._id} value={s._id}>{s.name}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Class (cascading) */}

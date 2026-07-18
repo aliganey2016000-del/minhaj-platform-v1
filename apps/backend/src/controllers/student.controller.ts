@@ -10,6 +10,7 @@ import mongoose from 'mongoose';
 import Student from '../models/student.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
+import Parent from '../models/parent.model';
 import Progress from '../models/progress.model';
 import CourseContent from '../models/course-content.model';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
@@ -17,6 +18,18 @@ import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
 import Course from '../models/course.model';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, assertCanAccessStudent, getOwnTeacherRecord } from '../utils/tenant-scope';
+
+// Nested-populate the guardian's actual email/phone/name — a shallow
+// `.populate(PARENT_POPULATE)` leaves those as raw ObjectIds, which
+// left the Manage Students edit form unable to show the existing guardian.
+const PARENT_POPULATE = {
+  path: 'parent',
+  select: 'user profile relationship children',
+  populate: [
+    { path: 'user', select: 'email phone' },
+    { path: 'profile', select: 'firstName lastName' },
+  ],
+};
 
 // ---------------------------------------------------------------------------
 // List Students (Admin & Teacher only)
@@ -61,6 +74,13 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     (filter.$or as any[]).push({ studentId: searchRegex });
   }
 
+  // org_admin can never widen the filter to another org via ?school=; their
+  // own organization always wins (applied below, after the client's value).
+  const school = req.query.school as string | undefined;
+  if (school && req.user?.role !== 'org_admin') {
+    filter.school = school;
+  }
+
   const scopedFilter = applyOrgFilter(req, filter, 'school');
 
   let allStudents: any[];
@@ -71,7 +91,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
       Student.find(scopedFilter)
         .populate('user', 'email role isActive isVerified preferredLanguage')
         .populate('profile', 'firstName lastName avatar gender')
-        .populate('parent', 'user profile')
+        .populate(PARENT_POPULATE)
         .populate('school', 'name')
         .populate('class', 'title section')
         .populate('enrolledCourses', 'title slug')
@@ -95,7 +115,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
       Student.find(scopedFilter)
         .populate('user', 'email role isActive isVerified preferredLanguage')
         .populate('profile', 'firstName lastName avatar gender')
-        .populate('parent', 'user profile')
+        .populate(PARENT_POPULATE)
         .populate('school', 'name')
         .populate('class', 'title section')
         .populate('enrolledCourses', 'title slug')
@@ -122,7 +142,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
     .populate('profile', 'firstName lastName avatar gender dateOfBirth address emergencyContact')
     .populate('school', 'name')
     .populate('class', 'title section')
-    .populate('parent', 'user profile children')
+    .populate(PARENT_POPULATE)
     .populate('enrolledCourses', 'title slug category level status')
     .lean();
 
@@ -134,14 +154,123 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
 };
 
 // ---------------------------------------------------------------------------
+// Link/sync a guardian (parent) for a student — creates the parent's User +
+// Parent record on first use, or updates the already-linked one. Isolated
+// from the caller's own error handling: a guardian-sync problem must never
+// block the student create/update itself, so this returns a warning string
+// instead of throwing.
+// ---------------------------------------------------------------------------
+
+interface GuardianFields {
+  guardianFullName?: string;
+  guardianEmail?: string;
+  guardianPassword?: string;
+  guardianPhone?: string;
+  guardianRelationship?: string;
+}
+
+async function syncGuardian(student: any, schoolId: unknown, fields: GuardianFields): Promise<string | null> {
+  const fullName = fields.guardianFullName?.trim();
+  if (!fullName) return null;
+
+  const email = fields.guardianEmail?.trim().toLowerCase();
+  const relationshipMap: Record<string, string> = { Father: 'father', Mother: 'mother', Guardian: 'guardian', Other: 'other' };
+  const relationship = relationshipMap[fields.guardianRelationship || 'Father'] || 'father';
+  const [firstName, ...rest] = fullName.split(' ');
+  const lastName = rest.join(' ') || firstName;
+
+  try {
+    let parent = student.parent ? await Parent.findById(student.parent) : null;
+
+    if (!parent) {
+      if (!email) return null; // nothing to link a new guardian to
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        parent = await Parent.findOne({ user: existingUser._id });
+        if (!parent) {
+          const profile = await Profile.create({ user: existingUser._id, firstName, lastName, gender: 'male' });
+          const count = await Parent.countDocuments();
+          parent = await Parent.create({
+            user: existingUser._id, profile: profile._id,
+            parentId: `PRN-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`,
+            school: schoolId || undefined, relationship, children: [],
+          });
+        }
+      } else {
+        if (!fields.guardianPassword || fields.guardianPassword.length < 8) {
+          return `Guardian info was not saved: a password (min 8 characters) is required to create a new parent login for "${email}".`;
+        }
+        const newUser = await User.create({
+          email, password: fields.guardianPassword, role: 'parent', organizationId: schoolId || undefined,
+          phone: fields.guardianPhone || undefined, isVerified: true, isActive: true, preferredLanguage: 'en',
+        });
+        const profile = await Profile.create({ user: newUser._id, firstName, lastName, gender: 'male' });
+        const count = await Parent.countDocuments();
+        parent = await Parent.create({
+          user: newUser._id, profile: profile._id,
+          parentId: `PRN-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`,
+          school: schoolId || undefined, relationship, children: [],
+        });
+      }
+    }
+
+    if (!parent) return null;
+
+    await Profile.findOneAndUpdate({ user: parent.user }, { firstName, lastName });
+    parent.relationship = relationship as any;
+
+    const needsUserUpdate = Boolean(fields.guardianPhone || fields.guardianPassword || email);
+    if (needsUserUpdate) {
+      const guardianUser = await User.findById(parent.user).select('+password +failedLoginAttempts +lockedUntil');
+      if (guardianUser) {
+        if (fields.guardianPhone) guardianUser.phone = fields.guardianPhone;
+
+        if (fields.guardianPassword) {
+          if (fields.guardianPassword.length < 8) {
+            return 'Guardian info saved, but the password was not changed — it must be at least 8 characters.';
+          }
+          guardianUser.password = fields.guardianPassword; // pre-save hook hashes it
+          guardianUser.failedLoginAttempts = 0;
+          guardianUser.lockedUntil = undefined;
+        }
+
+        if (email && guardianUser.email !== email) {
+          const taken = await User.exists({ email, _id: { $ne: guardianUser._id } });
+          if (taken) return `Guardian info saved, but the email was not changed — "${email}" is already used by another account.`;
+          guardianUser.email = email;
+        }
+
+        await guardianUser.save();
+      }
+    }
+
+    if (!parent.children.some((c: any) => c.toString() === student._id.toString())) {
+      parent.children.push(student._id);
+    }
+    await parent.save();
+
+    student.parent = parent._id;
+    return null;
+  } catch (err: any) {
+    console.error('[student.syncGuardian] Failed:', err);
+    return `Student was saved, but the guardian info could not be synced (${err.message}).`;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Create Student (Admin only)
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { email, password, firstName, lastName, gender, phone, enrollmentDate, school, classId, grade, medicalNotes, parentId, preferredLanguage } = req.body;
+  const {
+    email, password, firstName, lastName, gender, phone, enrollmentDate, school, classId, grade, medicalNotes, parentId, preferredLanguage,
+    guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship,
+  } = req.body;
+
+  const resolvedSchool = resolveOrgIdForCreate(req, school) || undefined;
 
   const user = await User.create({
-    email: email.toLowerCase(), password, role: 'student',
+    email: email.toLowerCase(), password, role: 'student', organizationId: resolvedSchool,
     phone: phone || undefined, preferredLanguage: preferredLanguage || 'en', isVerified: true,
   });
 
@@ -149,18 +278,24 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const student = await Student.create({
     user: user._id, profile: profile._id, parent: parentId || undefined,
-    school: resolveOrgIdForCreate(req, school) || undefined, class: classId || undefined,
+    school: resolvedSchool, class: classId || undefined,
     enrollmentDate: enrollmentDate || new Date(), grade: grade || undefined, medicalNotes: medicalNotes || undefined,
   });
+
+  let guardianWarning: string | null = null;
+  if (!parentId) {
+    guardianWarning = await syncGuardian(student, resolvedSchool, { guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship });
+    if (student.isModified('parent')) await student.save();
+  }
 
   const populated = await Student.findById(student._id)
     .populate('user', 'email role isActive preferredLanguage')
     .populate('profile', 'firstName lastName avatar gender')
     .populate('school', 'name')
     .populate('class', 'title section')
-    .populate('parent', 'user profile').lean();
+    .populate(PARENT_POPULATE).lean();
 
-  return ApiResponse.created(res, populated, 'Student created successfully');
+  return ApiResponse.created(res, populated, guardianWarning || 'Student created successfully');
 };
 
 // ---------------------------------------------------------------------------
@@ -173,7 +308,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   assertOwnsOrg(req, student, 'school');
 
-  const { firstName, lastName, gender, school, classId, grade, medicalNotes, parent, enrollmentDate, status, attendancePercentage, gpa, totalFeesPaid, totalFeesDue } = req.body;
+  const {
+    firstName, lastName, gender, school, classId, grade, medicalNotes, parent, enrollmentDate, status, attendancePercentage, gpa, totalFeesPaid, totalFeesDue,
+    email, password, guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship,
+  } = req.body;
 
   if (firstName || lastName || gender) {
     const profileUpdate: any = {};
@@ -196,6 +334,34 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (totalFeesPaid !== undefined) student.totalFeesPaid = totalFeesPaid;
   if (totalFeesDue !== undefined) student.totalFeesDue = totalFeesDue;
 
+  // ── Student's own login (email / password reset) ──
+  let warning: string | null = null;
+  if (email || password) {
+    const studentUser = await User.findById(student.user).select('+password +failedLoginAttempts +lockedUntil');
+    if (studentUser) {
+      if (email) {
+        const normalized = String(email).toLowerCase().trim();
+        if (normalized !== studentUser.email) {
+          const taken = await User.exists({ email: normalized, _id: { $ne: studentUser._id } });
+          if (taken) throw new ConflictError(`"${normalized}" is already used by another account.`);
+          studentUser.email = normalized;
+        }
+      }
+      if (password) {
+        if (String(password).length < 8) throw new BadRequestError('Password must be at least 8 characters');
+        studentUser.password = password; // pre-save hook hashes it
+        studentUser.failedLoginAttempts = 0;
+        studentUser.lockedUntil = undefined;
+      }
+      await studentUser.save();
+    }
+  }
+
+  // ── Guardian info (create/link/update the linked parent) ──
+  if (guardianFullName !== undefined) {
+    warning = await syncGuardian(student, student.school, { guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship });
+  }
+
   await student.save();
 
   const updated = await Student.findById(student._id)
@@ -203,10 +369,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     .populate('profile', 'firstName lastName avatar gender')
     .populate('school', 'name')
     .populate('class', 'title section')
-    .populate('parent', 'user profile')
+    .populate(PARENT_POPULATE)
     .populate('enrolledCourses', 'title slug');
 
-  return ApiResponse.success(res, updated, 'Student updated successfully');
+  return ApiResponse.success(res, updated, warning || 'Student updated successfully');
 };
 
 // ---------------------------------------------------------------------------

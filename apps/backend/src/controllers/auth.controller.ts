@@ -128,9 +128,14 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     ]);
   }
 
-  // 5. Generate tokens
+  // 5. Generate tokens (self-registered students get org from Student doc,
+  //    not from user.organizationId — admin-created users get it via the admin flow)
   const tokenPair = generateTokenPair(
-    { userId: user._id.toString(), role: user.role, permissions: [] },
+    {
+      userId: user._id.toString(),
+      role: user.role,
+      permissions: [],
+    },
     { userId: user._id.toString(), tokenVersion: user.tokenVersion }
   );
 
@@ -160,6 +165,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
         role: user.role,
         isVerified: user.isVerified,
         preferredLanguage: user.preferredLanguage,
+        organizationId: user.organizationId,
       },
       accessToken: tokenPair.accessToken,
     },
@@ -261,6 +267,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         role: user.role,
         isVerified: user.isVerified,
         preferredLanguage: user.preferredLanguage,
+        organizationId: user.organizationId,
       },
       accessToken: tokenPair.accessToken,
     },
@@ -399,7 +406,8 @@ export const refreshToken = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 
 export const getMe = async (req: Request, res: Response): Promise<Response> => {
-  const user = await User.findById(req.user!.userId);
+  const user = await User.findById(req.user!.userId)
+    .populate('organizationId', 'name');
 
   if (!user) {
     throw new NotFoundError('User');

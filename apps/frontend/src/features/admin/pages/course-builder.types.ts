@@ -20,6 +20,30 @@ export interface Attachment {
 // ---------------------------------------------------------------------------
 export type ChapterItemType = 'lesson' | 'quiz' | 'assignment';
 
+// ---------------------------------------------------------------------------
+// Lesson Flow Delivery Control — "Interactive Gate" content blocks
+// ---------------------------------------------------------------------------
+export type LessonDeliveryMode = 'traditional' | 'interactive_gate';
+
+export interface ContentBlockQuestion {
+  question: string;
+  type: 'mcq' | 'true_false';
+  options?: string[]; // mcq: 2-4
+  correctOptionIndex?: number; // mcq — omitted entirely in the student-facing read
+  correctAnswer?: boolean; // true_false — omitted entirely in the student-facing read
+  explanation?: string; // shown after an incorrect attempt — omitted in the student-facing pre-submit read
+  aiGenerated: boolean;
+}
+
+export interface ContentBlock {
+  _id?: string;
+  title?: string; // optional short heading, e.g. from AI-splitter section headings
+  order: number;
+  content: string; // rich text/HTML, same as lesson.content
+  minReadSeconds: number;
+  question?: ContentBlockQuestion;
+}
+
 export interface LessonItem {
   _id: string;
   title: string;
@@ -32,6 +56,9 @@ export interface LessonItem {
   order: number;
   status: 'draft' | 'published';
   duration: number; // estimated minutes
+  deliveryMode: LessonDeliveryMode;
+  contentBlocks?: ContentBlock[]; // only meaningful when deliveryMode === 'interactive_gate'
+  defaultMinReadSeconds?: number;
   createdAt?: string;
   updatedAt?: string;
   // UI state

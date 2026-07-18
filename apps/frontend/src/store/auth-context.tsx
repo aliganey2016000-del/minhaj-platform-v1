@@ -25,6 +25,7 @@ interface User {
   role: string;
   isVerified: boolean;
   preferredLanguage: string;
+  organizationId?: string;
 }
 
 interface AuthContextValue {
@@ -47,6 +48,40 @@ interface RegisterData {
   organizationId?: string;
   role?: string;
   preferredLanguage?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Normalize user data
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize the user object shape as it comes in from different endpoints.
+ *
+ * - login / register: `organizationId` is a plain string (ObjectId)
+ * - /auth/me (populated): `organizationId` is an object `{ _id, name }`
+ * - Some endpoints may expose `_id` instead of `id`
+ *
+ * We always store organizationId as the raw string so downstream consumers
+ * (like users-manage and the sidebar) can compare without type-gymnastics.
+ */
+function normalizeUser(raw: any): User {
+  let orgId: string | undefined;
+
+  if (typeof raw.organizationId === 'object' && raw.organizationId !== null) {
+    // Populated School document: { _id: '...', name: '...' }
+    orgId = (raw.organizationId._id || raw.organizationId).toString();
+  } else if (raw.organizationId) {
+    orgId = String(raw.organizationId);
+  }
+
+  return {
+    id: raw.id || raw._id,
+    email: raw.email,
+    role: raw.role,
+    isVerified: raw.isVerified,
+    preferredLanguage: raw.preferredLanguage || 'en',
+    organizationId: orgId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const { data } = await api.get('/auth/me');
-        setUser(data.data?.user || null);
+        setUser(normalizeUser(data.data?.user));
       } catch {
         localStorage.removeItem('accessToken');
       } finally {
@@ -102,8 +137,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const accessToken = data.data?.accessToken;
         const userData = data.data?.user;
         localStorage.setItem('accessToken', accessToken);
-        setUser(userData || null);
-        return userData;
+        const normalized = normalizeUser(userData);
+        setUser(normalized);
+        return normalized;
       } else {
         throw new Error(data.message || 'Login failed');
       }
@@ -131,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.success) {
         const accessToken = data.data?.accessToken;
         localStorage.setItem('accessToken', accessToken);
-        setUser(data.data?.user || null);
+        setUser(normalizeUser(data.data?.user));
       } else {
         throw new Error(data.message || 'Registration failed');
       }

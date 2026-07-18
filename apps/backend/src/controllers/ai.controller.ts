@@ -11,7 +11,7 @@
  */
 
 import { Request, Response } from 'express';
-import { generateLessonHtml, generateQuizQuestions, type QuestionCountSpec } from '../utils/deepseek';
+import { generateLessonHtml, generateQuizQuestions, generateStopCheckQuestion, splitLessonWithAi, type QuestionCountSpec } from '../utils/deepseek';
 import { extractTextFromDocument } from '../utils/document-parser';
 import { BadRequestError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
@@ -88,4 +88,32 @@ export const generateQuiz = async (req: Request, res: Response): Promise<Respons
 
   const questions = await generateQuizQuestions(sourceText, customInstructions || '', questionCounts);
   return ApiResponse.success(res, { questions }, 'Quiz questions generated successfully');
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/ai/generate-stop-check-question — one gate question per
+// lesson content block, for "Interactive Gate" delivery mode.
+// ---------------------------------------------------------------------------
+export const generateStopCheck = async (req: Request, res: Response): Promise<Response> => {
+  const { blockText } = req.body as { blockText?: string };
+  if (!blockText || !blockText.trim()) {
+    throw new BadRequestError('No content block text to generate a question from.');
+  }
+
+  const question = await generateStopCheckQuestion(blockText);
+  return ApiResponse.success(res, { question }, 'Question generated successfully');
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/ai/split-lesson — turn a Traditional lesson body into ordered
+// Content Blocks for Interactive Gate delivery mode.
+// ---------------------------------------------------------------------------
+export const splitLesson = async (req: Request, res: Response): Promise<Response> => {
+  const { html } = req.body as { html?: string };
+  if (!html || !html.trim()) {
+    throw new BadRequestError('No lesson content to split.');
+  }
+
+  const blocks = await splitLessonWithAi(html);
+  return ApiResponse.success(res, { blocks }, 'Lesson split into blocks successfully');
 };

@@ -225,6 +225,9 @@ export function CourseBuilder() {
       baseItem.videoDuration = 0;
       baseItem.featuredImage = '';
       baseItem.attachments = [];
+      baseItem.deliveryMode = 'traditional';
+      baseItem.contentBlocks = [];
+      baseItem.defaultMinReadSeconds = 30;
     } else if (type === 'quiz') {
       baseItem.title = 'New Quiz';
       baseItem.description = '';

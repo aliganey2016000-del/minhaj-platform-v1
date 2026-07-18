@@ -110,6 +110,9 @@ const CoursePreview = lazy(() =>
 const SchoolsManage = lazy(() =>
   import('../features/admin/pages/schools-manage').then((m) => ({ default: m.SchoolsManage }))
 );
+const UsersManage = lazy(() =>
+  import('../features/admin/pages/users-manage').then((m) => ({ default: m.UsersManage }))
+);
 const StudentsManage = lazy(() =>
   import('../features/admin/pages/students-manage').then((m) => ({ default: m.StudentsManage }))
 );
@@ -160,6 +163,9 @@ const ExamComplianceManage = lazy(() =>
 );
 const CertificatesManage = lazy(() =>
   import('../features/admin/pages/certificates-manage').then((m) => ({ default: m.CertificatesManage }))
+);
+const AssignmentsManage = lazy(() =>
+  import('../features/admin/pages/assignments-manage').then((m) => ({ default: m.AssignmentsManage }))
 );
 const AnnouncementsManage = lazy(() =>
   import('../features/admin/pages/announcements-manage').then((m) => ({ default: m.AnnouncementsManage }))
@@ -276,9 +282,11 @@ export const router = createBrowserRouter([
         ],
       },
       { path: 'schools', element: L(<SchoolsManage />) },
+      { path: 'users', element: L(<UsersManage />) },
       { path: 'classes', element: L(<ClassesManage />) },
       { path: 'schedules', element: L(<SchedulesManage />) },
       { path: 'attendance', element: L(<AttendanceManage />) },
+      { path: 'assignments', element: L(<AssignmentsManage />) },
       { path: 'exams', element: L(<ExamsManage />) },
       { path: 'exams/rooms', element: L(<ExamRoomsManage />) },
       { path: 'exams/attendance', element: L(<ExamAttendanceManage />) },

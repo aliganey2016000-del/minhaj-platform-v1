@@ -8,6 +8,7 @@
 
 import { Outlet, useLocation } from 'react-router-dom';
 import { StudentSidebar } from './student-sidebar';
+import { DashboardHeader } from '../../shared/components/dashboard-header';
 
 /** Regex to match /student/courses/<any-id>/learn */
 const LEARN_ROUTE_RE = /^\/student\/courses\/[^/]+\/learn/;
@@ -21,6 +22,8 @@ export function StudentLayout() {
       {!isLearnPage && <StudentSidebar />}
       {/* Main content area — offset by sidebar width on desktop (unless on learn page) */}
       <div className={`${isLearnPage ? '' : 'lg:ms-64'} min-h-screen`}>
+        {/* Hide the shared header on the full-screen course learning page */}
+        <DashboardHeader hidden={isLearnPage} />
         <Outlet />
       </div>
     </div>

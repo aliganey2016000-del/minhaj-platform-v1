@@ -44,6 +44,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/teachers',     label: 'Manage Teachers',    icon: '👨‍🏫' },
       { path: '/admin/courses',      label: 'Manage Courses',     icon: '📚' },
       { path: '/admin/schools',      label: 'Organization Management',  icon: '🏛️' },
+      { path: '/admin/users',        label: 'User Management',    icon: '👥' },
       { path: '/admin/classes',      label: 'Manage Classes',     icon: '🏫' },
     ],
   },
@@ -52,6 +53,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     items: [
       { path: '/admin/schedules',    label: 'Class Schedules',    icon: '🕐' },
       { path: '/admin/attendance',   label: 'Attendance',         icon: '📅' },
+      { path: '/admin/assignments',  label: 'Manage Assignments', icon: '📝' },
       {
         key: 'group:exam-management', label: 'Exam Management', icon: '📝',
         children: [

@@ -10,6 +10,26 @@ import CourseContent from '../models/course-content.model';
 import Course from '../models/course.model';
 import { NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
+import { assertOwnsOrg } from '../utils/tenant-scope';
+
+// Students must never receive the correct answer for a Stop & Check question
+// before they submit one — strip it from any content read by a student.
+function stripGateAnswers(content: any, isStudent: boolean) {
+  if (!isStudent || !content?.chapters) return content;
+  for (const chapter of content.chapters) {
+    for (const item of chapter.items || []) {
+      if (item.type !== 'lesson' || !item.contentBlocks) continue;
+      for (const block of item.contentBlocks) {
+        if (block.question) {
+          delete block.question.correctOptionIndex;
+          delete block.question.correctAnswer;
+          delete block.question.explanation; // often paraphrases the correct answer — same spoiler risk
+        }
+      }
+    }
+  }
+  return content;
+}
 
 // ---------------------------------------------------------------------------
 // GET /courses/:courseId/content — Get content for a course
@@ -36,6 +56,8 @@ export const getByCourse = async (req: Request, res: Response): Promise<Response
     } as any;
   }
 
+  content = stripGateAnswers(content, req.user?.role === 'student');
+
   return ApiResponse.success(res, content);
 };
 
@@ -49,6 +71,7 @@ export const saveContent = async (req: Request, res: Response): Promise<Response
   // Verify course exists
   const course = await Course.findById(courseId);
   if (!course) throw new NotFoundError('Course');
+  assertOwnsOrg(req, course, 'school');
 
   const content = await CourseContent.findOneAndUpdate(
     { course: courseId },
@@ -72,6 +95,10 @@ export const saveContent = async (req: Request, res: Response): Promise<Response
 export const reorderChapters = async (req: Request, res: Response): Promise<Response> => {
   const { courseId } = req.params;
   const { chapterIds } = req.body; // array of chapter _id in new order
+
+  const course = await Course.findById(courseId);
+  if (!course) throw new NotFoundError('Course');
+  assertOwnsOrg(req, course, 'school');
 
   const content = await CourseContent.findOne({ course: courseId });
   if (!content) throw new NotFoundError('Course content');
@@ -101,6 +128,10 @@ export const reorderChapters = async (req: Request, res: Response): Promise<Resp
 export const reorderItems = async (req: Request, res: Response): Promise<Response> => {
   const { courseId, chapterId } = req.params;
   const { itemIds } = req.body; // array of item _id in new order
+
+  const course = await Course.findById(courseId);
+  if (!course) throw new NotFoundError('Course');
+  assertOwnsOrg(req, course, 'school');
 
   const content = await CourseContent.findOne({ course: courseId });
   if (!content) throw new NotFoundError('Course content');
@@ -132,6 +163,10 @@ export const reorderItems = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 export const toggleChapterCollapse = async (req: Request, res: Response): Promise<Response> => {
   const { courseId, chapterId } = req.params;
+
+  const course = await Course.findById(courseId);
+  if (!course) throw new NotFoundError('Course');
+  assertOwnsOrg(req, course, 'school');
 
   const content = await CourseContent.findOne({ course: courseId });
   if (!content) throw new NotFoundError('Course content');

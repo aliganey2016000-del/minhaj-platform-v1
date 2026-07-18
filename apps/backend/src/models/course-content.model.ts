@@ -10,6 +10,27 @@ import mongoose, { Schema, Document } from 'mongoose';
 // ---------------------------------------------------------------------------
 // Sub-document: Lesson
 // ---------------------------------------------------------------------------
+export type LessonDeliveryMode = 'traditional' | 'interactive_gate';
+
+export interface IContentBlockQuestion {
+  question: string;
+  type: 'mcq' | 'true_false';
+  options?: string[];          // mcq: 2-4
+  correctOptionIndex?: number; // mcq
+  correctAnswer?: boolean;     // true_false
+  explanation?: string;        // shown to the student after an incorrect attempt
+  aiGenerated: boolean;
+}
+
+export interface IContentBlock {
+  _id?: mongoose.Types.ObjectId;
+  title?: string;               // optional short heading, e.g. from AI-splitter section headings
+  order: number;
+  content: string;             // rich text/HTML, same shape as lesson.content
+  minReadSeconds: number;
+  question?: IContentBlockQuestion;
+}
+
 export interface ILesson {
   _id?: mongoose.Types.ObjectId;
   title: string;
@@ -27,6 +48,9 @@ export interface ILesson {
   order: number;
   status: 'draft' | 'published';
   duration: number;           // estimated minutes
+  deliveryMode: LessonDeliveryMode;
+  contentBlocks?: IContentBlock[]; // only meaningful when deliveryMode === 'interactive_gate'
+  defaultMinReadSeconds?: number;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -166,6 +190,30 @@ const attachmentSchema = new Schema(
   { _id: false }
 );
 
+const contentBlockQuestionSchema = new Schema(
+  {
+    question: { type: String, required: true, trim: true },
+    type: { type: String, enum: ['mcq', 'true_false'], required: true },
+    options: { type: [String], default: undefined },
+    correctOptionIndex: { type: Number, min: 0 },
+    correctAnswer: { type: Boolean },
+    explanation: { type: String, default: '' },
+    aiGenerated: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const contentBlockSchema = new Schema(
+  {
+    title: { type: String, default: '' },
+    order: { type: Number, required: true, default: 0 },
+    content: { type: String, required: true },
+    minReadSeconds: { type: Number, default: 30, min: 5, max: 600 },
+    question: { type: contentBlockQuestionSchema, default: undefined },
+  },
+  { timestamps: false }
+);
+
 const lessonSchema = new Schema(
   {
     title: { type: String, required: true, trim: true },
@@ -178,6 +226,9 @@ const lessonSchema = new Schema(
     order: { type: Number, required: true, default: 0 },
     status: { type: String, enum: ['draft', 'published'], default: 'draft' },
     duration: { type: Number, default: 0 },
+    deliveryMode: { type: String, enum: ['traditional', 'interactive_gate'], default: 'traditional' },
+    contentBlocks: { type: [contentBlockSchema], default: undefined },
+    defaultMinReadSeconds: { type: Number, default: 30, min: 5, max: 600 },
   },
   { timestamps: true }
 );

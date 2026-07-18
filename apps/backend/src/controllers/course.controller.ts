@@ -233,7 +233,14 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   }
 
   // org_admin can never move a course to a different organization.
-  if (req.user?.role === 'org_admin') delete updates.school;
+  if (req.user?.role === 'org_admin') {
+    if (updates.school !== undefined && String(updates.school) !== String(existing.school)) {
+      throw new BadRequestError('Organization cannot be changed. Your organization is fixed.');
+    }
+    // Allow the update to proceed with the same org (so frontend can send school without error),
+    // but strip the field so org_admin can never alter school assignment.
+    delete updates.school;
+  }
 
   // If title.en changed, regenerate slug
   if (updates.title && (updates.title as any).en) {

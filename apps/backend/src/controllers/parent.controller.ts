@@ -17,11 +17,17 @@ import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/t
 // ---------------------------------------------------------------------------
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const { status, search, page = '1', limit = '10' } = req.query;
+  const { status, search, page = '1', limit = '10', school } = req.query;
 
   const filter: any = {};
   if (status && ['active', 'inactive'].includes(status as string)) {
     filter.status = status;
+  }
+
+  // org_admin can never widen the filter to another org via ?school=; their
+  // own organization always wins (applied below, after the client's value).
+  if (school && req.user?.role !== 'org_admin') {
+    filter.school = school as string;
   }
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -96,6 +102,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     email: email.toLowerCase(),
     password,
     role: 'parent',
+    organizationId: resolveOrgIdForCreate(req, req.body.school) || undefined,
     phone: phone || undefined,
     isVerified: true,
     preferredLanguage: 'en',
