@@ -134,9 +134,11 @@ export function DashboardHeader({ hidden }: DashboardHeaderProps) {
   return (
     <>
       {/* ── Organization Header Banner ── */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-emerald-900 to-slate-900">
-        {/* Abstract background pattern */}
-        <div className="absolute inset-0 opacity-10">
+      <div className="relative bg-gradient-to-r from-slate-900 via-emerald-900 to-slate-900">
+        {/* Abstract background pattern — clipped to its own layer so it
+            doesn't cut off the search/notification dropdowns, which are
+            descendants of this banner and need to overflow below it. */}
+        <div className="absolute inset-0 overflow-hidden opacity-10">
           <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500 rounded-full blur-3xl translate-x-1/3 -translate-y-1/3" />
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-amber-500 rounded-full blur-3xl -translate-x-1/3 translate-y-1/3" />
           <div className="absolute top-1/2 left-1/2 w-48 h-48 bg-blue-500 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
