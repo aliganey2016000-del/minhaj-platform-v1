@@ -6,6 +6,17 @@
 import jwt from 'jsonwebtoken';
 import { UnauthorizedError } from './api-error';
 
+// Fail fast at boot rather than silently signing/verifying tokens with a
+// hardcoded, publicly-known-from-source secret if the env vars are ever
+// missing in production (e.g. a Coolify misconfiguration) — that would let
+// anyone forge valid tokens for any user/role without detection.
+if (!process.env.JWT_ACCESS_SECRET || !process.env.JWT_REFRESH_SECRET) {
+  throw new Error('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be set in the environment');
+}
+
+const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+
 interface AccessTokenPayload {
   userId: string;
   role: string;
@@ -27,20 +38,18 @@ interface TokenPair {
  * Generate an access token (short-lived).
  */
 export function generateAccessToken(payload: AccessTokenPayload): string {
-  const secret = process.env.JWT_ACCESS_SECRET || 'fallback-access-secret-dev';
   const expiresIn = process.env.JWT_ACCESS_EXPIRY || '15m';
 
-  return jwt.sign(payload, secret, { expiresIn } as jwt.SignOptions);
+  return jwt.sign(payload, ACCESS_SECRET, { expiresIn } as jwt.SignOptions);
 }
 
 /**
  * Generate a refresh token (long-lived).
  */
 export function generateRefreshToken(payload: RefreshTokenPayload): string {
-  const secret = process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret-dev';
   const expiresIn = process.env.JWT_REFRESH_EXPIRY || '7d';
 
-  return jwt.sign(payload, secret, { expiresIn } as jwt.SignOptions);
+  return jwt.sign(payload, REFRESH_SECRET, { expiresIn } as jwt.SignOptions);
 }
 
 /**
@@ -60,10 +69,8 @@ export function generateTokenPair(
  * Verify and decode an access token. Throws if invalid or expired.
  */
 export function verifyAccessToken(token: string): AccessTokenPayload {
-  const secret = process.env.JWT_ACCESS_SECRET || 'fallback-access-secret-dev';
-
   try {
-    const decoded = jwt.verify(token, secret) as jwt.JwtPayload;
+    const decoded = jwt.verify(token, ACCESS_SECRET) as jwt.JwtPayload;
     return {
       userId: decoded.userId as string,
       role: decoded.role as string,
@@ -85,10 +92,8 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
  * Verify and decode a refresh token. Throws if invalid or expired.
  */
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
-  const secret = process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret-dev';
-
   try {
-    const decoded = jwt.verify(token, secret) as jwt.JwtPayload;
+    const decoded = jwt.verify(token, REFRESH_SECRET) as jwt.JwtPayload;
     return {
       userId: decoded.userId as string,
       tokenVersion: decoded.tokenVersion as number,

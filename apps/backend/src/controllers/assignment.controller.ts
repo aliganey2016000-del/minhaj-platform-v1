@@ -27,6 +27,35 @@ import ensureStudentRecord from '../utils/ensure-student';
 import { getOwnTeacherRecord } from '../utils/tenant-scope';
 
 // ---------------------------------------------------------------------------
+// Shared ownership guard for assignment mutation/read endpoints — mirrors the
+// scoping already applied in create(): org_admin is confined to courses in
+// their own organization, teacher is confined to their own courses. Throws
+// ForbiddenError (via NotFoundError for a missing assignment) otherwise.
+// ---------------------------------------------------------------------------
+async function assertCanManageAssignment(req: Request, assignmentId: string) {
+  const assignment = await Assignment.findById(assignmentId).select('course').lean();
+  if (!assignment) throw new NotFoundError('Assignment');
+
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    if (!teacher) throw new ForbiddenError('Teacher record not found');
+    const courseDoc = await Course.findById((assignment as any).course).select('teacher').lean();
+    if (!courseDoc || (courseDoc as any).teacher?.toString() !== teacher._id.toString()) {
+      throw new ForbiddenError('You can only manage assignments for your own courses');
+    }
+  }
+
+  if (req.user?.role === 'org_admin') {
+    const courseDoc = await Course.findById((assignment as any).course).select('school').lean();
+    if (!courseDoc || (courseDoc as any).school?.toString() !== req.user.organizationId) {
+      throw new ForbiddenError('You can only manage assignments for courses in your organization');
+    }
+  }
+
+  return assignment;
+}
+
+// ---------------------------------------------------------------------------
 // POST / — Create assignment (admin / org_admin / teacher)
 // ---------------------------------------------------------------------------
 
@@ -261,7 +290,19 @@ export const getAll = async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 export const update = async (req: Request, res: Response) => {
-  const item = await Assignment.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+  await assertCanManageAssignment(req, req.params.id);
+
+  const { title, description, startDate, dueDate, totalMarks, allowLateSubmission, attachments } = req.body;
+  const updates: Record<string, unknown> = {};
+  if (title !== undefined) updates.title = title;
+  if (description !== undefined) updates.description = description;
+  if (startDate !== undefined) updates.startDate = startDate;
+  if (dueDate !== undefined) updates.dueDate = dueDate;
+  if (totalMarks !== undefined) updates.totalMarks = totalMarks;
+  if (allowLateSubmission !== undefined) updates.allowLateSubmission = allowLateSubmission;
+  if (attachments !== undefined) updates.attachments = attachments;
+
+  const item = await Assignment.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true })
     .populate('course', 'title.en slug')
     .populate('class', 'title section')
     .lean();
@@ -277,6 +318,7 @@ export const update = async (req: Request, res: Response) => {
 export const updateStatus = async (req: Request, res: Response) => {
   const { status } = req.body;
   if (!status) throw new BadRequestError('Status required');
+  await assertCanManageAssignment(req, req.params.id);
   const item = await Assignment.findByIdAndUpdate(req.params.id, { status }, { new: true }).lean();
   if (!item) throw new NotFoundError('Assignment');
   return ApiResponse.success(res, item, `Status updated to ${status}`);
@@ -287,6 +329,7 @@ export const updateStatus = async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 export const remove = async (req: Request, res: Response) => {
+  await assertCanManageAssignment(req, req.params.id);
   const item = await Assignment.findByIdAndDelete(req.params.id);
   if (!item) throw new NotFoundError('Assignment');
   return ApiResponse.noContent(res, 'Deleted');
@@ -325,6 +368,25 @@ export const viewMaterial = async (req: Request, res: Response) => {
 
   const assignment = await Assignment.findById(assignmentId).select('attachments course').lean();
   if (!assignment) throw new NotFoundError('Assignment');
+
+  if (req.user?.role === 'student') {
+    const student = await ensureStudentRecord(req.user.userId);
+    const enrolledIds = (student.enrolledCourses || []).map((id: any) => id.toString());
+    if (!enrolledIds.includes((assignment as any).course.toString())) {
+      throw new ForbiddenError('You can only view materials for your enrolled courses');
+    }
+  } else if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    const courseDoc = await Course.findById((assignment as any).course).select('teacher').lean();
+    if (!teacher || !courseDoc || (courseDoc as any).teacher?.toString() !== teacher._id.toString()) {
+      throw new ForbiddenError('You can only view materials for your own courses');
+    }
+  } else if (req.user?.role === 'org_admin') {
+    const courseDoc = await Course.findById((assignment as any).course).select('school').lean();
+    if (!courseDoc || (courseDoc as any).school?.toString() !== req.user.organizationId) {
+      throw new ForbiddenError('You can only view materials for courses in your organization');
+    }
+  }
 
   const attachIndex = parseInt(req.params.id, 10);
   if (isNaN(attachIndex) || attachIndex < 0 || attachIndex >= (assignment.attachments?.length || 0)) {
