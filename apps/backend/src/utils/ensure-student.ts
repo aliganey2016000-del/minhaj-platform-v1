@@ -39,6 +39,9 @@ export async function ensureStudentRecord(
   if (!publicSchool) {
     publicSchool = await School.create({
       name: 'Public School',
+      organizationType: 'private',
+      country: 'Somalia',
+      city: 'Mogadishu',
       address: 'Online',
       phone: '+000',
       email: 'public@school.edu',

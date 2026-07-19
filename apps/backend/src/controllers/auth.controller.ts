@@ -87,6 +87,9 @@ export const register = async (req: Request, res: Response): Promise<Response> =
       if (!targetSchool) {
         targetSchool = await School.create({
           name: 'Public School',
+          organizationType: 'private',
+          country: 'Somalia',
+          city: 'Mogadishu',
           address: 'Online',
           phone: '+000',
           email: 'public@school.edu',
