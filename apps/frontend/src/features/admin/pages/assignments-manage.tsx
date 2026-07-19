@@ -107,6 +107,95 @@ function AssignmentFormPage({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── AI Generate modal state ──
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiSource, setAiSource] = useState<'lessons' | 'paste' | 'upload'>('lessons');
+  const [aiSelectedLessons, setAiSelectedLessons] = useState<string[]>([]);
+  const [aiCustomInstructions, setAiCustomInstructions] = useState('');
+  const [aiPasteText, setAiPasteText] = useState('');
+  const [aiUploadFile, setAiUploadFile] = useState<File | null>(null);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [courseLessons, setCourseLessons] = useState<{ _id: string; title: string; content: string }[]>([]);
+  const [lessonsLoading, setLessonsLoading] = useState(false);
+  const aiFileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Fetch course lessons when AI modal opens ──
+  useEffect(() => {
+    if (!showAiModal || !form.course) return;
+    setLessonsLoading(true);
+    (async () => {
+      try {
+        const { data } = await api.get(`/courses/${form.course}/content`);
+        const chapters = data.data?.chapters || data.data || [];
+        const allLessons: { _id: string; title: string; content: string }[] = [];
+        if (Array.isArray(chapters)) {
+          chapters.forEach((ch: any) => {
+            (ch.items || []).forEach((item: any) => {
+              if (item.type === 'lesson') {
+                allLessons.push({ _id: item._id, title: item.title || 'Untitled', content: item.content || '' });
+              }
+            });
+          });
+        }
+        setCourseLessons(allLessons);
+      } catch { /* non-fatal */ }
+      finally { setLessonsLoading(false); }
+    })();
+  }, [showAiModal, form.course]);
+
+  // ── Handle AI generation ──
+  const handleAiGenerate = async () => {
+    if (aiSource === 'lessons' && aiSelectedLessons.length === 0) {
+      setAiError('Please select at least one lesson.');
+      return;
+    }
+    if (aiSource === 'paste' && !aiPasteText.trim()) {
+      setAiError('Please paste some reference material.');
+      return;
+    }
+    if (aiSource === 'upload' && !aiUploadFile) {
+      setAiError('Please upload a file.');
+      return;
+    }
+
+    setAiGenerating(true);
+    setAiError('');
+    try {
+      const fd = new FormData();
+      fd.append('customInstructions', aiCustomInstructions);
+      if (aiSource === 'lessons') {
+        const lessonContents = aiSelectedLessons.map((id) => {
+          const lesson = courseLessons.find((l) => l._id === id);
+          return `Lesson: "${lesson?.title || ''}"\n${lesson?.content || ''}`;
+        });
+        fd.append('sourceType', 'lessons');
+        fd.append('lessonContents', JSON.stringify(lessonContents));
+      } else if (aiSource === 'paste') {
+        fd.append('sourceType', 'paste');
+        fd.append('pasteText', aiPasteText);
+      } else {
+        fd.append('sourceType', 'upload');
+        fd.append('file', aiUploadFile!);
+      }
+
+      const { data } = await api.post('/ai/generate-assignment', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      if (data.success && data.data?.content) {
+        update('description', (form.description ? form.description + '\n\n' : '') + data.data.content);
+        setShowAiModal(false);
+      } else {
+        setAiError('Generation failed. Please try again.');
+      }
+    } catch (err: any) {
+      setAiError(err.response?.data?.message || 'AI generation failed.');
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
   // Load orgs
   useEffect(() => {
     if (isSuperAdmin) {
@@ -262,7 +351,16 @@ function AssignmentFormPage({
 
           {/* ── Title & Description ── */}
           <div className="bg-[var(--color-surface-primary)] rounded-2xl border border-[var(--color-border-default)] p-6 shadow-card">
-            <h2 className="text-sm font-bold text-[var(--color-text-primary)] mb-4">📝 Content</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-bold text-[var(--color-text-primary)]">📝 Content</h2>
+              <button
+                type="button"
+                onClick={() => setShowAiModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/20 px-3 py-1.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-colors"
+              >
+                ✨ AI Generate
+              </button>
+            </div>
 
             <div className="space-y-4">
               <div>
@@ -369,6 +467,149 @@ function AssignmentFormPage({
           </button>
         </div>
       </div>
+
+      {/* ── AI Generate Modal ── */}
+      {showAiModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setShowAiModal(false)}>
+          <div className="bg-[var(--color-surface-primary)] rounded-2xl w-full max-w-xl shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 pb-3">
+              <div>
+                <h2 className="text-lg font-bold text-[var(--color-text-primary)]">✨ AI Generate Content</h2>
+                <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Generate assignment content from lessons, notes, or files</p>
+              </div>
+              <button type="button" onClick={() => setShowAiModal(false)} className="text-2xl leading-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]">&times;</button>
+            </div>
+
+            <div className="p-6 pt-3 space-y-5">
+              {/* ── Step 1: Source Selection ── */}
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2 block">1. Choose Source</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { key: 'lessons', icon: '📚', label: 'Select From Lessons' },
+                    { key: 'paste', icon: '📋', label: 'Copy & Paste Data' },
+                    { key: 'upload', icon: '📁', label: 'Upload File' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => { setAiSource(opt.key as any); setAiError(''); }}
+                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 transition-all text-center ${
+                        aiSource === opt.key
+                          ? 'border-violet-500 bg-violet-50 dark:bg-violet-950/30 shadow-sm'
+                          : 'border-[var(--color-border-default)] hover:border-violet-300 dark:hover:border-violet-700'
+                      }`}
+                    >
+                      <span className="text-xl">{opt.icon}</span>
+                      <span className="text-[10px] font-semibold text-[var(--color-text-secondary)] leading-tight">{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Step 2: Dynamic Input ── */}
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2 block">2. Source Content</label>
+
+                {/* Lessons mode */}
+                {aiSource === 'lessons' && (
+                  <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 max-h-48 overflow-y-auto">
+                    {lessonsLoading ? (
+                      <div className="flex items-center justify-center py-6">
+                        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-violet-500" />
+                      </div>
+                    ) : courseLessons.length === 0 ? (
+                      <p className="text-xs text-[var(--color-text-tertiary)] text-center py-6">No lessons found for this course. Select a different source.</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {courseLessons.map((lesson) => {
+                          const checked = aiSelectedLessons.includes(lesson._id);
+                          return (
+                            <label key={lesson._id} className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors cursor-pointer ${checked ? 'bg-violet-50 dark:bg-violet-950/20' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => setAiSelectedLessons(prev => prev.includes(lesson._id) ? prev.filter(id => id !== lesson._id) : [...prev, lesson._id])}
+                                className="rounded border-[var(--color-border-default)] h-3.5 w-3.5 text-violet-600"
+                              />
+                              <span className="text-xs text-[var(--color-text-secondary)] truncate">{lesson.title}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {aiSelectedLessons.length > 0 && (
+                      <p className="text-[10px] text-violet-600 dark:text-violet-400 mt-2 font-medium">{aiSelectedLessons.length} lesson(s) selected</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Paste mode */}
+                {aiSource === 'paste' && (
+                  <textarea
+                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm min-h-[120px] resize-y"
+                    placeholder="Paste your raw text or reference material here..."
+                    value={aiPasteText}
+                    onChange={(e) => { setAiPasteText(e.target.value); setAiError(''); }}
+                  />
+                )}
+
+                {/* Upload mode */}
+                {aiSource === 'upload' && (
+                  <div>
+                    {aiUploadFile ? (
+                      <div className="flex items-center gap-3 rounded-xl border border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/20 px-4 py-3">
+                        <span className="text-sm">📄</span>
+                        <span className="flex-1 text-xs font-medium text-violet-700 dark:text-violet-300 truncate">{aiUploadFile.name}</span>
+                        <button type="button" onClick={() => setAiUploadFile(null)} className="text-xs text-red-500 hover:text-red-700">✕</button>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center w-full rounded-xl border-2 border-dashed border-[var(--color-border-default)] hover:border-violet-400 hover:bg-[var(--color-surface-tertiary)] transition-colors cursor-pointer p-5"
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) { setAiUploadFile(f); setAiError(''); } }}>
+                        <input ref={aiFileInputRef} type="file" accept=".pdf,.doc,.docx,.txt" className="hidden" onChange={(e) => { const f = e.target.files?.[0] || null; setAiUploadFile(f); setAiError(''); }} />
+                        <p className="text-2xl mb-1">📤</p>
+                        <p className="text-xs font-medium text-[var(--color-text-secondary)]">Click or drag file here</p>
+                        <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1">PDF, DOCX, TXT</p>
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Step 3: Custom Instructions ── */}
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2 block">3. Custom Instructions (optional)</label>
+                <textarea
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm min-h-[60px] resize-y"
+                  placeholder="e.g., Make it a 5-question quiz with multiple choices, focusing on historical dates, intermediate difficulty..."
+                  value={aiCustomInstructions}
+                  onChange={(e) => { setAiCustomInstructions(e.target.value); setAiError(''); }}
+                />
+              </div>
+
+              {/* ── Error ── */}
+              {aiError && (
+                <p className="text-xs text-red-500 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{aiError}</p>
+              )}
+
+              {/* ── Actions ── */}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowAiModal(false)} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
+                <button
+                  type="button"
+                  onClick={handleAiGenerate}
+                  disabled={aiGenerating || (aiSource === 'lessons' && lessonsLoading)}
+                  className="flex-1 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 active:bg-violet-800 disabled:opacity-60 transition-all shadow-sm"
+                >
+                  {aiGenerating ? '✨ Generating...' : '✨ Generate Content'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

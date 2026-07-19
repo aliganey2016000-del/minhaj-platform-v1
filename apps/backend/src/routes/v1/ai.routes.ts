@@ -49,4 +49,9 @@ router.post('/generate-stop-check-question', asyncHandler(aiController.generateS
 // POST /api/v1/ai/split-lesson  { html: string }
 router.post('/split-lesson', asyncHandler(aiController.splitLesson));
 
+// POST /api/v1/ai/generate-assignment  (multipart/form-data)
+// Fields: sourceType ('lessons'|'paste'|'upload'), customInstructions,
+// lessonContents (JSON string[]) | pasteText | file
+router.post('/generate-assignment', upload.single('file'), asyncHandler(aiController.generateAssignment));
+
 export default router;

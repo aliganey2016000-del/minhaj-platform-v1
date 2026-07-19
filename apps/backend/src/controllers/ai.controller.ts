@@ -11,7 +11,7 @@
  */
 
 import { Request, Response } from 'express';
-import { generateLessonHtml, generateQuizQuestions, generateStopCheckQuestion, splitLessonWithAi, type QuestionCountSpec } from '../utils/deepseek';
+import { generateLessonHtml, generateQuizQuestions, generateStopCheckQuestion, splitLessonWithAi, generateAssignmentHtml, type QuestionCountSpec } from '../utils/deepseek';
 import { extractTextFromDocument } from '../utils/document-parser';
 import { BadRequestError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
@@ -102,6 +102,41 @@ export const generateStopCheck = async (req: Request, res: Response): Promise<Re
 
   const question = await generateStopCheckQuestion(blockText);
   return ApiResponse.success(res, { question }, 'Question generated successfully');
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/ai/generate-assignment — sourceType: 'lessons' | 'paste' | 'upload'
+// Matches the Assignment admin form's "AI Generate" modal.
+// ---------------------------------------------------------------------------
+export const generateAssignment = async (req: Request, res: Response): Promise<Response> => {
+  const { sourceType, customInstructions, pasteText, lessonContents } = req.body as {
+    sourceType: 'lessons' | 'paste' | 'upload';
+    customInstructions?: string;
+    pasteText?: string;
+    lessonContents?: string; // JSON-stringified string[]
+  };
+
+  let sourceText: string;
+  if (sourceType === 'lessons') {
+    let contents: string[] = [];
+    try { contents = JSON.parse(lessonContents || '[]'); } catch { /* leave empty */ }
+    if (!Array.isArray(contents) || contents.length === 0) {
+      throw new BadRequestError('Select at least one lesson to generate from.');
+    }
+    sourceText = contents.join('\n\n---\n\n');
+  } else if (sourceType === 'paste') {
+    if (!pasteText || !pasteText.trim()) throw new BadRequestError('Paste some reference material first.');
+    sourceText = pasteText;
+  } else if (sourceType === 'upload') {
+    if (!req.file) throw new BadRequestError('No file uploaded.');
+    sourceText = await extractTextFromDocument(req.file.buffer, req.file.originalname);
+    if (!sourceText.trim()) throw new BadRequestError('Could not find any readable text in that document.');
+  } else {
+    throw new BadRequestError('sourceType must be "lessons", "paste", or "upload".');
+  }
+
+  const content = await generateAssignmentHtml(sourceText, customInstructions);
+  return ApiResponse.success(res, { content }, 'Assignment content generated successfully');
 };
 
 // ---------------------------------------------------------------------------

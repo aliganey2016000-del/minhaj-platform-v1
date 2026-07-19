@@ -13,7 +13,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/axios';
-import type { CourseContent, Chapter, LessonItem, QuizItem, AssignmentItem } from './course-builder.types';
+import type { CourseContent, Chapter, LessonItem, QuizItem, AssignmentItem, ContentBlock } from './course-builder.types';
 import { QuestionPreview } from '../../../components/shared/quiz-question-preview';
 
 // ---------------------------------------------------------------------------
@@ -606,7 +606,13 @@ export function CoursePreview() {
                 <hr className="border-[var(--color-border-default)]" />
 
                 {/* Lesson / Quiz / Assignment */}
-                {currentItem.item.type === 'lesson' && <LessonView lesson={currentItem.item as LessonItem} />}
+                {currentItem.item.type === 'lesson' && (
+                  (currentItem.item as LessonItem).deliveryMode === 'interactive_gate' ? (
+                    <InteractiveGateBlocksPreview lesson={currentItem.item as LessonItem} />
+                  ) : (
+                    <LessonView lesson={currentItem.item as LessonItem} />
+                  )
+                )}
                 {currentItem.item.type === 'quiz' && <QuizPreview quiz={currentItem.item as QuizItem} />}
                 {currentItem.item.type === 'assignment' && <AssignmentPreview assignment={currentItem.item as AssignmentItem} />}
 
@@ -812,6 +818,107 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
               </a>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Interactive Gate Blocks Preview — read-only, every block shown at once
+// (unlike the real student view, preview mode has nothing to gate: no
+// timers, no answering, matching how QuizPreview/AssignmentPreview show
+// everything unlocked below).
+// ===========================================================================
+function InteractiveGateBlocksPreview({ lesson }: { lesson: LessonItem }) {
+  const blocks = lesson.contentBlocks || [];
+
+  if (blocks.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-[var(--color-border-default)] p-6 text-center text-sm text-[var(--color-text-tertiary)]">
+        This lesson has no content blocks yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-[var(--color-text-tertiary)] flex items-center gap-1.5">
+        <span>🔒</span> Interactive Gate — {blocks.length} content block{blocks.length === 1 ? '' : 's'} (shown unlocked for preview)
+      </p>
+      {blocks.map((block, idx) => (
+        <div key={block._id || idx} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4 lg:p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">Block {idx + 1} of {blocks.length}</span>
+            <span className="text-[10px] text-[var(--color-text-tertiary)]">⏱ {block.minReadSeconds}s min. read</span>
+          </div>
+          {block.title && (
+            <h3 className="text-base font-bold text-[var(--color-text-primary)]">{block.title}</h3>
+          )}
+          <div
+            className="prose prose-sm dark:prose-invert max-w-none text-[var(--color-text-primary)] [&_p]:mb-3 [&_p]:leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: block.content }}
+          />
+          {block.question && <ContentBlockQuestionPreview question={block.question} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ContentBlockQuestionPreview({ question }: { question: NonNullable<ContentBlock['question']> }) {
+  return (
+    <div className="rounded-xl bg-[var(--color-surface-primary)] border border-[var(--color-border-default)] p-4 space-y-3">
+      <p className="text-sm font-bold text-[var(--color-text-primary)] flex items-center gap-2">
+        <span>🛑</span> Stop &amp; Check
+      </p>
+      <p className="text-sm text-[var(--color-text-primary)]">{question.question}</p>
+
+      {question.type === 'mcq' ? (
+        <div className="space-y-2">
+          {(question.options || []).map((opt, i) => (
+            <div
+              key={i}
+              className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
+                i === question.correctOptionIndex
+                  ? 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300'
+                  : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'
+              }`}
+            >
+              <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-xs flex-shrink-0 ${
+                i === question.correctOptionIndex ? 'border-green-500 bg-green-500 text-white' : 'border-[var(--color-border-default)]'
+              }`}>
+                {i === question.correctOptionIndex ? '✓' : String.fromCharCode(65 + i)}
+              </span>
+              <span>{opt}</span>
+              {i === question.correctOptionIndex && <span className="ml-auto text-xs text-green-600 dark:text-green-400 font-semibold">Correct</span>}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {[true, false].map((val) => (
+            <div
+              key={String(val)}
+              className={`flex items-center justify-center gap-2 rounded-lg border-2 px-4 py-3 text-sm font-bold ${
+                question.correctAnswer === val
+                  ? 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300'
+                  : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'
+              }`}
+            >
+              <span className="text-lg">{val ? '✅' : '❌'}</span>
+              {val ? 'True' : 'False'}
+              {question.correctAnswer === val && <span className="text-xs font-semibold">— Correct</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {question.explanation && (
+        <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+          <p className="text-xs text-blue-700 dark:text-blue-300">
+            <span className="font-semibold">💡 Explanation:</span> {question.explanation}
+          </p>
         </div>
       )}
     </div>

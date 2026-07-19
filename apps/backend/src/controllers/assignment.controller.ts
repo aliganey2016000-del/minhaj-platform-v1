@@ -19,6 +19,7 @@ import path from 'path';
 import fs from 'fs';
 import mongoose from 'mongoose';
 import Assignment from '../models/assignment.model';
+import AssignmentSubmission from '../models/assignment-submission.model';
 import Course from '../models/course.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
@@ -97,11 +98,8 @@ export const getMyAssignments = async (req: Request, res: Response) => {
 
     return {
       ...a,
-      // Active:  (no start date or started already) AND due is still in the future
       isActive: (start === null || start <= now) && due >= now,
-      // Upcoming: start date is explicitly set in the future
       isUpcoming: start !== null && start > now,
-      // Overdue: due date is in the past
       isOverdue: due < now,
     };
   });
@@ -110,13 +108,83 @@ export const getMyAssignments = async (req: Request, res: Response) => {
 };
 
 // ---------------------------------------------------------------------------
+// GET /:id — Single assignment detail (any authenticated user)
+// ---------------------------------------------------------------------------
+
+export const getById = async (req: Request, res: Response) => {
+  const assignment = await Assignment.findById(req.params.id)
+    .populate('course', 'title.en slug category thumbnail')
+    .populate('class', 'title section')
+    .lean();
+
+  if (!assignment) throw new NotFoundError('Assignment');
+
+  // Student check: scoped to enrolled courses
+  if (req.user?.role === 'student') {
+    const student = await ensureStudentRecord(req.user.userId);
+    const enrolledIds = (student.enrolledCourses || []).map((id: any) => id.toString());
+    const courseId = (assignment.course as any)?._id?.toString();
+    if (courseId && !enrolledIds.includes(courseId)) {
+      throw new ForbiddenError('You can only view assignments for your enrolled courses');
+    }
+  }
+
+  const now = new Date();
+  const start = (assignment as any).startDate ? new Date((assignment as any).startDate) : null;
+  const due = new Date((assignment as any).dueDate);
+
+  return ApiResponse.success(res, {
+    ...assignment,
+    isActive: (start === null || start <= now) && due >= now,
+    isUpcoming: start !== null && start > now,
+    isOverdue: due < now,
+  });
+};
+
+// ---------------------------------------------------------------------------
+// POST /:id/submit — Student submits (or resubmits) their work
+// ---------------------------------------------------------------------------
+
+export const submitAssignment = async (req: Request, res: Response) => {
+  const { answer, fileUrl } = req.body as { answer?: string; fileUrl?: string };
+  if (!answer?.trim() && !fileUrl) {
+    throw new BadRequestError('Provide an answer or a file to submit');
+  }
+
+  const assignment = await Assignment.findById(req.params.id).lean();
+  if (!assignment) throw new NotFoundError('Assignment');
+
+  const student = await ensureStudentRecord(req.user!.userId);
+  const enrolledIds = (student.enrolledCourses || []).map((id: any) => id.toString());
+  if (!enrolledIds.includes((assignment as any).course.toString())) {
+    throw new ForbiddenError('You are not enrolled in this course');
+  }
+
+  const now = new Date();
+  const isLate = now > new Date((assignment as any).dueDate);
+  if (isLate && !(assignment as any).allowLateSubmission) {
+    throw new ForbiddenError('The due date has passed and late submissions are not allowed for this assignment');
+  }
+
+  const submission = await AssignmentSubmission.findOneAndUpdate(
+    { assignment: assignment._id, student: student._id },
+    {
+      assignment: assignment._id,
+      student: student._id,
+      course: (assignment as any).course,
+      answer: answer?.trim() || '',
+      fileUrl: fileUrl || '',
+      isLate,
+      submittedAt: now,
+    },
+    { new: true, upsert: true, runValidators: true }
+  ).lean();
+
+  return ApiResponse.success(res, submission, isLate ? 'Submitted (late)' : 'Submitted successfully');
+};
+
+// ---------------------------------------------------------------------------
 // GET / — Admin / Org Admin / Teacher list
-//
-// Query params:
-//   - tab: "active" | "upcoming" | "past"  (filters by date range)
-//   - courseId: filter by course
-//   - page, limit: pagination
-//   - search: text search on title/description
 // ---------------------------------------------------------------------------
 
 export const getAll = async (req: Request, res: Response) => {
@@ -125,7 +193,6 @@ export const getAll = async (req: Request, res: Response) => {
 
   const filter: Record<string, unknown> = {};
 
-  // ── Role-based scoping ──
   if (req.user?.role === 'teacher') {
     const teacher = await getOwnTeacherRecord(req);
     if (!teacher) throw new ForbiddenError('Teacher record not found');
@@ -135,32 +202,26 @@ export const getAll = async (req: Request, res: Response) => {
   }
 
   if (req.user?.role === 'org_admin') {
-    // Org admin: scoped to courses in their organization
     const orgCourses = await Course.find({ school: req.user.organizationId }).select('_id').lean();
     const orgCourseIds = orgCourses.map((c: any) => c._id);
     filter.course = { $in: orgCourseIds };
   }
 
-  // ── Explicit filters ──
   if (courseId) filter.course = courseId;
   if (status) filter.status = status;
 
-  // ── Temporal filter (tab: active / upcoming / past) ──
   if (tab === 'active') {
-    // Active: started AND not yet due
     filter.$and = [
       { $or: [{ startDate: { $lte: now } }, { startDate: null }] },
       { dueDate: { $gte: now } },
     ];
   } else if (tab === 'upcoming') {
-    // Upcoming: start date is in the future
     filter.startDate = { $gt: now };
     filter.$and = [
       { startDate: { $exists: true, $ne: null } },
       { startDate: { $gt: now } },
     ];
   } else if (tab === 'past') {
-    // Past: due date has passed
     filter.dueDate = { $lt: now };
   }
 
@@ -170,18 +231,8 @@ export const getAll = async (req: Request, res: Response) => {
   const [items, total] = await Promise.all([
     Assignment.find(filter)
       .populate('course', 'title.en slug category level thumbnail school')
-      .populate({
-        path: 'course',
-        populate: { path: 'school', select: 'name' },
-      })
-      .populate({
-        path: 'course',
-        populate: {
-          path: 'teacher',
-          select: 'teacherId profile',
-          populate: { path: 'profile', select: 'firstName lastName' },
-        },
-      })
+      .populate({ path: 'course', populate: { path: 'school', select: 'name' } })
+      .populate({ path: 'course', populate: { path: 'teacher', select: 'teacherId profile', populate: { path: 'profile', select: 'firstName lastName' } } })
       .populate('class', 'title section')
       .populate('createdBy', 'email')
       .sort({ dueDate: 1 })
@@ -191,32 +242,18 @@ export const getAll = async (req: Request, res: Response) => {
     Assignment.countDocuments(filter),
   ]);
 
-  // Post-query text search
   let result = items;
   if (search) {
     const s = (search as string).toLowerCase();
-    result = items.filter(
-      (a: any) =>
-        (a.title || '').toLowerCase().includes(s) ||
-        (a.description || '').toLowerCase().includes(s)
-    );
+    result = items.filter((a: any) => (a.title || '').toLowerCase().includes(s) || (a.description || '').toLowerCase().includes(s));
   }
 
-  // Attach computed temporal tags
   const enriched = result.map((a: any) => ({
     ...a,
-    tab: new Date(a.dueDate) < now
-      ? 'past'
-      : new Date(a.startDate || a.createdAt) > now
-        ? 'upcoming'
-        : 'active',
+    tab: new Date(a.dueDate) < now ? 'past' : new Date(a.startDate || a.createdAt) > now ? 'upcoming' : 'active',
   }));
 
-  return ApiResponse.paginated(res, enriched, {
-    page: pageNum,
-    limit: limitNum,
-    total: search ? result.length : total,
-  });
+  return ApiResponse.paginated(res, enriched, { page: pageNum, limit: limitNum, total: search ? result.length : total });
 };
 
 // ---------------------------------------------------------------------------
@@ -224,10 +261,7 @@ export const getAll = async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 export const update = async (req: Request, res: Response) => {
-  const item = await Assignment.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
-  })
+  const item = await Assignment.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
     .populate('course', 'title.en slug')
     .populate('class', 'title section')
     .lean();
@@ -263,53 +297,35 @@ export const remove = async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 export const uploadAttachment = async (req: Request, res: Response) => {
-  if (!req.file) {
-    throw new BadRequestError('No file provided');
-  }
+  if (!req.file) throw new BadRequestError('No file provided');
 
-  // Ensure the uploads directory exists
   const uploadsDir = path.join(process.cwd(), 'uploads', 'assignments');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
+  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-  // Create a unique filename: timestamp-originalname
   const timestamp = Date.now();
   const safeName = (req.file.originalname || 'file').replace(/[^a-zA-Z0-9.\-_]/g, '_');
   const filename = `${timestamp}-${safeName}`;
   const filePath = path.join(uploadsDir, filename);
-
-  // Write the buffer to disk
   fs.writeFileSync(filePath, req.file.buffer);
 
   const url = `/uploads/assignments/${filename}`;
   const name = req.file.originalname || filename;
   const allowDownload = req.body?.allowDownload === 'true' || req.body?.allowDownload === true;
 
-  return ApiResponse.success(
-    res,
-    { url, name, size: req.file.size, allowDownload },
-    'File uploaded'
-  );
+  return ApiResponse.success(res, { url, name, size: req.file.size, allowDownload }, 'File uploaded');
 };
 
 // ---------------------------------------------------------------------------
 // GET /materials/:id/view — Stream assignment attachment securely
-// Query param: ?assignmentId=<assignmentId>
 // ---------------------------------------------------------------------------
 
 export const viewMaterial = async (req: Request, res: Response) => {
   const assignmentId = req.query.assignmentId as string;
   if (!assignmentId) throw new BadRequestError('assignmentId query parameter is required');
 
-  // 1. Load the assignment to find the attachment with the given index
-  const assignment = await Assignment.findById(assignmentId)
-    .select('attachments course')
-    .lean();
-
+  const assignment = await Assignment.findById(assignmentId).select('attachments course').lean();
   if (!assignment) throw new NotFoundError('Assignment');
 
-  // 2. Parse attachment index from route params
   const attachIndex = parseInt(req.params.id, 10);
   if (isNaN(attachIndex) || attachIndex < 0 || attachIndex >= (assignment.attachments?.length || 0)) {
     throw new NotFoundError('Attachment not found');
@@ -317,39 +333,23 @@ export const viewMaterial = async (req: Request, res: Response) => {
 
   const attachment = assignment.attachments[attachIndex];
   const filePath = path.join(process.cwd(), attachment.url.replace(/^\//, ''));
+  if (!fs.existsSync(filePath)) throw new NotFoundError('File not found on disk');
 
-  if (!fs.existsSync(filePath)) {
-    throw new NotFoundError('File not found on disk');
-  }
-
-  // 3. Determine content type from extension
   const ext = path.extname(attachment.name || attachment.url).toLowerCase();
   const mimeTypes: Record<string, string> = {
-    '.pdf': 'application/pdf',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.txt': 'text/plain',
-    '.doc': 'application/msword',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.txt': 'text/plain',
+    '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   };
   const contentType = mimeTypes[ext] || 'application/octet-stream';
 
-  // 4. Security decision: download vs inline
   if (attachment.allowDownload) {
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.name || 'file')}"`);
   } else {
-    // Force inline viewing — browser will try to display in iframe / new tab
-    // without triggering a download. For PDFs this opens the browser's PDF viewer.
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(attachment.name || 'file')}"`);
   }
 
   res.setHeader('Content-Type', contentType);
   res.setHeader('Cache-Control', 'private, max-age=3600');
-
-  // Stream the file
-  const stream = fs.createReadStream(filePath);
-  stream.pipe(res);
+  fs.createReadStream(filePath).pipe(res);
 };

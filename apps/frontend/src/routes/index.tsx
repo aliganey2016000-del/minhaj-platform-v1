@@ -29,6 +29,9 @@ const StudentAvailable = lazy(() =>
 const StudentAssignments = lazy(() =>
   import('../features/student/pages/student-assignments').then((m) => ({ default: m.StudentAssignments }))
 );
+const StudentAssignmentDetail = lazy(() =>
+  import('../features/student/pages/student-assignment-detail').then((m) => ({ default: m.StudentAssignmentDetail }))
+);
 const StudentDownloads = lazy(() =>
   import('../features/student/pages/student-downloads').then((m) => ({ default: m.StudentDownloads }))
 );
@@ -244,6 +247,7 @@ export const router = createBrowserRouter([
       { path: 'schedule', element: L(<StudentSchedule />) },
       { path: 'available', element: L(<StudentAvailable />) },
       { path: 'assignments', element: L(<StudentAssignments />) },
+      { path: 'assignments/:assignmentId', element: L(<StudentAssignmentDetail />) },
       { path: 'exams', element: L(<StudentExams />) },
       { path: 'exams/seating', element: L(<StudentExamSeating />) },
       { path: 'exams/active', element: L(<StudentExamActive />) },

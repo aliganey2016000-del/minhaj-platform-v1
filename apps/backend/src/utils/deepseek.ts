@@ -79,6 +79,78 @@ export async function generateLessonHtml(sourceText: string): Promise<string> {
   return html;
 }
 
+// ---------------------------------------------------------------------------
+// AI Assignment Generator — turns source material into an assignment
+// description/instructions block (task framing, not a teaching lesson).
+// ---------------------------------------------------------------------------
+
+const ASSIGNMENT_SYSTEM_PROMPT = `You are an expert Islamic studies teacher who writes clear homework/assignment briefs for students.
+
+Return ONLY clean, semantic HTML for the assignment description — no markdown, no code fences, no <html>/<head>/<body> wrapper, and no commentary before or after the HTML.
+
+Structure the output using:
+- <p> to frame the task and what the student must do
+- <ol>/<li> for step-by-step instructions or numbered questions to answer
+- <ul>/<li> for any supporting bullet points (requirements, things to include)
+- <strong> for key terms, deadlines-related emphasis, or important instructions
+
+Base the assignment on the provided source material. Write it as a task for the student to complete (e.g. "Answer the following questions...", "Write a short reflection on...", "Summarize..."), not as a lesson explaining the topic. Follow any custom instructions given exactly.`;
+
+export async function generateAssignmentHtml(sourceText: string, customInstructions?: string): Promise<string> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new InternalServerError('AI assignment generation is not configured on this server (missing DEEPSEEK_API_KEY).');
+  }
+
+  const trimmed = (sourceText || '').trim();
+  if (!trimmed) {
+    throw new BadRequestError('No source material to generate an assignment from.');
+  }
+
+  const clipped =
+    trimmed.length > MAX_SOURCE_CHARS
+      ? `${trimmed.slice(0, MAX_SOURCE_CHARS)}\n\n[...source truncated for length...]`
+      : trimmed;
+
+  const instructionsBlock = customInstructions?.trim()
+    ? `\n\nCustom instructions from the teacher: ${customInstructions.trim()}`
+    : '';
+
+  let response;
+  try {
+    response = await axios.post(
+      DEEPSEEK_API_URL,
+      {
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: ASSIGNMENT_SYSTEM_PROMPT },
+          { role: 'user', content: `Write an assignment based on this source material:\n\n${clipped}${instructionsBlock}` },
+        ],
+        temperature: 0.4,
+        max_tokens: 3000,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60_000,
+      }
+    );
+  } catch (err: any) {
+    const status = err.response?.status;
+    const detail = err.response?.data?.error?.message || err.message;
+    throw new InternalServerError(`DeepSeek request failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+
+  const raw: string = response.data?.choices?.[0]?.message?.content || '';
+  const html = stripCodeFences(raw);
+  if (!html) {
+    throw new InternalServerError('DeepSeek returned an empty response. Please try again.');
+  }
+  return html;
+}
+
 /** Defensive cleanup in case the model wraps its answer in a markdown fence despite instructions. */
 function stripCodeFences(raw: string): string {
   return raw

@@ -12,12 +12,22 @@ import type { CourseContent, Chapter } from './course-builder.types';
 
 // ---------------------------------------------------------------------------
 // Helper: generate a temporary MongoDB-style ObjectId for optimistic UI
+//
+// Mirrors ObjectId's own layout (4-byte timestamp + 5 random bytes + 3-byte
+// counter) instead of a plain incrementing counter — a simple counter resets
+// to 0 on every page load/HMR reload, so two items created in different
+// sessions (or a chapter item and one of its own content blocks generated
+// moments apart across a reload) could end up with the identical id "...001".
+// Since chapters/items are Schema.Types.Mixed, Mongoose never replaces these
+// client-generated ids with real ObjectIds, so collisions persist forever.
 // ---------------------------------------------------------------------------
-let tempIdCounter = 0;
+let idCounter = Math.floor(Math.random() * 0xffffff);
 export function generateTempId(): string {
-  tempIdCounter += 1;
-  const hex = tempIdCounter.toString(16).padStart(24, '0');
-  return hex;
+  const timestamp = Math.floor(Date.now() / 1000).toString(16).padStart(8, '0');
+  const random = Math.floor(Math.random() * 0xffffffffff).toString(16).padStart(10, '0');
+  idCounter = (idCounter + 1) % 0xffffff;
+  const counter = idCounter.toString(16).padStart(6, '0');
+  return `${timestamp}${random}${counter}`;
 }
 
 // ---------------------------------------------------------------------------

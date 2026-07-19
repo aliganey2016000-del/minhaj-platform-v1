@@ -20,6 +20,13 @@ router.use(authMiddleware);
 // Student self-service
 router.get('/my', roleMiddleware(['student']), asyncHandler(ctrl.getMyAssignments));
 
+// Single assignment — accessible by any authenticated user (student gets scoped
+// to their own enrolled courses via the controller).
+router.get('/:id', authMiddleware, asyncHandler(ctrl.getById));
+
+// Student submits (or resubmits) their work for an assignment
+router.post('/:id/submit', roleMiddleware(['student']), asyncHandler(ctrl.submitAssignment));
+
 // Admin / Org Admin / Teacher management
 router.get('/',  adminOrTeacher, asyncHandler(ctrl.getAll));
 router.post('/', adminOrTeacher, asyncHandler(ctrl.create));          // Teachers can create
