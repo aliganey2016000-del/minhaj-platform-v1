@@ -83,6 +83,15 @@ const StudentPayments = lazy(() =>
 const StudentCourseDetail = lazy(() =>
   import('../features/student/pages/student-course-detail').then((m) => ({ default: m.StudentCourseDetail }))
 );
+const StudentAiTutor = lazy(() =>
+  import('../features/student/pages/student-ai-tutor').then((m) => ({ default: m.StudentAiTutor }))
+);
+const StudentQuizTake = lazy(() =>
+  import('../features/student/pages/student-quiz-take').then((m) => ({ default: m.StudentQuizTake }))
+);
+const StudentAnalytics = lazy(() =>
+  import('../features/student/pages/student-analytics').then((m) => ({ default: m.StudentAnalytics }))
+);
 const AdminLayout = lazy(() =>
   import('../features/admin/components/admin-layout').then((m) => ({ default: m.AdminLayout }))
 );
@@ -244,6 +253,9 @@ export const router = createBrowserRouter([
       { path: 'courses', element: L(<StudentCourses />) },
       { path: 'courses/:courseId', element: L(<StudentCourseDetail />) },
       { path: 'courses/:courseId/learn', element: L(<StudentCourseLearn />) },
+      { path: 'courses/:courseId/ai-tutor', element: L(<StudentAiTutor />) },
+      { path: 'courses/:courseId/quiz/:quizId/take', element: L(<StudentQuizTake />) },
+      { path: 'analytics', element: L(<StudentAnalytics />) },
       { path: 'schedule', element: L(<StudentSchedule />) },
       { path: 'available', element: L(<StudentAvailable />) },
       { path: 'assignments', element: L(<StudentAssignments />) },

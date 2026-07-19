@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#059669" />
+  <title>Offline — Al-Rahma LMS</title>
+  <style>
+    :root {
+      --green: #059669;
+      --green-light: #10b981;
+      --bg: #ffffff;
+      --text: #0f172a;
+      --text-secondary: #475569;
+      --text-tertiary: #94a3b8;
+      --border: #e2e8f0;
+      --surface: #fdf9f2;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0a0f1a;
+        --text: #f1f5f9;
+        --text-secondary: #cbd5e1;
+        --text-tertiary: #94a3b8;
+        --border: #1e293b;
+        --surface: #060a10;
+      }
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      min-height: 100dvh;
+      padding: 1.5rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 1.5rem;
+      padding: 2.5rem 2rem;
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+    }
+    .icon {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 1.25rem;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--green-light), var(--green));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .icon svg { width: 36px; height: 36px; color: white; }
+    h1 { font-size: 1.35rem; font-weight: 800; margin-bottom: 0.5rem; }
+    p { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6; }
+    .tip { margin-top: 1.5rem; font-size: 0.75rem; color: var(--text-tertiary); }
+    .retry-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 1.5rem;
+      padding: 0.75rem 1.75rem;
+      background: var(--green);
+      color: white;
+      font-weight: 700;
+      font-size: 0.875rem;
+      border: none;
+      border-radius: 0.875rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.2s, transform 0.15s;
+      box-shadow: 0 2px 12px rgba(5, 150, 105, 0.3);
+    }
+    .retry-btn:hover { background: #047857; transform: scale(1.02); }
+    .retry-btn:active { transform: scale(0.97); }
+    .cached-msg {
+      margin-top: 1.25rem;
+      padding: 0.75rem 1rem;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 0.75rem;
+      font-size: 0.8rem;
+      color: #92400e;
+      display: none;
+    }
+    @media (prefers-color-scheme: dark) {
+      .cached-msg { background: #292524; border-color: #92400e; color: #fcd34d; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.58 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>
+      </svg>
+    </div>
+    <h1>You're Offline</h1>
+    <p>
+      It looks like your internet connection has dropped. Don't worry — any content you've
+      previously viewed is still available.
+    </p>
+    <p class="tip">Check your Wi-Fi or mobile data, then try again.</p>
+    <button class="retry-btn" onclick="location.reload()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Retry Connection
+    </button>
+    <div class="cached-msg" id="cachedMsg">
+      ⚡ You are viewing a cached version of this page from your last visit.
+    </div>
+  </div>
+
+  <script>
+    // Show cached message if service worker served this from cache
+    if (window.performance && window.performance.getEntriesByType) {
+      try {
+        var nav = performance.getEntriesByType('navigation')[0];
+        if (nav && nav.transferSize === 0) {
+          document.getElementById('cachedMsg').style.display = 'block';
+        }
+      } catch(e) {}
+    }
+
+    // Auto-retry when online again
+    window.addEventListener('online', function() {
+      location.reload();
+    });
+  </script>
+</body>
+</html>

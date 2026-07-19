@@ -36,7 +36,10 @@ export const getBlockProgress = async (req: Request, res: Response): Promise<Res
 
   const progress = await LessonBlockProgress.findOne({ student: student._id, lessonId }).lean();
 
-  return ApiResponse.success(res, progress || { unlockedBlockIndex: 0, gateCompleted: false, attempts: [] });
+  return ApiResponse.success(res, progress || {
+    unlockedBlockIndex: 0, gateCompleted: false, attempts: [],
+    maxTimeWatched: 0, clearedCheckpoints: [],
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -95,5 +98,79 @@ export const submitBlockAnswer = async (req: Request, res: Response): Promise<Re
     unlockedBlockIndex: progress.unlockedBlockIndex,
     // Only worth sending on a miss — safe to reveal now since they already answered.
     explanation: !correct ? block.question?.explanation || undefined : undefined,
+  });
+};
+
+// ---------------------------------------------------------------------------
+// POST /courses/:courseId/lessons/:lessonId/video-progress
+// Reports the furthest continuous position reached in the lesson's video, so
+// "block forward seeking" can be enforced client-side even across reloads.
+// This is pacing state (like the block reading timers), not a graded gate —
+// only checkpoint answers below are server-verified.
+// ---------------------------------------------------------------------------
+export const updateVideoProgress = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId, lessonId } = req.params;
+  const { currentTime } = req.body as { currentTime?: number };
+
+  if (typeof currentTime !== 'number' || Number.isNaN(currentTime) || currentTime < 0) {
+    throw new BadRequestError('Invalid currentTime');
+  }
+
+  const lesson = await findLesson(courseId, lessonId);
+  const clamped = lesson.videoDuration ? Math.min(currentTime, lesson.videoDuration) : currentTime;
+
+  const student = await ensureStudentRecord(req.user!.userId);
+
+  const progress = await LessonBlockProgress.findOneAndUpdate(
+    { student: student._id, lessonId },
+    {
+      $setOnInsert: { student: student._id, course: courseId, lessonId },
+      $max: { maxTimeWatched: clamped },
+    },
+    { new: true, upsert: true }
+  );
+
+  return ApiResponse.success(res, { maxTimeWatched: progress.maxTimeWatched });
+};
+
+// ---------------------------------------------------------------------------
+// POST /courses/:courseId/lessons/:lessonId/checkpoints/:index/answer
+// Grades a video checkpoint's question — mirrors submitBlockAnswer, but for
+// timeline-based video gating instead of sequential content blocks.
+// ---------------------------------------------------------------------------
+export const submitCheckpointAnswer = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId, lessonId } = req.params;
+  const checkpointIndex = parseInt(req.params.index, 10);
+  const { answer } = req.body;
+
+  if (Number.isNaN(checkpointIndex) || checkpointIndex < 0) {
+    throw new BadRequestError('Invalid checkpoint index');
+  }
+
+  const lesson = await findLesson(courseId, lessonId);
+  const checkpoint = lesson.videoCheckpoints?.[checkpointIndex];
+  if (!checkpoint) throw new NotFoundError('Video checkpoint');
+
+  const student = await ensureStudentRecord(req.user!.userId);
+
+  const correct = checkpoint.question.type === 'mcq'
+    ? answer === checkpoint.question.correctOptionIndex
+    : answer === checkpoint.question.correctAnswer;
+
+  const update: any = {
+    $setOnInsert: { student: student._id, course: courseId, lessonId },
+  };
+  if (correct) update.$addToSet = { clearedCheckpoints: checkpointIndex };
+
+  const progress = await LessonBlockProgress.findOneAndUpdate(
+    { student: student._id, lessonId },
+    update,
+    { new: true, upsert: true }
+  );
+
+  return ApiResponse.success(res, {
+    correct,
+    clearedCheckpoints: progress.clearedCheckpoints,
+    explanation: !correct ? checkpoint.question.explanation || undefined : undefined,
   });
 };

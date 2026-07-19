@@ -26,6 +26,9 @@ export interface ILessonBlockProgress extends Document {
   unlockedBlockIndex: number;        // highest block index the student may currently view
   gateCompleted: boolean;            // true once they've cleared the last block's question
   attempts: IBlockAttempt[];
+  // Video checkpoint gating — independent of the block fields above.
+  maxTimeWatched: number;            // furthest continuous playback position reached, in seconds
+  clearedCheckpoints: number[];      // indices into lesson.videoCheckpoints the student has passed
   createdAt: Date;
   updatedAt: Date;
 }
@@ -48,6 +51,8 @@ const lessonBlockProgressSchema = new Schema<ILessonBlockProgress>(
     unlockedBlockIndex: { type: Number, default: 0 },
     gateCompleted: { type: Boolean, default: false },
     attempts: { type: [blockAttemptSchema], default: [] },
+    maxTimeWatched: { type: Number, default: 0 },
+    clearedCheckpoints: { type: [Number], default: [] },
   },
   {
     timestamps: true,

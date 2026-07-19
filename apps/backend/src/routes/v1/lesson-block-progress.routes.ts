@@ -20,4 +20,10 @@ router.get('/', asyncHandler(gateController.getBlockProgress));
 // POST /api/v1/courses/:courseId/lessons/:lessonId/gate/blocks/:blockIndex/answer
 router.post('/blocks/:blockIndex/answer', asyncHandler(gateController.submitBlockAnswer));
 
+// POST /api/v1/courses/:courseId/lessons/:lessonId/gate/video-progress  { currentTime }
+router.post('/video-progress', asyncHandler(gateController.updateVideoProgress));
+
+// POST /api/v1/courses/:courseId/lessons/:lessonId/gate/checkpoints/:index/answer
+router.post('/checkpoints/:index/answer', asyncHandler(gateController.submitCheckpointAnswer));
+
 export default router;

@@ -18,12 +18,19 @@ function stripGateAnswers(content: any, isStudent: boolean) {
   if (!isStudent || !content?.chapters) return content;
   for (const chapter of content.chapters) {
     for (const item of chapter.items || []) {
-      if (item.type !== 'lesson' || !item.contentBlocks) continue;
-      for (const block of item.contentBlocks) {
+      if (item.type !== 'lesson') continue;
+      for (const block of item.contentBlocks || []) {
         if (block.question) {
           delete block.question.correctOptionIndex;
           delete block.question.correctAnswer;
           delete block.question.explanation; // often paraphrases the correct answer — same spoiler risk
+        }
+      }
+      for (const checkpoint of item.videoCheckpoints || []) {
+        if (checkpoint.question) {
+          delete checkpoint.question.correctOptionIndex;
+          delete checkpoint.question.correctAnswer;
+          delete checkpoint.question.explanation;
         }
       }
     }

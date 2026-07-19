@@ -134,6 +134,15 @@ export function StudentCourseDetail() {
             <div className="flex items-center gap-2 mt-1">
               <span className="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs font-medium text-[var(--color-text-secondary)]">{catLabels[course.category] || course.category}</span>
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${levelColors[course.level] || ''}`}>{levelLabels[course.level] || course.level}</span>
+              {/* ── AI Tutor Button ── */}
+              <button
+                type="button"
+                onClick={() => navigate(`/student/courses/${courseId}/ai-tutor`)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:border-indigo-400 dark:hover:border-indigo-600 transition-all shadow-sm ml-2"
+              >
+                <span>💬</span>
+                <span>Chat with AI Tutor</span>
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-2">

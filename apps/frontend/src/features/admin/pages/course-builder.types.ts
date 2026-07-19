@@ -44,6 +44,15 @@ export interface ContentBlock {
   question?: ContentBlockQuestion;
 }
 
+// Video Checkpoint — a percentage-of-duration timestamp on the lesson's own
+// video where playback pauses until the mapped question is answered
+// correctly. Independent of contentBlocks (which gate the text content).
+export interface VideoCheckpoint {
+  _id?: string;
+  percentage: number; // 0-100, position along videoDuration
+  question: ContentBlockQuestion;
+}
+
 export interface LessonItem {
   _id: string;
   title: string;
@@ -59,6 +68,10 @@ export interface LessonItem {
   deliveryMode: LessonDeliveryMode;
   contentBlocks?: ContentBlock[]; // only meaningful when deliveryMode === 'interactive_gate'
   defaultMinReadSeconds?: number;
+  // Video checkpoint gating — independent of contentBlocks, applies to this
+  // lesson's own videoUrl.
+  blockForwardSeeking?: boolean;
+  videoCheckpoints?: VideoCheckpoint[];
   createdAt?: string;
   updatedAt?: string;
   // UI state

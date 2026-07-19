@@ -9,7 +9,7 @@
  * HTML content, attachments, Previous/Next navigation.
  */
 
-import { useState, useEffect, useCallback, useMemo, useId } from 'react';
+import { useState, useEffect, useCallback, useMemo, useId, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -147,8 +147,12 @@ export function StudentCourseLearn() {
   const [locallyCompleted, setLocallyCompleted] = useState<Set<number>>(new Set());
   // Track whether quiz is finished (hide mark-complete during active quiz)
   const [quizFinished, setQuizFinished] = useState(false);
+  // Result of the just-finished quiz, so "Mark as Completed" can report real XP to gamification
+  const [quizResult, setQuizResult] = useState<{ correctCount: number; total: number } | null>(null);
   // Track which flat-item indices have cleared their Interactive Gate (all Stop & Check blocks passed)
   const [gateCleared, setGateCleared] = useState<Set<number>>(new Set());
+  // When the current item was opened, so completion can report real time-on-task
+  const itemStartRef = useRef<number>(Date.now());
 
   const getTitle = (c: EnrolledCourse) => {
     if (lang === 'so' && c.title?.so) return c.title.so;
@@ -227,6 +231,12 @@ export function StudentCourseLearn() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flatItems.length > 0]);
 
+  // Reset the time-on-task clock whenever the student moves to a different item
+  useEffect(() => {
+    itemStartRef.current = Date.now();
+    setQuizResult(null);
+  }, [activeItemIdx]);
+
   const currentItem = flatItems[activeItemIdx] || null;
   const totalItems = flatItems.length;
   const completedCount = course?.progress?.completedLessons
@@ -263,6 +273,24 @@ export function StudentCourseLearn() {
         courseId,
         itemType: currentItem.item.type,
       });
+
+      // Award real XP/streak/badges — best-effort, must never block completion
+      // if the gamification service has a hiccup.
+      const timeSpentSeconds = Math.round((Date.now() - itemStartRef.current) / 1000);
+      const awardGamification = async () => {
+        if (currentItem.item.type === 'lesson') {
+          await api.post('/gamification/complete-lesson', { timeSpentSeconds });
+        } else if (currentItem.item.type === 'quiz' && quizResult) {
+          await api.post('/gamification/complete-quiz', {
+            score: quizResult.correctCount,
+            totalQuestions: quizResult.total,
+            timeSpentSeconds,
+          });
+        }
+        await api.post('/gamification/streak/update');
+      };
+      awardGamification().catch((err) => console.error('Gamification update failed:', err));
+
       // Optimistically update local state
       setLocallyCompleted((prev) => new Set(prev).add(activeItemIdx));
       // Refresh course data to get updated progress from server
@@ -576,6 +604,16 @@ export function StudentCourseLearn() {
                   <span className={`rounded-full px-3 py-1 text-xs font-semibold ${levelColors[course.level] || 'bg-gray-100 text-gray-600'}`}>
                     {levelLabels[course.level] || course.level}
                   </span>
+
+                  {/* ── AI Tutor Button ── */}
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/student/courses/${courseId}/ai-tutor${currentItem ? `?lessonId=${currentItem.item._id || ''}` : ''}`)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 px-3.5 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:border-indigo-400 dark:hover:border-indigo-600 transition-all shadow-sm"
+                  >
+                    <span>💬</span>
+                    <span>Chat with AI Tutor</span>
+                  </button>
                 </div>
 
                 {getDescription(course) && (
@@ -649,7 +687,12 @@ export function StudentCourseLearn() {
                     <LessonView lesson={currentItem.item as LessonItem} />
                   )
                 )}
-                {currentItem.item.type === 'quiz' && <QuizView quiz={currentItem.item as QuizItem} onComplete={() => setQuizFinished(true)} />}
+                {currentItem.item.type === 'quiz' && (
+                  <QuizView
+                    quiz={currentItem.item as QuizItem}
+                    onComplete={(result) => { setQuizFinished(true); setQuizResult(result); }}
+                  />
+                )}
                 {currentItem.item.type === 'assignment' && <AssignmentView assignment={currentItem.item as AssignmentItem} />}
 
                 {/* ── Mark as Completed Button (hidden during live quiz, or while an Interactive Gate lesson is still locked) ── */}
@@ -838,7 +881,7 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
 // ===========================================================================
 // Quiz View — gamified single-question step-by-step for children
 // ===========================================================================
-function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: () => void }) {
+function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: { correctCount: number; total: number }) => void }) {
   const [currentQ, setCurrentQ] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<any>(null);
   const [checked, setChecked] = useState(false);
@@ -890,7 +933,7 @@ function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: () => voi
       setChecked(false);
     } else {
       setFinished(true);
-      onComplete?.();
+      onComplete?.({ correctCount: results.filter(Boolean).length, total });
     }
   };
 

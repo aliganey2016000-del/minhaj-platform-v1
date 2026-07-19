@@ -31,6 +31,14 @@ export interface IContentBlock {
   question?: IContentBlockQuestion;
 }
 
+// Video Checkpoint — a percentage-of-duration timestamp on the lesson's video
+// where playback pauses and a question must be answered correctly to resume.
+export interface IVideoCheckpoint {
+  _id?: mongoose.Types.ObjectId;
+  percentage: number;          // 0-100, position along videoDuration
+  question: IContentBlockQuestion;
+}
+
 export interface ILesson {
   _id?: mongoose.Types.ObjectId;
   title: string;
@@ -51,6 +59,10 @@ export interface ILesson {
   deliveryMode: LessonDeliveryMode;
   contentBlocks?: IContentBlock[]; // only meaningful when deliveryMode === 'interactive_gate'
   defaultMinReadSeconds?: number;
+  // Video checkpoint gating — independent of contentBlocks, applies to this
+  // lesson's own videoUrl. Only meaningful when videoCheckpoints is non-empty.
+  blockForwardSeeking?: boolean;   // prevent scrubbing past the furthest-watched point
+  videoCheckpoints?: IVideoCheckpoint[];
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -203,6 +215,14 @@ const contentBlockQuestionSchema = new Schema(
   { _id: false }
 );
 
+const videoCheckpointSchema = new Schema(
+  {
+    percentage: { type: Number, required: true, min: 0, max: 100 },
+    question: { type: contentBlockQuestionSchema, required: true },
+  },
+  { timestamps: false }
+);
+
 const contentBlockSchema = new Schema(
   {
     title: { type: String, default: '' },
@@ -229,6 +249,8 @@ const lessonSchema = new Schema(
     deliveryMode: { type: String, enum: ['traditional', 'interactive_gate'], default: 'traditional' },
     contentBlocks: { type: [contentBlockSchema], default: undefined },
     defaultMinReadSeconds: { type: Number, default: 30, min: 5, max: 600 },
+    blockForwardSeeking: { type: Boolean, default: false },
+    videoCheckpoints: { type: [videoCheckpointSchema], default: undefined },
   },
   { timestamps: true }
 );

@@ -4,11 +4,12 @@
 
 import { useState } from 'react';
 import { Wand2, Sparkles, Loader2, AlertCircle } from 'lucide-react';
-import type { LessonItem, Attachment, ContentBlock, LessonDeliveryMode } from '../course-builder.types';
+import type { LessonItem, Attachment, ContentBlock, LessonDeliveryMode, VideoCheckpoint } from '../course-builder.types';
 import { generateTempId } from '../course-builder.api';
 import { RichTextEditor } from './rich-text-editor';
 import { AiLessonGeneratorModal } from './ai-lesson-generator-modal';
 import { ContentBlockEditor } from './content-block-editor';
+import { VideoCheckpointEditor } from './video-checkpoint-editor';
 import api from '../../../../lib/axios';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,7 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
     title: lesson.title || '',
     content: lesson.content || '',
     videoUrl: lesson.videoUrl || '',
+    videoDuration: lesson.videoDuration || 0,
     duration: lesson.duration || 0,
     featuredImage: lesson.featuredImage || '',
     defaultMinReadSeconds: lesson.defaultMinReadSeconds || 30,
@@ -71,6 +73,8 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>(lesson.contentBlocks || []);
   const [aiSplitting, setAiSplitting] = useState(false);
   const [splitError, setSplitError] = useState('');
+  const [blockForwardSeeking, setBlockForwardSeeking] = useState(lesson.blockForwardSeeking || false);
+  const [videoCheckpoints, setVideoCheckpoints] = useState<VideoCheckpoint[]>(lesson.videoCheckpoints || []);
 
   const update = (field: string, value: string | number) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -144,12 +148,15 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
       title: form.title,
       content: form.content,
       videoUrl: form.videoUrl,
+      videoDuration: Number(form.videoDuration),
       duration: Number(form.duration),
       featuredImage: form.featuredImage,
       attachments,
       deliveryMode,
       contentBlocks,
       defaultMinReadSeconds: Number(form.defaultMinReadSeconds),
+      blockForwardSeeking,
+      videoCheckpoints,
     });
   };
 
@@ -192,6 +199,33 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
           onChange={(e) => update('videoUrl', e.target.value)}
         />
       </div>
+
+      {/* Video Checkpoints — percentage-based gating on this lesson's own video */}
+      {form.videoUrl.trim() && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-semibold text-[var(--color-text-secondary)]">Video Duration (seconds)</label>
+          </div>
+          <input
+            type="number"
+            min={0}
+            className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm mb-3"
+            placeholder="e.g. 480 for an 8-minute video"
+            value={form.videoDuration}
+            onChange={(e) => update('videoDuration', Number(e.target.value))}
+          />
+          <p className="text-[11px] text-[var(--color-text-tertiary)] mb-2">
+            Required for checkpoint percentages to map to real timestamps.
+          </p>
+          <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Video Checkpoints (optional)</label>
+          <VideoCheckpointEditor
+            checkpoints={videoCheckpoints}
+            onChange={setVideoCheckpoints}
+            blockForwardSeeking={blockForwardSeeking}
+            onChangeBlockForwardSeeking={setBlockForwardSeeking}
+          />
+        </div>
+      )}
 
       {/* Featured Image */}
       <div>

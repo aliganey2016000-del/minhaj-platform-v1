@@ -7,6 +7,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { PwaInstallPrompt } from './components/shared/pwa-install-prompt';
 import './assets/styles/globals.css';
 
 // ---------------------------------------------------------------------------
@@ -24,5 +25,6 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <App />
+    <PwaInstallPrompt />
   </StrictMode>
 );

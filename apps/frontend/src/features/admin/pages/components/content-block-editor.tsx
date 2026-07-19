@@ -29,7 +29,7 @@ function emptyBlock(order: number, defaultMinReadSeconds: number): ContentBlock 
   return { order, content: '', minReadSeconds: defaultMinReadSeconds };
 }
 
-function emptyManualQuestion(): ContentBlockQuestion {
+export function emptyManualQuestion(): ContentBlockQuestion {
   return { type: 'mcq', question: '', options: ['', ''], correctOptionIndex: 0, explanation: '', aiGenerated: false };
 }
 
@@ -382,7 +382,7 @@ function QuestionPreviewCard({ draft }: { draft: ContentBlockQuestion }) {
 // AI drafts that have been accepted into edit mode.
 // ---------------------------------------------------------------------------
 
-function ManualQuestionForm({
+export function ManualQuestionForm({
   question, onChange, isAiGenerated,
 }: {
   question: ContentBlockQuestion;

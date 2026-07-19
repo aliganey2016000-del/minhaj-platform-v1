@@ -14,6 +14,7 @@ const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
 // request/token limits — DeepSeek's context window is much larger than this,
 // this is purely a defensive cap on our side.
 const MAX_SOURCE_CHARS = 24000;
+const MAX_TUTOR_CONTEXT_CHARS = 32000;
 
 const SYSTEM_PROMPT = `You are an expert Islamic studies curriculum writer. You convert raw source material into a single, polished LMS lesson.
 
@@ -27,6 +28,113 @@ Structure the output using:
 - <blockquote> for direct Qur'an ayat, hadith, or definitions — cite the source inside the blockquote where it is known from the source material (e.g. "— Surah Al-Baqarah, 2:255")
 
 Keep the tone clear, respectful, and appropriate for students. Do not invent religious rulings, hadith, or Qur'an citations that are not present in or directly implied by the source text — if the source material is thin, expand pedagogically (definitions, context, examples) without fabricating religious sources.`;
+
+// ===========================================================================
+// AI Tutor Chat — Context-grounded tutoring session for students.
+// ===========================================================================
+
+/**
+ * System prompt used when the student is chatting with the AI Tutor.
+ * Injects the full lesson body text so responses are strictly grounded.
+ */
+export function buildTutorSystemPrompt(params: {
+  courseTitle: string;
+  chapterTitle: string;
+  lessonTitle: string;
+  lessonContent: string; // Full lesson body (HTML stripped to plain text)
+}): string {
+  return `You are an expert academic AI Tutor for the Sahal Education Platform. Your behavior must be strictly context-aware and grounded.
+
+You are provided with the following source lesson material:
+---
+Course: ${params.courseTitle}
+Chapter: ${params.chapterTitle}
+Lesson Title: ${params.lessonTitle}
+Lesson Content: ${params.lessonContent}
+---
+
+Instructions:
+- Answer the student's questions based ONLY on the Lesson Content provided above.
+- If the student asks for a summary, a quiz, or an explanation, formulate it explicitly using the historical events, names, dates, and facts present in the text (e.g., specific clans, locations, or historical dates regarding the topic).
+- Never give generic answers like "This chapter focuses on important concepts." Be highly specific, factual, and educational.
+- If the Lesson Content is in Somali (Soomaali), respond in Somali. If it is in Arabic, respond in Arabic. Otherwise respond in English.
+- Keep your responses clear, structured, and student-friendly. Use bullet points and numbered lists where helpful.
+- If the student asks something not covered in the lesson content, acknowledge that it's outside the current material and suggest they ask about something within the lesson.`;
+}
+
+/**
+ * Send a single conversational message to the AI Tutor and get a grounded
+ * response back. This is the student-facing chat endpoint function — it
+ * packages the full conversation history together with the system prompt so
+ * DeepSeek has full context.
+ */
+export async function tutorChatResponse(params: {
+  systemPrompt: string;    // output of buildTutorSystemPrompt()
+  conversation: { role: 'student' | 'tutor'; content: string }[];
+  userMessage: string;
+}): Promise<string> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new InternalServerError('AI Tutor is not configured on this server (missing DEEPSEEK_API_KEY).');
+  }
+
+  const trimmed = (params.userMessage || '').trim();
+  if (!trimmed) {
+    throw new BadRequestError('No message to send.');
+  }
+
+  // Build messages array: system prompt + conversation history + current message
+  const messages: { role: string; content: string }[] = [
+    { role: 'system', content: params.systemPrompt },
+  ];
+
+  // Include recent conversation history (last 20 messages to avoid blowing context)
+  const recentHistory = (params.conversation || []).slice(-20);
+  for (const msg of recentHistory) {
+    messages.push({
+      role: msg.role === 'tutor' ? 'assistant' : 'user',
+      content: msg.content,
+    });
+  }
+
+  // Add the current user message
+  messages.push({ role: 'user', content: trimmed });
+
+  let response;
+  try {
+    response = await axios.post(
+      DEEPSEEK_API_URL,
+      {
+        model: 'deepseek-chat',
+        messages,
+        temperature: 0.5,
+        max_tokens: 2000,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60_000,
+      }
+    );
+  } catch (err: any) {
+    const status = err.response?.status;
+    const detail = err.response?.data?.error?.message || err.message;
+    throw new InternalServerError(`DeepSeek request failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+
+  const content: string = response.data?.choices?.[0]?.message?.content || '';
+  if (!content.trim()) {
+    throw new InternalServerError('AI Tutor returned an empty response. Please try again.');
+  }
+
+  return content.trim();
+}
+
+// ---------------------------------------------------------------------------
+// Existing exports below (lesson generation, quiz, etc.)
+// ---------------------------------------------------------------------------
 
 export async function generateLessonHtml(sourceText: string): Promise<string> {
   const apiKey = process.env.DEEPSEEK_API_KEY;

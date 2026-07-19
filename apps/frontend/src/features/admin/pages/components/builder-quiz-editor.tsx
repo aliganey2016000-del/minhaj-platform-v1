@@ -137,6 +137,8 @@ export function QuizEditor({ quiz, onSave, onCancel, formId, hideActions, chapte
   const [questions, setQuestions] = useState<QuizQuestion[]>((quiz.questions || []).map(normalizeQuestion));
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [invalidIds, setInvalidIds] = useState<Set<string>>(new Set());
+  const [validationError, setValidationError] = useState('');
 
   const update = (field: string, value: string | number) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -144,28 +146,59 @@ export function QuizEditor({ quiz, onSave, onCancel, formId, hideActions, chapte
   const addQuestion = (type: QuestionType) => {
     setQuestions((prev) => [...prev, createQuestion(type)]);
     setTypeMenuOpen(false);
+    setValidationError('');
+    setInvalidIds(new Set());
   };
 
   const addGeneratedQuestions = (generated: QuizQuestion[]) => {
     setQuestions((prev) => [...prev, ...generated]);
+    setValidationError('');
+    setInvalidIds(new Set());
   };
 
   const updateQuestion = (idx: number, updated: QuizQuestion) => {
     setQuestions((prev) => prev.map((q, i) => (i === idx ? updated : q)));
+    if (updated._id) {
+      setInvalidIds((prev) => {
+        if (!prev.has(updated._id!)) return prev;
+        const next = new Set(prev);
+        next.delete(updated._id!);
+        return next;
+      });
+    }
   };
 
   const removeQuestion = (idx: number) => {
     setQuestions((prev) => prev.filter((_, i) => i !== idx));
+    setValidationError('');
+    setInvalidIds(new Set());
   };
 
   const groupedQuestions = groupQuestionsByType(questions);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!questions.every(isQuestionValid)) {
-      alert('Please fill in every question completely (at least 2 options/pairs/steps/choices where applicable).');
+    const invalid = questions.filter((q) => !isQuestionValid(q));
+    if (invalid.length > 0) {
+      setInvalidIds(new Set(invalid.map((q) => q._id).filter(Boolean) as string[]));
+      const names = invalid
+        .map((q) => {
+          const flatIndex = questions.indexOf(q);
+          const label = QUESTION_TYPE_META[q.type]?.label || q.type;
+          return `Q${flatIndex + 1} (${label})`;
+        })
+        .join(', ');
+      setValidationError(
+        `Please finish these question${invalid.length === 1 ? '' : 's'} before saving — highlighted below: ${names}.`
+      );
+      const firstInvalidId = invalid[0]._id;
+      if (firstInvalidId) {
+        document.querySelector(`[data-question-id="${firstInvalidId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
       return;
     }
+    setValidationError('');
+    setInvalidIds(new Set());
     onSave({
       ...quiz,
       title: form.title,
@@ -230,6 +263,12 @@ export function QuizEditor({ quiz, onSave, onCancel, formId, hideActions, chapte
           </div>
         </div>
 
+        {validationError && (
+          <p className="mb-2 flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">
+            <span>⚠</span> {validationError}
+          </p>
+        )}
+
         {questions.length === 0 && (
           <p className="text-xs text-[var(--color-text-tertiary)] py-4 text-center border border-dashed border-[var(--color-border-default)] rounded-lg">
             No questions yet. Click "Add Question" to choose an interactive question type, or use the AI Quiz Generator.
@@ -248,6 +287,7 @@ export function QuizEditor({ quiz, onSave, onCancel, formId, hideActions, chapte
                     index={localIdx}
                     onChange={(updated) => updateQuestion(flatIndex, updated)}
                     onRemove={() => removeQuestion(flatIndex)}
+                    isInvalid={!!question._id && invalidIds.has(question._id)}
                   />
                 ))}
               </div>

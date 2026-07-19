@@ -2,8 +2,11 @@
  * AI Routes — /api/v1/ai
  *
  * DeepSeek-backed lesson & quiz generation for the Course Builder's
- * "AI Lesson Generator" and "AI Quiz Generator" modals. Restricted to
- * admin/teacher, same as course content authoring.
+ * "AI Lesson Generator" and "AI Quiz Generator" modals, plus the
+ * student-facing AI Tutor chat endpoint.
+ *
+ * Admin/teacher routes require adminOrTeacher middleware.
+ * Tutor chat requires only authentication (student-accessible).
  */
 
 import { Router } from 'express';
@@ -29,9 +32,34 @@ const upload = multer({
   },
 });
 
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith('audio/')) {
+      cb(new BadRequestError('File must be an audio recording.'));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
 const router = Router();
 
-// All AI routes require authentication + admin/teacher role
+// ── Student-accessible routes (auth only, no role check) ──
+// POST /api/v1/ai/tutor/chat — AI Tutor conversation (student-facing)
+router.post('/tutor/chat', authMiddleware, asyncHandler(aiController.tutorChat));
+
+// POST /api/v1/ai/tutor/voice-note — stores a recorded voice message (no
+// transcription — see controller comment for why), field name "file"
+router.post('/tutor/voice-note', authMiddleware, audioUpload.single('file'), asyncHandler(aiController.uploadVoiceNote));
+
+// GET /api/v1/ai/tutor/voice-note/:filename — stream it back for playback
+router.get('/tutor/voice-note/:filename', authMiddleware, asyncHandler(aiController.getVoiceNote));
+
+// ── Admin/Teacher routes (require auth + adminOrTeacher) ──
+// Apply admin/teacher middleware for ALL remaining routes *after* the
+// student route so tutor/chat is only gated by authentication.
 router.use(authMiddleware, adminOrTeacher);
 
 // POST /api/v1/ai/generate-lesson  { mode: 'title' | 'notes', title?, notes? }

@@ -26,20 +26,31 @@ interface QuestionEditorProps {
   index: number;
   onChange: (question: QuizQuestion) => void;
   onRemove: () => void;
+  isInvalid?: boolean;
 }
 
-export function QuestionEditor({ question, index, onChange, onRemove }: QuestionEditorProps) {
+export function QuestionEditor({ question, index, onChange, onRemove, isInvalid }: QuestionEditorProps) {
   const meta = TYPE_META[question.type] || TYPE_META.mcq;
 
   const updatePrompt = (value: string) => onChange({ ...question, question: value });
   const updateExplanation = (value: string) => onChange({ ...question, explanation: value });
 
   return (
-    <div className="p-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]">
+    <div
+      data-question-id={question._id}
+      className={`p-3 rounded-lg border bg-[var(--color-surface-primary)] ${
+        isInvalid ? 'border-red-400 dark:border-red-600 ring-2 ring-red-200 dark:ring-red-900/40' : 'border-[var(--color-border-default)]'
+      }`}
+    >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-[var(--color-text-primary)]">Q{index + 1}.</span>
           <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.color}`}>{meta.icon} {meta.label}</span>
+          {isInvalid && (
+            <span className="rounded-full bg-red-100 dark:bg-red-950/40 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">
+              ⚠ Incomplete
+            </span>
+          )}
         </div>
         <button type="button" onClick={onRemove} className="text-xs text-red-500 hover:text-red-700">✕</button>
       </div>

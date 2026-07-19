@@ -35,6 +35,7 @@ import sidebarSettingRoutes from './sidebar-setting.routes';
 import tenantRoutes from './tenant.routes';
 import userRoutes from './user.routes';
 import classScheduleRoutes from './class-schedule.routes';
+import gamificationRoutes from './gamification.routes';
 
 const router = Router();
 
@@ -74,6 +75,7 @@ router.use('/sidebar-settings', sidebarSettingRoutes);
 router.use('/tenant', tenantRoutes);
 router.use('/users', userRoutes);
 router.use('/class-schedules', classScheduleRoutes);
+router.use('/gamification', gamificationRoutes);
 
 // ---------------------------------------------------------------------------
 // Health Check Endpoint

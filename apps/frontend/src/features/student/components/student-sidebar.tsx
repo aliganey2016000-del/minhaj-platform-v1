@@ -71,6 +71,7 @@ export function StudentSidebar() {
     {
       title: t('performance'),
       items: [
+        { path: '/student/analytics', label: 'Progress Analytics', icon: '📈' },
         {
           key: 'group:exams', label: t('exams'), icon: '📖',
           children: [

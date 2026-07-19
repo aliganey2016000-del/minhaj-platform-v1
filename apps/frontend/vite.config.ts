@@ -1,9 +1,164 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.svg', 'icons/*.png', 'screenshots/*.png', 'offline.html'],
+      manifest: {
+        name: 'Masjid Al-Rahma Academy',
+        short_name: 'Al-Rahma LMS',
+        description: 'Barashada Diinta Islaamka — Learn Quran, Fiqh, Aqeedah & Arabic online',
+        theme_color: '#059669',
+        background_color: '#ffffff',
+        display: 'standalone',
+        orientation: 'any',
+        scope: '/',
+        start_url: '/',
+        lang: 'en',
+        dir: 'ltr',
+        categories: ['education', 'religious', 'productivity'],
+        icons: [
+          {
+            src: '/icons/pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any maskable',
+          },
+          {
+            src: '/icons/pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable',
+          },
+          {
+            src: '/icons/pwa-180x180.png',
+            sizes: '180x180',
+            type: 'image/png',
+            purpose: 'apple touch icon',
+          },
+        ],
+        screenshots: [
+          {
+            src: '/screenshots/desktop-landing.png',
+            sizes: '1280x800',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Landing Page',
+          },
+          {
+            src: '/screenshots/mobile-dashboard.png',
+            sizes: '390x844',
+            type: 'image/png',
+            form_factor: 'narrow',
+            label: 'Student Dashboard',
+          },
+        ],
+        shortcuts: [
+          {
+            name: 'My Courses',
+            short_name: 'Courses',
+            description: 'Go to your enrolled courses',
+            url: '/student/courses',
+            icons: [{ src: '/icons/shortcut-courses.png', sizes: '96x96' }],
+          },
+          {
+            name: 'Assignments',
+            short_name: 'Assignments',
+            description: 'View your assignments',
+            url: '/student/assignments',
+            icons: [{ src: '/icons/shortcut-assignments.png', sizes: '96x96' }],
+          },
+          {
+            name: 'Exams',
+            short_name: 'Exams',
+            description: 'View upcoming exams',
+            url: '/student/exams',
+            icons: [{ src: '/icons/shortcut-exams.png', sizes: '96x96' }],
+          },
+          {
+            name: 'Analytics',
+            short_name: 'Analytics',
+            description: 'Track your progress',
+            url: '/student/analytics',
+            icons: [{ src: '/icons/shortcut-analytics.png', sizes: '96x96' }],
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,json}'],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-cache',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'gstatic-fonts-cache',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: /\/api\/.*\/my\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-student-cache',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 5 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: /\/api\/courses\/.*\/content/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-course-content-cache',
+              networkTimeoutSeconds: 10,
+              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: /\/api\/gamification\/(my|leaderboard)/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-gamification-cache',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 2 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: /\/api\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /.*\.(png|jpg|jpeg|gif|svg|ico|webp)/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'image-cache',
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
+        navigateFallback: '/offline.html',
+        navigateFallbackDenylist: [/^\/api\//, /^\/_/],
+      },
+    }),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
