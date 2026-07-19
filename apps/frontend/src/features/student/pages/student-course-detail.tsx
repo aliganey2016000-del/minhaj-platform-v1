@@ -14,6 +14,8 @@ import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import api from '../../../lib/axios';
 import type { Chapter, QuizItem, AssignmentItem } from '../../admin/pages/course-builder.types';
+import { downloadCourseForOffline, removeOfflineCourse, type DownloadProgress } from '../../../lib/offline-download';
+import { isDownloaded } from '../../../lib/offline-store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,6 +71,10 @@ export function StudentCourseDetail() {
   const [error, setError] = useState('');
   const [view, setView] = useState<ViewMode>('map');
   const [expandedCh, setExpandedCh] = useState<Set<number>>(new Set());
+  const [downloaded, setDownloaded] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const [downloadError, setDownloadError] = useState('');
 
   const fetchData = useCallback(async () => {
     if (!courseId) return;
@@ -85,6 +91,33 @@ export function StudentCourseDetail() {
       setError(e.response?.data?.message || 'Failed to load.');
     } finally { setLoading(false); }
   }, [courseId]);
+
+  useEffect(() => {
+    if (!courseId) return;
+    isDownloaded(courseId).then(setDownloaded).catch(() => {});
+  }, [courseId]);
+
+  const handleDownload = async () => {
+    if (!courseId || !course || !content || downloading) return;
+    setDownloading(true);
+    setDownloadProgress(null);
+    setDownloadError('');
+    try {
+      await downloadCourseForOffline(courseId, course, content, setDownloadProgress);
+      setDownloaded(true);
+    } catch {
+      setDownloadError('Failed to download this course for offline use. Please try again.');
+    } finally {
+      setDownloading(false);
+      setDownloadProgress(null);
+    }
+  };
+
+  const handleRemoveDownload = async () => {
+    if (!courseId) return;
+    await removeOfflineCourse(courseId);
+    setDownloaded(false);
+  };
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -143,7 +176,39 @@ export function StudentCourseDetail() {
                 <span>💬</span>
                 <span>Chat with AI Tutor</span>
               </button>
+
+              {/* ── Download for Offline ── */}
+              {downloaded ? (
+                <button
+                  type="button"
+                  onClick={handleRemoveDownload}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all shadow-sm"
+                  title="Remove offline copy"
+                >
+                  <span>✓</span>
+                  <span>Downloaded</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border-default)] bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <span>{downloading ? '⏳' : '⬇'}</span>
+                  <span>
+                    {downloading
+                      ? downloadProgress?.phase === 'videos'
+                        ? `Downloading videos ${downloadProgress.completed}/${downloadProgress.total}...`
+                        : 'Saving course...'
+                      : 'Download for Offline'}
+                  </span>
+                </button>
+              )}
             </div>
+            {downloadError && (
+              <p className="mt-2 text-xs text-red-500">{downloadError}</p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {course.isLive && course.meetingLink && (

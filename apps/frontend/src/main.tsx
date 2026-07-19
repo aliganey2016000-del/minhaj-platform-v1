@@ -8,11 +8,14 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { PwaInstallPrompt } from './components/shared/pwa-install-prompt';
+import { initOfflineSync } from './lib/offline-sync';
 import './assets/styles/globals.css';
 
 // ---------------------------------------------------------------------------
 // Mount
 // ---------------------------------------------------------------------------
+
+initOfflineSync();
 
 const rootElement = document.getElementById('root');
 

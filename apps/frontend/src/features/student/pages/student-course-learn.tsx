@@ -17,6 +17,8 @@ import api from '../../../lib/axios';
 import type { Chapter, LessonItem, QuizItem, AssignmentItem } from '../../admin/pages/course-builder.types';
 import { QuestionPreview } from '../../../components/shared/quiz-question-preview';
 import { InteractiveGateLessonView } from '../components/interactive-gate-lesson-view';
+import { useOnlineStatus } from '../../shared/hooks/useOnlineStatus';
+import { getDownloadedCourse, queueAction } from '../../../lib/offline-store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,12 +133,14 @@ export function StudentCourseLearn() {
   const location = useLocation();
   const { t, i18n } = useTranslation('common');
   const lang = i18n.language as 'en' | 'so' | 'ar';
+  const isOnline = useOnlineStatus();
 
   // Data
   const [course, setCourse] = useState<EnrolledCourse | null>(null);
   const [content, setContent] = useState<CourseContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [usingOfflineCopy, setUsingOfflineCopy] = useState(false);
 
   // UI state
   const [activeItemIdx, setActiveItemIdx] = useState(0);
@@ -166,11 +170,34 @@ export function StudentCourseLearn() {
     return c.description?.en || '';
   };
 
-  // Fetch enrolled course + content
+  // Fetch enrolled course + content — falls back to the offline-downloaded
+  // copy (IndexedDB) when there's no connection.
   const fetchData = useCallback(async () => {
     if (!courseId) return;
     setLoading(true);
     setError('');
+
+    if (!navigator.onLine) {
+      const offlineCopy = await getDownloadedCourse(courseId);
+      if (offlineCopy) {
+        setCourse(offlineCopy.course);
+        setContent(offlineCopy.content);
+        setUsingOfflineCopy(true);
+        setLoading(false);
+        return;
+      }
+      setError(
+        lang === 'so'
+          ? 'Adiga waxaad tahay offline oo koorsadan lama soo dejin. Ku xir internet-ka ama soo deji koorsada si aad offline ugu isticmaasho.'
+          : lang === 'ar'
+            ? 'أنت غير متصل ولم يتم تنزيل هذه الدورة. اتصل بالإنترنت أو نزّل الدورة لاستخدامها دون اتصال.'
+            : "You're offline and this course hasn't been downloaded. Connect to the internet or download the course first for offline use."
+      );
+      setLoading(false);
+      return;
+    }
+
+    setUsingOfflineCopy(false);
     try {
       // Fetch enrolled courses to find this one and get progress
       const myCoursesRes = await api.get('/students/my/courses');
@@ -191,7 +218,7 @@ export function StudentCourseLearn() {
     } finally {
       setLoading(false);
     }
-  }, [courseId, t]);
+  }, [courseId, t, lang]);
 
   useEffect(() => {
     fetchData();
@@ -268,15 +295,45 @@ export function StudentCourseLearn() {
   const handleMarkComplete = async () => {
     if (!currentItem || markingComplete) return;
     setMarkingComplete(true);
+
+    const timeSpentSeconds = Math.round((Date.now() - itemStartRef.current) / 1000);
+    const progressBody = { courseId, itemType: currentItem.item.type };
+
+    // Offline: queue everything for replay on reconnect, update local state
+    // optimistically (there's no server response to refresh from yet).
+    if (!navigator.onLine) {
+      try {
+        await queueAction({ type: 'mark-complete', url: '/students/my/progress', body: progressBody });
+        if (currentItem.item.type === 'lesson') {
+          await queueAction({ type: 'gamification-lesson', url: '/gamification/complete-lesson', body: { timeSpentSeconds } });
+        } else if (currentItem.item.type === 'quiz' && quizResult) {
+          await queueAction({
+            type: 'gamification-quiz',
+            url: '/gamification/complete-quiz',
+            body: { score: quizResult.correctCount, totalQuestions: quizResult.total, timeSpentSeconds },
+          });
+        }
+        await queueAction({ type: 'gamification-streak', url: '/gamification/streak/update', body: {} });
+
+        setLocallyCompleted((prev) => new Set(prev).add(activeItemIdx));
+        if (activeItemIdx < totalItems - 1) {
+          const nextIdx = activeItemIdx + 1;
+          setActiveItemIdx(nextIdx);
+          setActiveChapterIdx(flatItems[nextIdx]?.chapterIdx || 0);
+        }
+      } catch (err) {
+        console.error('Failed to queue offline progress:', err);
+      } finally {
+        setMarkingComplete(false);
+      }
+      return;
+    }
+
     try {
-      await api.post('/students/my/progress', {
-        courseId,
-        itemType: currentItem.item.type,
-      });
+      await api.post('/students/my/progress', progressBody);
 
       // Award real XP/streak/badges — best-effort, must never block completion
       // if the gamification service has a hiccup.
-      const timeSpentSeconds = Math.round((Date.now() - itemStartRef.current) / 1000);
       const awardGamification = async () => {
         if (currentItem.item.type === 'lesson') {
           await api.post('/gamification/complete-lesson', { timeSpentSeconds });
@@ -383,6 +440,16 @@ export function StudentCourseLearn() {
           <span className="h-2 w-2 rounded-full bg-white" />
           Join Live ↗
         </a>
+      )}
+
+      {/* ── Offline banner ── */}
+      {(!isOnline || usingOfflineCopy) && (
+        <div className="sticky top-0 z-40 flex items-center justify-center gap-2 bg-amber-500 dark:bg-amber-600 px-4 py-2 text-xs font-semibold text-white">
+          <span>📴</span>
+          {!isOnline
+            ? (lang === 'so' ? 'Waxaad tahay offline — waxaad ku aragtaysaa koorsada nooca soo dejisan.' : lang === 'ar' ? 'أنت غير متصل — تشاهد النسخة التي تم تنزيلها.' : "You're offline — viewing the downloaded copy.")
+            : (lang === 'so' ? 'Waxaad ku aragtaysaa nooca soo dejisan (offline).' : lang === 'ar' ? 'تشاهد النسخة التي تم تنزيلها (غير متصلة).' : 'Viewing the downloaded (offline) copy.')}
+        </div>
       )}
 
       <div className="flex">

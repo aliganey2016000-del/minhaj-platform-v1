@@ -153,6 +153,20 @@ export default defineConfig({
               cacheableResponse: { statuses: [0, 200] },
             },
           },
+          {
+            // Self-hosted lesson videos (direct .mp4/.webm links, not YouTube/Vimeo
+            // iframes — those can't work offline regardless of caching). Explicitly
+            // fetched once by the "Download for Offline" action to warm this cache
+            // ahead of time, then served from here whenever the network is down.
+            urlPattern: /.*\.(mp4|webm|ogg|mov|mkv|avi)(\?.*)?$/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'offline-video-cache',
+              expiration: { maxEntries: 40, maxAgeSeconds: 60 * 60 * 24 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+              rangeRequests: true,
+            },
+          },
         ],
         navigateFallback: '/offline.html',
         navigateFallbackDenylist: [/^\/api\//, /^\/_/],
