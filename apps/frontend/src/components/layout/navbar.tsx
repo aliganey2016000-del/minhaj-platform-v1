@@ -18,11 +18,52 @@ export function Navbar() {
   const { pathname } = useLocation();
 
   const navLinks = [
-    { href: '/#features', label: t('nav.features') },
-    { href: '/#audience', label: t('nav.solutions') },
-    { href: '/#multitenant', label: t('nav.architecture') },
-    { href: '/#pricing', label: t('nav.pricing') },
-    { href: '/#faq', label: t('nav.faq') },
+    {
+      href: '/#features',
+      label: t('nav.features'),
+      icon: (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+      ),
+    },
+    {
+      href: '/#audience',
+      label: t('nav.solutions'),
+      icon: (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      ),
+    },
+    {
+      href: '/#multitenant',
+      label: t('nav.architecture'),
+      icon: (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 19h16M4 5h16M4 12h16" />
+        </svg>
+      ),
+    },
+    {
+      href: '/#pricing',
+      label: t('nav.pricing'),
+      icon: (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 1l3 5 5 .7-3.8 3.7.9 5.1L12 14.5 6.9 15.8l.9-5.1L4 6.7 9 6z" />
+        </svg>
+      ),
+    },
+    {
+      href: '/#faq',
+      label: t('nav.faq'),
+      icon: (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 17h.01M12 13a3 3 0 10-3-3" />
+          <path d="M12 2a10 10 0 110 20 10 10 0 010-20z" />
+        </svg>
+      ),
+    },
   ];
 
   useEffect(() => {
@@ -54,21 +95,17 @@ export function Navbar() {
   return (
     <>
       <header
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-400 ${
-          isScrolled
-            ? 'glass shadow-glass-light dark:shadow-glass-dark'
-            : 'bg-transparent'
-        }`}
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-400 bg-gradient-to-r from-[#081a33] via-[#0c1f43] to-[#081a33] shadow-xl shadow-slate-950/20`}
       >
-        <nav className="mx-auto flex h-18 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <Link to="/" className="flex items-center gap-2.5 flex-shrink-0">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/25">
+        <nav className="mx-auto flex h-18 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 bg-transparent backdrop-blur-xl border-b border-white/15">
+          <Link to="/" className="flex items-center gap-3 flex-shrink-0">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-sky-500 text-white shadow-xl shadow-sky-500/20">
               <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M12 2L2 7v5.5c0 5.05 4.29 9.5 10 11 5.71-1.5 10-5.95 10-11V7l-10-5zm0 17.5c-4.2-1.4-8-4.93-8-9V8.81l8-4 8 4V10.5c0 4.07-3.8 7.6-8 9z"/>
                 <circle cx="12" cy="12" r="3"/>
               </svg>
             </div>
-            <span className="hidden text-lg font-bold text-gray-900 dark:text-white sm:block">
+            <span className="hidden text-lg font-bold text-white sm:block">
               {BRAND_NAME}
             </span>
           </Link>
@@ -78,8 +115,9 @@ export function Navbar() {
               <a
                 key={link.href}
                 href={link.href}
-                className="link-underline rounded-lg px-3.5 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 transition-colors hover:text-gray-900 dark:hover:text-white"
+                className="flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-medium text-white transition-all hover:bg-white/10 hover:text-white"
               >
+                {link.icon}
                 {link.label}
               </a>
             ))}
@@ -87,34 +125,43 @@ export function Navbar() {
 
           <div className="flex items-center gap-1.5">
             {/* Desktop actions */}
-            <div className="hidden lg:flex lg:items-center lg:gap-1">
+            <div className="hidden lg:flex lg:items-center lg:gap-2 lg:flex-shrink-0">
               <LanguageSwitcher />
               <ThemeToggle />
               <Link
                 to="/auth/login"
-                className="ml-3 inline-flex items-center gap-1.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-transparent px-5 py-2.5 text-sm font-semibold text-gray-700 dark:text-gray-200 transition-all hover:bg-gray-50 dark:hover:bg-obsidian-700 active:scale-[0.98]"
+                className="ms-3 inline-flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-2xl border border-white/15 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-white/20 active:scale-[0.98]"
               >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 21h-6a2 2 0 01-2-2V5a2 2 0 012-2h6a2 2 0 012 2v14a2 2 0 01-2 2z" />
+                  <path d="M12 7v4" />
+                  <path d="M12 15h.01" />
+                </svg>
                 {t('nav.sign_in')}
               </Link>
               <Link
                 to="/auth/register"
-                className="ml-2 inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-500/20 transition-all hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98]"
+                className="ms-2 inline-flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/25 transition-all hover:shadow-xl hover:-translate-y-0.5 active:scale-[0.98]"
               >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
                 {t('nav.start_free')}
               </Link>
             </div>
 
             {/* Tablet actions — CTAs (medium screens only) + language + theme + hamburger */}
-            <div className="hidden sm:flex lg:hidden items-center gap-1">
+            <div className="hidden sm:flex lg:hidden items-center gap-2 flex-nowrap">
               <Link
                 to="/auth/login"
-                className="rounded-lg px-2.5 py-1.5 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-obsidian-700 transition-colors"
+                className="flex-shrink-0 rounded-lg whitespace-nowrap min-w-max bg-slate-900/80 px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
               >
                 {t('nav.sign_in')}
               </Link>
               <Link
                 to="/auth/register"
-                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
+                className="flex-shrink-0 rounded-lg whitespace-nowrap min-w-max bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
               >
                 {t('nav.start_free')}
               </Link>
@@ -130,7 +177,7 @@ export function Navbar() {
 
             <button
               onClick={() => setIsMobileOpen(true)}
-              className="ml-1 rounded-lg p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-obsidian-700 lg:hidden"
+              className="ms-1 rounded-lg p-2 text-white hover:bg-white/10 lg:hidden"
               aria-label="Menu"
             >
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -157,14 +204,14 @@ export function Navbar() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 280 }}
-              className="fixed top-0 right-0 bottom-0 z-50 w-80 max-w-[85vw] bg-white dark:bg-obsidian-900 shadow-2xl lg:hidden"
+              className="fixed top-0 right-0 bottom-0 z-50 w-80 max-w-[85vw] bg-[#071428] shadow-2xl shadow-slate-950/40 lg:hidden"
             >
               <div className="flex h-full flex-col">
-                <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-5 py-4">
-                  <span className="text-lg font-bold text-gray-900 dark:text-white">{BRAND_NAME}</span>
+                <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+                  <span className="text-lg font-bold text-white">{BRAND_NAME}</span>
                   <button
                     onClick={() => setIsMobileOpen(false)}
-                    className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-obsidian-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                    className="rounded-lg p-2 text-white hover:bg-white/10 transition-colors"
                     aria-label="Close"
                   >
                     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -185,8 +232,9 @@ export function Navbar() {
                         <a
                           href={link.href}
                           onClick={() => setIsMobileOpen(false)}
-                          className="flex items-center rounded-xl px-4 py-3 text-base font-medium text-gray-600 dark:text-gray-400 transition-colors hover:bg-gray-100 dark:hover:bg-obsidian-700 hover:text-gray-900 dark:hover:text-white"
+                          className="flex items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-slate-100 transition-colors hover:bg-white/10 hover:text-white"
                         >
+                          {link.icon}
                           {link.label}
                         </a>
                       </motion.li>
@@ -194,18 +242,18 @@ export function Navbar() {
                   </ul>
                 </nav>
 
-                <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                <div className="border-t border-white/10 p-4 space-y-3">
                   <Link
                     to="/auth/login"
                     onClick={() => setIsMobileOpen(false)}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-gray-200 dark:border-gray-700 px-6 py-3 text-base font-semibold text-gray-700 dark:text-gray-200 transition-all hover:bg-gray-50 dark:hover:bg-obsidian-700"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-6 py-3 text-base font-semibold text-white transition-all hover:bg-white/10"
                   >
                     {t('nav.sign_in')}
                   </Link>
                   <Link
                     to="/auth/register"
                     onClick={() => setIsMobileOpen(false)}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-6 py-3 text-base font-semibold text-white shadow-md transition-all hover:shadow-lg"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-sky-500 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-sky-500/20 transition-all hover:shadow-xl"
                   >
                     {t('nav.start_free')}
                   </Link>

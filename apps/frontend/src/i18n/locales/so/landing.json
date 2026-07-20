@@ -10,9 +10,9 @@
   },
   "hero": {
     "badge": "Laguaamminoonay beesha barashada adduunka oo dhan",
-    "title_part1": "Goobta Dhamaystiran",
-    "title_highlight": "Barashada & Waxbarashada",
-    "title_part2": "Maareynta Mashruuca",
+    "title_part1": "Goobta",
+    "title_highlight": "Barashada",
+    "title_part2": "",
     "subtitle": "Abuur, maamul, oo kobci ururkaaga waxbarasho hal goob oo awood leh oo daruur ku salaysan oo loogu talagalay waxbarashada casriga ah.",
     "cta_primary": "Bilaab Bilaash",
     "cta_secondary": "Daawo Muuqaalka",
@@ -144,6 +144,14 @@
     "company_contact": "Xidhiidh",
     "privacy": "Siyaasadda Qarsoodiga",
     "terms": "Shuruudaha Adeegga",
-    "cookies": "Siyaasadda Kukiyada"
+    "cookies": "Siyaasadda Kukiyada",
+    "column_explore": "Sahmin",
+    "column_account": "Akoonka",
+    "column_contact": "Nala Soo Xidhiidh",
+    "account_create": "Samee Akoon",
+    "social_facebook": "Facebook",
+    "social_linkedin": "LinkedIn",
+    "social_github": "GitHub",
+    "address": "Muqdisho, Soomaaliya"
   }
 }

@@ -58,6 +58,7 @@ declare const _default: {
             };
             fontFamily: {
                 sans: [string, string, string, string];
+                dm: [string, string, string, string, string];
                 arabic: [string, string, string];
                 mono: [string, string, string];
             };

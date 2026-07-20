@@ -5,14 +5,14 @@
     "architecture": "Architecture",
     "pricing": "Pricing",
     "faq": "FAQ",
-    "sign_in": "Sign In",
+    "sign_in": "Sign-in",
     "start_free": "Start Free"
   },
   "hero": {
     "badge": "Trusted by learning communities worldwide",
-    "title_part1": "The Complete",
+    "title_part1": "Complete",
     "title_highlight": "Learning & Education",
-    "title_part2": "Management Platform",
+    "title_part2": "Platform",
     "subtitle": "Create, manage, and grow your learning organization with one powerful cloud platform designed for modern education.",
     "cta_primary": "Start Free",
     "cta_secondary": "Watch Demo",
@@ -165,6 +165,14 @@
     "company_contact": "Contact",
     "privacy": "Privacy Policy",
     "terms": "Terms of Service",
-    "cookies": "Cookie Policy"
+    "cookies": "Cookie Policy",
+    "column_explore": "Explore",
+    "column_account": "Account",
+    "column_contact": "Contact Us",
+    "account_create": "Create Account",
+    "social_facebook": "Facebook",
+    "social_linkedin": "LinkedIn",
+    "social_github": "GitHub",
+    "address": "Mogadishu, Somalia"
   }
 }

@@ -72,6 +72,7 @@ export default {
       // ------------------------------------------------------------------
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        dm: ['DM Sans', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
         arabic: ['Noto Naskh Arabic', 'Scheherazade New', 'serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },

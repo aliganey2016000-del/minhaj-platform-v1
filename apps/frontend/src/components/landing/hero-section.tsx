@@ -1,18 +1,14 @@
 /**
- * Hero Section — Premium SaaS Landing
+ * Hero Section — SSI-style Landing
  *
- * World-class hero with animated dashboard mockup, floating cards,
- * gradient backgrounds, and elegant typography.
+ * Rebuild the hero to match the SSI landing page layout, colors,
+ * typography, and spacing while preserving the existing hero text.
  */
 
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-
-// ---------------------------------------------------------------------------
-// Animated Counter
-// ---------------------------------------------------------------------------
 
 function AnimatedCounter({ value, suffix = '' }: { value: number; suffix?: string }) {
   const [count, setCount] = useState(0);
@@ -37,295 +33,133 @@ function AnimatedCounter({ value, suffix = '' }: { value: number; suffix?: strin
   return <span>{count.toLocaleString()}{suffix}</span>;
 }
 
-// ---------------------------------------------------------------------------
-// Floating Dashboard Mockup (Desktop Right Side)
-// ---------------------------------------------------------------------------
-
-function DashboardMockup() {
-  const { t } = useTranslation('landing');
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: 80, rotateY: -10 }}
-      animate={{ opacity: 1, x: 0, rotateY: 0 }}
-      transition={{ duration: 1, delay: 0.3, ease: [0.25, 0.4, 0.25, 1] }}
-      className="relative hidden lg:block w-full max-w-[640px]"
-    >
-      {/* Ambient glow */}
-      <div className="absolute -inset-10 bg-gradient-to-br from-emerald-400/20 via-blue-400/10 to-amber-400/15 blur-3xl rounded-full" />
-
-      {/* Main laptop frame */}
-      <div className="relative z-10 rounded-2xl border border-white/20 bg-white/70 dark:bg-obsidian-700/80 backdrop-blur-xl shadow-elevated overflow-hidden">
-        {/* Browser chrome */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-700/50">
-          <div className="flex gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-red-400" />
-            <div className="w-3 h-3 rounded-full bg-amber-400" />
-            <div className="w-3 h-3 rounded-full bg-emerald-400" />
-          </div>
-          <div className="flex-1 mx-4">
-            <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-700 w-2/3" />
-          </div>
-        </div>
-
-        {/* Dashboard content */}
-        <div className="p-5 space-y-4">
-          {/* Top stats row */}
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: t('hero.dashboard_total_learners'), value: '12,847', color: 'emerald', trend: '+12%' },
-              { label: t('hero.dashboard_active_courses'), value: '384', color: 'blue', trend: '+8%' },
-              { label: t('hero.dashboard_completion'), value: '94.2%', color: 'amber', trend: '+5%' },
-            ].map((stat, i) => (
-              <motion.div
-                key={stat.label}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6 + i * 0.12 }}
-                className="rounded-xl bg-gray-50 dark:bg-obsidian-800/60 p-3 border border-gray-100 dark:border-gray-700/30"
-              >
-                <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">{stat.label}</p>
-                <p className="text-lg font-bold text-gray-900 dark:text-white mt-0.5">{stat.value}</p>
-                <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold text-${stat.color}-600 dark:text-${stat.color}-400`}>
-                  <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" /></svg>
-                  {stat.trend}
-                </span>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Chart area */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.9 }}
-            className="rounded-xl bg-gray-50 dark:bg-obsidian-800/60 p-4 border border-gray-100 dark:border-gray-700/30"
-          >
-            <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-3">
-              {t('hero.dashboard_learner_growth')}
-            </p>
-            <div className="flex items-end gap-1.5 h-24">
-              {[35, 48, 42, 63, 55, 78, 65, 88, 72, 95, 82, 100].map((h, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ height: 0 }}
-                  animate={{ height: `${h}%` }}
-                  transition={{ delay: 1 + i * 0.05, duration: 0.5, ease: 'easeOut' }}
-                  className={`flex-1 rounded-t-md ${i === 11 ? 'bg-emerald-500' : 'bg-emerald-400/60 dark:bg-emerald-500/40'}`}
-                />
-              ))}
-            </div>
-            <div className="flex justify-between mt-2 text-[10px] text-gray-400">
-              {(t('hero.dashboard_chart_months', { returnObjects: true }) as unknown as string[]).map((m: string) => <span key={m}>{m}</span>)}
-            </div>
-          </motion.div>
-
-          {/* Bottom cards */}
-          <div className="grid grid-cols-2 gap-3">
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 1.1 }}
-              className="rounded-xl bg-gray-50 dark:bg-obsidian-800/60 p-3 border border-gray-100 dark:border-gray-700/30"
-            >
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
-                  <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-gray-900 dark:text-white">{t('hero.dashboard_course_builder')}</p>
-                  <p className="text-[10px] text-gray-500">{t('hero.dashboard_drag_drop')}</p>
-                </div>
-              </div>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 1.2 }}
-              className="rounded-xl bg-gray-50 dark:bg-obsidian-800/60 p-3 border border-gray-100 dark:border-gray-700/30"
-            >
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
-                  <svg className="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-gray-900 dark:text-white">{t('hero.dashboard_certificates')}</p>
-                  <p className="text-[10px] text-gray-500">{t('hero.dashboard_auto_generated')}</p>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </div>
-
-      {/* Floating mini card — top right */}
-      <motion.div
-        initial={{ opacity: 0, y: -30, x: 30 }}
-        animate={{ opacity: 1, y: 0, x: 0 }}
-        transition={{ delay: 1.4, duration: 0.6 }}
-        className="absolute -top-6 -right-6 z-20 rounded-xl bg-white dark:bg-obsidian-700 border border-gray-200 dark:border-gray-600 shadow-lg p-3 animate-float"
-      >
-        <div className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
-            <span className="text-lg">🎓</span>
-          </div>
-          <div>
-            <p className="text-xs font-bold text-gray-900 dark:text-white">Sarah Ahmed</p>
-            <p className="text-[10px] text-emerald-600 dark:text-emerald-400">{t('hero.floating_completed')}</p>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Floating mini card — bottom left */}
-      <motion.div
-        initial={{ opacity: 0, y: 30, x: -30 }}
-        animate={{ opacity: 1, y: 0, x: 0 }}
-        transition={{ delay: 1.6, duration: 0.6 }}
-        className="absolute -bottom-4 -left-6 z-20 rounded-xl bg-white dark:bg-obsidian-700 border border-gray-200 dark:border-gray-600 shadow-lg p-3 animate-float-delayed"
-      >
-        <div className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
-            <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-          </div>
-          <div>
-            <p className="text-[10px] text-gray-500">{t('hero.floating_engagement')}</p>
-            <p className="text-sm font-bold text-gray-900 dark:text-white">96.5%</p>
-          </div>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Background Gradient Orbs
-// ---------------------------------------------------------------------------
-
-function BackgroundOrbs() {
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
-      <div className="absolute -top-40 -right-40 w-[600px] h-[600px] rounded-full bg-emerald-400/10 dark:bg-emerald-400/5 blur-[120px]" />
-      <div className="absolute -bottom-40 -left-40 w-[500px] h-[500px] rounded-full bg-blue-400/10 dark:bg-blue-400/5 blur-[100px]" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-amber-400/5 dark:bg-amber-400/3 blur-[80px]" />
-      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wMiI+PHBhdGggZD0iTTM2IDE4YzAtMS4xMDctLjg5My0yLTItMnMtMiAuODkzLTIgMiAuODkzIDIgMiAyIDItLjg5MyAyLTJ6bTAgMGgtMnYyaDJ2LTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-30 dark:opacity-20" />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main Hero Component
-// ---------------------------------------------------------------------------
-
 export function HeroSection() {
   const { t } = useTranslation('landing');
+  const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    // No public course catalog exists yet — route the search intent into
+    // sign-up so it isn't a dead end, carrying the query along so it can
+    // pre-fill a real search once that page exists.
+    const q = searchQuery.trim();
+    navigate(q ? `/auth/register?q=${encodeURIComponent(q)}` : '/auth/register');
+  };
 
   const container = {
-    hidden: { opacity: 0 },
+    hidden: { opacity: 0, y: 28 },
     visible: {
       opacity: 1,
-      transition: { staggerChildren: 0.12, delayChildren: 0.1 },
+      y: 0,
+      transition: {
+        duration: 0.85,
+        ease: [0.22, 0.61, 0.36, 1],
+        staggerChildren: 0.1,
+        delayChildren: 0.15,
+      },
     },
   };
 
   const item = {
-    hidden: { opacity: 0, y: 30 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.65, ease: [0.25, 0.4, 0.25, 1] } },
+    hidden: { opacity: 0, y: 26 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.65, ease: [0.22, 0.61, 0.36, 1] } },
   };
 
   return (
-    <section className="relative min-h-screen flex items-center overflow-hidden bg-white dark:bg-obsidian-900">
-      <BackgroundOrbs />
+    <section className="relative overflow-hidden bg-[radial-gradient(60%_78%_at_5%_28%,_rgba(255,132,1,0.28),_rgba(0,0,0,0)_62%),radial-gradient(52%_72%_at_98%_88%,_rgba(13,111,198,0.42),_rgba(0,0,0,0)_64%),linear-gradient(138deg,_rgb(4,26,49),_rgb(7,52,95)_52%,_rgb(0,82,142))] text-white font-dm px-4 sm:px-6 lg:px-8 pt-[120px] pb-[72px]">
+      <div className="absolute -top-10 -left-10 h-[480px] w-[480px] rounded-full bg-orange-500/20 blur-[120px] opacity-80" />
+      <div className="absolute -bottom-24 right-0 h-[520px] w-[520px] rounded-full bg-sky-500/25 blur-[140px]" />
 
-      <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
-        <div className="grid lg:grid-cols-2 gap-16 lg:gap-20 items-center">
-          {/* ── Left Column: Text ── */}
-          <motion.div
-            variants={container}
-            initial="hidden"
-            animate="visible"
-            className="space-y-8"
+      <div className="relative z-10 mx-auto flex min-h-[680px] max-w-6xl flex-col items-center text-center">
+        <motion.div variants={container} initial="hidden" animate="visible" className="w-full space-y-8">
+          <motion.span
+            variants={item}
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/80 backdrop-blur-sm"
           >
-            {/* Pill badge */}
-            <motion.div variants={item}>
-              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-4 py-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-                </span>
-                {t('hero.badge')}
+            <span className="inline-flex h-2.5 w-2.5 rounded-full bg-orange-400 shadow-[0_0_0_6px_rgba(251,146,60,0.13)]" />
+            {t('hero.badge')}
+          </motion.span>
+
+          <motion.h1
+            variants={item}
+            className="mx-auto max-w-4xl text-[clamp(2.75rem,5vw,5.75rem)] font-black leading-[0.98] tracking-[-0.045em] text-white"
+          >
+            {t('hero.title_part1')}
+            <span className="block">{t('hero.title_highlight')} {t('hero.title_part2')}</span>
+          </motion.h1>
+
+          <motion.p variants={item} className="mx-auto max-w-2xl text-base leading-8 text-slate-200/90 sm:text-lg">
+            {t('hero.subtitle')}
+          </motion.p>
+
+          <motion.div variants={item} className="mx-auto w-full max-w-3xl space-y-4">
+            <form onSubmit={handleSearch} className="relative">
+              <span className="pointer-events-none absolute inset-y-0 start-4 flex items-center text-slate-400">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+                </svg>
               </span>
-            </motion.div>
+              <input
+                type="search"
+                aria-label="Search courses"
+                placeholder="Search courses, instructors, topics..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-full border border-white/10 bg-white/10 py-4 ps-14 pe-36 text-sm text-white placeholder:text-slate-300 shadow-[0_30px_120px_-90px_rgba(15,23,42,0.9)] outline-none transition focus:border-white/20 focus:ring-2 focus:ring-orange-400/20"
+              />
+              <button
+                type="submit"
+                className="absolute end-2 top-1/2 inline-flex -translate-y-1/2 items-center gap-2 rounded-full bg-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-500/25 transition hover:bg-orange-400"
+              >
+                Search
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+            </form>
 
-            {/* Main headline */}
-            <motion.h1
-              variants={item}
-              className="text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white sm:text-5xl lg:text-6xl xl:text-7xl leading-[1.08]"
-            >
-              {t('hero.title_part1')}{' '}
-              <span className="bg-gradient-to-r from-emerald-500 via-emerald-600 to-blue-600 bg-clip-text text-transparent">
-                {t('hero.title_highlight')}
-              </span>{' '}
-              {t('hero.title_part2')}
-            </motion.h1>
-
-            {/* Subtitle */}
-            <motion.p
-              variants={item}
-              className="max-w-xl text-lg leading-relaxed text-gray-500 dark:text-gray-400 sm:text-xl"
-            >
-              {t('hero.subtitle')}
-            </motion.p>
-
-            {/* CTAs */}
-            <motion.div
-              variants={item}
-              className="flex flex-wrap gap-4 pt-2"
-            >
+            <div className="flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
               <Link
                 to="/auth/register"
-                className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-7 py-4 text-base font-semibold text-white shadow-xl shadow-emerald-600/25 transition-all hover:bg-emerald-700 hover:shadow-2xl hover:shadow-emerald-600/30 hover:-translate-y-0.5 active:scale-[0.98]"
+                className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/10 px-7 py-3 text-sm font-semibold text-white shadow-sm shadow-white/5 transition hover:bg-white/15"
               >
                 {t('hero.cta_primary')}
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>
               </Link>
               <a
-                href="#demo"
-                className="inline-flex items-center gap-2 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-obsidian-800 px-7 py-4 text-base font-semibold text-gray-700 dark:text-gray-200 shadow-sm transition-all hover:bg-gray-50 dark:hover:bg-obsidian-700 hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98]"
+                href="#features"
+                className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-7 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
               >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
                 {t('hero.cta_secondary')}
               </a>
-            </motion.div>
-
-            {/* Trust stats */}
-            <motion.div
-              variants={item}
-              className="flex flex-wrap items-center gap-6 sm:gap-10 pt-6 border-t border-gray-100 dark:border-gray-800"
-            >
-              {[
-                { value: 15, suffix: 'k+', labelKey: 'hero.stat_learners' },
-                { value: 500, suffix: '+', labelKey: 'hero.stat_orgs' },
-                { value: 99, suffix: '.9%', labelKey: 'hero.stat_uptime' },
-                { value: 40, suffix: '+', labelKey: 'hero.stat_countries' },
-              ].map((stat) => (
-                <div key={stat.labelKey} className="text-center sm:text-left">
-                  <p className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
-                    <AnimatedCounter value={stat.value} suffix={stat.suffix} />
-                  </p>
-                  <p className="text-sm text-gray-400 dark:text-gray-500">{t(stat.labelKey)}</p>
-                </div>
-              ))}
-            </motion.div>
+            </div>
           </motion.div>
 
-          {/* ── Right Column: Dashboard Mockup ── */}
-          <DashboardMockup />
-        </div>
+          <motion.div
+            variants={item}
+            className="grid w-full grid-cols-2 gap-4 border-t border-white/10 pt-10 text-start sm:grid-cols-4 sm:text-center"
+          >
+            {[
+              { value: 15, suffix: 'k+', labelKey: 'hero.stat_learners' },
+              { value: 500, suffix: '+', labelKey: 'hero.stat_orgs' },
+              { value: 99, suffix: '.9%', labelKey: 'hero.stat_uptime' },
+              { value: 40, suffix: '+', labelKey: 'hero.stat_countries' },
+            ].map((stat) => (
+              <div key={stat.labelKey} className="space-y-1">
+                <p className="text-3xl font-black text-white sm:text-4xl">
+                  <AnimatedCounter value={stat.value} suffix={stat.suffix} />
+                </p>
+                <p className="text-[0.72rem] uppercase tracking-[0.26em] text-slate-300">
+                  {t(stat.labelKey)}
+                </p>
+              </div>
+            ))}
+          </motion.div>
+        </motion.div>
       </div>
     </section>
   );
