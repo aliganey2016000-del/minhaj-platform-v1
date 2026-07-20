@@ -326,10 +326,37 @@ export const completeLesson = async (req: Request, res: Response): Promise<Respo
 // Body: { score, totalQuestions, timeSpentSeconds? }
 // ---------------------------------------------------------------------------
 
-export const completeQuiz = async (req: Request, res: Response): Promise<Response> => {
-  const { score, totalQuestions, timeSpentSeconds } = req.body;
-  const student = await ensureStudentRecord(req.user!.userId);
-  const gam = await getOrCreate(student._id.toString());
+/**
+ * Core quiz-XP award logic, extracted so it can be called directly (no HTTP
+ * round-trip) from within another endpoint's DB transaction — specifically
+ * quiz.controller.ts's submitAttempt, which needs the QuizAttempt write,
+ * the Progress increment, and this XP award to all commit atomically.
+ * `session` is an optional Mongoose ClientSession — when provided, every
+ * read/write here participates in the caller's transaction.
+ */
+export interface QuizXPResult {
+  xp: number;
+  level: number;
+  xpToNextLevel: number;
+  xpEarned: number;
+  totalQuizzesCompleted: number;
+  totalPerfectScores: number;
+  streak: unknown;
+  earnedBadges: unknown;
+  levelUp: boolean;
+  newBadgeKeys: string[];
+}
+
+export async function awardQuizXP(
+  studentId: string,
+  userId: string,
+  { score, totalQuestions, timeSpentSeconds }: { score: number; totalQuestions: number; timeSpentSeconds?: number },
+  session?: any
+): Promise<QuizXPResult> {
+  let gam = await Gamification.findOne({ student: studentId }).session(session || null);
+  if (!gam) {
+    gam = (await Gamification.create([{ student: studentId }], { session }))[0];
+  }
 
   const levelBefore = gam.level;
   const pct = totalQuestions > 0 ? score / totalQuestions : 0;
@@ -350,10 +377,10 @@ export const completeQuiz = async (req: Request, res: Response): Promise<Respons
   gam.xp += xpEarned;
   gam.totalQuizzesCompleted += 1;
   if (timeSpentSeconds) {
-    gam.totalTimeSpentSeconds += Math.max(0, parseInt(timeSpentSeconds, 10) || 0);
+    gam.totalTimeSpentSeconds += Math.max(0, parseInt(timeSpentSeconds as any, 10) || 0);
     // Speed Demon badge
     const alreadyEarned = gam.earnedBadges.map((b: any) => b.badgeKey);
-    if (parseInt(timeSpentSeconds, 10) < 60 && pct >= 0.8 && !alreadyEarned.includes('speed_demon')) {
+    if (parseInt(timeSpentSeconds as any, 10) < 60 && pct >= 0.8 && !alreadyEarned.includes('speed_demon')) {
       gam.earnedBadges.push({ badgeKey: 'speed_demon', earnedAt: new Date() });
     }
   }
@@ -368,10 +395,10 @@ export const completeQuiz = async (req: Request, res: Response): Promise<Respons
   }
 
   const newBadges = checkAutoBadges(gam);
-  await gam.save();
-  notifyProgress(req.user!.userId, levelBefore, gam, newBadges);
+  await gam.save({ session });
+  notifyProgress(userId, levelBefore, gam, newBadges);
 
-  return ApiResponse.success(res, {
+  return {
     xp: gam.xp,
     level: gam.level,
     xpToNextLevel: gam.xpToNextLevel,
@@ -380,7 +407,16 @@ export const completeQuiz = async (req: Request, res: Response): Promise<Respons
     totalPerfectScores: gam.totalPerfectScores,
     streak: gam.streak,
     earnedBadges: gam.earnedBadges,
-  });
+    levelUp: gam.level > levelBefore,
+    newBadgeKeys: newBadges,
+  };
+}
+
+export const completeQuiz = async (req: Request, res: Response): Promise<Response> => {
+  const { score, totalQuestions, timeSpentSeconds } = req.body;
+  const student = await ensureStudentRecord(req.user!.userId);
+  const result = await awardQuizXP(student._id.toString(), req.user!.userId, { score, totalQuestions, timeSpentSeconds });
+  return ApiResponse.success(res, result);
 };
 
 // ---------------------------------------------------------------------------

@@ -15,48 +15,12 @@ const localEnvPath = path.resolve(__dirname, '../.env');
 const prodEnvPath = path.resolve(__dirname, '../.env.production');
 dotenv.config({ path: fs.existsSync(localEnvPath) ? localEnvPath : prodEnvPath });
 
-import mongoose from 'mongoose';
-
+// All remaining imports must use dynamic import() so they only execute AFTER
+// dotenv has populated process.env. Static `import` is hoisted above regular
+// code by the runtime, which would cause validateSecurityEnv() in app.ts to
+// see empty MONGODB_URI/NODE_ENV and crash.
+//
 // Register all models before routes are loaded
-import './models/announcement.model';
-import './models/news.model';
-import './models/event.model';
-import './models/gallery.model';
-import './models/payment.model';
-import './models/certificate.model';
-import './models/exam.model';
-import './models/result.model';
-import './models/parent.model';
-import './models/setting.model';
-import './models/activity-log.model';
-import './models/assignment.model';
-import './models/school.model';
-import './models/resource.model';
-import './models/notification.model';
-import './models/course-content.model';
-import './models/course.model';
-import './models/class.model';
-import './models/attendance.model';
-import './models/teacher.model';
-import './models/student.model';
-import './models/user.model';
-import './models/profile.model';
-import './models/forum.model';
-import './models/exam-room.model';
-import './models/exam-attendance.model';
-import './models/exam-incident.model';
-import './models/exam-appeal.model';
-import './models/exam-paper.model';
-import './models/exam-attempt.model';
-import './models/sidebar-setting.model';
-import './models/seat-allocation.model';
-import './models/progress.model';
-import './models/class-schedule.model';
-import './models/push-subscription.model';
-
-import http from 'http';
-import app from './app';
-import { initSocket } from './realtime/socket';
 
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://rayan2016003_db_user:635110Liiali@rahma.bo0elay.mongodb.net/masjid-al-rahma?appName=rahma&retryWrites=true&w=majority';
@@ -67,6 +31,53 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://rayan2016003_db_us
 
 async function startServer() {
   try {
+    // Dynamic imports — env is already loaded at this point
+    const mongoose = (await import('mongoose')).default;
+    const http = await import('http');
+
+    // Register models
+    await import('./models/announcement.model');
+    await import('./models/news.model');
+    await import('./models/event.model');
+    await import('./models/gallery.model');
+    await import('./models/payment.model');
+    await import('./models/certificate.model');
+    await import('./models/exam.model');
+    await import('./models/result.model');
+    await import('./models/parent.model');
+    await import('./models/setting.model');
+    await import('./models/activity-log.model');
+    await import('./models/assignment.model');
+    await import('./models/school.model');
+    await import('./models/resource.model');
+    await import('./models/notification.model');
+    await import('./models/course-content.model');
+    await import('./models/course.model');
+    await import('./models/class.model');
+    await import('./models/attendance.model');
+    await import('./models/teacher.model');
+    await import('./models/student.model');
+    await import('./models/user.model');
+    await import('./models/profile.model');
+    await import('./models/forum.model');
+    await import('./models/exam-room.model');
+    await import('./models/exam-attendance.model');
+    await import('./models/exam-incident.model');
+    await import('./models/exam-appeal.model');
+    await import('./models/exam-paper.model');
+    await import('./models/exam-attempt.model');
+    await import('./models/sidebar-setting.model');
+    await import('./models/seat-allocation.model');
+    await import('./models/progress.model');
+    await import('./models/class-schedule.model');
+    await import('./models/push-subscription.model');
+    await import('./models/quiz-attempt.model');
+
+    const appModule = await import('./app');
+    const app = appModule.default;
+
+    const { initSocket } = await import('./realtime/socket');
+
     // Connect to MongoDB
     await mongoose.connect(MONGODB_URI);
     console.log('✅ Connected to MongoDB');

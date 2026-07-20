@@ -37,6 +37,7 @@ import userRoutes from './user.routes';
 import classScheduleRoutes from './class-schedule.routes';
 import gamificationRoutes from './gamification.routes';
 import searchRoutes from './search.routes';
+import quizRoutes from './quiz.routes';
 import pushRoutes from './push.routes';
 
 const router = Router();
@@ -70,6 +71,7 @@ router.use('/gallery', contentRoutes('Gallery'));
 router.use('/system', systemRoutes);
 router.use('/schools', schoolRoutes);
 router.use('/courses/:courseId/content', courseContentRoutes);
+router.use('/quizzes', quizRoutes);
 router.use('/courses/:courseId/lessons/:lessonId/gate', lessonBlockProgressRoutes);
 router.use('/ai', aiRoutes);
 router.use('/forum', forumRoutes);

@@ -36,6 +36,92 @@ export function hashGateAnswer(
 // before they submit one — strip it from any content read by a student. A
 // salted hash of the answer is left in its place so downloaded-for-offline
 // content can still be graded locally without a connection.
+function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Every field, across all 10 question types, that can reveal a correct
+// answer. Stripped unconditionally BEFORE any type-specific handling runs —
+// so a question with a missing/unrecognized/misspelled `type` (e.g. legacy
+// or malformed AI-generated content) still can't leak an answer just
+// because it fell through every `if (question.type === ...)` branch below.
+const ANSWER_REVEALING_FIELDS = [
+  'explanation', 'correctAnswers', 'correctIndex', 'correctAnswer', 'pairs',
+  'correctText', 'answer', 'blanks', 'distractors',
+] as const;
+
+function stripQuizSecrets(content: any, isStudent: boolean) {
+  if (!isStudent || !content?.chapters) return content;
+
+  for (const chapter of content.chapters) {
+    for (const item of chapter.items || []) {
+      if (item.type !== 'quiz') continue;
+
+      item.questions = (item.questions || []).map((question: any) => {
+        const safeQuestion = { ...question };
+        for (const field of ANSWER_REVEALING_FIELDS) delete safeQuestion[field];
+        // `cards[].correctSide` lives one level deeper than the fields
+        // above, so it needs its own strip regardless of type.
+        if (Array.isArray(question.cards)) {
+          safeQuestion.cards = question.cards.map((card: any) => ({ text: card.text }));
+        }
+
+        if (question.type === 'mcq' && Array.isArray(question.options)) {
+          safeQuestion.options = shuffleArray(question.options);
+        }
+
+        if (question.type === 'picture_choice' && Array.isArray(question.choices)) {
+          safeQuestion.choices = shuffleArray(question.choices);
+        }
+
+        if (question.type === 'matching' && Array.isArray(question.pairs)) {
+          safeQuestion.leftItems = question.pairs.map((pair: any) => pair.left);
+          safeQuestion.rightItems = shuffleArray(question.pairs.map((pair: any) => pair.right));
+        }
+
+        if (question.type === 'ordering' && Array.isArray(question.items)) {
+          safeQuestion.items = shuffleArray(question.items);
+        }
+
+        if (question.type === 'swipe_sort' && Array.isArray(question.cards)) {
+          safeQuestion.cards = shuffleArray(safeQuestion.cards);
+        }
+
+        if (question.type === 'word_scramble' && typeof question.answer === 'string') {
+          // The only student-facing signal for what to unscramble — since
+          // the plaintext `answer` is stripped, ship pre-scrambled letters
+          // instead so the client has tiles to work with but never the word.
+          safeQuestion.scrambledLetters = shuffleArray(question.answer.split(''));
+        }
+
+        if (question.type === 'sentence_build' && Array.isArray(question.words)) {
+          // wordBank mixes the correct words with decoys so their presence
+          // doesn't give away which ones matter — grading only cares about
+          // the order the student places words into, never sent here.
+          safeQuestion.wordBank = shuffleArray([...question.words, ...(question.distractors || [])]);
+        }
+
+        if (question.type === 'fill_blank' && Array.isArray(question.blanks)) {
+          // `blanks` holds the correct answer for each gap — a real leak if
+          // shipped as-is. Replace with a shuffled word bank (correct words
+          // + distractors) the student picks from; grading still happens
+          // server-side against the original (never-sent) blanks array.
+          safeQuestion.wordBank = shuffleArray([...question.blanks, ...(question.distractors || [])]);
+        }
+
+        return safeQuestion;
+      });
+    }
+  }
+
+  return content;
+}
+
 function stripGateAnswers(content: any, isStudent: boolean) {
   if (!isStudent || !content?.chapters) return content;
   for (const chapter of content.chapters) {
@@ -99,6 +185,7 @@ export const getByCourse = async (req: Request, res: Response): Promise<Response
   }
 
   content = stripGateAnswers(content, req.user?.role === 'student');
+  content = stripQuizSecrets(content, req.user?.role === 'student');
 
   return ApiResponse.success(res, content);
 };

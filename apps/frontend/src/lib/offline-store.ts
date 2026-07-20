@@ -11,12 +11,13 @@
 import { openDB, type IDBPDatabase } from 'idb';
 
 const DB_NAME = 'sahal-offline';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORE_COURSES = 'downloadedCourses';
 const STORE_QUEUE = 'pendingActions';
 const STORE_GATE = 'gateProgress';
 const STORE_OFFLINE_DATA = 'offlineData';
+const STORE_QUIZ_PROGRESS = 'quizProgress';
 
 export interface DownloadedCourse {
   courseId: string;
@@ -33,7 +34,8 @@ export type PendingActionType =
   | 'gamification-streak'
   | 'gate-block-answer'
   | 'gate-checkpoint-answer'
-  | 'gate-video-progress';
+  | 'gate-video-progress'
+  | 'quiz-submit-attempt';
 
 export interface PendingAction {
   id?: number;
@@ -54,6 +56,21 @@ export interface GateProgress {
   updatedAt: number;
 }
 
+/**
+ * A student's in-progress answers for a quiz they haven't submitted yet —
+ * autosaved on every answer change so a reload or network drop mid-quiz
+ * never loses work. Cleared once the attempt is actually submitted.
+ */
+export interface QuizProgress {
+  quizId: string; // keyPath
+  courseId: string;
+  answers: Record<number, unknown>;
+  currentQuestion: number;
+  flagged: number[];
+  startedAt: number;
+  updatedAt: number;
+}
+
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
 function getDb(): Promise<IDBPDatabase> {
@@ -71,6 +88,9 @@ function getDb(): Promise<IDBPDatabase> {
         }
         if (oldVersion < 3 && !db.objectStoreNames.contains(STORE_OFFLINE_DATA)) {
           db.createObjectStore(STORE_OFFLINE_DATA, { keyPath: 'key' });
+        }
+        if (oldVersion < 4 && !db.objectStoreNames.contains(STORE_QUIZ_PROGRESS)) {
+          db.createObjectStore(STORE_QUIZ_PROGRESS, { keyPath: 'quizId' });
         }
       },
     });
@@ -169,6 +189,25 @@ export async function getGateProgress(lessonId: string): Promise<GateProgress | 
 export async function saveGateProgress(progress: GateProgress): Promise<void> {
   const db = await getDb();
   await db.put(STORE_GATE, progress);
+}
+
+// ---------------------------------------------------------------------------
+// In-progress quiz answers (autosave)
+// ---------------------------------------------------------------------------
+
+export async function getQuizProgress(quizId: string): Promise<QuizProgress | undefined> {
+  const db = await getDb();
+  return db.get(STORE_QUIZ_PROGRESS, quizId);
+}
+
+export async function saveQuizProgress(progress: QuizProgress): Promise<void> {
+  const db = await getDb();
+  await db.put(STORE_QUIZ_PROGRESS, progress);
+}
+
+export async function clearQuizProgress(quizId: string): Promise<void> {
+  const db = await getDb();
+  await db.delete(STORE_QUIZ_PROGRESS, quizId);
 }
 
 export async function patchGateProgress(
