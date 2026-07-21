@@ -25,19 +25,21 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
   const q = normalizeQuestion(question);
   const meta = TYPE_META[q.type] || TYPE_META.mcq;
 
-  const options = q.options ?? [];
-  const pairs = q.pairs ?? [];
-  const items = q.items ?? [];
-  const choices = q.choices ?? [];
-  const cards = q.cards ?? [];
-  const blanks = q.blanks ?? [];
-  const distractors = q.distractors ?? [];
-  const words = q.words ?? [];
-  const answer = q.answer ?? '';
+  // Many question fields are variant-specific (union). Cast to any for safe access
+  const options = (q as any).options ?? [] as string[];
+  const pairs = (q as any).pairs ?? [] as any[];
+  const items = (q as any).items ?? [] as string[];
+  const choices = (q as any).choices ?? [] as any[];
+  const cards = (q as any).cards ?? [] as any[];
+  const blanks = (q as any).blanks ?? [] as string[];
+  const distractors = (q as any).distractors ?? [] as string[];
+  const words = (q as any).words ?? [] as string[];
+  const answer = (q as any).answer ?? '';
   const correctText = (q as any).correctText ?? '';
-  const textTemplate = q.textTemplate ?? '';
-  const leftLabel = q.leftLabel ?? 'Left';
-  const rightLabel = q.rightLabel ?? 'Right';
+  const textTemplate = (q as any).textTemplate ?? '';
+  const leftLabel = (q as any).leftLabel ?? 'Left';
+  const rightLabel = (q as any).rightLabel ?? 'Right';
+  const correctIndex = (q as any).correctIndex ?? -1;
 
   return (
     <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
@@ -52,11 +54,11 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
 
       {q.type === 'mcq' && (
         <div className="space-y-2">
-          {options.map((opt, oIdx) => (
+          {options.map((opt: string, oIdx: number) => (
             <div
               key={oIdx}
               className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
-                oIdx === q.correctIndex
+                oIdx === correctIndex
                   ? 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300'
                   : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'
               }`}
@@ -64,10 +66,10 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
               <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-xs flex-shrink-0 ${
                 oIdx === q.correctIndex ? 'border-green-500 bg-green-500 text-white' : 'border-[var(--color-border-default)]'
               }`}>
-                {oIdx === q.correctIndex ? '✓' : String.fromCharCode(65 + oIdx)}
+                {oIdx === correctIndex ? '✓' : String.fromCharCode(65 + oIdx)}
               </span>
               <span>{opt}</span>
-              {oIdx === q.correctIndex && <span className="ml-auto text-xs text-green-600 dark:text-green-400 font-semibold">Correct</span>}
+              {oIdx === correctIndex && <span className="ml-auto text-xs text-green-600 dark:text-green-400 font-semibold">Correct</span>}
             </div>
           ))}
         </div>
@@ -94,7 +96,7 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
 
       {q.type === 'matching' && (
         <div className="space-y-2">
-          {pairs.map((pair, pIdx) => (
+          {pairs.map((pair: any, pIdx: number) => (
             <div key={pIdx} className="flex items-center gap-2 text-sm">
               <span className="flex-1 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/20 px-3 py-2 text-purple-700 dark:text-purple-300 font-medium truncate">
                 {pair.left}
@@ -110,7 +112,7 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
 
       {q.type === 'ordering' && (
         <ol className="space-y-2">
-          {items.map((item, iIdx) => (
+          {items.map((item: string, iIdx: number) => (
             <li key={iIdx} className="flex items-center gap-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
               <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-amber-500 text-white text-xs font-bold">
                 {iIdx + 1}
@@ -123,7 +125,7 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
 
       {q.type === 'picture_choice' && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {choices.map((choice, cIdx) => (
+          {choices.map((choice: any, cIdx: number) => (
             <div
               key={cIdx}
               className={`relative rounded-lg border-2 overflow-hidden ${
@@ -154,7 +156,7 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
             <span>⬅ {leftLabel}</span>
             <span>{rightLabel} ➡</span>
           </div>
-          {cards.map((card, cIdx) => (
+          {cards.map((card: any, cIdx: number) => (
             <div
               key={cIdx}
               className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
@@ -185,7 +187,7 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
       {q.type === 'fill_blank' && (
         <div className="space-y-2">
           <p className="rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/20 px-3 py-2 text-sm text-teal-800 dark:text-teal-200 leading-relaxed">
-            {textTemplate.split('___').map((part, i) => (
+            {textTemplate.split('___').map((part: string, i: number) => (
               <span key={i}>
                 {part}
                 {i < blanks.length && (
@@ -196,7 +198,7 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
           </p>
           {distractors.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {[...blanks, ...distractors].map((word, wIdx) => (
+              {[...blanks, ...distractors].map((word: string, wIdx: number) => (
                 <span key={wIdx} className="rounded-full border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">
                   {word}
                 </span>
@@ -220,7 +222,7 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
       {q.type === 'sentence_build' && (
         <div className="space-y-2">
           <ol className="flex flex-wrap gap-1.5">
-            {words.map((word, wIdx) => (
+            {words.map((word: string, wIdx: number) => (
               <li key={wIdx} className="flex items-center gap-1 rounded-full border border-lime-300 dark:border-lime-800 bg-lime-50 dark:bg-lime-950/20 px-2.5 py-1 text-xs font-medium text-lime-700 dark:text-lime-300">
                 <span className="flex h-4 w-4 items-center justify-center rounded-full bg-lime-500 text-white text-[9px] font-bold">{wIdx + 1}</span>
                 {word}
@@ -229,7 +231,7 @@ export function QuestionPreview({ question, index }: { question: QuizQuestion; i
           </ol>
           {distractors.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {distractors.map((word, dIdx) => (
+              {distractors.map((word: string, dIdx: number) => (
                 <span key={dIdx} className="rounded-full border border-dashed border-[var(--color-border-default)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)]">
                   {word}
                 </span>
