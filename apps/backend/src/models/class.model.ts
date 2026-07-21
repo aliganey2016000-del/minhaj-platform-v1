@@ -2,9 +2,11 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IClass extends Document {
   school: mongoose.Types.ObjectId;
+  department: mongoose.Types.ObjectId;
   title: string;
   section: string;
   room: string;
+  shiftMode: 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
   course?: mongoose.Types.ObjectId;
   dayOfWeek?: number;
   startTime?: string;
@@ -19,9 +21,11 @@ export interface IClass extends Document {
 const classSchema = new Schema<IClass>(
   {
     school: { type: Schema.Types.ObjectId, ref: 'School', required: true, index: true },
+    department: { type: Schema.Types.ObjectId, ref: 'Department', required: true, index: true },
     title: { type: String, required: true, trim: true, maxlength: 200 },
     section: { type: String, required: true, trim: true, maxlength: 10 },
     room: { type: String, required: true, trim: true, maxlength: 50 },
+    shiftMode: { type: String, enum: ['Morning', 'Afternoon', 'Evening', 'Virtual'], default: 'Morning' },
     course: { type: Schema.Types.ObjectId, ref: 'Course', default: null, index: true },
     dayOfWeek: { type: Number, min: 0, max: 6, default: null },
     startTime: { type: String, match: /^([01]\d|2[0-3]):([0-5]\d)$/, default: null },

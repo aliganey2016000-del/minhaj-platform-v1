@@ -1,5 +1,10 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
+import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
 import ClassModel from '../models/class.model';
+import Department from '../models/department.model';
+import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
@@ -35,6 +40,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
       .populate('school', 'name')
       .populate('course', 'title.en slug category')
       .populate('teacher', 'teacherId')
+      .populate('department', 'name code')
       .sort({ createdAt: -1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
@@ -42,15 +48,22 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     ClassModel.countDocuments(scopedFilter),
   ]);
 
-  let result = classes;
+  const normalizedClasses = (classes as any[]).map((c: any) => ({
+    ...c,
+    department: typeof c.department === 'string' ? c.department : c.department?.name || '',
+    departmentId: typeof c.department === 'object' && c.department?._id ? c.department._id.toString() : undefined,
+  }));
+
+  let result = normalizedClasses;
   if (search) {
     const s = (search as string).toLowerCase();
-    result = classes.filter((c: any) => {
+    result = normalizedClasses.filter((c: any) => {
       const title = (c.title || '').toLowerCase();
       const room = (c.room || '').toLowerCase();
       const section = (c.section || '').toLowerCase();
       const schoolName = (c.school?.name || '').toLowerCase();
-      return title.includes(s) || room.includes(s) || section.includes(s) || schoolName.includes(s);
+      const department = (c.department || '').toLowerCase();
+      return title.includes(s) || room.includes(s) || section.includes(s) || schoolName.includes(s) || department.includes(s);
     });
   }
 
@@ -75,9 +88,15 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     .populate('school', 'name')
     .populate('course', 'title.en slug category')
     .populate('teacher', 'teacherId')
+    .populate('department', 'name code')
     .lean();
 
-  return ApiResponse.created(res, populated, 'Class created successfully');
+  const response = {
+    ...populated,
+    department: typeof (populated as any)?.department === 'string' ? (populated as any).department : (populated as any)?.department?.name || '',
+    departmentId: typeof (populated as any)?.department === 'object' && (populated as any).department?._id ? (populated as any).department._id.toString() : undefined,
+  };
+  return ApiResponse.created(res, response, 'Class created successfully');
 };
 
 // ---------------------------------------------------------------------------
@@ -100,10 +119,16 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     .populate('school', 'name')
     .populate('course', 'title.en slug category')
     .populate('teacher', 'teacherId')
+    .populate('department', 'name code')
     .lean();
 
   if (!cls) throw new NotFoundError('Class');
-  return ApiResponse.success(res, cls, 'Class updated successfully');
+  const response = {
+    ...cls,
+    department: typeof (cls as any).department === 'string' ? (cls as any).department : (cls as any)?.department?.name || '',
+    departmentId: typeof (cls as any).department === 'object' && (cls as any).department?._id ? (cls as any).department._id.toString() : undefined,
+  };
+  return ApiResponse.success(res, response, 'Class updated successfully');
 };
 
 // ---------------------------------------------------------------------------
@@ -163,4 +188,209 @@ export const getSchedule = async (req: Request, res: Response): Promise<Response
   }));
 
   return ApiResponse.success(res, schedule);
+};
+
+// ---------------------------------------------------------------------------
+// GET /classes/export — Export all classes as formatted XLSX
+// ---------------------------------------------------------------------------
+
+export const exportClasses = async (req: Request, res: Response): Promise<void> => {
+  const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
+
+  const classes = await ClassModel.find(filter)
+    .populate('school', 'name')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Classes');
+
+  const headers = ['Class Name', 'Section', 'Organization', 'Department', 'Room', 'Shift / Learning Mode'];
+  const headerRow = sheet.addRow(headers);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height = 24;
+
+  classes.forEach((c: any, idx: number) => {
+    const departmentValue = typeof c.department === 'string' ? c.department : c.department?.name || '';
+    const row = sheet.addRow([
+      c.title || '', c.section || '', c.school?.name || '', departmentValue || 'Primary', c.room || '', c.shiftMode || 'Morning',
+    ]);
+    if (idx % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+    row.alignment = { vertical: 'middle' };
+  });
+
+  sheet.columns = headers.map((header, colIdx) => {
+    let maxLen = header.length;
+    sheet.eachRow({ includeEmpty: false }, (_row, rowNumber) => {
+      if (rowNumber > 1) {
+        const cellVal = _row.getCell(colIdx + 1).value?.toString() || '';
+        maxLen = Math.max(maxLen, cellVal.length);
+      }
+    });
+    return { header, key: header.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(maxLen + 4, 50) };
+  });
+
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=classes-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  await workbook.xlsx.write(res);
+  res.end();
+};
+
+// ---------------------------------------------------------------------------
+// GET /classes/template — Download empty structured template (XLSX)
+// ---------------------------------------------------------------------------
+
+export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Class Template');
+
+  const headers = ['Class Name', 'Section', 'Department', 'Room', 'Shift / Learning Mode'];
+  const headerRow = sheet.addRow(headers);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height = 24;
+
+  const sample = sheet.addRow(['Grade 3', 'A', 'Primary', 'Room 5', 'Morning']);
+  sample.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+  sample.alignment = { vertical: 'middle' };
+
+  sheet.columns = headers.map((h) => ({
+    header: h, key: h.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(h.length + 8, 28),
+  }));
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=classes-template.xlsx');
+  await workbook.xlsx.write(res);
+  res.end();
+};
+
+// ---------------------------------------------------------------------------
+// Helpers for import
+// ---------------------------------------------------------------------------
+
+function getField(row: Record<string, any>, ...names: string[]): unknown {
+  const keys = Object.keys(row);
+  for (const name of names) {
+    const key = keys.find((k) => k.trim().toLowerCase() === name.toLowerCase());
+    if (key !== undefined) return row[key];
+  }
+  return undefined;
+}
+
+function esc(val: string): string {
+  return val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const VALID_SHIFT_MODES = ['Morning', 'Afternoon', 'Evening', 'Virtual'];
+
+// ---------------------------------------------------------------------------
+// POST /classes/import — Transactional bulk import
+// ---------------------------------------------------------------------------
+
+export const bulkImport = async (req: Request, res: Response): Promise<Response> => {
+  if (!req.file) throw new BadRequestError('An Excel file is required (field name "file")');
+
+  const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new BadRequestError('The uploaded file has no sheets');
+
+  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], { defval: '' });
+  if (rows.length === 0) throw new BadRequestError('The uploaded file has no data rows');
+
+  const ownOrgId = resolveOrgIdForCreate(req) as string | undefined;
+  const isOrgAdmin = req.user?.role === 'org_admin';
+
+  const errors: { row: number; message: string }[] = [];
+  const documents: any[] = [];
+
+  // In-memory cache for resolved department IDs during this import batch
+  const deptCache = new Map<string, mongoose.Types.ObjectId>();
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 2;
+    const row = rows[i];
+
+    try {
+      const className = String(getField(row, 'Class Name', 'Class') ?? '').trim();
+      const section = String(getField(row, 'Section') ?? '').trim();
+      const room = String(getField(row, 'Room') ?? '').trim();
+      const departmentRaw = String(getField(row, 'Department') ?? '').trim();
+      const shiftRaw = String(getField(row, 'Shift / Learning Mode', 'Shift Mode', 'Shift') ?? 'Morning').trim();
+
+      if (!className) throw new Error('Class Name is required');
+      if (!section) throw new Error('Section is required');
+      if (!room) throw new Error('Room is required');
+      if (!departmentRaw) throw new Error('Department is required');
+
+      const shiftMode = VALID_SHIFT_MODES.includes(shiftRaw) ? shiftRaw : 'Morning';
+
+      let schoolId: string | undefined = ownOrgId;
+      if (!schoolId) {
+        const schoolName = String(getField(row, 'School', 'Organization') ?? '').trim();
+        if (!schoolName) throw new Error('School is required for super admin');
+        const school = await School.findOne({ name: new RegExp(`^${esc(schoolName)}$`, 'i') }).lean();
+        if (!school) throw new Error(`School "${schoolName}" not found`);
+        schoolId = school._id.toString();
+      }
+
+      // Auto-provision department: case-insensitive lookup, upsert if missing.
+      const cacheKey = `${schoolId}::${departmentRaw.toLowerCase()}`;
+      let deptId = deptCache.get(cacheKey);
+      if (!deptId) {
+        const dept = await Department.findOneAndUpdate(
+          { tenantId: new mongoose.Types.ObjectId(schoolId), name: new RegExp(`^${esc(departmentRaw)}$`, 'i') },
+          { $setOnInsert: { name: departmentRaw, tenantId: new mongoose.Types.ObjectId(schoolId) } },
+          { upsert: true, new: true, lean: true },
+        );
+        if (!dept) throw new Error(`Failed to resolve or create department "${departmentRaw}"`);
+        deptId = dept._id;
+        deptCache.set(cacheKey, deptId);
+      }
+
+      documents.push({
+        school: new mongoose.Types.ObjectId(schoolId),
+        department: deptId,
+        title: className,
+        section,
+        room,
+        shiftMode,
+        status: 'active',
+      });
+    } catch (err: any) {
+      errors.push({ row: rowNum, message: err.message || 'Unknown error' });
+    }
+  }
+
+  let inserted = 0;
+  if (documents.length > 0) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const result = await ClassModel.insertMany(documents, { session, ordered: false });
+        inserted = result.length;
+      });
+    } catch (txErr: any) {
+      if (txErr.insertedDocs) inserted = txErr.insertedDocs.length;
+      if (txErr.writeErrors) {
+        txErr.writeErrors.forEach((we: any) => {
+          errors.push({ row: we.index + 2, message: we.errmsg || 'Insert error' });
+        });
+      }
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  return ApiResponse.success(res, {
+    totalRows: rows.length,
+    created: inserted,
+    failed: errors.length,
+    errors,
+  }, `Imported ${inserted} of ${rows.length} classes`);
 };
