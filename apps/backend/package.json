@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "nodemon --ext ts,json --exec ts-node src/server.ts",
-    "build": "npm ci --include=dev && tsc",
+    "build": "npm config set cache /tmp/.npm-cache && npm install --include=dev --cache /tmp/.npm-cache && tsc",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts"
   },
