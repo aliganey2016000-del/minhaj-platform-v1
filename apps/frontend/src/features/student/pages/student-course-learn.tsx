@@ -758,6 +758,7 @@ export function StudentCourseLearn() {
                 {currentItem.item.type === 'quiz' && (
                   <QuizView
                     quiz={currentItem.item as QuizItem}
+                    courseId={courseId!}
                     onComplete={(result) => { setQuizFinished(true); setQuizResult(result); }}
                   />
                 )}
@@ -949,48 +950,63 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
 // ===========================================================================
 // Quiz View — gamified single-question step-by-step for children
 // ===========================================================================
-function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: { correctCount: number; total: number }) => void }) {
+function QuizView({ quiz, courseId, onComplete }: { quiz: QuizItem; courseId: string; onComplete?: (result: { correctCount: number; total: number }) => void }) {
   const [currentQ, setCurrentQ] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<any>(null);
   const [checked, setChecked] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState('');
+  // The real correct/incorrect verdict + explanation, from the server — the
+  // client never has the answer key (stripQuizSecrets removes it), so this
+  // can't be computed locally like it used to be before that strip existed.
+  const [checkResult, setCheckResult] = useState<{ correct: boolean; explanation?: string } | null>(null);
   const [results, setResults] = useState<boolean[]>([]); // track correct/incorrect per question
   const [finished, setFinished] = useState(false);
 
   const total = quiz.questions.length;
   const q = quiz.questions[currentQ];
-  const isCorrect = checked && q
-    ? q.type === 'mcq'
-      ? selectedAnswer === q.correctIndex
-      : q.type === 'true_false'
-        ? selectedAnswer === q.correctAnswer
-        : null
-    : null;
+  const isCorrect = checked ? checkResult?.correct ?? false : null;
 
   const correctCount = results.filter(Boolean).length;
   const percent = total > 0 ? Math.round((correctCount / total) * 100) : 0;
 
   const celebratoryMessages = ['🎉 Excellent!', '🌟 Great Job!', '💪 Well Done!', '🏆 Amazing!', '👏 Fantastic!', '⭐ Super Star!'];
 
-  const handleCheck = () => {
-    if (selectedAnswer === null || selectedAnswer === undefined) return;
-    const correct = q.type === 'mcq'
-      ? selectedAnswer === q.correctIndex
-      : q.type === 'true_false'
-        ? selectedAnswer === q.correctAnswer
-        : true;
-    setResults((prev) => [...prev, correct]);
-    setChecked(true);
-
-    if (correct) {
-      // Fire confetti
-      import('canvas-confetti').then((confetti) => {
-        confetti.default({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ['#22c55e', '#10b981', '#f59e0b', '#3b82f6'],
-        });
+  // Grades against POST /quizzes/check — the same server-side evaluateQuestion
+  // used by the real graded quiz flow, but without recording an attempt or
+  // awarding XP (this inline "learn" page view is practice-only). Sending
+  // only this one question's answer keeps the rest of the quiz's answer key
+  // unexposed for the remaining questions in the attempt.
+  const handleCheck = async () => {
+    if (selectedAnswer === null || selectedAnswer === undefined || checking) return;
+    setChecking(true);
+    setCheckError('');
+    try {
+      const { data } = await api.post('/quizzes/check', {
+        courseId,
+        quizId: quiz._id,
+        answers: [{ questionId: q._id, answer: selectedAnswer }],
       });
+      const graded = data.data?.answers?.find((a: any) => a.questionId === q._id);
+      const correct = !!graded?.correct;
+      setCheckResult({ correct, explanation: graded?.explanation });
+      setResults((prev) => [...prev, correct]);
+      setChecked(true);
+
+      if (correct) {
+        import('canvas-confetti').then((confetti) => {
+          confetti.default({
+            particleCount: 100,
+            spread: 70,
+            origin: { y: 0.6 },
+            colors: ['#22c55e', '#10b981', '#f59e0b', '#3b82f6'],
+          });
+        });
+      }
+    } catch (err: any) {
+      setCheckError(err.response?.data?.message || 'Could not check your answer. Please try again.');
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -999,6 +1015,7 @@ function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: 
       setCurrentQ((prev) => prev + 1);
       setSelectedAnswer(null);
       setChecked(false);
+      setCheckResult(null);
     } else {
       setFinished(true);
       onComplete?.({ correctCount: results.filter(Boolean).length, total });
@@ -1009,6 +1026,7 @@ function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: 
     setCurrentQ(0);
     setSelectedAnswer(null);
     setChecked(false);
+    setCheckResult(null);
     setResults([]);
     setFinished(false);
   };
@@ -1086,41 +1104,44 @@ function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: 
           </h3>
         </div>
 
-        {/* ── MCQ Options ── */}
+        {/* ── MCQ Options — graded by option TEXT server-side (see
+            /quizzes/check's evaluateQuestion), not index, since options
+            arrive in a server-shuffled order. `correctIndex` is stripped
+            for students, so only the option the student picked can be
+            colored after checking — not "which one was actually right". ── */}
         {q.type === 'mcq' && (
           <div className="space-y-2.5">
             {q.options.map((opt, oIdx) => {
+              const isSelected = selectedAnswer === opt;
               let style = 'border-2 border-[var(--color-border-default)] text-[var(--color-text-secondary)]';
               let icon: string | null = null;
-              if (checked) {
-                if (oIdx === q.correctIndex) style = 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300';
-                else if (oIdx === selectedAnswer && oIdx !== q.correctIndex) style = 'border-red-400 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300';
-                if (oIdx === q.correctIndex) icon = '✓';
-                else if (oIdx === selectedAnswer && oIdx !== q.correctIndex) icon = '✗';
+              if (checked && isSelected) {
+                style = isCorrect
+                  ? 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300'
+                  : 'border-red-400 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300';
+                icon = isCorrect ? '✓' : '✗';
               }
               return (
                 <button
                   key={oIdx}
                   type="button"
                   disabled={checked}
-                  onClick={() => setSelectedAnswer(oIdx)}
+                  onClick={() => setSelectedAnswer(opt)}
                   className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-sm font-semibold text-left transition-all duration-200 ${style} ${
                     !checked ? 'hover:bg-[var(--color-surface-secondary)] hover:border-primary-300 active:scale-[0.98]' : ''
-                  } ${selectedAnswer === oIdx && !checked ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-950/20 border-primary-400' : ''}`}
+                  } ${isSelected && !checked ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-950/20 border-primary-400' : ''}`}
                 >
                   <span className={`w-7 h-7 rounded-xl border-2 flex items-center justify-center text-sm flex-shrink-0 font-bold ${
-                    checked && oIdx === q.correctIndex
-                      ? 'border-green-500 bg-green-500 text-white'
-                      : checked && oIdx === selectedAnswer && oIdx !== q.correctIndex
-                        ? 'border-red-500 bg-red-500 text-white'
-                        : selectedAnswer === oIdx && !checked
-                          ? 'border-primary-500 bg-primary-500 text-white'
-                          : 'border-[var(--color-border-default)]'
+                    checked && isSelected
+                      ? isCorrect ? 'border-green-500 bg-green-500 text-white' : 'border-red-500 bg-red-500 text-white'
+                      : isSelected && !checked
+                        ? 'border-primary-500 bg-primary-500 text-white'
+                        : 'border-[var(--color-border-default)]'
                   }`}>
                     {icon || String.fromCharCode(65 + oIdx)}
                   </span>
                   <span className="flex-1">{opt}</span>
-                  {checked && oIdx === q.correctIndex && (
+                  {checked && isSelected && isCorrect && (
                     <span className="text-xs font-bold text-green-600 dark:text-green-400 flex-shrink-0">Correct!</span>
                   )}
                 </button>
@@ -1129,14 +1150,17 @@ function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: 
           </div>
         )}
 
-        {/* ── True/False ── */}
+        {/* ── True/False — `correctAnswer` is stripped for students too, so
+            (like MCQ above) only the selected option can be colored. ── */}
         {q.type === 'true_false' && (
           <div className="grid grid-cols-2 gap-3">
             {[true, false].map((val) => {
+              const isSelected = selectedAnswer === val;
               let style = 'border-2 border-[var(--color-border-default)] text-[var(--color-text-secondary)]';
-              if (checked) {
-                if (val === q.correctAnswer) style = 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300';
-                else if (val === selectedAnswer && val !== q.correctAnswer) style = 'border-red-400 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300';
+              if (checked && isSelected) {
+                style = isCorrect
+                  ? 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300'
+                  : 'border-red-400 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-300';
               }
               return (
                 <button
@@ -1146,7 +1170,7 @@ function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: 
                   onClick={() => setSelectedAnswer(val)}
                   className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-4 text-base font-extrabold transition-all duration-200 ${style} ${
                     !checked ? 'hover:bg-[var(--color-surface-secondary)] hover:border-primary-300 active:scale-[0.98]' : ''
-                  } ${selectedAnswer === val && !checked ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-950/20 border-primary-400' : ''}`}
+                  } ${isSelected && !checked ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-950/20 border-primary-400' : ''}`}
                 >
                   <span className="text-2xl">{val ? '✅' : '❌'}</span>
                   {val ? 'True' : 'False'}
@@ -1156,8 +1180,95 @@ function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: 
           </div>
         )}
 
-        {/* ── Other types — read-only preview ── */}
-        {q.type !== 'mcq' && q.type !== 'true_false' && (
+        {/* ── Interactive answer areas for the remaining 8 types. The backend
+            strips every answer-revealing field for students (`pairs`,
+            `correctIndex`, `blanks`, `answer`, etc. — see
+            course-content.controller.ts's stripQuizSecrets) and ships a
+            practice-only shape instead (`leftItems`/`rightItems`,
+            `wordBank`, `scrambledLetters`...). The old fallback to
+            QuestionPreview (an answer-revealing "review" component) had
+            nothing left to show once those fields were stripped, so
+            "Check Answer" could never be enabled for any of these types.
+            None of these are graded here — like mcq/true_false's local
+            check, this inline practice view isn't the securely-graded
+            flow (that's /courses/:id/quiz/:quizId/take); it just needs
+            *some* interaction to enable the Check button. ── */}
+        {q.type === 'matching' && (
+          <MatchingPairsAnswer
+            key={currentQ}
+            leftItems={(q as any).leftItems || []}
+            rightItems={(q as any).rightItems || []}
+            checked={checked}
+            onChange={(val) => setSelectedAnswer(val)}
+          />
+        )}
+        {q.type === 'ordering' && (
+          <OrderingAnswer
+            key={currentQ}
+            items={(q as any).items || []}
+            checked={checked}
+            onChange={(val) => setSelectedAnswer(val)}
+          />
+        )}
+        {q.type === 'picture_choice' && (
+          <PictureChoiceAnswer
+            key={currentQ}
+            choices={(q as any).choices || []}
+            checked={checked}
+            onChange={(val) => setSelectedAnswer(val)}
+          />
+        )}
+        {q.type === 'fill_blank' && (
+          <FillBlankAnswer
+            key={currentQ}
+            textTemplate={(q as any).textTemplate || ''}
+            wordBank={(q as any).wordBank || []}
+            checked={checked}
+            onChange={(val) => setSelectedAnswer(val)}
+          />
+        )}
+        {q.type === 'word_scramble' && (
+          <WordScrambleAnswer
+            key={currentQ}
+            scrambledLetters={(q as any).scrambledLetters || []}
+            hint={(q as any).hint}
+            checked={checked}
+            onChange={(val) => setSelectedAnswer(val)}
+          />
+        )}
+        {q.type === 'sentence_build' && (
+          <SentenceBuildAnswer
+            key={currentQ}
+            wordBank={(q as any).wordBank || []}
+            checked={checked}
+            onChange={(val) => setSelectedAnswer(val)}
+          />
+        )}
+        {q.type === 'swipe_sort' && (
+          <SwipeSortAnswer
+            key={currentQ}
+            cards={(q as any).cards || []}
+            leftLabel={(q as any).leftLabel || 'Left'}
+            rightLabel={(q as any).rightLabel || 'Right'}
+            checked={checked}
+            onChange={(val) => setSelectedAnswer(val)}
+          />
+        )}
+        {q.type === 'listen_write' && (
+          <ListenWriteAnswer
+            key={currentQ}
+            audioUrl={(q as any).audioUrl || ''}
+            hint={(q as any).hint}
+            checked={checked}
+            onChange={(val) => setSelectedAnswer(val)}
+          />
+        )}
+
+        {/* ── Fallback for any unrecognized type — read-only preview ── */}
+        {![
+          'mcq', 'true_false', 'matching', 'ordering', 'picture_choice',
+          'fill_blank', 'word_scramble', 'sentence_build', 'swipe_sort', 'listen_write',
+        ].includes(q.type) && (
           <QuestionPreview question={q} index={currentQ} />
         )}
 
@@ -1179,19 +1290,27 @@ function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: 
             ) : (
               <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/20 border-2 border-amber-300 dark:border-amber-700 p-4 text-center">
                 <p className="text-2xl mb-1">🤔</p>
-                <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">Not quite! Review the correct answer below.</p>
+                <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">Not quite! Keep practicing.</p>
               </div>
             )}
 
-            {/* Explanation after check */}
-            {q.explanation && (
+            {/* Explanation after check — from the server's per-answer grading
+                response, not `q.explanation` (stripped from the client's own
+                copy of the question for students). */}
+            {checkResult?.explanation && (
               <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
                 <p className="text-sm text-blue-700 dark:text-blue-300">
-                  <span className="font-extrabold">💡 Explanation:</span> {q.explanation}
+                  <span className="font-extrabold">💡 Explanation:</span> {checkResult.explanation}
                 </p>
               </div>
             )}
           </motion.div>
+        )}
+
+        {checkError && (
+          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800 px-4 py-2.5 text-xs font-medium text-red-600 dark:text-red-400 text-center">
+            {checkError}
+          </div>
         )}
       </div>
 
@@ -1201,13 +1320,17 @@ function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: 
           <button
             type="button"
             onClick={handleCheck}
-            disabled={selectedAnswer === null || selectedAnswer === undefined}
+            disabled={selectedAnswer === null || selectedAnswer === undefined || checking}
             className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed px-6 py-4 text-base font-extrabold text-white shadow-lg shadow-indigo-500/25 hover:shadow-indigo-600/30 disabled:shadow-none transition-all duration-300 active:scale-[0.98]"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Check Answer
+            {checking ? (
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            ) : (
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+            {checking ? 'Checking...' : 'Check Answer'}
           </button>
         ) : (
           <button
@@ -1223,6 +1346,509 @@ function QuizView({ quiz, onComplete }: { quiz: QuizItem; onComplete?: (result: 
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Matching Pairs — interactive answer for QuizView
+// ===========================================================================
+function MatchingPairsAnswer({
+  leftItems, rightItems, checked, onChange,
+}: {
+  leftItems: string[];
+  rightItems: string[];
+  checked: boolean;
+  onChange: (pairs: { left: string; right: string }[] | null) => void;
+}) {
+  const [assigned, setAssigned] = useState<{ left: string; right: string }[]>([]);
+  const availableRight = rightItems.filter((r) => !assigned.some((a) => a.right === r));
+
+  const report = (next: { left: string; right: string }[]) =>
+    onChange(next.length === leftItems.length ? next : null);
+
+  const assign = (left: string, right: string) => {
+    const next = [...assigned.filter((a) => a.left !== left), { left, right }];
+    setAssigned(next);
+    report(next);
+  };
+  const unassign = (left: string) => {
+    const next = assigned.filter((a) => a.left !== left);
+    setAssigned(next);
+    report(next);
+  };
+  const getAssigned = (left: string) => assigned.find((a) => a.left === left)?.right || null;
+
+  return (
+    <div className="space-y-3">
+      {leftItems.map((left, idx) => {
+        const right = getAssigned(left);
+        return (
+          <div key={idx} className="flex items-center gap-3">
+            <div className="flex-1 rounded-xl border-2 border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/20 px-4 py-3 text-sm font-semibold text-purple-700 dark:text-purple-300">
+              {left}
+            </div>
+            <span className="text-[var(--color-text-tertiary)] flex-shrink-0">↔</span>
+            <div className="flex-1">
+              {right ? (
+                <button
+                  type="button"
+                  disabled={checked}
+                  onClick={() => unassign(left)}
+                  className="w-full rounded-xl border-2 border-primary-400 bg-primary-50 dark:bg-primary-950/20 px-4 py-3 text-sm font-semibold text-primary-700 dark:text-primary-300 disabled:opacity-70 transition-colors"
+                >
+                  {right}{!checked && ' ✕'}
+                </button>
+              ) : (
+                <select
+                  disabled={checked}
+                  value=""
+                  onChange={(e) => { if (e.target.value) assign(left, e.target.value); }}
+                  className="w-full rounded-xl border-2 border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-3 text-sm font-medium text-[var(--color-text-primary)] disabled:opacity-60 cursor-pointer"
+                >
+                  <option value="">Select a match...</option>
+                  {availableRight.map((r, ri) => <option key={ri} value={r}>{r}</option>)}
+                </select>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Ordering — interactive answer for QuizView
+// ===========================================================================
+function OrderingAnswer({
+  items, checked, onChange,
+}: {
+  items: string[]; checked: boolean; onChange: (order: string[] | null) => void;
+}) {
+  const [order, setOrder] = useState<string[]>(items);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+
+  // The server-shuffled order already counts as a complete (if possibly
+  // wrong) answer the moment it's shown — report it once up front so a
+  // student who never reorders anything still has "Check Answer" enabled.
+  useEffect(() => {
+    onChange(items.length > 0 ? items : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const reorder = (next: string[]) => {
+    setOrder(next);
+    onChange(next);
+  };
+
+  const moveUp = (idx: number) => {
+    if (idx === 0) return;
+    const next = [...order];
+    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+    reorder(next);
+  };
+  const moveDown = (idx: number) => {
+    if (idx === order.length - 1) return;
+    const next = [...order];
+    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+    reorder(next);
+  };
+  const handleDrop = (targetIdx: number) => {
+    if (dragIdx === null || dragIdx === targetIdx) return;
+    const next = [...order];
+    const [moved] = next.splice(dragIdx, 1);
+    next.splice(targetIdx, 0, moved);
+    reorder(next);
+    setDragIdx(null);
+  };
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-[var(--color-text-tertiary)] mb-2 text-center">Arrange in the correct order</p>
+      {order.map((item, idx) => (
+        <div
+          key={item}
+          draggable={!checked}
+          onDragStart={() => setDragIdx(idx)}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={() => handleDrop(idx)}
+          onDragEnd={() => setDragIdx(null)}
+          className="flex items-center gap-3"
+        >
+          <span className="cursor-grab flex-shrink-0 w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 flex items-center justify-center text-sm font-bold">
+            {idx + 1}
+          </span>
+          <div className="flex-1 rounded-xl border-2 border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-3 text-sm font-medium text-[var(--color-text-primary)]">
+            {item}
+          </div>
+          <div className="flex flex-col gap-1">
+            <button type="button" disabled={checked} onClick={() => moveUp(idx)} className="w-7 h-7 rounded-lg bg-[var(--color-surface-tertiary)] hover:bg-amber-100 dark:hover:bg-amber-900/30 text-[var(--color-text-secondary)] flex items-center justify-center text-xs disabled:opacity-30 transition-colors">▲</button>
+            <button type="button" disabled={checked} onClick={() => moveDown(idx)} className="w-7 h-7 rounded-lg bg-[var(--color-surface-tertiary)] hover:bg-amber-100 dark:hover:bg-amber-900/30 text-[var(--color-text-secondary)] flex items-center justify-center text-xs disabled:opacity-30 transition-colors">▼</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Picture Choice — interactive answer for QuizView
+// ===========================================================================
+function PictureChoiceAnswer({
+  choices, checked, onChange,
+}: {
+  choices: { image: string; label?: string }[]; checked: boolean; onChange: (image: string) => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const pick = (image: string) => {
+    setSelected(image);
+    onChange(image);
+  };
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      {choices.map((c, idx) => (
+        <button
+          key={idx}
+          type="button"
+          disabled={checked}
+          onClick={() => pick(c.image)}
+          className={`relative rounded-xl border-2 overflow-hidden transition-all ${
+            selected === c.image ? 'border-primary-500 shadow-md shadow-primary-500/20' : 'border-[var(--color-border-default)] hover:border-primary-300'
+          } disabled:cursor-not-allowed`}
+        >
+          <div className="aspect-square bg-[var(--color-surface-tertiary)] flex items-center justify-center">
+            {c.image ? <img src={c.image} alt={c.label || `Choice ${idx + 1}`} className="w-full h-full object-cover" /> : <span className="text-3xl opacity-30">🖼️</span>}
+          </div>
+          {c.label && <p className="text-xs text-center py-1.5 text-[var(--color-text-secondary)] truncate px-1">{c.label}</p>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Fill in the Blank — interactive answer for QuizView
+// ===========================================================================
+function FillBlankAnswer({
+  textTemplate, wordBank, checked, onChange,
+}: {
+  textTemplate: string; wordBank: string[]; checked: boolean; onChange: (blanks: string[] | null) => void;
+}) {
+  const segments = textTemplate.split('___');
+  const blankCount = segments.length - 1;
+  const [filled, setFilled] = useState<string[]>(Array(blankCount).fill(''));
+
+  const report = (next: string[]) => onChange(next.every(Boolean) ? next : null);
+
+  const fillNext = (word: string) => {
+    const idx = filled.findIndex((w) => !w);
+    if (idx === -1) return;
+    const next = [...filled];
+    next[idx] = word;
+    setFilled(next);
+    report(next);
+  };
+  const clearBlank = (idx: number) => {
+    const next = [...filled];
+    next[idx] = '';
+    setFilled(next);
+    report(next);
+  };
+
+  const usedCounts: Record<string, number> = {};
+  for (const w of filled) if (w) usedCounts[w] = (usedCounts[w] || 0) + 1;
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border-2 border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-5 py-4 text-sm leading-loose text-[var(--color-text-primary)]">
+        {segments.map((seg, i) => (
+          <span key={i}>
+            {seg}
+            {i < blankCount && (
+              <button
+                type="button"
+                disabled={checked || !filled[i]}
+                onClick={() => clearBlank(i)}
+                className={`inline-flex items-center justify-center min-w-[70px] mx-1 px-2 py-0.5 rounded-lg border-b-2 font-semibold text-sm align-baseline ${
+                  filled[i]
+                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/30 text-primary-700 dark:text-primary-300'
+                    : 'border-dashed border-[var(--color-text-tertiary)] text-[var(--color-text-tertiary)]'
+                }`}
+              >
+                {filled[i] || '_____'}
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2 justify-center">
+        {wordBank.map((word, idx) => {
+          const usedSoFar = wordBank.slice(0, idx).filter((w) => w === word).length;
+          const isUsed = usedSoFar < (usedCounts[word] || 0);
+          return (
+            <button
+              key={idx}
+              type="button"
+              disabled={checked || isUsed}
+              onClick={() => fillNext(word)}
+              className={`rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-all ${
+                isUsed
+                  ? 'opacity-30 cursor-not-allowed border-[var(--color-border-subtle)] text-[var(--color-text-tertiary)]'
+                  : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-950/20'
+              }`}
+            >
+              {word}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Word Scramble — interactive answer for QuizView
+// ===========================================================================
+function WordScrambleAnswer({
+  scrambledLetters, hint, checked, onChange,
+}: {
+  scrambledLetters: string[]; hint?: string; checked: boolean; onChange: (word: string | null) => void;
+}) {
+  const [usedIndices, setUsedIndices] = useState<number[]>([]);
+  const [showHint, setShowHint] = useState(false);
+
+  const report = (next: number[]) =>
+    onChange(next.length === scrambledLetters.length ? next.map((i) => scrambledLetters[i]).join('') : null);
+
+  const pickLetter = (idx: number) => {
+    if (usedIndices.includes(idx)) return;
+    const next = [...usedIndices, idx];
+    setUsedIndices(next);
+    report(next);
+  };
+  const removeAt = (position: number) => {
+    const next = usedIndices.filter((_, i) => i !== position);
+    setUsedIndices(next);
+    report(next);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-center gap-1.5 min-h-[3rem] flex-wrap">
+        {usedIndices.length === 0 && (
+          <span className="text-xs text-[var(--color-text-tertiary)]">Tap the letters below to build the word</span>
+        )}
+        {usedIndices.map((letterIdx, pos) => (
+          <button
+            key={pos}
+            type="button"
+            disabled={checked}
+            onClick={() => removeAt(pos)}
+            className="w-10 h-10 rounded-lg bg-primary-100 dark:bg-primary-900/30 border-2 border-primary-400 text-primary-700 dark:text-primary-300 font-bold text-lg flex items-center justify-center"
+          >
+            {scrambledLetters[letterIdx]}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2 justify-center">
+        {scrambledLetters.map((letter, idx) => (
+          <button
+            key={idx}
+            type="button"
+            disabled={checked || usedIndices.includes(idx)}
+            onClick={() => pickLetter(idx)}
+            className={`w-10 h-10 rounded-lg border-2 font-bold text-lg flex items-center justify-center transition-all ${
+              usedIndices.includes(idx)
+                ? 'opacity-20 cursor-not-allowed border-[var(--color-border-subtle)]'
+                : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] text-[var(--color-text-primary)] hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-950/20'
+            }`}
+          >
+            {letter}
+          </button>
+        ))}
+      </div>
+      {hint && (
+        <div className="text-center">
+          <button type="button" onClick={() => setShowHint((s) => !s)} className="text-xs font-medium text-amber-600 dark:text-amber-400 hover:underline">
+            💡 {showHint ? hint : 'Show hint'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Sentence Builder — interactive answer for QuizView
+// ===========================================================================
+function SentenceBuildAnswer({
+  wordBank, checked, onChange,
+}: {
+  wordBank: string[]; checked: boolean; onChange: (words: string[] | null) => void;
+}) {
+  const [usedIndices, setUsedIndices] = useState<number[]>([]);
+
+  // At least one word placed counts as a complete-enough answer here — this
+  // inline view never grades sentence order locally (see the header comment
+  // on the interactive answer areas above), it just needs an interaction.
+  const report = (next: number[]) => onChange(next.length > 0 ? next.map((i) => wordBank[i]) : null);
+
+  const addWord = (idx: number) => {
+    if (usedIndices.includes(idx)) return;
+    const next = [...usedIndices, idx];
+    setUsedIndices(next);
+    report(next);
+  };
+  const removeAt = (position: number) => {
+    const next = usedIndices.filter((_, i) => i !== position);
+    setUsedIndices(next);
+    report(next);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="min-h-[4rem] rounded-2xl border-2 border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-3 flex flex-wrap gap-2 items-center">
+        {usedIndices.length === 0 && <span className="text-xs text-[var(--color-text-tertiary)]">Tap words below to build the sentence…</span>}
+        {usedIndices.map((wordIdx, pos) => (
+          <button
+            key={pos}
+            type="button"
+            disabled={checked}
+            onClick={() => removeAt(pos)}
+            className="rounded-lg bg-primary-100 dark:bg-primary-900/30 border border-primary-400 px-3 py-1.5 text-sm font-semibold text-primary-700 dark:text-primary-300"
+          >
+            {wordBank[wordIdx]}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2 justify-center">
+        {wordBank.map((word, idx) => (
+          <button
+            key={idx}
+            type="button"
+            disabled={checked || usedIndices.includes(idx)}
+            onClick={() => addWord(idx)}
+            className={`rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-all ${
+              usedIndices.includes(idx)
+                ? 'opacity-30 cursor-not-allowed border-[var(--color-border-subtle)] text-[var(--color-text-tertiary)]'
+                : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-950/20'
+            }`}
+          >
+            {word}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Swipe Sort — interactive answer for QuizView
+// ===========================================================================
+function SwipeSortAnswer({
+  cards, leftLabel, rightLabel, checked, onChange,
+}: {
+  cards: { text: string }[]; leftLabel: string; rightLabel: string; checked: boolean;
+  onChange: (sorted: { text: string; side: 'left' | 'right' }[] | null) => void;
+}) {
+  const [assigned, setAssigned] = useState<{ text: string; side: 'left' | 'right' }[]>([]);
+
+  const getSide = (text: string) => assigned.find((s) => s.text === text)?.side;
+
+  const assign = (text: string, side: 'left' | 'right') => {
+    const next = [...assigned.filter((s) => s.text !== text), { text, side }];
+    setAssigned(next);
+    onChange(next.length === cards.length ? next : null);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3 mb-2 text-center">
+        <div className="rounded-lg bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800 py-1.5 text-xs font-bold text-rose-700 dark:text-rose-300">⬅ {leftLabel}</div>
+        <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 py-1.5 text-xs font-bold text-blue-700 dark:text-blue-300">{rightLabel} ➡</div>
+      </div>
+      {cards.map((card, idx) => {
+        const side = getSide(card.text);
+        return (
+          <div key={idx} className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-2">
+            <button
+              type="button"
+              disabled={checked}
+              onClick={() => assign(card.text, 'left')}
+              className={`px-3 py-2 rounded-lg text-xs font-bold transition-colors ${side === 'left' ? 'bg-rose-500 text-white' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-tertiary)] hover:bg-rose-100 dark:hover:bg-rose-950/30'}`}
+            >
+              ⬅
+            </button>
+            <div className="flex-1 text-sm font-medium text-[var(--color-text-primary)] text-center">{card.text}</div>
+            <button
+              type="button"
+              disabled={checked}
+              onClick={() => assign(card.text, 'right')}
+              className={`px-3 py-2 rounded-lg text-xs font-bold transition-colors ${side === 'right' ? 'bg-blue-500 text-white' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-tertiary)] hover:bg-blue-100 dark:hover:bg-blue-950/30'}`}
+            >
+              ➡
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Listen & Write — interactive answer for QuizView
+// ===========================================================================
+function ListenWriteAnswer({
+  audioUrl, hint, checked, onChange,
+}: {
+  audioUrl: string; hint?: string; checked: boolean; onChange: (val: string | null) => void;
+}) {
+  const [value, setValue] = useState('');
+  const [showHint, setShowHint] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const handleChange = (val: string) => {
+    setValue(val);
+    onChange(val.trim() ? val : null);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border-2 border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-5 flex flex-col items-center gap-3">
+        {audioUrl ? (
+          <>
+            <button
+              type="button"
+              onClick={() => audioRef.current?.play()}
+              className="flex items-center justify-center w-14 h-14 rounded-full bg-primary-600 text-white hover:bg-primary-700 transition-colors shadow-lg"
+              aria-label="Play audio"
+            >
+              ▶
+            </button>
+            <audio ref={audioRef} src={audioUrl} controls className="w-full h-9" />
+          </>
+        ) : (
+          <p className="text-xs text-[var(--color-text-tertiary)]">Audio unavailable.</p>
+        )}
+      </div>
+      <input
+        type="text"
+        value={value}
+        disabled={checked}
+        onChange={(e) => handleChange(e.target.value)}
+        placeholder="Type what you heard..."
+        className="w-full rounded-2xl border-2 border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-5 py-4 text-sm font-medium text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 transition-colors disabled:opacity-70"
+      />
+      {hint && (
+        <div className="text-center">
+          <button type="button" onClick={() => setShowHint((s) => !s)} className="text-xs font-medium text-amber-600 dark:text-amber-400 hover:underline">
+            💡 {showHint ? hint : 'Show hint'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

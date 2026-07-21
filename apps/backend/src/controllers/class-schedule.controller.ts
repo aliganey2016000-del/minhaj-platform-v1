@@ -105,6 +105,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
     .lean();
 
   if (!schedule) throw new NotFoundError('Schedule not found');
+  assertOwnsOrg(req, schedule, 'school');
 
   return ApiResponse.success(res, schedule);
 };
@@ -120,7 +121,39 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     createdBy: new mongoose.Types.ObjectId(req.user!.userId),
   };
 
-  const schedule = await ClassSchedule.create(payload);
+  // Cross-module auto-assignment + schedule creation run as one atomic
+  // unit: if the selected Course has no instructor yet (the frontend's
+  // "State B"), the teacher picked for this schedule becomes the course's
+  // assigned teacher too, so Course Management reflects it immediately
+  // without a second manual entry. Scoped to the caller's own tenant.
+  let createdId: mongoose.Types.ObjectId | null = null;
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      if (payload.course && payload.teacher) {
+        const courseDoc = await Course.findById(payload.course).session(session);
+        if (!courseDoc) throw new NotFoundError('Course not found');
+        assertOwnsOrg(req, courseDoc, 'school');
+
+        if (!courseDoc.teacher) {
+          courseDoc.teacher = payload.teacher;
+          await courseDoc.save({ session });
+        }
+      }
+
+      const created = await ClassSchedule.create([payload], { session });
+      createdId = created[0]._id;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  const schedule = await ClassSchedule.findById(createdId)
+    .populate('school', 'name')
+    .populate('class', 'title section')
+    .populate('course', 'title')
+    .populate('teacher', 'user profile')
+    .lean();
 
   return ApiResponse.created(res, schedule, 'Schedule created');
 };
@@ -134,13 +167,45 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (!existingSchedule) throw new NotFoundError('Schedule not found');
   assertOwnsOrg(req, existingSchedule, 'school');
 
-  const schedule = await ClassSchedule.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true, runValidators: true }
-  ).lean();
+  // Same atomic cross-module assignment as create(): applies when the
+  // admin edits a schedule under "State B" (teacher-less course) and picks
+  // a teacher — the course only gets auto-assigned if it still has none.
+  let updatedId: mongoose.Types.ObjectId | null = null;
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const courseId = req.body.course || existingSchedule.course;
+      const teacherId = req.body.teacher;
 
-  if (!schedule) throw new NotFoundError('Schedule not found');
+      if (courseId && teacherId) {
+        const courseDoc = await Course.findById(courseId).session(session);
+        if (!courseDoc) throw new NotFoundError('Course not found');
+        assertOwnsOrg(req, courseDoc, 'school');
+
+        if (!courseDoc.teacher) {
+          courseDoc.teacher = teacherId;
+          await courseDoc.save({ session });
+        }
+      }
+
+      const updated = await ClassSchedule.findByIdAndUpdate(
+        req.params.id,
+        req.body,
+        { new: true, runValidators: true, session }
+      );
+      if (!updated) throw new NotFoundError('Schedule not found');
+      updatedId = updated._id;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  const schedule = await ClassSchedule.findById(updatedId)
+    .populate('school', 'name')
+    .populate('class', 'title section')
+    .populate('course', 'title')
+    .populate('teacher', 'user profile')
+    .lean();
 
   return ApiResponse.success(res, schedule, 'Schedule updated');
 };
@@ -383,3 +448,200 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+// ---------------------------------------------------------------------------
+// GET /class-schedules/export — Export all schedules as formatted XLSX
+// ---------------------------------------------------------------------------
+
+const DAY_NAMES_EXPORT = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+export const exportSchedules = async (req: Request, res: Response): Promise<void> => {
+  const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
+
+  const schedules = await ClassSchedule.find(filter)
+    .populate('school', 'name')
+    .populate('class', 'title section')
+    .populate('course', 'title')
+    .populate({ path: 'teacher', populate: { path: 'user', select: 'email' } })
+    .sort({ dayOfWeek: 1, startTime: 1 })
+    .lean();
+
+  const headers = ['Day of Week', 'Class Name', 'Course / Subject', 'Teacher Email', 'Start Time', 'End Time', 'Status'];
+  const rows = schedules.map((sch: any) => [
+    DAY_NAMES_EXPORT[sch.dayOfWeek] || '',
+    sch.class ? `${sch.class.title} ${sch.class.section || ''}`.trim() : '',
+    sch.course?.title?.en || sch.course?.title || '',
+    sch.teacher?.user?.email || '',
+    sch.startTime,
+    sch.endTime,
+    sch.isActive ? 'Active' : 'Inactive',
+  ]);
+
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  sheet['!cols'] = headers.map((h, colIdx) => {
+    const maxLen = rows.reduce((max, row) => Math.max(max, String(row[colIdx] ?? '').length), h.length);
+    return { wch: Math.min(maxLen + 4, 50) };
+  });
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Class Schedules');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=class-schedules-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  res.end(buffer);
+};
+
+// ---------------------------------------------------------------------------
+// GET /class-schedules/template — Download empty structured template (XLSX)
+// ---------------------------------------------------------------------------
+
+export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
+  const isOrgAdmin = req.user?.role === 'org_admin';
+
+  const headers = isOrgAdmin
+    ? ['Class', 'Section', 'Course', 'Teacher Email', 'Day', 'Start Time', 'End Time', 'Active']
+    : ['School', 'Class', 'Section', 'Course', 'Teacher Email', 'Day', 'Start Time', 'End Time', 'Active'];
+
+  const sampleRow = isOrgAdmin
+    ? ['Quran Beginners', 'A', 'Quran Recitation', 'teacher@example.com', 'Monday', '08:00', '09:30', 'Yes']
+    : ['Madrasa Al-Noor', 'Quran Beginners', 'A', 'Quran Recitation', 'teacher@example.com', 'Monday', '08:00', '09:30', 'Yes'];
+
+  const sheet = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
+  sheet['!cols'] = headers.map((h) => ({ wch: Math.min(h.length + 8, 28) }));
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Schedules Template');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=class-schedules-template.xlsx');
+  res.end(buffer);
+};
+
+// ---------------------------------------------------------------------------
+// POST /class-schedules/import — Transactional bulk import with insertMany
+// ---------------------------------------------------------------------------
+
+export const bulkImportTransactional = async (req: Request, res: Response): Promise<Response> => {
+  if (!req.file) throw new BadRequestError('An Excel file is required (field name "file")');
+
+  const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new BadRequestError('The uploaded file has no sheets');
+
+  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], { defval: '' });
+  if (rows.length === 0) throw new BadRequestError('The uploaded file has no data rows');
+
+  const ownOrgId = resolveOrgIdForCreate(req) as string | undefined;
+  const createdBy = new mongoose.Types.ObjectId(req.user!.userId);
+
+  const errors: { row: number; message: string }[] = [];
+  const documents: any[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 2; // header is row 1
+    const row = rows[i];
+
+    try {
+      const schoolName = String(getField(row, 'School', 'Organization') ?? '').trim();
+      const className = String(getField(row, 'Class') ?? '').trim();
+      const section = String(getField(row, 'Section') ?? '').trim();
+      const courseTitle = String(getField(row, 'Course') ?? '').trim();
+      const teacherEmail = String(getField(row, 'Teacher Email', 'Teacher') ?? '').trim();
+      const dayRaw = getField(row, 'Day', 'Day of Week');
+      const startRaw = getField(row, 'Start Time', 'Start');
+      const endRaw = getField(row, 'End Time', 'End');
+      const activeRaw = getField(row, 'Active');
+
+      if (!className) throw new Error('Class is required');
+      if (!courseTitle) throw new Error('Course is required');
+      if (!teacherEmail) throw new Error('Teacher Email is required');
+
+      // Resolve organization
+      let schoolId: string | undefined = ownOrgId;
+      if (!schoolId) {
+        if (!schoolName) throw new Error('School is required');
+        const school = await School.findOne({ name: new RegExp(`^${escapeRegex(schoolName)}$`, 'i') }).lean();
+        if (!school) throw new Error(`School "${schoolName}" not found`);
+        schoolId = school._id.toString();
+      }
+
+      const classFilter: Record<string, unknown> = {
+        school: schoolId,
+        title: new RegExp(`^${escapeRegex(className)}$`, 'i'),
+      };
+      if (section) classFilter.section = new RegExp(`^${escapeRegex(section)}$`, 'i');
+      const classDoc = await ClassModel.findOne(classFilter).lean();
+      if (!classDoc) throw new Error(`Class "${className}${section ? ' ' + section : ''}" not found`);
+
+      const courseDoc = await Course.findOne({
+        school: schoolId,
+        'title.en': new RegExp(`^${escapeRegex(courseTitle)}$`, 'i'),
+      }).lean();
+      if (!courseDoc) throw new Error(`Course "${courseTitle}" not found`);
+
+      const teacherUser = await User.findOne({ email: teacherEmail.toLowerCase(), role: 'teacher' }).lean();
+      if (!teacherUser) throw new Error(`Teacher with email "${teacherEmail}" not found`);
+      const teacherDoc = await Teacher.findOne({ user: teacherUser._id }).lean();
+      if (!teacherDoc) throw new Error(`No teacher profile linked to "${teacherEmail}"`);
+
+      const dayOfWeek = parseDay(dayRaw);
+      if (dayOfWeek === null) throw new Error(`Invalid day of week "${dayRaw}"`);
+
+      const startTime = parseTime(startRaw);
+      if (!startTime) throw new Error(`Invalid start time "${startRaw}"`);
+      const endTime = parseTime(endRaw);
+      if (!endTime) throw new Error(`Invalid end time "${endRaw}"`);
+      if (endTime <= startTime) throw new Error('End time must be after start time');
+
+      const isActive = activeRaw === '' || activeRaw === undefined
+        ? true
+        : !['no', 'false', '0', 'inactive'].includes(String(activeRaw).trim().toLowerCase());
+
+      documents.push({
+        school: new mongoose.Types.ObjectId(schoolId),
+        class: classDoc._id,
+        course: courseDoc._id,
+        teacher: teacherDoc._id,
+        dayOfWeek,
+        startTime,
+        endTime,
+        isActive,
+        createdBy,
+      });
+    } catch (err: any) {
+      errors.push({ row: rowNum, message: err.message || 'Unknown error' });
+    }
+  }
+
+  // Transactional insertMany
+  let inserted = 0;
+  if (documents.length > 0) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const result = await ClassSchedule.insertMany(documents, { session, ordered: false });
+        inserted = result.length;
+      });
+    } catch (txErr: any) {
+      // insertMany with ordered:false continues on individual errors;
+      // partial inserts are acceptable — report what succeeded
+      if (txErr.insertedDocs) inserted = txErr.insertedDocs.length;
+      if (txErr.writeErrors) {
+        txErr.writeErrors.forEach((we: any) => {
+          errors.push({ row: we.index + 2, message: we.errmsg || 'Insert error' });
+        });
+      }
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  return ApiResponse.success(res, {
+    totalRows: rows.length,
+    created: inserted,
+    failed: errors.length,
+    errors,
+  }, `Imported ${inserted} of ${rows.length} schedules`);
+};

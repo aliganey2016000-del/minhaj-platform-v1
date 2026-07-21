@@ -101,7 +101,7 @@ function DashboardPreview() {
       </Reveal>
 
       {/* floating: completion ring */}
-      <div className="absolute -left-6 top-1/3 hidden animate-float rounded-2xl border border-white/15 bg-emerald-950/70 p-3 shadow-xl backdrop-blur-md sm:block">
+      <div className="absolute -start-6 top-1/3 hidden animate-float rounded-2xl border border-white/15 bg-emerald-950/70 p-3 shadow-xl backdrop-blur-md sm:block">
         <div className="flex items-center gap-3">
           <div className="relative h-11 w-11">
             <svg viewBox="0 0 36 36" className="h-11 w-11 -rotate-90">
@@ -118,7 +118,7 @@ function DashboardPreview() {
       </div>
 
       {/* floating: certificate badge */}
-      <div className="absolute -right-4 bottom-8 hidden animate-float-delayed items-center gap-2.5 rounded-2xl border border-white/15 bg-emerald-950/70 px-4 py-3 shadow-xl backdrop-blur-md sm:flex">
+      <div className="absolute -end-4 bottom-8 hidden animate-float-delayed items-center gap-2.5 rounded-2xl border border-white/15 bg-emerald-950/70 px-4 py-3 shadow-xl backdrop-blur-md sm:flex">
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-gold-400 to-gold-500 text-emerald-950">🎖️</div>
         <div>
           <p className="text-[11px] font-semibold text-white">{t('hero.dashboard_certificates')}</p>

@@ -253,6 +253,9 @@ const TeacherStudents = lazy(() =>
 const TeacherAnalytics = lazy(() =>
   import('../features/teacher/pages/teacher-analytics').then((m) => ({ default: m.TeacherAnalytics }))
 );
+const TeacherSchedule = lazy(() =>
+  import('../features/teacher/pages/teacher-schedule').then((m) => ({ default: m.TeacherSchedule }))
+);
 const TeacherCourseBuilder = lazy(() =>
   import('../features/teacher/pages/teacher-course-builder').then((m) => ({ default: m.TeacherCourseBuilder }))
 );
@@ -391,6 +394,7 @@ export const router = createBrowserRouter([
       { path: 'students', element: L(<TeacherStudents />) },
       { path: 'gamification', element: L(<TeacherStudents />) },
       { path: 'analytics', element: L(<TeacherAnalytics />) },
+      { path: 'schedule', element: L(<TeacherSchedule />) },
       { path: 'forum', element: L(<ForumPage />) },
       { path: 'profile', element: L(<PortalPage />) },
       { path: 'settings', element: L(<PortalPage />) },

@@ -6,8 +6,14 @@
 
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
 import Course from '../models/course.model';
 import Student from '../models/student.model';
+import School from '../models/school.model';
+import ClassModel from '../models/class.model';
+import Teacher from '../models/teacher.model';
+import User from '../models/user.model';
 import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -593,4 +599,257 @@ export const getCategories = async (_req: Request, res: Response): Promise<Respo
   ];
 
   return ApiResponse.success(res, categories);
+};
+
+// ---------------------------------------------------------------------------
+// GET /courses/export — Export all courses as formatted XLSX
+// ---------------------------------------------------------------------------
+
+export const exportCourses = async (req: Request, res: Response): Promise<void> => {
+  const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
+
+  const courses = await Course.find(filter)
+    .populate('school', 'name')
+    .populate('class', 'title section')
+    .populate({ path: 'teacher', populate: { path: 'user', select: 'email' } })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Courses');
+
+  const headers = [
+    'Course Title (English)', 'Category', 'Level', 'Organization Name',
+    'Class Title', 'Teacher Email', 'Duration (weeks)', 'Price ($)',
+    'Capacity', 'Thumbnail URL',
+  ];
+  const headerRow = sheet.addRow(headers);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height = 24;
+
+  courses.forEach((c: any, idx: number) => {
+    const row = sheet.addRow([
+      c.title?.en || '', c.category || '', c.level || '',
+      c.school?.name || '', c.class ? `${c.class.title} ${c.class.section || ''}`.trim() : '',
+      c.teacher?.user?.email || '', c.duration || 8, c.fee || 0,
+      c.maxStudents || 50, c.thumbnail || '',
+    ]);
+    if (idx % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+    row.alignment = { vertical: 'middle' };
+  });
+
+  sheet.columns = headers.map((header, colIdx) => {
+    let maxLen = header.length;
+    sheet.eachRow({ includeEmpty: false }, (_row, rowNumber) => {
+      if (rowNumber > 1) {
+        maxLen = Math.max(maxLen, (_row.getCell(colIdx + 1).value?.toString() || '').length);
+      }
+    });
+    return { header, key: header.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(maxLen + 4, 50) };
+  });
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=courses-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  await workbook.xlsx.write(res);
+  res.end();
+};
+
+// ---------------------------------------------------------------------------
+// GET /courses/template — Download empty structured template (XLSX)
+// ---------------------------------------------------------------------------
+
+export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Course Template');
+
+  const headers = [
+    'Course Title (English)', 'Category', 'Level', 'Organization Name',
+    'Class Title', 'Teacher Email', 'Duration (weeks)', 'Price ($)',
+    'Capacity', 'Thumbnail URL',
+  ];
+  const headerRow = sheet.addRow(headers);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height = 24;
+
+  const sample = sheet.addRow([
+    'Quran Recitation', 'quran', 'beginner', 'Madrasa Al-Noor',
+    'Quran Beginners A', 'teacher@example.com', '8', '0',
+    '50', '',
+  ]);
+  sample.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+  sample.alignment = { vertical: 'middle' };
+
+  sheet.columns = headers.map((h) => ({
+    header: h, key: h.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(h.length + 8, 28),
+  }));
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=courses-template.xlsx');
+  await workbook.xlsx.write(res);
+  res.end();
+};
+
+// ---------------------------------------------------------------------------
+// Helpers for import
+// ---------------------------------------------------------------------------
+
+function getField(row: Record<string, any>, ...names: string[]): unknown {
+  const keys = Object.keys(row);
+  for (const name of names) {
+    const key = keys.find((k) => k.trim().toLowerCase() === name.toLowerCase());
+    if (key !== undefined) return row[key];
+  }
+  return undefined;
+}
+
+const VALID_CATEGORIES = ['quran', 'fiqh', 'aqeedah', 'seerah', 'arabic', 'tajweed', 'hadith', 'akhlaq'];
+const VALID_LEVELS = ['beginner', 'intermediate', 'advanced'];
+
+// ---------------------------------------------------------------------------
+// POST /courses/import — Transactional bulk import
+// ---------------------------------------------------------------------------
+
+export const bulkImport = async (req: Request, res: Response): Promise<Response> => {
+  if (!req.file) throw new BadRequestError('An Excel file is required (field name "file")');
+
+  const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const sheetName = wb.SheetNames[0];
+  if (!sheetName) throw new BadRequestError('The uploaded file has no sheets');
+
+  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(wb.Sheets[sheetName], { defval: '' });
+  if (rows.length === 0) throw new BadRequestError('The uploaded file has no data rows');
+
+  const ownOrgId = (resolveOrgIdForCreate(req) as string | undefined) || undefined;
+
+  // ── Phase 1: Pre-cache all Organizations, Classes, and Teachers ──
+  const schools = await School.find(ownOrgId ? { _id: ownOrgId } : {}).lean();
+  const schoolMap = new Map<string, mongoose.Types.ObjectId>();
+  for (const s of schools) schoolMap.set((s as any).name.toLowerCase(), s._id);
+
+  const classes = ownOrgId ? await ClassModel.find({ school: ownOrgId }).lean() : [];
+  const classMap = new Map<string, mongoose.Types.ObjectId>();
+  for (const c of classes) {
+    classMap.set(((c as any).title || '').toLowerCase(), c._id);
+  }
+
+  const teachers = ownOrgId
+    ? await Teacher.find({ school: ownOrgId }).populate('user', 'email').lean()
+    : await Teacher.find({}).populate('user', 'email').lean();
+  const teacherMap = new Map<string, mongoose.Types.ObjectId>();
+  for (const t of teachers) {
+    const email = ((t as any).user?.email || '').toLowerCase();
+    if (email) teacherMap.set(email, t._id);
+  }
+
+  // ── Phase 2: Parse rows ──
+  const errors: { row: number; message: string }[] = [];
+  const courseDocs: any[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 2;
+    const row = rows[i];
+
+    const firstCell = String(Object.values(row as Record<string, any>)[0] ?? '').trim().toLowerCase();
+    if (firstCell === 'course title (english)' || firstCell === 'course title') continue;
+
+    try {
+      const titleEn = String(getField(row, 'Course Title (English)', 'Course Title', 'Title') ?? '').trim();
+      const categoryRaw = String(getField(row, 'Category') ?? 'quran').trim().toLowerCase();
+      const levelRaw = String(getField(row, 'Level') ?? 'beginner').trim().toLowerCase();
+      const schoolName = String(getField(row, 'Organization Name', 'Organization', 'School') ?? '').trim();
+      const classTitle = String(getField(row, 'Class Title', 'Class') ?? '').trim();
+      const teacherEmail = String(getField(row, 'Teacher Email', 'Teacher') ?? '').trim().toLowerCase();
+      const durationRaw = String(getField(row, 'Duration (weeks)', 'Duration') ?? '8').trim();
+      const priceRaw = String(getField(row, 'Price ($)', 'Price', 'Fee') ?? '0').trim();
+      const capacityRaw = String(getField(row, 'Capacity') ?? '50').trim();
+      const thumbnail = String(getField(row, 'Thumbnail URL', 'Thumbnail') ?? '').trim();
+
+      if (!titleEn) throw new Error('Course Title (English) is required');
+
+      const category = VALID_CATEGORIES.includes(categoryRaw) ? categoryRaw : 'quran';
+      const level = VALID_LEVELS.includes(levelRaw) ? levelRaw : 'beginner';
+      const duration = parseInt(durationRaw, 10) || 8;
+      const fee = parseFloat(priceRaw) || 0;
+      const maxStudents = parseInt(capacityRaw, 10) || 50;
+
+      // Resolve school
+      let schoolId: mongoose.Types.ObjectId | undefined = ownOrgId ? new mongoose.Types.ObjectId(ownOrgId) : undefined;
+      if (!schoolId && schoolName) {
+        const sid = schoolMap.get(schoolName.toLowerCase());
+        if (!sid) throw new Error(`Organization "${schoolName}" not found`);
+        schoolId = sid;
+      }
+
+      // Resolve class (optional)
+      let classId: mongoose.Types.ObjectId | undefined;
+      if (classTitle) {
+        const cid = classMap.get(classTitle.toLowerCase());
+        if (!cid) throw new Error(`Class "${classTitle}" not found`);
+        classId = cid;
+      }
+
+      // Resolve teacher
+      let teacherId: mongoose.Types.ObjectId | undefined;
+      if (teacherEmail) {
+        const tid = teacherMap.get(teacherEmail);
+        if (!tid) throw new Error(`Teacher with email "${teacherEmail}" not found`);
+        teacherId = tid;
+      }
+
+      // Slug
+      const slug = titleEn.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+      courseDocs.push({
+        title: { en: titleEn, so: '', ar: '' },
+        slug,
+        description: { en: '', so: '', ar: '' },
+        category,
+        level,
+        duration,
+        fee,
+        maxStudents,
+        teacher: teacherId,
+        school: schoolId,
+        class: classId || undefined,
+        thumbnail: thumbnail || undefined,
+        status: 'draft',
+      });
+    } catch (err: any) {
+      errors.push({ row: rowNum, message: err.message || 'Unknown error' });
+    }
+  }
+
+  // ── Phase 3: BulkWrite ──
+  let inserted = 0;
+  if (courseDocs.length > 0) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const result = await Course.insertMany(courseDocs, { session, ordered: false });
+        inserted = result.length;
+      });
+    } catch (txErr: any) {
+      if (txErr.insertedDocs) inserted = txErr.insertedDocs.length;
+      if (txErr.writeErrors) {
+        txErr.writeErrors.forEach((we: any) => {
+          errors.push({ row: we.index + 2, message: we.errmsg || 'Insert error' });
+        });
+      }
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  return ApiResponse.success(res, {
+    totalRows: rows.length,
+    created: inserted,
+    failed: errors.length,
+    errors,
+  }, `Imported ${inserted} of ${rows.length} courses`);
 };

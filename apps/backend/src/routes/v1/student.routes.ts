@@ -3,14 +3,15 @@
  *
  * All routes require authentication.
  *
- * Admin/Teacher:
+ * Admin/Org Admin/Teacher:
  *   GET    /                 — List all students (paginated, filterable)
  *   GET    /:id              — Get student by ID
  *   POST   /                 — Create student
  *   PATCH  /:id              — Update student
  *   DELETE /:id              — Soft delete student
- *   POST   /bulk-import      — Bulk import students
- *   GET    /export           — Export students
+ *   POST   /import           — Bulk import students (transactional)
+ *   GET    /export           — Export students (XLSX)
+ *   GET    /template         — Download student import template (XLSX)
  *
  * Student (own data) + Parent (children data) + Admin/Teacher:
  *   GET    /:id/courses       — Get student's enrolled courses
@@ -21,6 +22,7 @@
  */
 
 import { Router } from 'express';
+import multer from 'multer';
 import * as studentController from '../../controllers/student.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import {
@@ -30,6 +32,11 @@ import {
   anyAuthenticatedUser,
 } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 const router = Router();
 
@@ -54,18 +61,26 @@ router.post(
   asyncHandler(studentController.create)
 );
 
-// POST /api/v1/students/bulk-import — Bulk import (admin only)
+// POST /api/v1/students/import — Bulk import (admin + org_admin)
 router.post(
-  '/bulk-import',
+  '/import',
   adminOnly,
+  upload.single('file'),
   asyncHandler(studentController.bulkImport)
 );
 
-// GET /api/v1/students/export — Export students (admin only)
+// GET /api/v1/students/export — Export students (admin + org_admin)
 router.get(
   '/export',
   adminOnly,
-  asyncHandler(studentController.exportStudents)
+  asyncHandler(studentController.exportStudents as any)
+);
+
+// GET /api/v1/students/template — Download import template
+router.get(
+  '/template',
+  adminOnly,
+  asyncHandler(studentController.downloadTemplate as any)
 );
 
 // GET /api/v1/students/my/dashboard — Student self-service dashboard

@@ -28,7 +28,7 @@ export const enforceHttps = (req: Request, res: Response, next: NextFunction): v
  * Default: 30 seconds (configurable via environment)
  */
 export const requestTimeout = (
-  timeout: number = parseInt(process.env.REQUEST_TIMEOUT_MS || '30000')
+  timeout: number = parseInt(process.env.REQUEST_TIMEOUT_MS || '120000')
 ) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     const timer = setTimeout(() => {

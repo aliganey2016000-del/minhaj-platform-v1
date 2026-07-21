@@ -943,6 +943,38 @@ function AccessModeModal({
 }
 
 // ---------------------------------------------------------------------------
+// Three-Dot Actions Dropdown — Import / Export
+// ---------------------------------------------------------------------------
+
+function CourseActionsMenu({ onImport, onExport, exporting }: { onImport: () => void; onExport: () => void; exporting: boolean }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const toggle = (e: React.MouseEvent) => { e.stopPropagation(); setOpen(!open); };
+
+  return (<>
+    <button ref={btnRef} onClick={toggle} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors" title="More Actions">
+      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" /></svg>
+    </button>
+    {open && btnRef.current && createPortal(
+      <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
+        <button onClick={() => { setOpen(false); onImport(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">↑ Import via Excel</button>
+        <button onClick={() => { setOpen(false); onExport(); }} disabled={exporting} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50 flex items-center gap-2 transition-colors">{exporting ? <div className="h-3 w-3 animate-spin rounded-full border border-[var(--color-border-default)] border-t-primary-600" /> : '↓ Export to Excel'}</button>
+      </div>,
+      document.body,
+    )}
+  </>);
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -959,6 +991,18 @@ export function CoursesManage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+
+  // Import / Export state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importMode, setImportMode] = useState<'upload' | 'paste'>('upload');
+  const [dragOver, setDragOver] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pasteError, setPasteError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [message, setMessage] = useState('');
+  const [importResult, setImportResult] = useState<{ totalRows: number; created: number; failed: number; errors: { row: number; message: string }[] } | null>(null);
 
   const fetchCourses = useCallback(async () => {
     try {
@@ -985,6 +1029,24 @@ export function CoursesManage() {
   }, [search, statusFilter, categoryFilter]);
 
   useEffect(() => { fetchCourses(); }, [fetchCourses]);
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Import Modal Logic
+  // ───────────────────────────────────────────────────────────────────────
+  const openImportModal = () => { setShowImportModal(true); setImportMode('upload'); setSelectedFile(null); setPasteText(''); setPasteError(''); setImportResult(null); };
+  const closeImportModal = () => { setShowImportModal(false); setSelectedFile(null); setPasteText(''); setPasteError(''); setImportResult(null); };
+
+  const handleDownloadTemplate = async () => { try { const token = localStorage.getItem('accessToken') || ''; const r = await fetch(`${api.defaults.baseURL}/courses/template`, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Download failed'); const blob = await r.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'courses-template.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); } catch { setError('Failed to download template'); } };
+  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) setSelectedFile(f); };
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) setSelectedFile(f); };
+
+  const submitFileImport = async () => { if (!selectedFile) return; setImporting(true); setError(''); setImportResult(null); try { const fd = new FormData(); fd.append('file', selectedFile); const { data } = await api.post('/courses/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } }); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} courses`); fetchCourses(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
+
+  const parsePastedRows = (): string[][] => { if (!pasteText.trim()) return []; return pasteText.trim().split(/\r?\n/).map(l => l.split('\t').map(c => c.trim())).filter(r => r.length > 0 && r.some(c => c !== '')); };
+
+  const submitPasteImport = async () => { const rows = parsePastedRows(); if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; } if (rows[0].length < 5) { setPasteError('Expected 10 columns (Course Title, Category, Level, Organization, Class Title, Teacher Email, Duration, Price, Capacity, Thumbnail URL). Found ' + rows[0].length + '.'); return; } const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n'); const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); const file = new File([blob], 'pasted-courses.csv', { type: 'text/csv' }); setImporting(true); setError(''); setImportResult(null); setPasteError(''); try { const fd = new FormData(); fd.append('file', file); const { data } = await api.post('/courses/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } }); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} courses`); fetchCourses(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
+
+  const handleExport = async () => { setExporting(true); setError(''); try { const token = localStorage.getItem('accessToken') || ''; const r = await fetch(`${api.defaults.baseURL}/courses/export`, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Export failed'); const blob = await r.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `courses-export-${new Date().toISOString().slice(0, 10)}.xlsx`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); setMessage('Export downloaded successfully'); } catch (err: any) { setError(err.message || 'Export failed'); } finally { setExporting(false); } };
 
   const handleDelete = async (id: string) => {
     try {
@@ -1120,13 +1182,166 @@ export function CoursesManage() {
               {courses.length} total — {publishedCount} published, {draftCount} draft, {archivedCount} archived
             </p>
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm"
-          >
-            + Add Course
-          </button>
+          <div className="flex gap-3 items-center">
+            <CourseActionsMenu onImport={openImportModal} onExport={handleExport} exporting={exporting} />
+            <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">+ Add Course</button>
+          </div>
         </div>
+
+        {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
+        {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
+
+        {/* ═══════════════════════════════════════════════════════════════
+            Import Modal — creates course cards only (status: draft); no
+            curriculum/lessons/quizzes. Full content authoring stays in
+            Course Builder, same as a manually-created course.
+           ═══════════════════════════════════════════════════════════════ */}
+        {showImportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="w-full max-w-2xl rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl max-h-[90vh] overflow-y-auto">
+              {/* Modal Header */}
+              <div className="border-b border-[var(--color-border-subtle)] px-6 py-5">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Import Courses</h2>
+                    <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
+                      Select your preferred method to import multiple courses into the system.
+                    </p>
+                  </div>
+                  <button onClick={closeImportModal} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors" disabled={importing}>
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Body */}
+              <div className="px-6 py-5 space-y-6">
+                {/* Template Download Banner */}
+                <button onClick={handleDownloadTemplate} className="w-full rounded-xl border-2 border-dashed border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-950/20 px-5 py-4 text-left hover:bg-primary-100 dark:hover:bg-primary-950/40 transition-colors group">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">📥</span>
+                      <div>
+                        <p className="text-sm font-bold text-primary-700 dark:text-primary-300 group-hover:text-primary-800 dark:group-hover:text-primary-200">Download Excel Course Template</p>
+                        <p className="text-xs text-primary-600/70 dark:text-primary-400/70 mt-0.5">Pre-formatted .xlsx file with the correct column structure</p>
+                      </div>
+                    </div>
+                    <svg className="h-5 w-5 text-primary-500 group-hover:translate-y-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  </div>
+                </button>
+
+                {/* Mode Selector */}
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => { setImportMode('upload'); setPasteError(''); }} className={`rounded-xl border-2 p-4 text-left transition-all ${importMode === 'upload' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm' : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'}`}>
+                    <span className="text-2xl block mb-1">📁</span>
+                    <p className={`text-sm font-bold ${importMode === 'upload' ? 'text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-primary)]'}`}>Upload Excel File</p>
+                    <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Drag and drop your .xlsx file</p>
+                  </button>
+                  <button onClick={() => { setImportMode('paste'); setPasteError(''); }} className={`rounded-xl border-2 p-4 text-left transition-all ${importMode === 'paste' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm' : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'}`}>
+                    <span className="text-2xl block mb-1">📋</span>
+                    <p className={`text-sm font-bold ${importMode === 'paste' ? 'text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-primary)]'}`}>Manual Copy & Paste</p>
+                    <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Paste tabular data from your clipboard</p>
+                  </button>
+                </div>
+
+                {/* Upload Mode */}
+                {importMode === 'upload' && (
+                  <div onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleFileDrop} className={`rounded-xl border-2 border-dashed p-10 text-center transition-colors ${dragOver ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20' : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]'}`}>
+                    {selectedFile ? (
+                      <div className="space-y-3">
+                        <span className="text-3xl">✅</span>
+                        <p className="text-sm font-semibold text-[var(--color-text-primary)]">{selectedFile.name}</p>
+                        <p className="text-xs text-[var(--color-text-tertiary)]">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                        <button onClick={() => setSelectedFile(null)} className="text-xs text-red-500 hover:underline">Remove file</button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <span className="text-3xl">📂</span>
+                        <p className="text-sm font-medium text-[var(--color-text-secondary)]">Drag and drop your Excel file here, or</p>
+                        <label className="inline-block cursor-pointer rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-700 transition-colors">
+                          Browse Files
+                          <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileInputChange} className="hidden" />
+                        </label>
+                        <p className="text-xs text-[var(--color-text-tertiary)]">Supported formats: .xlsx, .xls, .csv (max 10 MB)</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Paste Mode */}
+                {importMode === 'paste' && (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+                      <p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below (tab-separated columns, one row per line):</p>
+                      <p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">Course Title (English) &nbsp; Category &nbsp; Level &nbsp; Organization &nbsp; Class Title &nbsp; Teacher Email &nbsp; Duration (weeks) &nbsp; Price ($) &nbsp; Capacity &nbsp; Thumbnail URL</p>
+                      <textarea
+                        value={pasteText}
+                        onChange={(e) => { setPasteText(e.target.value); setPasteError(''); }}
+                        rows={8}
+                        placeholder={'Paste data from Excel here...\n\nExample:\nQuran Recitation\tquran\tbeginner\tMadrasa Al-Noor\tQuran Beginners A\tteacher@example.com\t8\t0\t50\t'}
+                        className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y"
+                      />
+                    </div>
+
+                    {pasteError && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{pasteError}</div>}
+
+                    {parsePastedRows().length > 0 && (
+                      <div className="rounded-xl border border-[var(--color-border-default)] overflow-hidden">
+                        <div className="bg-[var(--color-surface-secondary)] px-4 py-2 text-xs font-semibold text-[var(--color-text-tertiary)]">
+                          Preview — {parsePastedRows().length} row{parsePastedRows().length !== 1 ? 's' : ''} parsed
+                        </div>
+                        <div className="max-h-40 overflow-auto">
+                          <table className="w-full text-xs">
+                            <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                              {parsePastedRows().slice(0, 20).map((row, ri) => (
+                                <tr key={ri} className={ri % 2 === 0 ? 'bg-[var(--color-surface-primary)]' : 'bg-[var(--color-surface-secondary)]'}>
+                                  {row.map((cell, ci) => <td key={ci} className="px-3 py-1.5 text-[var(--color-text-secondary)] whitespace-nowrap border-r border-[var(--color-border-subtle)] last:border-r-0">{cell}</td>)}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-4 py-2.5 text-xs text-red-600 dark:text-red-400">{error}</div>}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 flex items-center justify-between">
+                <button onClick={closeImportModal} disabled={importing} className="rounded-lg border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
+                <button
+                  onClick={importMode === 'upload' ? submitFileImport : submitPasteImport}
+                  disabled={importing || (importMode === 'upload' && !selectedFile) || (importMode === 'paste' && !pasteText.trim())}
+                  className="rounded-lg bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors inline-flex items-center gap-2"
+                >
+                  {importing ? (<><div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />Importing...</>) : 'Import Courses'}
+                </button>
+              </div>
+
+              {/* Inline Import Result */}
+              {importResult && (
+                <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 space-y-2">
+                  <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+                    {importResult.created} of {importResult.totalRows} rows imported successfully{importResult.failed > 0 && ` — ${importResult.failed} failed`}
+                  </p>
+                  {importResult.errors.length > 0 && (
+                    <div className="max-h-36 overflow-y-auto rounded-lg border border-red-200 dark:border-red-900/40">
+                      <table className="w-full text-xs">
+                        <thead className="bg-red-50 dark:bg-red-950/30 text-left text-red-700 dark:text-red-300"><tr><th className="px-3 py-1.5">Row</th><th className="px-3 py-1.5">Error</th></tr></thead>
+                        <tbody className="divide-y divide-red-100 dark:divide-red-900/30">
+                          {importResult.errors.map((e, idx) => <tr key={idx}><td className="px-3 py-1.5 text-[var(--color-text-secondary)]">{e.row}</td><td className="px-3 py-1.5 text-red-600 dark:text-red-400">{e.message}</td></tr>)}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-3 gap-4">

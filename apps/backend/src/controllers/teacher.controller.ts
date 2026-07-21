@@ -5,9 +5,13 @@
 
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
+import bcrypt from 'bcrypt';
 import Teacher from '../models/teacher.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
+import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
@@ -227,4 +231,257 @@ export const updateCoursePermission = async (req: Request, res: Response): Promi
 
   if (!teacher) throw new NotFoundError('Teacher');
   return ApiResponse.success(res, teacher, `Course permission updated to ${coursePermission}`);
+};
+
+// ---------------------------------------------------------------------------
+// GET /teachers/export — Export all teachers as formatted XLSX
+// ---------------------------------------------------------------------------
+
+export const exportTeachers = async (req: Request, res: Response): Promise<void> => {
+  const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
+
+  const teachers = await Teacher.find(filter)
+    .populate('user', 'email')
+    .populate('profile', 'firstName lastName gender')
+    .populate('school', 'name')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Teachers');
+
+  const headers = [
+    'First Name', 'Last Name', 'Gender', 'Email', 'Password',
+    'Phone', 'Qualification', 'Specialization', 'Experience (years)',
+    'Joining Date', 'Bio',
+  ];
+  const headerRow = sheet.addRow(headers);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height = 24;
+
+  teachers.forEach((t: any, idx: number) => {
+    const row = sheet.addRow([
+      t.profile?.firstName || '', t.profile?.lastName || '',
+      t.profile?.gender || '', t.user?.email || '', '',
+      (t.user as any)?.phone || '', t.qualification || '',
+      Array.isArray(t.specialization) ? t.specialization.join(', ') : '',
+      t.experience || 0,
+      t.joiningDate ? new Date(t.joiningDate).toISOString().slice(0, 10) : '',
+      t.bio || '',
+    ]);
+    if (idx % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+    row.alignment = { vertical: 'middle' };
+  });
+
+  sheet.columns = headers.map((header, colIdx) => {
+    let maxLen = header.length;
+    sheet.eachRow({ includeEmpty: false }, (_row, rowNumber) => {
+      if (rowNumber > 1) {
+        const cellVal = _row.getCell(colIdx + 1).value?.toString() || '';
+        maxLen = Math.max(maxLen, cellVal.length);
+      }
+    });
+    return { header, key: header.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(maxLen + 4, 50) };
+  });
+
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=teachers-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  await workbook.xlsx.write(res);
+  res.end();
+};
+
+// ---------------------------------------------------------------------------
+// GET /teachers/template — Download empty structured template (XLSX)
+// ---------------------------------------------------------------------------
+
+export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Teacher Template');
+
+  const headers = [
+    'First Name', 'Last Name', 'Gender', 'Email', 'Password',
+    'Phone', 'Qualification', 'Specialization', 'Experience (years)',
+    'Joining Date', 'Bio',
+  ];
+  const headerRow = sheet.addRow(headers);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height = 24;
+
+  const sample = sheet.addRow([
+    'Ahmed', 'Hassan', 'male', 'ahmed.hassan@example.com', '',
+    '+252612345678', 'Bachelor of Islamic Studies', 'Tajweed, Fiqh', '5',
+    '2026-01-15', 'Experienced Quran teacher with 5 years of teaching.',
+  ]);
+  sample.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+  sample.alignment = { vertical: 'middle' };
+
+  sheet.columns = headers.map((h) => ({
+    header: h, key: h.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(h.length + 8, 28),
+  }));
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=teachers-template.xlsx');
+  await workbook.xlsx.write(res);
+  res.end();
+};
+
+// ---------------------------------------------------------------------------
+// Helpers for import
+// ---------------------------------------------------------------------------
+
+function getField(row: Record<string, any>, ...names: string[]): unknown {
+  const keys = Object.keys(row);
+  for (const name of names) {
+    const key = keys.find((k) => k.trim().toLowerCase() === name.toLowerCase());
+    if (key !== undefined) return row[key];
+  }
+  return undefined;
+}
+
+function esc(val: string): string {
+  return val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ---------------------------------------------------------------------------
+// POST /teachers/import — Transactional bulk import
+// ---------------------------------------------------------------------------
+
+export const bulkImport = async (req: Request, res: Response): Promise<Response> => {
+  if (!req.file) throw new BadRequestError('An Excel file is required (field name "file")');
+
+  const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new BadRequestError('The uploaded file has no sheets');
+
+  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], { defval: '' });
+  if (rows.length === 0) throw new BadRequestError('The uploaded file has no data rows');
+
+  const ownOrgId = resolveOrgIdForCreate(req) as string | undefined;
+
+  const errors: { row: number; message: string }[] = [];
+  const teachersToInsert: any[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 2;
+    const row = rows[i];
+
+    // Skip header row if present
+    const firstCell = String(Object.values(row as Record<string, any>)[0] ?? '').trim().toLowerCase();
+    if (firstCell === 'first name' || firstCell === 'first') { continue; }
+
+    try {
+      const firstName = String(getField(row, 'First Name') ?? '').trim();
+      const lastName = String(getField(row, 'Last Name') ?? '').trim();
+      const gender = String(getField(row, 'Gender') ?? 'male').trim().toLowerCase();
+      const email = String(getField(row, 'Email') ?? '').trim().toLowerCase();
+      const password = String(getField(row, 'Password') ?? 'changeme123').trim();
+      const phone = String(getField(row, 'Phone') ?? '').trim();
+      const qualification = String(getField(row, 'Qualification') ?? '').trim();
+      const specializationRaw = String(getField(row, 'Specialization') ?? '').trim();
+      const experienceRaw = String(getField(row, 'Experience (years)', 'Experience') ?? '0').trim();
+      const joiningDateRaw = String(getField(row, 'Joining Date') ?? '').trim();
+      const bio = String(getField(row, 'Bio') ?? '').trim();
+
+      if (!firstName || !lastName) throw new Error('First Name and Last Name are required');
+      if (!email) throw new Error('Email is required');
+
+      const specialization = specializationRaw
+        ? specializationRaw.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      const experience = parseInt(experienceRaw, 10) || 0;
+
+      // A malformed/unparseable date must never reach Teacher.create() as a
+      // raw JS "Invalid Date" — Mongoose's Date cast rejects it outright.
+      // Falls back to today rather than failing the whole row over a date
+      // that's often just a formatting mismatch, not a real data problem.
+      const parsedJoiningDate = joiningDateRaw ? new Date(joiningDateRaw) : new Date();
+      const joiningDate = isNaN(parsedJoiningDate.getTime()) ? new Date() : parsedJoiningDate;
+
+      const existingUser = await User.findOne({ email }).lean();
+      if (existingUser) throw new Error(`Email "${email}" is already registered`);
+
+      const finalPassword = password || 'changeme123';
+      const hashedPassword = await bcrypt.hash(finalPassword, 10);
+
+      // Resolve organization
+      let schoolId: string | undefined = ownOrgId;
+      if (!schoolId) {
+        const schoolName = String(getField(row, 'School', 'Organization') ?? '').trim();
+        if (!schoolName) throw new Error('School is required for super admin');
+        const school = await School.findOne({ name: new RegExp(`^${esc(schoolName)}$`, 'i') }).lean();
+        if (!school) throw new Error(`School "${schoolName}" not found`);
+        schoolId = school._id.toString();
+      }
+
+      teachersToInsert.push({
+        rowNum, firstName, lastName, gender: ['male', 'female'].includes(gender) ? gender : 'male',
+        email, hashedPassword, phone, qualification, specialization, experience,
+        joiningDate,
+        bio, school: schoolId ? new mongoose.Types.ObjectId(schoolId) : undefined,
+      });
+    } catch (err: any) {
+      errors.push({ row: rowNum, message: err.message || 'Unknown error' });
+    }
+  }
+
+  // Each row runs in its own transaction (User+Profile+Teacher all-or-nothing
+  // for that one teacher) instead of bundling the whole batch into a single
+  // transaction — previously, one bad row (e.g. a duplicate email slipping
+  // past the pre-check, or a validation error) rolled back every other row
+  // in the same import silently: the failure was a plain Mongoose error, not
+  // a BulkWriteError, so it has no `.writeErrors` and the old catch block
+  // only handled that shape — nothing was ever pushed to `errors`, so the
+  // admin saw "0 imported" with no explanation at all.
+  let inserted = 0;
+  if (teachersToInsert.length > 0) {
+    const baseTeacherCount = await Teacher.countDocuments();
+    const currentYear = new Date().getFullYear();
+    const session = await mongoose.startSession();
+    try {
+      for (let idx = 0; idx < teachersToInsert.length; idx++) {
+        const item = teachersToInsert[idx];
+        const teacherId = `TCH-${currentYear}-${String(baseTeacherCount + idx + 1).padStart(4, '0')}`;
+
+        try {
+          await session.withTransaction(async () => {
+            const user = await User.create([{
+              email: item.email, password: item.hashedPassword, role: 'teacher',
+              organizationId: item.school, phone: item.phone || undefined,
+              isVerified: true, isActive: true, preferredLanguage: 'en',
+            }], { session });
+
+            const profile = await Profile.create([{
+              user: user[0]._id, firstName: item.firstName, lastName: item.lastName, gender: item.gender,
+            }], { session });
+
+            await Teacher.create([{
+              user: user[0]._id, profile: profile[0]._id, teacherId,
+              school: item.school, qualification: item.qualification,
+              specialization: item.specialization, experience: item.experience,
+              bio: item.bio, joiningDate: item.joiningDate, status: 'active',
+            }], { session });
+          });
+          inserted++;
+        } catch (rowErr: any) {
+          errors.push({ row: item.rowNum, message: rowErr.message || 'Insert failed' });
+        }
+      }
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  return ApiResponse.success(res, {
+    totalRows: rows.length,
+    created: inserted,
+    failed: errors.length,
+    errors,
+  }, `Imported ${inserted} of ${rows.length} teachers`);
 };

@@ -250,7 +250,7 @@ async function syncGuardian(
 
   await Profile.findOneAndUpdate({ user: parent.user }, { firstName, lastName }, { session: session ?? undefined });
   parent.relationship = relationship as any;
-  parent.phone = phone;
+  (parent as any).phone = phone;
 
   // Editing an already-linked guardian's own login (email/phone/password)
   // is best-effort and non-fatal — it must not block linking the student.
@@ -383,8 +383,8 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       if (!classDoc) throw new NotFoundError('Class not found');
       assertOwnsOrg(req, classDoc, 'school');
       const dept = (classDoc as any).department;
-      student.department = typeof dept === 'string' ? dept : dept?.name || undefined;
-      student.shiftMode = classDoc.shiftMode;
+      (student as any).department = typeof dept === 'string' ? dept : dept?.name || undefined;
+      (student as any).shiftMode = classDoc.shiftMode;
     } else {
       student.department = undefined;
       student.shiftMode = undefined;

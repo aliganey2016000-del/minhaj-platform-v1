@@ -1,54 +1,50 @@
 /**
- * Who Is It For Section
+ * Who Is It For — audience cards on cream.
  */
 
-import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { Eyebrow, Reveal, IslamicPattern } from './_decor';
+
+const icons = ['🏫', '🎓', '🏢', '💼', '🏠', '🌐', '👨‍👩‍👧‍👦', '🏛️'];
 
 export function WhoIsItForSection() {
   const { t } = useTranslation('landing');
   const audiences = t('audience.cards', { returnObjects: true }) as Array<{ title: string; description: string }>;
 
-  const icons = ['🏫', '🎓', '🏢', '💼', '🏠', '🌐', '👨‍👩‍👧‍👦', '🏛️'];
-
   return (
-    <section id="audience" className="py-20 lg:py-32 bg-white dark:bg-obsidian-900">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="text-center mb-16 lg:mb-20"
-        >
-          <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white sm:text-4xl lg:text-5xl">
-            {t('audience.title')}
-          </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-500 dark:text-gray-400">
-            {t('audience.subtitle')}
-          </p>
-        </motion.div>
+    <section id="audience" className="relative overflow-hidden bg-cream-100 py-24 font-dm dark:bg-obsidian-900 lg:py-32">
+      <IslamicPattern tone="emerald" className="pointer-events-none absolute inset-0 opacity-[0.025] dark:opacity-[0.04]" />
 
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto mb-16 max-w-3xl text-center lg:mb-20">
+          <Reveal><Eyebrow center>{t('nav.solutions')}</Eyebrow></Reveal>
+          <Reveal delay={80}>
+            <h2 className="mt-5 font-display text-[clamp(2rem,3.6vw,3.25rem)] font-semibold leading-[1.1] tracking-[-0.02em] text-emerald-950 dark:text-white">
+              {t('audience.title')}
+            </h2>
+          </Reveal>
+          <Reveal delay={140}>
+            <p className="mt-5 text-base leading-8 text-emerald-950/60 dark:text-emerald-50/60 sm:text-lg">
+              {t('audience.subtitle')}
+            </p>
+          </Reveal>
+        </div>
+
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {Array.isArray(audiences) && audiences.map((audience, i) => (
-            <motion.div
-              key={audience.title}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: i * 0.06 }}
-              className="group rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-obsidian-800/30 p-6 hover:bg-white dark:hover:bg-obsidian-800/60 hover:border-emerald-200 dark:hover:border-emerald-800 hover:shadow-lg transition-all duration-300"
-            >
-              <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
-                <span className="text-2xl">{icons[i] ?? '📚'}</span>
+            <Reveal key={audience.title} delay={i * 60}>
+              <div className="group h-full rounded-3xl border border-emerald-900/[0.07] bg-white/80 p-6 shadow-[0_2px_10px_-4px_rgba(3,35,26,0.06)] backdrop-blur-sm transition-all duration-300 hover:-translate-y-1.5 hover:border-gold-400/40 hover:shadow-[0_24px_50px_-24px_rgba(3,35,26,0.28)] dark:border-white/[0.07] dark:bg-white/[0.03] dark:hover:border-gold-400/30">
+                <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-50 to-cream-200 text-2xl ring-1 ring-emerald-900/5 transition-transform duration-300 group-hover:scale-110 dark:from-emerald-950/60 dark:to-emerald-900/30 dark:ring-white/10">
+                  {icons[i] ?? '📚'}
+                </div>
+                <h3 className="mb-2 font-display text-lg font-semibold tracking-tight text-emerald-950 dark:text-white">
+                  {audience.title}
+                </h3>
+                <p className="text-sm leading-relaxed text-emerald-950/55 dark:text-emerald-50/55">
+                  {audience.description}
+                </p>
               </div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
-                {audience.title}
-              </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                {audience.description}
-              </p>
-            </motion.div>
+            </Reveal>
           ))}
         </div>
       </div>

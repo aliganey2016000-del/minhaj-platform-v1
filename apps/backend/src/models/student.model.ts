@@ -21,6 +21,12 @@ export interface IStudent extends Document {
   approvalStatus: 'pending' | 'approved' | 'rejected';
   school?: mongoose.Types.ObjectId;
   class?: mongoose.Types.ObjectId;
+  // Denormalized from the selected Class at enroll/edit time — Class.department
+  // and Class.shiftMode are plain String enum fields (no separate Department
+  // collection exists in this schema), so these mirror that same shape rather
+  // than a ref to a nonexistent model.
+  department?: 'Primary' | 'Middle School' | 'Secondary';
+  shiftMode?: 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
   grade?: string;
   medicalNotes?: string;
   enrolledCourses: mongoose.Types.ObjectId[];
@@ -101,6 +107,18 @@ const studentSchema = new Schema<IStudent>(
       default: null,
       index: true,
     },
+    department: {
+      type: String,
+      enum: ['Primary', 'Middle School', 'Secondary'],
+      default: null,
+      index: true,
+    },
+    shiftMode: {
+      type: String,
+      enum: ['Morning', 'Afternoon', 'Evening', 'Virtual'],
+      default: null,
+      index: true,
+    },
     grade: {
       type: String,
       default: null,
@@ -170,6 +188,10 @@ studentSchema.index({ enrollmentDate: -1 });
 
 // Compound index for filtering students by status + enrollment
 studentSchema.index({ status: 1, enrollmentDate: -1 });
+
+// Tenant-scoped department/shift lookups (Manage Students directory filters)
+studentSchema.index({ school: 1, department: 1 });
+studentSchema.index({ school: 1, shiftMode: 1 });
 
 // ---------------------------------------------------------------------------
 // Auto-generate Student ID Pre-save Hook

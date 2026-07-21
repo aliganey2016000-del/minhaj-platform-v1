@@ -4,9 +4,14 @@
  */
 
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
+import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
+import bcrypt from 'bcrypt';
 import Parent from '../models/parent.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
+import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import Student from '../models/student.model';
@@ -334,4 +339,247 @@ export const unlinkChild = async (req: Request, res: Response): Promise<Response
     .populate('children', 'studentId');
 
   return ApiResponse.success(res, updated, 'Child unlinked successfully');
+};
+
+// ---------------------------------------------------------------------------
+// GET /parents/export — Export all parents as formatted XLSX
+// ---------------------------------------------------------------------------
+
+export const exportParents = async (req: Request, res: Response): Promise<void> => {
+  const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
+
+  const parents = await Parent.find(filter)
+    .populate('user', 'email phone')
+    .populate('profile', 'firstName lastName gender')
+    .populate('children', 'studentId profile')
+    .populate({ path: 'children', populate: { path: 'profile', select: 'firstName lastName' } })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Parents');
+
+  const headers = [
+    'First Name', 'Last Name', 'Gender', 'Email', 'Password',
+    'Phone Number', 'Occupation', 'Address', 'Student Association',
+  ];
+  const headerRow = sheet.addRow(headers);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height = 24;
+
+  parents.forEach((p: any, idx: number) => {
+    const studentAssoc = (p.children || [])
+      .map((c: any) => c.studentId || c._id)
+      .join(', ');
+    const row = sheet.addRow([
+      p.profile?.firstName || '', p.profile?.lastName || '',
+      p.profile?.gender || '', p.user?.email || '', '',
+      p.user?.phone || '', p.occupation || '', p.address || '',
+      studentAssoc,
+    ]);
+    if (idx % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+    row.alignment = { vertical: 'middle' };
+  });
+
+  sheet.columns = headers.map((header, colIdx) => {
+    let maxLen = header.length;
+    sheet.eachRow({ includeEmpty: false }, (_row, rowNumber) => {
+      if (rowNumber > 1) {
+        const cellVal = _row.getCell(colIdx + 1).value?.toString() || '';
+        maxLen = Math.max(maxLen, cellVal.length);
+      }
+    });
+    return { header, key: header.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(maxLen + 4, 50) };
+  });
+
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=parents-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  await workbook.xlsx.write(res);
+  res.end();
+};
+
+// ---------------------------------------------------------------------------
+// GET /parents/template — Download empty structured template (XLSX)
+// ---------------------------------------------------------------------------
+
+export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Parent Template');
+
+  const headers = [
+    'First Name', 'Last Name', 'Gender', 'Email', 'Password',
+    'Phone Number', 'Occupation', 'Address', 'Student Association',
+  ];
+  const headerRow = sheet.addRow(headers);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height = 24;
+
+  const sample = sheet.addRow([
+    'Mohamed', 'Ali', 'male', 'mohamed.ali@example.com', '',
+    '+252612345678', 'Engineer', 'Mogadishu, Somalia', 'STU-2026-0001',
+  ]);
+  sample.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+  sample.alignment = { vertical: 'middle' };
+
+  sheet.columns = headers.map((h) => ({
+    header: h, key: h.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(h.length + 8, 28),
+  }));
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=parents-template.xlsx');
+  await workbook.xlsx.write(res);
+  res.end();
+};
+
+// ---------------------------------------------------------------------------
+// Helpers for import
+// ---------------------------------------------------------------------------
+
+function getField(row: Record<string, any>, ...names: string[]): unknown {
+  const keys = Object.keys(row);
+  for (const name of names) {
+    const key = keys.find((k) => k.trim().toLowerCase() === name.toLowerCase());
+    if (key !== undefined) return row[key];
+  }
+  return undefined;
+}
+
+function esc(val: string): string {
+  return val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ---------------------------------------------------------------------------
+// POST /parents/import — Transactional bulk import
+// ---------------------------------------------------------------------------
+
+export const bulkImport = async (req: Request, res: Response): Promise<Response> => {
+  if (!req.file) throw new BadRequestError('An Excel file is required (field name "file")');
+
+  const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new BadRequestError('The uploaded file has no sheets');
+
+  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], { defval: '' });
+  if (rows.length === 0) throw new BadRequestError('The uploaded file has no data rows');
+
+  const ownOrgId = resolveOrgIdForCreate(req) as string | undefined;
+
+  const errors: { row: number; message: string }[] = [];
+  const parentsToInsert: any[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 2;
+    const row = rows[i];
+
+    try {
+      const firstName = String(getField(row, 'First Name') ?? '').trim();
+      const lastName = String(getField(row, 'Last Name') ?? '').trim();
+      const gender = String(getField(row, 'Gender') ?? 'male').trim().toLowerCase();
+      const email = String(getField(row, 'Email') ?? '').trim().toLowerCase();
+      const password = String(getField(row, 'Password') ?? 'changeme123').trim();
+      const phone = String(getField(row, 'Phone Number', 'Phone') ?? '').trim();
+      const occupation = String(getField(row, 'Occupation') ?? '').trim();
+      const address = String(getField(row, 'Address') ?? '').trim();
+      const studentAssocRaw = String(getField(row, 'Student Association', 'Student Email / ID', 'Student ID') ?? '').trim();
+
+      if (!firstName || !lastName) throw new Error('First Name and Last Name are required');
+      if (!email) throw new Error('Email is required');
+
+      const existingUser = await User.findOne({ email }).lean();
+      if (existingUser) throw new Error(`Email "${email}" is already registered`);
+
+      const finalPassword = password || 'changeme123';
+      const hashedPassword = await bcrypt.hash(finalPassword, 10);
+
+      // Resolve organization
+      let schoolId: string | undefined = ownOrgId;
+      if (!schoolId) {
+        const schoolName = String(getField(row, 'School', 'Organization') ?? '').trim();
+        if (!schoolName) throw new Error('School is required for super admin');
+        const school = await School.findOne({ name: new RegExp(`^${esc(schoolName)}$`, 'i') }).lean();
+        if (!school) throw new Error(`School "${schoolName}" not found`);
+        schoolId = school._id.toString();
+      }
+
+      // Resolve student associations
+      const studentIdsRaw = studentAssocRaw ? studentAssocRaw.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean) : [];
+      const childIds: mongoose.Types.ObjectId[] = [];
+      for (const sid of studentIdsRaw) {
+        const student = await Student.findOne({ studentId: sid }).lean();
+        if (student) childIds.push(student._id);
+        else errors.push({ row: rowNum, message: `Student "${sid}" not found — not linked` });
+      }
+
+      parentsToInsert.push({
+        firstName, lastName, gender: ['male', 'female'].includes(gender) ? gender : 'male',
+        email, hashedPassword, phone, occupation, address,
+        school: schoolId ? new mongoose.Types.ObjectId(schoolId) : undefined,
+        childIds,
+      });
+    } catch (err: any) {
+      errors.push({ row: rowNum, message: err.message || 'Unknown error' });
+    }
+  }
+
+  let inserted = 0;
+  if (parentsToInsert.length > 0) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        for (const item of parentsToInsert) {
+          const count = await Parent.countDocuments();
+          const parentId = `PRN-${new Date().getFullYear()}-${String(count + inserted + 1).padStart(4, '0')}`;
+
+          const user = await User.create([{
+            email: item.email, password: item.hashedPassword, role: 'parent',
+            organizationId: item.school, phone: item.phone || undefined,
+            isVerified: true, isActive: true, preferredLanguage: 'en',
+          }], { session });
+
+          const profile = await Profile.create([{
+            user: user[0]._id, firstName: item.firstName, lastName: item.lastName, gender: item.gender,
+          }], { session });
+
+          const parent = await Parent.create([{
+            user: user[0]._id, profile: profile[0]._id, parentId,
+            school: item.school, occupation: item.occupation,
+            address: item.address, children: item.childIds, status: 'active',
+          }], { session });
+
+          // Link students back to parent
+          if (item.childIds.length > 0) {
+            await Student.updateMany(
+              { _id: { $in: item.childIds } },
+              { parent: parent[0]._id },
+              { session },
+            );
+          }
+
+          inserted++;
+        }
+      });
+    } catch (txErr: any) {
+      if (txErr.writeErrors) {
+        txErr.writeErrors.forEach((we: any) => {
+          errors.push({ row: we.index + 2, message: we.errmsg || 'Insert error' });
+        });
+      }
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  return ApiResponse.success(res, {
+    totalRows: rows.length,
+    created: inserted,
+    failed: errors.length,
+    errors,
+  }, `Imported ${inserted} of ${rows.length} parents`);
 };

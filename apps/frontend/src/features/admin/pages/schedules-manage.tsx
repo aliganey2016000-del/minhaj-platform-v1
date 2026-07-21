@@ -17,7 +17,7 @@
  *   - Filter changes trigger API calls with pagination & server-side filtering.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -56,11 +56,19 @@ export function SchedulesManage() {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
 
-  // Bulk import state
-  const [showImport, setShowImport] = useState(false);
-  const [importFile, setImportFile] = useState<File | null>(null);
+  // Import / Export state
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [importResult, setImportResult] = useState<{ totalRows: number; created: number; failed: number; errors: { row: number; message: string }[] } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Import Modal state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importMode, setImportMode] = useState<'upload' | 'paste'>('upload');
+  const [dragOver, setDragOver] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pasteError, setPasteError] = useState('');
 
   // Reference data
   const [schools, setSchools] = useState<SchoolBrief[]>([]);
@@ -132,9 +140,8 @@ export function SchedulesManage() {
         setSchools(sRes.data.data || []);
         setTeachers(tRes.data.data || []);
 
-        // Org admin: auto-lock to their own school
         if (isOrgAdmin) {
-          const orgSchool = sRes.data.data?.[0]; // backend scopes to their org already
+          const orgSchool = sRes.data.data?.[0];
           if (orgSchool) {
             setFilterSchool(orgSchool._id);
             setFormSchool(orgSchool._id);
@@ -153,7 +160,6 @@ export function SchedulesManage() {
 
   // ── Apply Filters ──
   const handleApplyFilters = () => {
-    // Super admin must pick an org
     if (isSuperAdmin && !filterSchool) {
       setError('Please select an organization to view schedules.');
       return;
@@ -207,26 +213,29 @@ export function SchedulesManage() {
     })();
   }, [formClass]);
 
-  // ── Autofill 3: Course → Teacher ──
+  // ── Dual-state 3: Course → Teacher ──
+  // State A (course already has a teacher): lock the field to that teacher.
+  // State B (no teacher on the course yet): clear it so the admin must pick
+  // one from the active roster. Skipped while editing an existing schedule
+  // — that schedule's own saved teacher (which may differ from the course's
+  // current default) must not be silently overwritten by this effect.
   useEffect(() => {
-    if (!formCourse) return;
+    if (editId) return;
+    if (!formCourse) { setFormTeacher(''); return; }
     const selectedCourse = courses.find((c) => c._id === formCourse);
     if (selectedCourse) {
-      const teacherId = extractTeacherId(selectedCourse);
-      if (teacherId) setFormTeacher(teacherId);
+      setFormTeacher(extractTeacherId(selectedCourse) || '');
     } else {
       (async () => {
         try {
           const { data } = await api.get(`/courses/${formCourse}/admin`);
-          const course = data.data;
-          if (course) {
-            const teacherId = extractTeacherId(course);
-            if (teacherId) setFormTeacher(teacherId);
-          }
-        } catch { /* ignore */ }
+          setFormTeacher(extractTeacherId(data.data) || '');
+        } catch {
+          setFormTeacher('');
+        }
       })();
     }
-  }, [formCourse, courses]);
+  }, [formCourse, courses, editId]);
 
   // ── Clear downstream selections ──
   const handleSchoolChange = (schoolId: string) => {
@@ -314,55 +323,198 @@ export function SchedulesManage() {
       ? `${t.profile.firstName} ${t.profile.lastName}`
       : (t as any).name || t._id;
 
-  // ── Bulk import ──
-  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setImportFile(e.target.files?.[0] || null);
+  // ── Derived: is the currently-selected course's teacher pre-assigned? ──
+  const selectedCourseForTeacher = courses.find((c) => c._id === formCourse);
+  const preAssignedTeacherId = extractTeacherId(selectedCourseForTeacher);
+  const isTeacherLocked = !!preAssignedTeacherId;
+  const preAssignedTeacherLabel = (() => {
+    if (!preAssignedTeacherId) return '';
+    const courseTeacher = (selectedCourseForTeacher as any)?.teacher;
+    if (courseTeacher && typeof courseTeacher === 'object' && (courseTeacher.profile || (courseTeacher as any).name)) {
+      return teacherLabel(courseTeacher);
+    }
+    const fromRoster = teachers.find((t: any) => t._id === preAssignedTeacherId);
+    return fromRoster ? teacherLabel(fromRoster) : 'Assigned teacher';
+  })();
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Import Modal Logic
+  // ───────────────────────────────────────────────────────────────────────
+
+  const openImportModal = () => {
+    setShowImportModal(true);
+    setImportMode('upload');
+    setSelectedFile(null);
+    setPasteText('');
+    setPasteError('');
     setImportResult(null);
   };
 
-  const handleImportSubmit = async (e: React.FormEvent) => {
+  const closeImportModal = () => {
+    setShowImportModal(false);
+    setSelectedFile(null);
+    setPasteText('');
+    setPasteError('');
+    setImportResult(null);
+  };
+
+  // ── Download Template ──
+  const handleDownloadTemplate = async () => {
+    try {
+      const token = localStorage.getItem('accessToken') || '';
+      const response = await fetch(`${api.defaults.baseURL}/class-schedules/template`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'class-schedules-template.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('Failed to download template');
+    }
+  };
+
+  // ── File Upload ──
+  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (!importFile) return;
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) setSelectedFile(file);
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setSelectedFile(file);
+  };
+
+  const submitFileImport = async () => {
+    if (!selectedFile) return;
     setImporting(true);
     setError('');
     setImportResult(null);
     try {
       const formData = new FormData();
-      formData.append('file', importFile);
-      const { data } = await api.post('/class-schedules/bulk-import', formData, {
+      formData.append('file', selectedFile);
+      const { data } = await api.post('/class-schedules/import', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setImportResult(data.data);
       if (data.data?.created > 0) {
         setMessage(`Imported ${data.data.created} of ${data.data.totalRows} schedules`);
         fetchSchedules(page);
+        closeImportModal();
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Bulk import failed');
+      setError(err.response?.data?.message || 'Import failed');
     } finally {
       setImporting(false);
     }
   };
 
-  const resetImport = () => {
-    setImportFile(null);
+  // ── Manual Copy & Paste ──
+  const parsePastedRows = (): string[][] => {
+    if (!pasteText.trim()) return [];
+    const lines = pasteText.trim().split(/\r?\n/);
+    return lines
+      .map((line) => line.split('\t').map((cell) => cell.trim()))
+      .filter((row) => row.length > 0 && row.some((cell) => cell !== ''));
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    // Allow default paste behavior; the textarea value updates naturally
+  };
+
+  const submitPasteImport = async () => {
+    const rows = parsePastedRows();
+    if (rows.length === 0) {
+      setPasteError('Please paste at least one row of data before submitting.');
+      return;
+    }
+
+    // First row should be header; validate expected column count. Section
+    // and Active are optional on the backend, so this only checks the
+    // minimum — School (non-org-admin only), Class, Course, Teacher Email,
+    // Day, Start Time, End Time.
+    const minCols = isOrgAdmin ? 6 : 7;
+    if (rows[0].length < minCols) {
+      setPasteError(`Expected at least ${minCols} columns (${isOrgAdmin ? 'Class, Course, Teacher Email, Day, Start Time, End Time' : 'School, Class, Course, Teacher Email, Day, Start Time, End Time'}). Found ${rows[0].length}.`);
+      return;
+    }
+
+    // Build CSV from pasted data and upload as file
+    const csvContent = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const file = new File([blob], 'pasted-schedules.csv', { type: 'text/csv' });
+
+    setImporting(true);
+    setError('');
     setImportResult(null);
-    setShowImport(false);
+    setPasteError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const { data } = await api.post('/class-schedules/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setImportResult(data.data);
+      if (data.data?.created > 0) {
+        setMessage(`Imported ${data.data.created} of ${data.data.totalRows} schedules`);
+        fetchSchedules(page);
+        closeImportModal();
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // ── Export Excel ──
+  const handleExport = async () => {
+    setExporting(true);
+    setError('');
+    try {
+      const token = localStorage.getItem('accessToken') || '';
+      const response = await fetch(`${api.defaults.baseURL}/class-schedules/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error('Export failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `class-schedules-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setMessage('Export downloaded successfully');
+    } catch (err: any) {
+      setError(err.message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const totalPages = Math.ceil(total / limit);
 
-  /**
-   * Filter visible schedules client-side by active status (the API already
-   * returns paginated results, but `isActive` filtering is cheap client-side).
-   */
   const displayedSchedules = filterActive === ''
     ? schedules
     : schedules.filter((s) => (filterActive === 'active' ? s.isActive : !s.isActive));
 
+  const parsedRows = parsePastedRows();
+
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-6xl space-y-6">
+
+        {/* ── Action Bar ── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🕐 Class Schedules</h1>
@@ -372,13 +524,24 @@ export function SchedulesManage() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => { resetImport(); setShowImport(!showImport); setShowForm(false); }}
-              className="rounded-xl border border-[var(--color-border-default)] px-5 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+              onClick={openImportModal}
+              className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-5 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
             >
-              {showImport ? 'Cancel' : '📥 Bulk Import'}
+              ↑ Import Excel
             </button>
             <button
-              onClick={() => { resetForm(); setShowForm(!showForm); setShowImport(false); }}
+              onClick={handleExport}
+              disabled={exporting}
+              className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-5 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+            >
+              {exporting ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
+              ) : (
+                <>↓ Export Excel</>
+              )}
+            </button>
+            <button
+              onClick={() => { resetForm(); setShowForm(!showForm); }}
               className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors"
             >
               {showForm ? 'Cancel' : '+ New Schedule'}
@@ -389,72 +552,270 @@ export function SchedulesManage() {
         {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
 
-        {/* ── Bulk Import Panel ── */}
-        {showImport && (
-          <form onSubmit={handleImportSubmit} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-card space-y-4">
-            <div>
-              <h3 className="text-sm font-bold text-[var(--color-text-primary)] mb-1">Bulk Import Schedules</h3>
-              <p className="text-xs text-[var(--color-text-tertiary)]">
-                Upload an Excel (.xlsx) or CSV file with columns:{' '}
-                <span className="font-mono">
-                  {isOrgAdmin ? '' : 'School, '}Class, Section, Course, Teacher Email, Day, Start Time, End Time, Active
-                </span>
-                . Day accepts names (e.g. "Monday") and times accept "07:30" or "7:30 AM" formats.
-              </p>
-            </div>
+        {/* ═══════════════════════════════════════════════════════════════
+            Import Modal
+           ═══════════════════════════════════════════════════════════════ */}
+        {showImportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="w-full max-w-2xl rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl">
+              {/* Modal Header */}
+              <div className="border-b border-[var(--color-border-subtle)] px-6 py-5">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Import Class Schedules</h2>
+                    <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
+                      Select your preferred method to import multiple class schedules into the system.
+                    </p>
+                  </div>
+                  <button
+                    onClick={closeImportModal}
+                    className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                    disabled={importing}
+                  >
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
 
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              onChange={handleImportFileChange}
-              className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-primary-700 dark:file:bg-primary-950/30 dark:file:text-primary-300"
-            />
+              {/* Modal Body */}
+              <div className="px-6 py-5 space-y-6">
+                {/* ── Template Download Banner ── */}
+                <button
+                  onClick={handleDownloadTemplate}
+                  className="w-full rounded-xl border-2 border-dashed border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-950/20 px-5 py-4 text-left hover:bg-primary-100 dark:hover:bg-primary-950/40 transition-colors group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">📥</span>
+                      <div>
+                        <p className="text-sm font-bold text-primary-700 dark:text-primary-300 group-hover:text-primary-800 dark:group-hover:text-primary-200">
+                          Download Excel Sample Template
+                        </p>
+                        <p className="text-xs text-primary-600/70 dark:text-primary-400/70 mt-0.5">
+                          Pre-formatted .xlsx file with the correct column structure
+                        </p>
+                      </div>
+                    </div>
+                    <svg className="h-5 w-5 text-primary-500 group-hover:translate-y-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </div>
+                </button>
 
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                disabled={!importFile || importing}
-                className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60"
-              >
-                {importing ? 'Importing...' : 'Upload & Import'}
-              </button>
-              <button type="button" onClick={resetImport} className="rounded-xl border border-[var(--color-border-default)] px-5 py-2.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">
-                Close
-              </button>
-            </div>
+                {/* ── Mode Selector (Selection Cards) ── */}
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => { setImportMode('upload'); setPasteError(''); }}
+                    className={`rounded-xl border-2 p-4 text-left transition-all ${
+                      importMode === 'upload'
+                        ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm'
+                        : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'
+                    }`}
+                  >
+                    <span className="text-2xl block mb-1">📁</span>
+                    <p className={`text-sm font-bold ${importMode === 'upload' ? 'text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-primary)]'}`}>
+                      Upload Excel File
+                    </p>
+                    <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                      Drag and drop your .xlsx file
+                    </p>
+                  </button>
+                  <button
+                    onClick={() => { setImportMode('paste'); setPasteError(''); }}
+                    className={`rounded-xl border-2 p-4 text-left transition-all ${
+                      importMode === 'paste'
+                        ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm'
+                        : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'
+                    }`}
+                  >
+                    <span className="text-2xl block mb-1">📋</span>
+                    <p className={`text-sm font-bold ${importMode === 'paste' ? 'text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-primary)]'}`}>
+                      Manual Copy & Paste
+                    </p>
+                    <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                      Paste tabular data from your clipboard
+                    </p>
+                  </button>
+                </div>
 
-            {importResult && (
-              <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4 space-y-2">
-                <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                  {importResult.created} of {importResult.totalRows} rows imported successfully
-                  {importResult.failed > 0 && ` — ${importResult.failed} failed`}
-                </p>
-                {importResult.errors.length > 0 && (
-                  <div className="max-h-48 overflow-y-auto rounded-lg border border-red-200 dark:border-red-900/40">
-                    <table className="w-full text-xs">
-                      <thead className="bg-red-50 dark:bg-red-950/30 text-left text-red-700 dark:text-red-300">
-                        <tr>
-                          <th className="px-3 py-1.5">Row</th>
-                          <th className="px-3 py-1.5">Error</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-red-100 dark:divide-red-900/30">
-                        {importResult.errors.map((e, idx) => (
-                          <tr key={idx}>
-                            <td className="px-3 py-1.5 text-[var(--color-text-secondary)]">{e.row}</td>
-                            <td className="px-3 py-1.5 text-red-600 dark:text-red-400">{e.message}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                {/* ── Upload Mode ── */}
+                {importMode === 'upload' && (
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={handleFileDrop}
+                    className={`rounded-xl border-2 border-dashed p-10 text-center transition-colors ${
+                      dragOver
+                        ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20'
+                        : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]'
+                    }`}
+                  >
+                    {selectedFile ? (
+                      <div className="space-y-3">
+                        <span className="text-3xl">✅</span>
+                        <p className="text-sm font-semibold text-[var(--color-text-primary)]">{selectedFile.name}</p>
+                        <p className="text-xs text-[var(--color-text-tertiary)]">
+                          {(selectedFile.size / 1024).toFixed(1)} KB
+                        </p>
+                        <button
+                          onClick={() => setSelectedFile(null)}
+                          className="text-xs text-red-500 hover:underline"
+                        >
+                          Remove file
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <span className="text-3xl">📂</span>
+                        <p className="text-sm font-medium text-[var(--color-text-secondary)]">
+                          Drag and drop your Excel file here, or
+                        </p>
+                        <label className="inline-block cursor-pointer rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-700 transition-colors">
+                          Browse Files
+                          <input
+                            type="file"
+                            accept=".xlsx,.xls,.csv"
+                            onChange={handleFileInputChange}
+                            className="hidden"
+                          />
+                        </label>
+                        <p className="text-xs text-[var(--color-text-tertiary)]">
+                          Supported formats: .xlsx, .xls, .csv (max 10 MB)
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Paste Mode ── */}
+                {importMode === 'paste' && (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+                      <p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">
+                        Paste your spreadsheet data below (tab-separated columns, one row per line):
+                      </p>
+                      <p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">
+                        {isOrgAdmin
+                          ? 'Class &nbsp; Section &nbsp; Course &nbsp; Teacher Email &nbsp; Day &nbsp; Start Time &nbsp; End Time &nbsp; Active'
+                          : 'School &nbsp; Class &nbsp; Section &nbsp; Course &nbsp; Teacher Email &nbsp; Day &nbsp; Start Time &nbsp; End Time &nbsp; Active'}
+                      </p>
+                      <textarea
+                        value={pasteText}
+                        onChange={(e) => { setPasteText(e.target.value); setPasteError(''); }}
+                        onPaste={handlePaste}
+                        rows={8}
+                        placeholder={`Paste data from Excel here...\n\nExample:\n${isOrgAdmin ? 'Quran Beginners\tA\tQuran Recitation\tteacher@example.com\tMonday\t08:00\t09:30\tYes' : 'Madrasa Al-Noor\tQuran Beginners\tA\tQuran Recitation\tteacher@example.com\tMonday\t08:00\t09:30\tYes'}\n${isOrgAdmin ? 'Fiqh Level 1\tB\tIslamic Jurisprudence\tteacher2@example.com\tTuesday\t10:00\t11:30\tYes' : 'Madrasa Al-Noor\tFiqh Level 1\tB\tIslamic Jurisprudence\tteacher2@example.com\tTuesday\t10:00\t11:30\tYes'}`}
+                        className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y"
+                      />
+                    </div>
+
+                    {pasteError && (
+                      <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+                        {pasteError}
+                      </div>
+                    )}
+
+                    {/* Parsed Data Preview */}
+                    {parsedRows.length > 0 && (
+                      <div className="rounded-xl border border-[var(--color-border-default)] overflow-hidden">
+                        <div className="bg-[var(--color-surface-secondary)] px-4 py-2 text-xs font-semibold text-[var(--color-text-tertiary)]">
+                          Preview — {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''} parsed
+                        </div>
+                        <div className="max-h-40 overflow-auto">
+                          <table className="w-full text-xs">
+                            <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                              {parsedRows.slice(0, 20).map((row, ri) => (
+                                <tr key={ri} className={ri % 2 === 0 ? 'bg-[var(--color-surface-primary)]' : 'bg-[var(--color-surface-secondary)]'}>
+                                  {row.map((cell, ci) => (
+                                    <td key={ci} className="px-3 py-1.5 text-[var(--color-text-secondary)] whitespace-nowrap border-r border-[var(--color-border-subtle)] last:border-r-0">
+                                      {cell}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Modal Import Error */}
+                {error && (
+                  <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-4 py-2.5 text-xs text-red-600 dark:text-red-400">
+                    {error}
                   </div>
                 )}
               </div>
-            )}
-          </form>
+
+              {/* Modal Footer */}
+              <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 flex items-center justify-between">
+                <button
+                  onClick={closeImportModal}
+                  disabled={importing}
+                  className="rounded-lg border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={importMode === 'upload' ? submitFileImport : submitPasteImport}
+                  disabled={
+                    importing ||
+                    (importMode === 'upload' && !selectedFile) ||
+                    (importMode === 'paste' && !pasteText.trim())
+                  }
+                  className="rounded-lg bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors inline-flex items-center gap-2"
+                >
+                  {importing ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      Importing...
+                    </>
+                  ) : (
+                    'Import Schedules'
+                  )}
+                </button>
+              </div>
+
+              {/* Modal Inline Import Result */}
+              {importResult && (
+                <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 space-y-2">
+                  <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+                    {importResult.created} of {importResult.totalRows} rows imported successfully
+                    {importResult.failed > 0 && ` — ${importResult.failed} failed`}
+                  </p>
+                  {importResult.errors.length > 0 && (
+                    <div className="max-h-36 overflow-y-auto rounded-lg border border-red-200 dark:border-red-900/40">
+                      <table className="w-full text-xs">
+                        <thead className="bg-red-50 dark:bg-red-950/30 text-left text-red-700 dark:text-red-300">
+                          <tr>
+                            <th className="px-3 py-1.5">Row</th>
+                            <th className="px-3 py-1.5">Error</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-red-100 dark:divide-red-900/30">
+                          {importResult.errors.map((e, idx) => (
+                            <tr key={idx}>
+                              <td className="px-3 py-1.5 text-[var(--color-text-secondary)]">{e.row}</td>
+                              <td className="px-3 py-1.5 text-red-600 dark:text-red-400">{e.message}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
-        {/* ── Form ── */}
+        {/* ═══════════════════════════════════════════════════════════════
+            Schedule Create / Edit Form
+           ═══════════════════════════════════════════════════════════════ */}
         {showForm && (
           <form onSubmit={handleSubmit} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-card space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -513,17 +874,24 @@ export function SchedulesManage() {
 
               <div>
                 <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">
-                  Teacher {formTeacher && courses.find((c) => c._id === formCourse)?.teacher && <span className="text-green-600 font-normal">(auto-filled)</span>}
+                  Teacher {isTeacherLocked && <span className="text-green-600 font-normal">(auto-filled)</span>}
                 </label>
-                <select
-                  value={formTeacher}
-                  onChange={(e) => setFormTeacher(e.target.value)}
-                  required
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
-                >
-                  <option value="">Select a teacher...</option>
-                  {teachers.map((t: any) => <option key={t._id} value={t._id}>{teacherLabel(t)}</option>)}
-                </select>
+                {isTeacherLocked ? (
+                  <div className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
+                    {preAssignedTeacherLabel}
+                  </div>
+                ) : (
+                  <select
+                    value={formTeacher}
+                    onChange={(e) => setFormTeacher(e.target.value)}
+                    required
+                    disabled={!formCourse}
+                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm disabled:opacity-50"
+                  >
+                    <option value="">{!formCourse ? 'Select course first' : 'Select a teacher...'}</option>
+                    {teachers.map((t: any) => <option key={t._id} value={t._id}>{teacherLabel(t)}</option>)}
+                  </select>
+                )}
               </div>
 
               <div>
@@ -557,7 +925,6 @@ export function SchedulesManage() {
         {/* ── Filter Bar ── */}
         <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card space-y-3">
           <div className="flex flex-col sm:flex-row gap-3">
-            {/* Organization filter — always visible */}
             {isOrgAdmin ? (
               <div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">
                 {schools.find((s) => s._id === filterSchool)?.name || 'Your Organization'}
@@ -568,14 +935,11 @@ export function SchedulesManage() {
                 onChange={(e) => { setFilterSchool(e.target.value); setHasFetched(false); }}
                 className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
               >
-                <option value="">
-                  {isSuperAdmin ? 'Select an Organization...' : 'Select Organization...'}
-                </option>
+                <option value="">{isSuperAdmin ? 'Select an Organization...' : 'Select Organization...'}</option>
                 {schools.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
               </select>
             )}
 
-            {/* Day filter */}
             <select
               value={filterDay}
               onChange={(e) => { setFilterDay(e.target.value); setHasFetched(false); }}
@@ -585,7 +949,6 @@ export function SchedulesManage() {
               {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
             </select>
 
-            {/* Active/Inactive filter (client-side) */}
             <select
               value={filterActive}
               onChange={(e) => setFilterActive(e.target.value)}
@@ -598,7 +961,6 @@ export function SchedulesManage() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3">
-            {/* Search */}
             <input
               type="text"
               placeholder="Search by course, teacher, class, or school..."
@@ -623,7 +985,7 @@ export function SchedulesManage() {
           </div>
         )}
 
-        {/* ── Empty State (no filters applied) ── */}
+        {/* ── Empty State ── */}
         {!loading && !hasFetched && (
           <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card">
             <p className="text-4xl mb-4">🔍</p>

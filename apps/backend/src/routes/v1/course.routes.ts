@@ -21,6 +21,7 @@
  */
 
 import { Router } from 'express';
+import multer from 'multer';
 import * as courseController from '../../controllers/course.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { roleMiddleware, adminOnly, adminOrTeacher } from '../../middleware/role.middleware';
@@ -157,6 +158,17 @@ router.post(
   roleMiddleware(['student']),
   asyncHandler(courseController.selfUnenroll)
 );
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+// POST /api/v1/courses/import — Bulk import (admin + org_admin)
+router.post('/import', authMiddleware, adminOnly, upload.single('file'), asyncHandler(courseController.bulkImport));
+
+// GET /api/v1/courses/export — Export courses (admin + org_admin)
+router.get('/export', authMiddleware, adminOnly, asyncHandler(courseController.exportCourses as any));
+
+// GET /api/v1/courses/template — Download import template
+router.get('/template', authMiddleware, adminOnly, asyncHandler(courseController.downloadTemplate as any));
 
 // GET /api/v1/courses/:slug — Get published course by slug (MUST be last)
 router.get(

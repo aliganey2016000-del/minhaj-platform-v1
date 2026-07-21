@@ -10,5 +10,8 @@
     "build:backend": "cd apps/backend && npm run build",
     "lint": "cd apps/frontend && npm run lint && cd ../backend && npm run lint",
     "dev": "echo \"Please run: cd apps/frontend && npm run dev\""
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0"
   }
 }

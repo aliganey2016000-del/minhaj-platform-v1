@@ -35,6 +35,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     items: [
       { path: '/teacher',              label: 'Dashboard',          icon: '🏠' },
       { path: '/teacher/courses',      label: 'My Courses',         icon: '📚' },
+      { path: '/teacher/schedule',     label: 'My Schedule',        icon: '🕐' },
       { path: '/teacher/assignments',  label: 'Assignments',        icon: '📝' },
       {
         key: 'group:quizzes', label: 'Quiz Builder', icon: '❓',
