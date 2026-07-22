@@ -16,6 +16,19 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // The instance default above hardcodes 'application/json' on every
+  // request. For a FormData body (file/bulk-import uploads across the
+  // app), that default silently overrides the browser's auto-generated
+  // 'multipart/form-data; boundary=...' header — the request still sends
+  // the file bytes, but with the wrong Content-Type, so Multer never sees
+  // a boundary and req.file comes back undefined server-side ("An Excel
+  // file is required" even though a real file was attached). Deleting the
+  // header here lets the browser set the correct one with its boundary.
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
+
   return config;
 });
 
