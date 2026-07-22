@@ -8,8 +8,8 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
-import * as ExcelJS from 'exceljs';
 import bcrypt from 'bcrypt';
+import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Student from '../models/student.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
@@ -647,30 +647,22 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
     .sort({ createdAt: -1 })
     .lean();
 
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Students');
-
   const headers = [
     'First Name', 'Last Name', 'Gender', 'Email', 'Password',
     'Grade / Class', 'Enrollment Date', 'Medical Notes',
     'Guardian Name', 'Guardian Email', 'Guardian Phone', 'Relationship',
   ];
-  const headerRow = sheet.addRow(headers);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-  headerRow.height = 24;
-
-  students.forEach((st: any, idx: number) => {
+  const rows = students.map((st: any) => {
     const guardianName = st.parent?.profile
       ? `${st.parent.profile.firstName || ''} ${st.parent.profile.lastName || ''}`.trim()
       : '';
-    const row = sheet.addRow([
+
+    return [
       st.profile?.firstName || '',
       st.profile?.lastName || '',
       st.profile?.gender || '',
       st.user?.email || '',
-      '', // password intentionally blank
+      '',
       st.class ? `${st.class.title} ${st.class.section || ''}`.trim() : (st.grade || ''),
       st.enrollmentDate ? new Date(st.enrollmentDate).toISOString().slice(0, 10) : '',
       st.medicalNotes || '',
@@ -678,71 +670,36 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
       st.parent?.user?.email || '',
       st.parent?.user?.phone || '',
       st.parent?.relationship || '',
-    ]);
-
-    if (idx % 2 === 0) {
-      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
-    }
-    row.alignment = { vertical: 'middle' };
+    ];
   });
 
-  sheet.columns = headers.map((header, colIdx) => {
-    let maxLen = header.length;
-    sheet.eachRow({ includeEmpty: false }, (_row, rowNumber) => {
-      if (rowNumber > 1) {
-        const cellVal = _row.getCell(colIdx + 1).value?.toString() || '';
-        maxLen = Math.max(maxLen, cellVal.length);
-      }
-    });
-    return { header, key: header.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(maxLen + 4, 50) };
-  });
-
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  const buffer = buildXlsxBuffer(headers, rows, 'Students');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=students-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
-  await workbook.xlsx.write(res);
-  res.end();
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------
 // GET /students/template — Download empty structured template (XLSX)
 // ---------------------------------------------------------------------------
 
-export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Student Template');
-
+export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
   const headers = [
     'First Name', 'Last Name', 'Gender', 'Email', 'Password',
     'Grade / Class', 'Enrollment Date', 'Medical Notes',
     'Guardian Name', 'Guardian Email', 'Guardian Phone', 'Relationship',
   ];
-  const headerRow = sheet.addRow(headers);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-  headerRow.height = 24;
-
-  const sample = sheet.addRow([
+  const rows = [[
     'Ahmed', 'Ali', 'male', 'ahmed.ali@example.com', '',
     'Quran Beginners A', '2026-01-15', '',
     'Mohamed Ali', 'parent@example.com', '+252612345678', 'Father',
-  ]);
-  sample.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
-  sample.alignment = { vertical: 'middle' };
+  ]];
+  const buffer = buildXlsxBuffer(headers, rows, 'Student Template');
 
-  sheet.columns = headers.map((h) => ({
-    header: h,
-    key: h.toLowerCase().replace(/[^a-z]/g, '_'),
-    width: Math.min(h.length + 8, 28),
-  }));
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
-
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=students-template.xlsx');
-  await workbook.xlsx.write(res);
-  res.end();
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------
@@ -910,12 +867,17 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   // Batch-lookup existing parents by phone within the same tenant
   const parentPhoneMap = new Map<string, any>();
   if (uniquePhones.size > 0) {
+    const schoolIds = parsedRows
+      .map((item) => item.school?.toString())
+      .filter((id): id is string => Boolean(id));
+    const schoolFilter = schoolIds.length > 0 ? { school: { $in: schoolIds.map((id) => new mongoose.Types.ObjectId(id)) } } : {};
     const existingParents = await Parent.find({
-      school: ownOrgId ? new mongoose.Types.ObjectId(ownOrgId) : undefined,
+      ...schoolFilter,
       phone: { $in: Array.from(uniquePhones) },
     }).lean();
     for (const p of existingParents) {
-      parentPhoneMap.set((p as any).phone, p);
+      const parentSchoolKey = (p as any).school ? (p as any).school.toString() : 'global';
+      parentPhoneMap.set(`${parentSchoolKey}:${(p as any).phone}`, p);
     }
   }
 
@@ -993,7 +955,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
           // Handle guardian linking
           if (item.guardianName && item.guardianPhone) {
-            const existing = parentPhoneMap.get(item.guardianPhone) || newParentsByPhone.get(item.guardianPhone);
+            const schoolKey = item.school?.toString() || 'global';
+            const existing = parentPhoneMap.get(`${schoolKey}:${item.guardianPhone}`) || newParentsByPhone.get(`${schoolKey}:${item.guardianPhone}`);
             if (existing) {
               // Link to existing parent — push child into children array
               parentUpdates.push({
@@ -1043,7 +1006,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
               });
 
               studentBulkOps[studentBulkOps.length - 1].updateOne.update.$set.parent = guardianParentId;
-              newParentsByPhone.set(item.guardianPhone, { _id: guardianParentId });
+              newParentsByPhone.set(`${schoolKey}:${item.guardianPhone}`, { _id: guardianParentId });
             }
           }
         }

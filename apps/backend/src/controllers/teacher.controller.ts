@@ -6,8 +6,8 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
-import * as ExcelJS from 'exceljs';
 import bcrypt from 'bcrypt';
+import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Teacher from '../models/teacher.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
@@ -247,51 +247,26 @@ export const exportTeachers = async (req: Request, res: Response): Promise<void>
     .sort({ createdAt: -1 })
     .lean();
 
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Teachers');
-
   const headers = [
     'First Name', 'Last Name', 'Gender', 'Email', 'Password',
     'Phone', 'Qualification', 'Specialization', 'Experience (years)',
     'Joining Date', 'Bio',
   ];
-  const headerRow = sheet.addRow(headers);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-  headerRow.height = 24;
+  const rows = teachers.map((t: any) => [
+    t.profile?.firstName || '', t.profile?.lastName || '',
+    t.profile?.gender || '', t.user?.email || '', '',
+    (t.user as any)?.phone || '', t.qualification || '',
+    Array.isArray(t.specialization) ? t.specialization.join(', ') : '',
+    t.experience || 0,
+    t.joiningDate ? new Date(t.joiningDate).toISOString().slice(0, 10) : '',
+    t.bio || '',
+  ]);
 
-  teachers.forEach((t: any, idx: number) => {
-    const row = sheet.addRow([
-      t.profile?.firstName || '', t.profile?.lastName || '',
-      t.profile?.gender || '', t.user?.email || '', '',
-      (t.user as any)?.phone || '', t.qualification || '',
-      Array.isArray(t.specialization) ? t.specialization.join(', ') : '',
-      t.experience || 0,
-      t.joiningDate ? new Date(t.joiningDate).toISOString().slice(0, 10) : '',
-      t.bio || '',
-    ]);
-    if (idx % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
-    row.alignment = { vertical: 'middle' };
-  });
-
-  sheet.columns = headers.map((header, colIdx) => {
-    let maxLen = header.length;
-    sheet.eachRow({ includeEmpty: false }, (_row, rowNumber) => {
-      if (rowNumber > 1) {
-        const cellVal = _row.getCell(colIdx + 1).value?.toString() || '';
-        maxLen = Math.max(maxLen, cellVal.length);
-      }
-    });
-    return { header, key: header.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(maxLen + 4, 50) };
-  });
-
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  const buffer = buildXlsxBuffer(headers, rows, 'Teachers');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=teachers-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
-  await workbook.xlsx.write(res);
-  res.end();
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------
@@ -299,37 +274,21 @@ export const exportTeachers = async (req: Request, res: Response): Promise<void>
 // ---------------------------------------------------------------------------
 
 export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Teacher Template');
-
   const headers = [
     'First Name', 'Last Name', 'Gender', 'Email', 'Password',
     'Phone', 'Qualification', 'Specialization', 'Experience (years)',
     'Joining Date', 'Bio',
   ];
-  const headerRow = sheet.addRow(headers);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-  headerRow.height = 24;
-
-  const sample = sheet.addRow([
+  const rows = [[
     'Ahmed', 'Hassan', 'male', 'ahmed.hassan@example.com', '',
     '+252612345678', 'Bachelor of Islamic Studies', 'Tajweed, Fiqh', '5',
     '2026-01-15', 'Experienced Quran teacher with 5 years of teaching.',
-  ]);
-  sample.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
-  sample.alignment = { vertical: 'middle' };
+  ]];
+  const buffer = buildXlsxBuffer(headers, rows, 'Teacher Template');
 
-  sheet.columns = headers.map((h) => ({
-    header: h, key: h.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(h.length + 8, 28),
-  }));
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
-
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=teachers-template.xlsx');
-  await workbook.xlsx.write(res);
-  res.end();
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------

@@ -6,8 +6,8 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
-import * as ExcelJS from 'exceljs';
 import bcrypt from 'bcrypt';
+import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Parent from '../models/parent.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
@@ -356,50 +356,27 @@ export const exportParents = async (req: Request, res: Response): Promise<void> 
     .sort({ createdAt: -1 })
     .lean();
 
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Parents');
-
   const headers = [
     'First Name', 'Last Name', 'Gender', 'Email', 'Password',
     'Phone Number', 'Occupation', 'Address', 'Student Association',
   ];
-  const headerRow = sheet.addRow(headers);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-  headerRow.height = 24;
-
-  parents.forEach((p: any, idx: number) => {
+  const rows = parents.map((p: any) => {
     const studentAssoc = (p.children || [])
       .map((c: any) => c.studentId || c._id)
       .join(', ');
-    const row = sheet.addRow([
+    return [
       p.profile?.firstName || '', p.profile?.lastName || '',
       p.profile?.gender || '', p.user?.email || '', '',
       p.user?.phone || '', p.occupation || '', p.address || '',
       studentAssoc,
-    ]);
-    if (idx % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
-    row.alignment = { vertical: 'middle' };
+    ];
   });
 
-  sheet.columns = headers.map((header, colIdx) => {
-    let maxLen = header.length;
-    sheet.eachRow({ includeEmpty: false }, (_row, rowNumber) => {
-      if (rowNumber > 1) {
-        const cellVal = _row.getCell(colIdx + 1).value?.toString() || '';
-        maxLen = Math.max(maxLen, cellVal.length);
-      }
-    });
-    return { header, key: header.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(maxLen + 4, 50) };
-  });
+  const buffer = buildXlsxBuffer(headers, rows, 'Parents');
 
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
-
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=parents-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
-  await workbook.xlsx.write(res);
-  res.end();
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------
@@ -407,35 +384,19 @@ export const exportParents = async (req: Request, res: Response): Promise<void> 
 // ---------------------------------------------------------------------------
 
 export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Parent Template');
-
   const headers = [
     'First Name', 'Last Name', 'Gender', 'Email', 'Password',
     'Phone Number', 'Occupation', 'Address', 'Student Association',
   ];
-  const headerRow = sheet.addRow(headers);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-  headerRow.height = 24;
-
-  const sample = sheet.addRow([
+  const rows = [[
     'Mohamed', 'Ali', 'male', 'mohamed.ali@example.com', '',
     '+252612345678', 'Engineer', 'Mogadishu, Somalia', 'STU-2026-0001',
-  ]);
-  sample.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
-  sample.alignment = { vertical: 'middle' };
+  ]];
+  const buffer = buildXlsxBuffer(headers, rows, 'Parent Template');
 
-  sheet.columns = headers.map((h) => ({
-    header: h, key: h.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(h.length + 8, 28),
-  }));
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
-
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=parents-template.xlsx');
-  await workbook.xlsx.write(res);
-  res.end();
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------

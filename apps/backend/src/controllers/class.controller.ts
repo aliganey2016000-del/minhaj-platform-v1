@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
-import * as ExcelJS from 'exceljs';
 import ClassModel from '../models/class.model';
+import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Department from '../models/department.model';
 import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
@@ -202,42 +202,17 @@ export const exportClasses = async (req: Request, res: Response): Promise<void> 
     .sort({ createdAt: -1 })
     .lean();
 
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Classes');
-
   const headers = ['Class Name', 'Section', 'Organization', 'Department', 'Room', 'Shift / Learning Mode'];
-  const headerRow = sheet.addRow(headers);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-  headerRow.height = 24;
-
-  classes.forEach((c: any, idx: number) => {
+  const rows = classes.map((c: any) => {
     const departmentValue = typeof c.department === 'string' ? c.department : c.department?.name || '';
-    const row = sheet.addRow([
-      c.title || '', c.section || '', c.school?.name || '', departmentValue || 'Primary', c.room || '', c.shiftMode || 'Morning',
-    ]);
-    if (idx % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
-    row.alignment = { vertical: 'middle' };
+    return [c.title || '', c.section || '', c.school?.name || '', departmentValue || 'Primary', c.room || '', c.shiftMode || 'Morning'];
   });
 
-  sheet.columns = headers.map((header, colIdx) => {
-    let maxLen = header.length;
-    sheet.eachRow({ includeEmpty: false }, (_row, rowNumber) => {
-      if (rowNumber > 1) {
-        const cellVal = _row.getCell(colIdx + 1).value?.toString() || '';
-        maxLen = Math.max(maxLen, cellVal.length);
-      }
-    });
-    return { header, key: header.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(maxLen + 4, 50) };
-  });
-
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  const buffer = buildXlsxBuffer(headers, rows, 'Classes');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=classes-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
-  await workbook.xlsx.write(res);
-  res.end();
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------
@@ -245,29 +220,13 @@ export const exportClasses = async (req: Request, res: Response): Promise<void> 
 // ---------------------------------------------------------------------------
 
 export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Class Template');
-
   const headers = ['Class Name', 'Section', 'Department', 'Room', 'Shift / Learning Mode'];
-  const headerRow = sheet.addRow(headers);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-  headerRow.height = 24;
-
-  const sample = sheet.addRow(['Grade 3', 'A', 'Primary', 'Room 5', 'Morning']);
-  sample.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
-  sample.alignment = { vertical: 'middle' };
-
-  sheet.columns = headers.map((h) => ({
-    header: h, key: h.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(h.length + 8, 28),
-  }));
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  const rows = [['Grade 3', 'A', 'Primary', 'Room 5', 'Morning']];
+  const buffer = buildXlsxBuffer(headers, rows, 'Class Template');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=classes-template.xlsx');
-  await workbook.xlsx.write(res);
-  res.end();
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------

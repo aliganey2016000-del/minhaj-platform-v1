@@ -7,8 +7,8 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
-import * as ExcelJS from 'exceljs';
 import Course from '../models/course.model';
+import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Student from '../models/student.model';
 import School from '../models/school.model';
 import ClassModel from '../models/class.model';
@@ -615,46 +615,23 @@ export const exportCourses = async (req: Request, res: Response): Promise<void> 
     .sort({ createdAt: -1 })
     .lean();
 
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Courses');
-
   const headers = [
     'Course Title (English)', 'Category', 'Level', 'Organization Name',
     'Class Title', 'Teacher Email', 'Duration (weeks)', 'Price ($)',
     'Capacity', 'Thumbnail URL',
   ];
-  const headerRow = sheet.addRow(headers);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-  headerRow.height = 24;
+  const rows = courses.map((c: any) => [
+    c.title?.en || '', c.category || '', c.level || '',
+    c.school?.name || '', c.class ? `${c.class.title} ${c.class.section || ''}`.trim() : '',
+    c.teacher?.user?.email || '', c.duration || 8, c.fee || 0,
+    c.maxStudents || 50, c.thumbnail || '',
+  ]);
 
-  courses.forEach((c: any, idx: number) => {
-    const row = sheet.addRow([
-      c.title?.en || '', c.category || '', c.level || '',
-      c.school?.name || '', c.class ? `${c.class.title} ${c.class.section || ''}`.trim() : '',
-      c.teacher?.user?.email || '', c.duration || 8, c.fee || 0,
-      c.maxStudents || 50, c.thumbnail || '',
-    ]);
-    if (idx % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
-    row.alignment = { vertical: 'middle' };
-  });
-
-  sheet.columns = headers.map((header, colIdx) => {
-    let maxLen = header.length;
-    sheet.eachRow({ includeEmpty: false }, (_row, rowNumber) => {
-      if (rowNumber > 1) {
-        maxLen = Math.max(maxLen, (_row.getCell(colIdx + 1).value?.toString() || '').length);
-      }
-    });
-    return { header, key: header.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(maxLen + 4, 50) };
-  });
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  const buffer = buildXlsxBuffer(headers, rows, 'Courses');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=courses-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
-  await workbook.xlsx.write(res);
-  res.end();
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------
@@ -662,37 +639,21 @@ export const exportCourses = async (req: Request, res: Response): Promise<void> 
 // ---------------------------------------------------------------------------
 
 export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Course Template');
-
   const headers = [
     'Course Title (English)', 'Category', 'Level', 'Organization Name',
     'Class Title', 'Teacher Email', 'Duration (weeks)', 'Price ($)',
     'Capacity', 'Thumbnail URL',
   ];
-  const headerRow = sheet.addRow(headers);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-  headerRow.height = 24;
-
-  const sample = sheet.addRow([
+  const rows = [[
     'Quran Recitation', 'quran', 'beginner', 'Madrasa Al-Noor',
     'Quran Beginners A', 'teacher@example.com', '8', '0',
     '50', '',
-  ]);
-  sample.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
-  sample.alignment = { vertical: 'middle' };
-
-  sheet.columns = headers.map((h) => ({
-    header: h, key: h.toLowerCase().replace(/[^a-z]/g, '_'), width: Math.min(h.length + 8, 28),
-  }));
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  ]];
+  const buffer = buildXlsxBuffer(headers, rows, 'Course Template');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=courses-template.xlsx');
-  await workbook.xlsx.write(res);
-  res.end();
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------
