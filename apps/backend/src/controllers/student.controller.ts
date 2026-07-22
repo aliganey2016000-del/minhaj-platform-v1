@@ -644,7 +644,7 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
 
   const headers = [
     'First Name', 'Last Name', 'Gender', 'Email', 'Password',
-    'Grade / Class', 'Enrollment Date', 'Medical Notes',
+    'Organization', 'Grade / Class', 'Enrollment Date', 'Medical Notes',
     'Guardian Name', 'Guardian Email', 'Guardian Phone', 'Relationship',
   ];
   const rows = students.map((st: any) => {
@@ -658,6 +658,7 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
       st.profile?.gender || '',
       st.user?.email || '',
       '',
+      st.school?.name || '',
       st.class ? `${st.class.title} ${st.class.section || ''}`.trim() : (st.grade || ''),
       st.enrollmentDate ? new Date(st.enrollmentDate).toISOString().slice(0, 10) : '',
       st.medicalNotes || '',
@@ -677,17 +678,21 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
 
 // ---------------------------------------------------------------------------
 // GET /students/template — Download empty structured template (XLSX)
+//
+// "Organization" is only actually required for a true super admin (role
+// 'admin') — an org_admin's own tenant always wins regardless of what's in
+// this column (see resolveOrgIdForCreate), so org_admins can leave it blank.
 // ---------------------------------------------------------------------------
 
 export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
   const headers = [
     'First Name', 'Last Name', 'Gender', 'Email', 'Password',
-    'Grade / Class', 'Enrollment Date', 'Medical Notes',
+    'Organization', 'Grade / Class', 'Enrollment Date', 'Medical Notes',
     'Guardian Name', 'Guardian Email', 'Guardian Phone', 'Relationship',
   ];
   const rows = [[
     'Ahmed', 'Ali', 'male', 'ahmed.ali@example.com', '',
-    'Quran Beginners A', '2026-01-15', '',
+    'Madrasa Al-Noor', 'Quran Beginners A', '2026-01-15', '',
     'Mohamed Ali', 'parent@example.com', '+252612345678', 'Father',
   ]];
   const buffer = buildXlsxBuffer(headers, rows, 'Student Template');
