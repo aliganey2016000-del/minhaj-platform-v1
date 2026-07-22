@@ -1,10 +1,12 @@
 /**
  * Content Block Editor — authors the paragraph-by-paragraph "Content Blocks"
  * used by a lesson's "Interactive Gate" delivery mode. Each block is a
- * chunk of rich text plus an optional Stop & Check question (MCQ or
- * True/False) that the student must answer correctly before the next block
- * unlocks. Mirrors the local-array-state + inline add/remove pattern already
- * used for attachments/quiz questions elsewhere in the Course Builder.
+ * chunk of rich text plus an optional Stop & Check question supporting all
+ * 10 question types from the main quiz engine (MCQ, True/False, Matching,
+ * Ordering, Picture Choice, Swipe Sort, Listen & Write, Fill in the Blanks,
+ * Word Scramble, Sentence Build).
+ * Mirrors the local-array-state + inline add/remove pattern already used for
+ * attachments/quiz questions elsewhere in the Course Builder.
  */
 
 import { useState } from 'react';
@@ -12,7 +14,9 @@ import {
   ArrowUp, ArrowDown, Trash2, PenLine, Sparkles, Loader2, CheckCircle2,
   RefreshCw, Pencil, Plus, X, AlertCircle, CircleCheck,
 } from 'lucide-react';
-import type { ContentBlock, ContentBlockQuestion } from '../course-builder.types';
+import type { ContentBlock, ContentBlockQuestion, QuestionType } from '../course-builder.types';
+import { normalizeQuestion } from '../course-builder.types';
+import { QUESTION_TYPE_META, QUESTION_TYPE_ORDER } from '../quiz-question-meta';
 import { RichTextEditor } from './rich-text-editor';
 import api from '../../../../lib/axios';
 
@@ -29,8 +33,12 @@ function emptyBlock(order: number, defaultMinReadSeconds: number): ContentBlock 
   return { order, content: '', minReadSeconds: defaultMinReadSeconds };
 }
 
+/** Create a fresh Stop & Check question — defaults to MCQ with 2 empty options. */
 export function emptyManualQuestion(): ContentBlockQuestion {
-  return { type: 'mcq', question: '', options: ['', ''], correctOptionIndex: 0, explanation: '', aiGenerated: false };
+  return {
+    ...normalizeQuestion({ type: 'mcq' }),
+    aiGenerated: false,
+  };
 }
 
 function plainText(html: string): string {
@@ -154,7 +162,7 @@ function BlockCard({
 
       <div className="border-t border-[var(--color-border-subtle)] pt-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-[var(--color-text-secondary)]">Stop &amp; Check Question (optional)</span>
+          <span className="text-xs font-semibold text-[var(--color-text-secondary)]">Stop & Check Question (optional)</span>
           {block.question && (
             <button type="button" onClick={() => setQuestion(undefined)} className="text-xs text-red-500 hover:text-red-700">
               Remove question
@@ -253,7 +261,7 @@ function QuestionBuilder({
               disabled={!hasBlockText}
               className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:from-violet-700 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Sparkles className="h-4 w-4" /> Analyze &amp; Generate Question
+              <Sparkles className="h-4 w-4" /> Analyze & Generate Question
             </button>
             {!hasBlockText && (
               <p className="flex items-center justify-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
@@ -347,27 +355,80 @@ function QuestionBuilder({
 
 // ---------------------------------------------------------------------------
 // Read-only preview card for an AI draft (or a kept AI question, collapsed)
+// Supports all 10 question types.
 // ---------------------------------------------------------------------------
 
 function QuestionPreviewCard({ draft }: { draft: ContentBlockQuestion }) {
+  const meta = QUESTION_TYPE_META[draft.type] || QUESTION_TYPE_META.mcq;
+
   return (
     <div className="rounded-lg bg-[var(--color-surface-primary)] border border-[var(--color-border-default)] p-3 space-y-2">
-      <p className="text-sm font-medium text-[var(--color-text-primary)]">{draft.question || <em className="text-[var(--color-text-tertiary)]">(no question text)</em>}</p>
+      <div className="flex items-center gap-1.5">
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.color}`}>
+          {meta.icon} {meta.label}
+        </span>
+      </div>
+      <p className="text-sm font-medium text-[var(--color-text-primary)]">
+        {draft.question || <em className="text-[var(--color-text-tertiary)]">(no question text)</em>}
+      </p>
+
       {draft.type === 'mcq' ? (
         <div className="space-y-1">
           {(draft.options || []).map((opt, i) => (
-            <div key={i} className={`flex items-center gap-2 text-xs rounded-md px-2 py-1 ${i === draft.correctOptionIndex ? 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 font-medium' : 'text-[var(--color-text-secondary)]'}`}>
-              {i === draft.correctOptionIndex ? <CircleCheck className="h-3.5 w-3.5 shrink-0" /> : <span className="h-3.5 w-3.5 shrink-0" />}
+            <div key={i} className={`flex items-center gap-2 text-xs rounded-md px-2 py-1 ${i === draft.correctIndex ? 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 font-medium' : 'text-[var(--color-text-secondary)]'}`}>
+              {i === draft.correctIndex ? <CircleCheck className="h-3.5 w-3.5 shrink-0" /> : <span className="h-3.5 w-3.5 shrink-0" />}
               {String.fromCharCode(65 + i)}. {opt || <em>(empty)</em>}
             </div>
           ))}
         </div>
-      ) : (
+      ) : draft.type === 'true_false' ? (
         <div className="flex gap-2 text-xs">
           <span className={`rounded-md px-2 py-1 ${draft.correctAnswer === true ? 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 font-medium' : 'text-[var(--color-text-secondary)]'}`}>True</span>
           <span className={`rounded-md px-2 py-1 ${draft.correctAnswer === false ? 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 font-medium' : 'text-[var(--color-text-secondary)]'}`}>False</span>
         </div>
+      ) : draft.type === 'matching' ? (
+        <div className="text-xs text-[var(--color-text-secondary)]">
+          {(draft.pairs || []).map((p, i) => (
+            <div key={i} className="flex gap-2 py-0.5">
+              <span>{p.left}</span> <span>↔</span> <span>{p.right}</span>
+            </div>
+          ))}
+          {(!draft.pairs || draft.pairs.length === 0) && <em>(no pairs)</em>}
+        </div>
+      ) : draft.type === 'ordering' ? (
+        <div className="text-xs text-[var(--color-text-secondary)]">
+          {(draft.items || []).map((item, i) => (
+            <span key={i} className="inline-block mr-2 mb-1 rounded bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5">{i + 1}. {item}</span>
+          ))}
+        </div>
+      ) : draft.type === 'picture_choice' ? (
+        <div className="text-xs text-[var(--color-text-secondary)]">
+          {(draft.choices || []).length} choice{((draft.choices || []).length !== 1) ? 's' : ''} — correct: #{draft.correctIndex + 1}
+        </div>
+      ) : draft.type === 'swipe_sort' ? (
+        <div className="text-xs text-[var(--color-text-secondary)]">
+          {draft.leftLabel || 'Left'} / {draft.rightLabel || 'Right'} — {(draft.cards || []).length} card{((draft.cards || []).length !== 1) ? 's' : ''}
+        </div>
+      ) : draft.type === 'listen_write' ? (
+        <div className="text-xs text-[var(--color-text-secondary)]">
+          {draft.audioUrl ? '🔊 Audio attached' : 'No audio URL'} — answer: {draft.correctText || '(empty)'}
+        </div>
+      ) : draft.type === 'fill_blank' ? (
+        <div className="text-xs text-[var(--color-text-secondary)]">
+          {draft.blanks?.length || 0} blank{((draft.blanks?.length || 0) !== 1) ? 's' : ''} — {draft.distractors?.length || 0} distractor{((draft.distractors?.length || 0) !== 1) ? 's' : ''}
+        </div>
+      ) : draft.type === 'word_scramble' ? (
+        <div className="text-xs text-[var(--color-text-secondary)]">
+          Answer: {draft.answer || '(empty)'}{draft.hint ? ` — Hint: ${draft.hint}` : ''}
+        </div>
+      ) : draft.type === 'sentence_build' ? (
+        <div className="text-xs text-[var(--color-text-secondary)]">
+          Word bank: {(draft.words || []).length} word{((draft.words || []).length !== 1) ? 's' : ''} — {draft.distractors?.length || 0} distractor{((draft.distractors?.length || 0) !== 1) ? 's' : ''}
+        </div>
+      ) : (
+        <div className="text-xs text-[var(--color-text-secondary)] italic">Unknown type: {(draft as any).type}</div>
       )}
+
       {draft.explanation && (
         <p className="text-[11px] text-[var(--color-text-tertiary)] border-t border-[var(--color-border-subtle)] pt-1.5">
           <span className="font-semibold">Explanation:</span> {draft.explanation}
@@ -380,6 +441,7 @@ function QuestionPreviewCard({ draft }: { draft: ContentBlockQuestion }) {
 // ---------------------------------------------------------------------------
 // Manual question form — full editable form for both "Add Manually" and
 // AI drafts that have been accepted into edit mode.
+// Supports all 10 quiz question types with dynamically swapped sub-forms.
 // ---------------------------------------------------------------------------
 
 export function ManualQuestionForm({
@@ -390,22 +452,21 @@ export function ManualQuestionForm({
   isAiGenerated?: boolean;
 }) {
   const ic = 'w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs';
+  const meta = QUESTION_TYPE_META[question.type] || QUESTION_TYPE_META.mcq;
 
-  const addOption = () => {
-    const options = [...(question.options || [])];
-    if (options.length >= MAX_OPTIONS) return;
-    onChange({ ...question, options: [...options, ''] });
+  /**
+   * Switches the question type, preserving common fields (question text,
+   * explanation, aiGenerated) and resetting the type-specific payloads
+   * to safe defaults for the new type.
+   */
+  const handleTypeChange = (newType: string) => {
+    const t = newType as QuestionType;
+    const base = { ...normalizeQuestion({ type: t }), aiGenerated: question.aiGenerated, explanation: question.explanation };
+    // Transfer the question text from the old question, but nothing else
+    onChange({ ...base, question: question.question } as ContentBlockQuestion);
   };
 
-  const removeOption = (i: number) => {
-    const options = [...(question.options || [])];
-    if (options.length <= MIN_OPTIONS) return;
-    options.splice(i, 1);
-    const correctOptionIndex = question.correctOptionIndex === i
-      ? 0
-      : question.correctOptionIndex! > i ? question.correctOptionIndex! - 1 : question.correctOptionIndex;
-    onChange({ ...question, options, correctOptionIndex });
-  };
+  const updateQuestion = (patch: Partial<ContentBlockQuestion>) => onChange({ ...question, ...patch } as ContentBlockQuestion);
 
   return (
     <div className="space-y-2.5 rounded-lg bg-[var(--color-surface-secondary)] p-3">
@@ -415,6 +476,7 @@ export function ManualQuestionForm({
         </span>
       )}
 
+      {/* ── Question Text (shared) ── */}
       <div>
         <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Question Text</label>
         <textarea
@@ -422,88 +484,63 @@ export function ManualQuestionForm({
           rows={2}
           placeholder="What should the student answer?"
           value={question.question}
-          onChange={(e) => onChange({ ...question, question: e.target.value })}
+          onChange={(e) => updateQuestion({ question: e.target.value })}
         />
       </div>
 
+      {/* ── Question Type Selector (all 10 types) ── */}
       <div>
         <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Question Type</label>
-        <select
-          className={ic}
-          value={question.type}
-          onChange={(e) => {
-            if (e.target.value === 'mcq') {
-              onChange({ ...question, type: 'mcq', options: question.options?.length ? question.options : ['', ''], correctOptionIndex: 0 });
-            } else {
-              onChange({ ...question, type: 'true_false', correctAnswer: true });
-            }
-          }}
-        >
-          <option value="mcq">Multiple Choice</option>
-          <option value="true_false">True / False</option>
+        <select className={ic} value={question.type} onChange={(e) => handleTypeChange(e.target.value)}>
+          {QUESTION_TYPE_ORDER.map((t) => {
+            const m = QUESTION_TYPE_META[t];
+            return (
+              <option key={t} value={t}>
+                {m.icon} {m.label}
+              </option>
+            );
+          })}
         </select>
+        <span className={`inline-block mt-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.color}`}>
+          {meta.icon} {meta.label}
+        </span>
       </div>
 
-      {question.type === 'mcq' ? (
-        <div>
-          <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Options — mark the correct one</label>
-          <div className="space-y-1.5">
-            {(question.options || ['', '']).map((opt, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  checked={question.correctOptionIndex === i}
-                  onChange={() => onChange({ ...question, correctOptionIndex: i })}
-                  title="Mark as correct answer"
-                />
-                <input
-                  className={ic}
-                  placeholder={`Option ${String.fromCharCode(65 + i)}`}
-                  value={opt}
-                  onChange={(e) => {
-                    const options = [...(question.options || ['', ''])];
-                    options[i] = e.target.value;
-                    onChange({ ...question, options });
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => removeOption(i)}
-                  disabled={(question.options?.length || 0) <= MIN_OPTIONS}
-                  className="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Remove option"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-          {(question.options?.length || 0) < MAX_OPTIONS && (
-            <button
-              type="button"
-              onClick={addOption}
-              className="mt-1.5 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline"
-            >
-              <Plus className="h-3.5 w-3.5" /> Add option
-            </button>
-          )}
-        </div>
-      ) : (
-        <div>
-          <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Correct Answer</label>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-xs">
-              <input type="radio" checked={question.correctAnswer === true} onChange={() => onChange({ ...question, correctAnswer: true })} />
-              True
-            </label>
-            <label className="flex items-center gap-1.5 text-xs">
-              <input type="radio" checked={question.correctAnswer === false} onChange={() => onChange({ ...question, correctAnswer: false })} />
-              False
-            </label>
-          </div>
-        </div>
-      )}
+      {/* ================================================================ */}
+      {/* Type-specific sub-forms                                               */}
+      {/* ================================================================ */}
 
+      {/* ── MCQ ── */}
+      {question.type === 'mcq' && <McqFields question={question} onChange={updateQuestion} ic={ic} />}
+
+      {/* ── True/False ── */}
+      {question.type === 'true_false' && <TrueFalseFields question={question} onChange={updateQuestion} />}
+
+      {/* ── Matching Pairs ── */}
+      {question.type === 'matching' && <MatchingPairsFields question={question} onChange={updateQuestion} ic={ic} />}
+
+      {/* ── Ordering ── */}
+      {question.type === 'ordering' && <OrderingFields question={question} onChange={updateQuestion} ic={ic} />}
+
+      {/* ── Picture Choice ── */}
+      {question.type === 'picture_choice' && <PictureChoiceFields question={question} onChange={updateQuestion} ic={ic} />}
+
+      {/* ── Swipe Sort ── */}
+      {question.type === 'swipe_sort' && <SwipeSortFields question={question} onChange={updateQuestion} ic={ic} />}
+
+      {/* ── Listen & Write ── */}
+      {question.type === 'listen_write' && <ListenWriteFields question={question} onChange={updateQuestion} ic={ic} />}
+
+      {/* ── Fill in the Blanks ── */}
+      {question.type === 'fill_blank' && <FillBlankFields question={question} onChange={updateQuestion} ic={ic} />}
+
+      {/* ── Word Scramble ── */}
+      {question.type === 'word_scramble' && <WordScrambleFields question={question} updateQuestion={updateQuestion} ic={ic} />}
+
+      {/* ── Sentence Build ── */}
+      {question.type === 'sentence_build' && <SentenceBuildFields question={question} onChange={updateQuestion} ic={ic} />}
+
+      {/* ── Explanation (shared) ── */}
       <div>
         <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Explanation / Feedback (optional)</label>
         <textarea
@@ -511,8 +548,362 @@ export function ManualQuestionForm({
           rows={2}
           placeholder="Shown to the student if they answer incorrectly..."
           value={question.explanation || ''}
-          onChange={(e) => onChange({ ...question, explanation: e.target.value })}
+          onChange={(e) => updateQuestion({ explanation: e.target.value })}
         />
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Type-Specific Sub-Forms
+// ===========================================================================
+
+function McqFields({
+  question, onChange, ic,
+}: {
+  question: Extract<ContentBlockQuestion, { type: 'mcq' }>;
+  onChange: (q: Partial<ContentBlockQuestion>) => void;
+  ic: string;
+}) {
+  const addOption = () => {
+    if ((question.options?.length || 0) >= MAX_OPTIONS) return;
+    onChange({ options: [...(question.options || []), ''] });
+  };
+
+  const removeOption = (i: number) => {
+    if ((question.options?.length || 0) <= MIN_OPTIONS) return;
+    const options = [...question.options];
+    options.splice(i, 1);
+    const correctIndex = question.correctIndex === i ? 0 : question.correctIndex > i ? question.correctIndex - 1 : question.correctIndex;
+    onChange({ options, correctIndex });
+  };
+
+  return (
+    <div>
+      <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Options — mark the correct one</label>
+      <div className="space-y-1.5">
+        {(question.options || ['', '']).map((opt, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              type="radio"
+              checked={question.correctIndex === i}
+              onChange={() => onChange({ correctIndex: i })}
+              title="Mark as correct answer"
+            />
+            <input
+              className={ic}
+              placeholder={`Option ${String.fromCharCode(65 + i)}`}
+              value={opt}
+              onChange={(e) => {
+                const options = [...question.options];
+                options[i] = e.target.value;
+                onChange({ options });
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => removeOption(i)}
+              disabled={question.options.length <= MIN_OPTIONS}
+              className="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Remove option"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      {question.options.length < MAX_OPTIONS && (
+        <button type="button" onClick={addOption} className="mt-1.5 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+          <Plus className="h-3.5 w-3.5" /> Add option
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TrueFalseFields({
+  question, onChange,
+}: {
+  question: Extract<ContentBlockQuestion, { type: 'true_false' }>;
+  onChange: (q: Partial<ContentBlockQuestion>) => void;
+}) {
+  return (
+    <div>
+      <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Correct Answer</label>
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-1.5 text-xs">
+          <input type="radio" checked={question.correctAnswer === true} onChange={() => onChange({ correctAnswer: true })} />
+          True
+        </label>
+        <label className="flex items-center gap-1.5 text-xs">
+          <input type="radio" checked={question.correctAnswer === false} onChange={() => onChange({ correctAnswer: false })} />
+          False
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function MatchingPairsFields({
+  question, onChange, ic,
+}: {
+  question: Extract<ContentBlockQuestion, { type: 'matching' }>;
+  onChange: (q: Partial<ContentBlockQuestion>) => void;
+  ic: string;
+}) {
+  const pairs = question.pairs || [];
+  const addPair = () => onChange({ pairs: [...pairs, { left: '', right: '' }] });
+  const removePair = (i: number) => onChange({ pairs: pairs.filter((_, idx) => idx !== i) });
+  const updatePair = (i: number, side: 'left' | 'right', val: string) => {
+    const next = [...pairs];
+    next[i] = { ...next[i], [side]: val };
+    onChange({ pairs: next });
+  };
+
+  return (
+    <div>
+      <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Matching Pairs (left ↔ right)</label>
+      <div className="space-y-1.5">
+        {pairs.map((p, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input className={ic} placeholder="Left (e.g. Arabic word)" value={p.left} onChange={(e) => updatePair(i, 'left', e.target.value)} />
+            <span className="text-xs text-[var(--color-text-tertiary)] shrink-0">↔</span>
+            <input className={ic} placeholder="Right (e.g. English meaning)" value={p.right} onChange={(e) => updatePair(i, 'right', e.target.value)} />
+            <button type="button" onClick={() => removePair(i)} className="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={addPair} className="mt-1.5 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+        <Plus className="h-3.5 w-3.5" /> Add pair
+      </button>
+    </div>
+  );
+}
+
+function OrderingFields({
+  question, onChange, ic,
+}: {
+  question: Extract<ContentBlockQuestion, { type: 'ordering' }>;
+  onChange: (q: Partial<ContentBlockQuestion>) => void;
+  ic: string;
+}) {
+  const items = question.items || [];
+  const addItem = () => onChange({ items: [...items, ''] });
+  const removeItem = (i: number) => onChange({ items: items.filter((_, idx) => idx !== i) });
+
+  return (
+    <div>
+      <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Items in correct order (shuffled for student)</label>
+      <div className="space-y-1.5">
+        {items.map((item, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="w-5 h-5 shrink-0 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
+            <input className={ic} placeholder={`Item ${i + 1}`} value={item} onChange={(e) => {
+              const next = [...items];
+              next[i] = e.target.value;
+              onChange({ items: next });
+            }} />
+            <button type="button" onClick={() => removeItem(i)} className="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={addItem} className="mt-1.5 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+        <Plus className="h-3.5 w-3.5" /> Add item
+      </button>
+    </div>
+  );
+}
+
+function PictureChoiceFields({
+  question, onChange, ic,
+}: {
+  question: Extract<ContentBlockQuestion, { type: 'picture_choice' }>;
+  onChange: (q: Partial<ContentBlockQuestion>) => void;
+  ic: string;
+}) {
+  const choices = question.choices || [];
+  const addChoice = () => onChange({ choices: [...choices, { image: '', label: '' }] });
+  const removeChoice = (i: number) => {
+    const next = choices.filter((_, idx) => idx !== i);
+    onChange({ choices: next, correctIndex: Math.min(question.correctIndex, next.length - 1) });
+  };
+  const updateChoice = (i: number, field: 'image' | 'label', val: string) => {
+    const next = [...choices];
+    next[i] = { ...next[i], [field]: val };
+    onChange({ choices: next });
+  };
+
+  return (
+    <div>
+      <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Picture choices — mark the correct one</label>
+      <div className="space-y-2">
+        {choices.map((c, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <input type="radio" checked={question.correctIndex === i} onChange={() => onChange({ correctIndex: i })} title="Mark as correct" className="mt-2" />
+            <div className="flex-1 space-y-1.5">
+              <input className={ic} placeholder={`Image URL ${i + 1}`} value={c.image} onChange={(e) => updateChoice(i, 'image', e.target.value)} />
+              <input className={ic} placeholder="Label (optional)" value={c.label || ''} onChange={(e) => updateChoice(i, 'label', e.target.value)} />
+            </div>
+            <button type="button" onClick={() => removeChoice(i)} className="shrink-0 mt-2 rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={addChoice} className="mt-1.5 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+        <Plus className="h-3.5 w-3.5" /> Add choice
+      </button>
+    </div>
+  );
+}
+
+function SwipeSortFields({
+  question, onChange, ic,
+}: {
+  question: Extract<ContentBlockQuestion, { type: 'swipe_sort' }>;
+  onChange: (q: Partial<ContentBlockQuestion>) => void;
+  ic: string;
+}) {
+  const cards = question.cards || [];
+  const addCard = () => onChange({ cards: [...cards, { text: '', correctSide: 'left' as const }] });
+  const removeCard = (i: number) => onChange({ cards: cards.filter((_, idx) => idx !== i) });
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <div className="flex-1">
+          <label className="text-[11px] font-semibold text-[var(--color-text-secondary)] block mb-0.5">Left bucket label</label>
+          <input className={ic} value={question.leftLabel || ''} onChange={(e) => onChange({ leftLabel: e.target.value })} placeholder="e.g. Halal" />
+        </div>
+        <div className="flex-1">
+          <label className="text-[11px] font-semibold text-[var(--color-text-secondary)] block mb-0.5">Right bucket label</label>
+          <input className={ic} value={question.rightLabel || ''} onChange={(e) => onChange({ rightLabel: e.target.value })} placeholder="e.g. Haram" />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Cards</label>
+        <div className="space-y-1.5">
+          {cards.map((c, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <select value={c.correctSide} onChange={(e) => {
+                const next = [...cards];
+                next[i] = { ...next[i], correctSide: e.target.value as 'left' | 'right' };
+                onChange({ cards: next });
+              }} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-[10px] shrink-0">
+                <option value="left">{question.leftLabel || 'Left'}</option>
+                <option value="right">{question.rightLabel || 'Right'}</option>
+              </select>
+              <input className={ic} placeholder="Card text" value={c.text} onChange={(e) => {
+                const next = [...cards];
+                next[i] = { ...next[i], text: e.target.value };
+                onChange({ cards: next });
+              }} />
+              <button type="button" onClick={() => removeCard(i)} className="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={addCard} className="mt-1.5 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+          <Plus className="h-3.5 w-3.5" /> Add card
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ListenWriteFields({
+  question, onChange, ic,
+}: {
+  question: Extract<ContentBlockQuestion, { type: 'listen_write' }>;
+  onChange: (q: Partial<ContentBlockQuestion>) => void;
+  ic: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Audio URL</label>
+        <input className={ic} value={question.audioUrl || ''} onChange={(e) => onChange({ audioUrl: e.target.value })} placeholder="https://example.com/audio.mp3" />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Correct Text (what the student should type)</label>
+        <input className={ic} value={question.correctText || ''} onChange={(e) => onChange({ correctText: e.target.value })} placeholder="The exact phrase..." />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Hint (optional)</label>
+        <input className={ic} value={question.hint || ''} onChange={(e) => onChange({ hint: e.target.value })} placeholder="e.g. It starts with..." />
+      </div>
+    </div>
+  );
+}
+
+function FillBlankFields({
+  question, onChange, ic,
+}: {
+  question: Extract<ContentBlockQuestion, { type: 'fill_blank' }>;
+  onChange: (q: Partial<ContentBlockQuestion>) => void;
+  ic: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Sentence Template (use ___ for each blank)</label>
+        <textarea className={`${ic} resize-none`} rows={3} value={question.textTemplate || ''} onChange={(e) => onChange({ textTemplate: e.target.value })} placeholder="The ___ is a place of ___ for Muslims." />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Correct Blanks (in order, comma-separated)</label>
+        <input className={ic} value={(question.blanks || []).join(', ')} onChange={(e) => onChange({ blanks: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} placeholder="mosque, worship" />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Distractor words (comma-separated)</label>
+        <input className={ic} value={(question.distractors || []).join(', ')} onChange={(e) => onChange({ distractors: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} placeholder="school, market, garden" />
+      </div>
+    </div>
+  );
+}
+
+function WordScrambleFields({
+  question, updateQuestion, ic,
+}: {
+  question: Extract<ContentBlockQuestion, { type: 'word_scramble' }>;
+  updateQuestion: (q: Partial<ContentBlockQuestion>) => void;
+  ic: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Correct Answer (the unscrambled word)</label>
+        <input className={ic} value={question.answer || ''} onChange={(e) => updateQuestion({ answer: e.target.value })} placeholder="e.g. Ramadan" />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Hint (optional)</label>
+        <input className={ic} value={question.hint || ''} onChange={(e) => updateQuestion({ hint: e.target.value })} placeholder="e.g. The month of fasting" />
+      </div>
+    </div>
+  );
+}
+
+function SentenceBuildFields({
+  question, onChange, ic,
+}: {
+  question: Extract<ContentBlockQuestion, { type: 'sentence_build' }>;
+  onChange: (q: Partial<ContentBlockQuestion>) => void;
+  ic: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Correct Words (in order, comma-separated)</label>
+        <input className={ic} value={(question.words || []).join(', ')} onChange={(e) => onChange({ words: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} placeholder="The, mosque, is, beautiful" />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Distractor words (comma-separated)</label>
+        <input className={ic} value={(question.distractors || []).join(', ')} onChange={(e) => onChange({ distractors: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} placeholder="school, garden, big" />
       </div>
     </div>
   );

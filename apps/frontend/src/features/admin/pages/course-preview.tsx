@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/axios';
 import type { CourseContent, Chapter, LessonItem, QuizItem, AssignmentItem, ContentBlock } from './course-builder.types';
 import { QuestionPreview } from '../../../components/shared/quiz-question-preview';
+import { HtmlPreview } from '../../../components/shared/html-preview';
 import { sanitizeHtml } from '../../../lib/sanitize-html';
 
 // ---------------------------------------------------------------------------
@@ -775,7 +776,8 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
 
       {/* HTML Content */}
       {lesson.content && (
-        <div
+        <HtmlPreview
+          html={lesson.content}
           className="prose prose-sm dark:prose-invert max-w-none text-[var(--color-text-primary)] 
             [&_h1]:text-xl [&_h1]:font-bold [&_h1]:mb-3
             [&_h2]:text-lg [&_h2]:font-bold [&_h2]:mb-2 [&_h2]:mt-5
@@ -789,7 +791,6 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
             [&_blockquote]:border-l-4 [&_blockquote]:border-primary-400 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-[var(--color-text-secondary)] [&_blockquote]:my-4
             [&_code]:bg-[var(--color-surface-tertiary)] [&_code]:rounded-md [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_code]:font-mono
             [&_pre]:bg-[var(--color-surface-tertiary)] [&_pre]:rounded-xl [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:mb-4"
-          dangerouslySetInnerHTML={{ __html: sanitizeHtml(lesson.content) }}
         />
       )}
 
@@ -871,7 +872,7 @@ function ContentBlockQuestionPreview({ question }: { question: NonNullable<Conte
   return (
     <div className="rounded-xl bg-[var(--color-surface-primary)] border border-[var(--color-border-default)] p-4 space-y-3">
       <p className="text-sm font-bold text-[var(--color-text-primary)] flex items-center gap-2">
-        <span>🛑</span> Stop &amp; Check
+        <span>🛑</span> Stop & Check
       </p>
       <p className="text-sm text-[var(--color-text-primary)]">{question.question}</p>
 
@@ -881,37 +882,80 @@ function ContentBlockQuestionPreview({ question }: { question: NonNullable<Conte
             <div
               key={i}
               className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
-                i === question.correctOptionIndex
+                i === question.correctIndex
                   ? 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300'
                   : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'
               }`}
             >
               <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-xs flex-shrink-0 ${
-                i === question.correctOptionIndex ? 'border-green-500 bg-green-500 text-white' : 'border-[var(--color-border-default)]'
+                i === question.correctIndex ? 'border-green-500 bg-green-500 text-white' : 'border-[var(--color-border-default)]'
               }`}>
-                {i === question.correctOptionIndex ? '✓' : String.fromCharCode(65 + i)}
+                {i === question.correctIndex ? '✓' : String.fromCharCode(65 + i)}
               </span>
               <span>{opt}</span>
-              {i === question.correctOptionIndex && <span className="ml-auto text-xs text-green-600 dark:text-green-400 font-semibold">Correct</span>}
+              {i === question.correctIndex && <span className="ml-auto text-xs text-green-600 dark:text-green-400 font-semibold">Correct</span>}
             </div>
           ))}
         </div>
-      ) : (
+      ) : question.type === 'true_false' ? (
         <div className="grid grid-cols-2 gap-3">
           {[true, false].map((val) => (
             <div
               key={String(val)}
               className={`flex items-center justify-center gap-2 rounded-lg border-2 px-4 py-3 text-sm font-bold ${
-                question.correctAnswer === val
+                ('correctAnswer' in question && question.correctAnswer === val)
                   ? 'border-green-400 bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-300'
                   : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'
               }`}
             >
               <span className="text-lg">{val ? '✅' : '❌'}</span>
               {val ? 'True' : 'False'}
-              {question.correctAnswer === val && <span className="text-xs font-semibold">— Correct</span>}
+              {'correctAnswer' in question && question.correctAnswer === val && <span className="text-xs font-semibold">— Correct</span>}
             </div>
           ))}
+        </div>
+      ) : question.type === 'matching' ? (
+        <div className="space-y-1.5">
+          {('pairs' in question ? question.pairs : []).map((pair: { left: string; right: string }, i: number) => (
+            <div key={i} className="flex items-center gap-2 text-xs rounded-md px-3 py-2 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300">
+              <span>{pair.left}</span>
+              <span className="text-[var(--color-text-tertiary)]">↔</span>
+              <span>{pair.right}</span>
+            </div>
+          ))}
+        </div>
+      ) : question.type === 'ordering' ? (
+        <div className="space-y-1">
+          {('items' in question ? question.items : []).map((item: string, i: number) => (
+            <div key={i} className="flex items-center gap-2 text-xs rounded-md px-3 py-2 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300">
+              <span className="w-5 h-5 rounded-full bg-amber-200 dark:bg-amber-800 flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
+              <span>{item}</span>
+            </div>
+          ))}
+        </div>
+      ) : question.type === 'picture_choice' ? (
+        <div className="grid grid-cols-3 gap-2">
+          {('choices' in question ? question.choices : []).map((c: { image: string; label?: string }, i: number) => (
+            <div key={i} className={`rounded-lg overflow-hidden border-2 ${i === ('correctIndex' in question ? question.correctIndex : -1) ? 'border-green-400' : 'border-[var(--color-border-default)]'}`}>
+              {c.image ? <img src={c.image} alt={c.label || 'Choice'} className="w-full aspect-square object-cover" /> : <div className="aspect-square bg-[var(--color-surface-tertiary)] flex items-center justify-center text-2xl opacity-30">🖼️</div>}
+              {c.label && <p className="text-[10px] text-center py-1 text-[var(--color-text-secondary)]">{c.label}</p>}
+            </div>
+          ))}
+        </div>
+      ) : question.type === 'fill_blank' ? (
+        <div className="rounded-md bg-teal-50 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-800 p-3 text-xs text-teal-700 dark:text-teal-300">
+          <p className="mb-1.5 font-medium">Fill the blanks:</p>
+          <p>{'textTemplate' in question ? question.textTemplate : ''}</p>
+          {('blanks' in question && question.blanks.length > 0) && (
+            <p className="mt-1.5 text-[10px] opacity-80">
+              Answers: {question.blanks.join(', ')}
+              {('distractors' in question && question.distractors.length > 0) && ` (distractors: ${question.distractors.join(', ')})`}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-md bg-[var(--color-surface-secondary)] p-3 text-xs text-[var(--color-text-secondary)]">
+          {question.type} — answer key hidden in preview.
         </div>
       )}
 

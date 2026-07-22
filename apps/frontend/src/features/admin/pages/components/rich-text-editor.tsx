@@ -27,6 +27,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { TextStyle, FontFamily, FontSize, Color } from '@tiptap/extension-text-style';
 import { BlockDirection } from './tiptap-text-direction';
 import { sanitizeHtml } from '../../../../lib/sanitize-html';
+import { HtmlPreview } from '../../../../components/shared/html-preview';
 
 interface RichTextEditorProps {
   value: string;
@@ -69,6 +70,7 @@ const PREVIEW_CLASSES =
   '[&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-[var(--color-border-default)] [&_td]:p-2 ' +
   '[&_th]:border [&_th]:border-[var(--color-border-default)] [&_th]:p-2 [&_th]:bg-[var(--color-surface-tertiary)] [&_th]:text-left ' +
   '[&_[dir="rtl"]]:text-right [&_[dir="rtl"]]:leading-[1.9]';
+
 
 const FONT_FAMILIES: { label: string; value: string }[] = [
   { label: 'Default', value: '' },
@@ -465,9 +467,9 @@ export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorP
       {tab === 'preview' ? (
         <div className="max-h-[28rem] overflow-y-auto">
           {value ? (
-            <div
-              className={`${PREVIEW_CLASSES} px-4 py-3 min-h-[6rem]`}
-              dangerouslySetInnerHTML={{ __html: sanitizeHtml(value) }}
+            <HtmlPreview
+              html={value}
+              className={`${PREVIEW_CLASSES} px-4 py-3`}
             />
           ) : (
             <div className="min-h-[6rem] flex items-center justify-center text-sm text-[var(--color-text-tertiary)] italic">

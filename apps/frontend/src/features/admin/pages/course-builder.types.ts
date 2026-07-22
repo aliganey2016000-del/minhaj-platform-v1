@@ -25,18 +25,23 @@ export type ChapterItemType = 'lesson' | 'quiz' | 'assignment';
 // ---------------------------------------------------------------------------
 export type LessonDeliveryMode = 'traditional' | 'interactive_gate';
 
-export interface ContentBlockQuestion {
-  question: string;
-  type: 'mcq' | 'true_false';
-  options?: string[]; // mcq: 2-4
-  correctOptionIndex?: number; // mcq — omitted entirely in the student-facing read
-  correctAnswer?: boolean; // true_false — omitted entirely in the student-facing read
-  explanation?: string; // shown after an incorrect attempt — omitted in the student-facing pre-submit read
+/**
+ * Stop & Check question embedded in one ContentBlock of an Interactive Gate
+ * lesson. Reuses the full QuizQuestion discriminated union (10 types — the
+ * same schema that powers the main quiz engine) and adds gate-specific
+ * metadata on top: aiGenerated flag and an optional answerHash for the
+ * offline client to grade locally without exposing the raw answer key.
+ */
+export type ContentBlockQuestion = QuizQuestion & {
   aiGenerated: boolean;
-  // Present only in the student-facing read (course-content.controller.ts's
-  // stripGateAnswers) in place of the plaintext answer fields above — lets
-  // an offline client grade an attempt locally via lib/offline-gate.ts.
+  /** SHA-256 of the correct answer(s) — lets an offline client grade locally
+   *  without the raw answer key ever being delivered to the browser. */
   answerHash?: string;
+};
+
+/** Runtime guard: is this a ContentBlockQuestion (has aiGenerated flag)? */
+export function isContentBlockQuestion(q: any): q is ContentBlockQuestion {
+  return q && typeof q.aiGenerated === 'boolean';
 }
 
 export interface ContentBlock {

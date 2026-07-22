@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/axios';
 import type { Chapter, LessonItem, QuizItem, AssignmentItem } from '../../admin/pages/course-builder.types';
 import { QuestionPreview } from '../../../components/shared/quiz-question-preview';
+import { HtmlPreview } from '../../../components/shared/html-preview';
 import { InteractiveGateLessonView } from '../components/interactive-gate-lesson-view';
 import { useOnlineStatus } from '../../shared/hooks/useOnlineStatus';
 import { getDownloadedCourse, queueAction } from '../../../lib/offline-store';
@@ -920,9 +921,9 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
       )}
 
       {lesson.content && (
-        <div
+        <HtmlPreview
+          html={lesson.content}
           className="prose prose-sm dark:prose-invert max-w-none text-[var(--color-text-primary)] [&_h1]:text-xl [&_h1]:font-bold [&_h1]:mb-3 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:mb-2 [&_h2]:mt-5 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_p]:mb-3 [&_p]:leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_ol]:space-y-1 [&_li]:text-sm [&_a]:text-primary-600 [&_a]:underline [&_a]:hover:text-primary-700 [&_img]:rounded-xl [&_img]:max-w-full [&_img]:my-4 [&_blockquote]:border-l-4 [&_blockquote]:border-primary-400 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-[var(--color-text-secondary)] [&_blockquote]:my-4 [&_code]:bg-[var(--color-surface-tertiary)] [&_code]:rounded-md [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_code]:font-mono [&_pre]:bg-[var(--color-surface-tertiary)] [&_pre]:rounded-xl [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:mb-4"
-          dangerouslySetInnerHTML={{ __html: sanitizeHtml(lesson.content) }}
         />
       )}
 
