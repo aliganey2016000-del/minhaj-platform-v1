@@ -291,53 +291,48 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const resolvedSchool = resolveOrgIdForCreate(req, school) || undefined;
 
-  // Student creation + guardian upsert-and-link run as one atomic unit — if
-  // the parent linking fails (see syncGuardian), the student record it was
-  // meant to be linked to must not be left behind half-configured.
-  let studentId: mongoose.Types.ObjectId | null = null;
-  const session = await mongoose.startSession();
-  try {
-    await session.withTransaction(async () => {
-      const createdUser = await User.create([{
-        email: email.toLowerCase(), password, role: 'student', organizationId: resolvedSchool,
-        phone: phone || undefined, preferredLanguage: preferredLanguage || 'en', isVerified: true,
-      }], { session });
-      const user = createdUser[0];
+  // No multi-document transaction — this deployment's MongoDB runs as a
+  // standalone instance (no replica set), which doesn't support transactions
+  // at all: session.withTransaction() throws immediately there
+  // ("Transaction numbers are only allowed on a replica set member or
+  // mongos"), and this call previously had no catch, so every "Add Student"
+  // submission was failing with an uncaught 500. Writes run as plain
+  // sequential operations instead — not atomic, but functional. If
+  // syncGuardian fails it still throws (see its own doc comment), which
+  // aborts here before the student row is returned to the client.
+  const user = await User.create({
+    email: email.toLowerCase(), password, role: 'student', organizationId: resolvedSchool,
+    phone: phone || undefined, preferredLanguage: preferredLanguage || 'en', isVerified: true,
+  });
 
-      const createdProfile = await Profile.create([{ user: user._id, firstName, lastName, gender }], { session });
-      const profile = createdProfile[0];
+  const profile = await Profile.create({ user: user._id, firstName, lastName, gender });
 
-      // Cascade Department + Shift/Learning Mode from the selected Class —
-      // stamped onto the student record so the directory table and any
-      // tenant-scoped reporting never need to join back to Class for them.
-      let department: string | undefined;
-      let shiftMode: string | undefined;
-      if (classId) {
-        const classDoc = await ClassModel.findById(classId).populate('department', 'name').session(session);
-        if (!classDoc) throw new NotFoundError('Class not found');
-        assertOwnsOrg(req, classDoc, 'school');
-        const dept = (classDoc as any).department;
-        department = typeof dept === 'string' ? dept : dept?.name || undefined;
-        shiftMode = classDoc.shiftMode;
-      }
-
-      const createdStudent = await Student.create([{
-        user: user._id, profile: profile._id, parent: parentId || undefined,
-        school: resolvedSchool, class: classId || undefined, department, shiftMode,
-        enrollmentDate: enrollmentDate || new Date(), grade: grade || undefined, medicalNotes: medicalNotes || undefined,
-      }], { session });
-      const student = createdStudent[0];
-
-      if (!parentId) {
-        await syncGuardian(student, resolvedSchool, { guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship }, session);
-        if (student.isModified('parent')) await student.save({ session });
-      }
-
-      studentId = student._id;
-    });
-  } finally {
-    await session.endSession();
+  // Cascade Department + Shift/Learning Mode from the selected Class —
+  // stamped onto the student record so the directory table and any
+  // tenant-scoped reporting never need to join back to Class for them.
+  let department: string | undefined;
+  let shiftMode: string | undefined;
+  if (classId) {
+    const classDoc = await ClassModel.findById(classId).populate('department', 'name');
+    if (!classDoc) throw new NotFoundError('Class not found');
+    assertOwnsOrg(req, classDoc, 'school');
+    const dept = (classDoc as any).department;
+    department = typeof dept === 'string' ? dept : dept?.name || undefined;
+    shiftMode = classDoc.shiftMode;
   }
+
+  const student = await Student.create({
+    user: user._id, profile: profile._id, parent: parentId || undefined,
+    school: resolvedSchool, class: classId || undefined, department, shiftMode,
+    enrollmentDate: enrollmentDate || new Date(), grade: grade || undefined, medicalNotes: medicalNotes || undefined,
+  });
+
+  if (!parentId) {
+    await syncGuardian(student, resolvedSchool, { guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship });
+    if (student.isModified('parent')) await student.save();
+  }
+
+  const studentId = student._id;
 
   const populated = await Student.findById(studentId)
     .populate('user', 'email role isActive preferredLanguage')
@@ -751,7 +746,6 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
   const ownOrgId = (resolveOrgIdForCreate(req) as string | undefined) || undefined;
   const errors: { row: number; message: string }[] = [];
-  const session = await mongoose.startSession();
 
   // ── Phase 1: Pre-fetch all Classes under the target tenant into an
   // in-memory map (keyed by lowercased title), so every row lookup is O(1).
@@ -894,11 +888,17 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     item.studentId = `STU-${currentYear}-${String(studentIdBaseCount + idx + 1).padStart(4, '0')}`;
   });
 
-  // ── Phase 3: BulkWrite operations within a transaction
+  // ── Phase 3: BulkWrite operations
+  // No transaction — this deployment's MongoDB is a standalone instance (no
+  // replica set), which doesn't support transactions; session.withTransaction()
+  // throws immediately there, and previously reported "0 imported" with no
+  // explanation whenever it did (the thrown error isn't a BulkWriteError, so
+  // it has no .writeErrors and nothing got surfaced). Each bulkWrite below
+  // now runs as a plain (non-transactional) operation.
   let inserted = 0;
   if (parsedRows.length > 0) {
     try {
-      await session.withTransaction(async () => {
+      {
         const userBulkOps: any[] = [];
         const profileBulkOps: any[] = [];
         const studentBulkOps: any[] = [];
@@ -1012,30 +1012,26 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         }
 
         // Execute all bulk writes
-        if (userBulkOps.length > 0) await User.bulkWrite(userBulkOps, { session, ordered: true });
-        if (profileBulkOps.length > 0) await Profile.bulkWrite(profileBulkOps, { session, ordered: true });
+        if (userBulkOps.length > 0) await User.bulkWrite(userBulkOps, { ordered: true });
+        if (profileBulkOps.length > 0) await Profile.bulkWrite(profileBulkOps, { ordered: true });
         if (studentBulkOps.length > 0) {
           // These are `updateOne` upserts now, not `insertOne`s — a brand
           // new student surfaces under `upsertedCount`; `insertedCount`
           // would always read 0 for this op type.
-          const result = await Student.bulkWrite(studentBulkOps, { session, ordered: true });
+          const result = await Student.bulkWrite(studentBulkOps, { ordered: true });
           inserted = result.upsertedCount + result.modifiedCount;
         }
-        if (parentUpdates.length > 0) await Parent.bulkWrite(parentUpdates, { session, ordered: false });
-      });
+        if (parentUpdates.length > 0) await Parent.bulkWrite(parentUpdates, { ordered: false });
+      }
     } catch (txErr: any) {
       if (txErr.writeErrors) {
         txErr.writeErrors.forEach((we: any) => {
           errors.push({ row: we.index + 2, message: we.errmsg || 'Insert error' });
         });
       } else {
-        errors.push({ row: 0, message: txErr.message || 'Import failed and was rolled back.' });
+        errors.push({ row: 0, message: txErr.message || 'Import failed.' });
       }
-    } finally {
-      await session.endSession();
     }
-  } else {
-    await session.endSession();
   }
 
   return ApiResponse.success(res, {

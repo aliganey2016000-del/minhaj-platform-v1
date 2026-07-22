@@ -398,42 +398,42 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   // a BulkWriteError, so it has no `.writeErrors` and the old catch block
   // only handled that shape — nothing was ever pushed to `errors`, so the
   // admin saw "0 imported" with no explanation at all.
+  // No transaction — this deployment's MongoDB is a standalone instance (no
+  // replica set), which doesn't support transactions; session.withTransaction()
+  // throws immediately there. Each row's User+Profile+Teacher is created as
+  // plain sequential writes instead — not atomic per-row, but functional —
+  // with the same per-row try/catch isolating one bad row from the rest.
   let inserted = 0;
   if (teachersToInsert.length > 0) {
     const baseTeacherCount = await Teacher.countDocuments();
     const currentYear = new Date().getFullYear();
-    const session = await mongoose.startSession();
-    try {
-      for (let idx = 0; idx < teachersToInsert.length; idx++) {
-        const item = teachersToInsert[idx];
-        const teacherId = `TCH-${currentYear}-${String(baseTeacherCount + idx + 1).padStart(4, '0')}`;
 
-        try {
-          await session.withTransaction(async () => {
-            const user = await User.create([{
-              email: item.email, password: item.hashedPassword, role: 'teacher',
-              organizationId: item.school, phone: item.phone || undefined,
-              isVerified: true, isActive: true, preferredLanguage: 'en',
-            }], { session });
+    for (let idx = 0; idx < teachersToInsert.length; idx++) {
+      const item = teachersToInsert[idx];
+      const teacherId = `TCH-${currentYear}-${String(baseTeacherCount + idx + 1).padStart(4, '0')}`;
 
-            const profile = await Profile.create([{
-              user: user[0]._id, firstName: item.firstName, lastName: item.lastName, gender: item.gender,
-            }], { session });
+      try {
+        const user = await User.create({
+          email: item.email, password: item.hashedPassword, role: 'teacher',
+          organizationId: item.school, phone: item.phone || undefined,
+          isVerified: true, isActive: true, preferredLanguage: 'en',
+        });
 
-            await Teacher.create([{
-              user: user[0]._id, profile: profile[0]._id, teacherId,
-              school: item.school, qualification: item.qualification,
-              specialization: item.specialization, experience: item.experience,
-              bio: item.bio, joiningDate: item.joiningDate, status: 'active',
-            }], { session });
-          });
-          inserted++;
-        } catch (rowErr: any) {
-          errors.push({ row: item.rowNum, message: rowErr.message || 'Insert failed' });
-        }
+        const profile = await Profile.create({
+          user: user._id, firstName: item.firstName, lastName: item.lastName, gender: item.gender,
+        });
+
+        await Teacher.create({
+          user: user._id, profile: profile._id, teacherId,
+          school: item.school, qualification: item.qualification,
+          specialization: item.specialization, experience: item.experience,
+          bio: item.bio, joiningDate: item.joiningDate, status: 'active',
+        });
+
+        inserted++;
+      } catch (rowErr: any) {
+        errors.push({ row: item.rowNum, message: rowErr.message || 'Insert failed' });
       }
-    } finally {
-      await session.endSession();
     }
   }
 

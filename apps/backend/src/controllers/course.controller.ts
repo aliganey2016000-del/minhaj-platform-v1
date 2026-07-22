@@ -787,23 +787,24 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   }
 
   // ── Phase 3: BulkWrite ──
+  // No transaction — this deployment's MongoDB is a standalone instance
+  // (no replica set), which doesn't support transactions at all;
+  // session.withTransaction() throws immediately there, and every prior
+  // "successful" import under that code path inserted zero documents.
   let inserted = 0;
   if (courseDocs.length > 0) {
-    const session = await mongoose.startSession();
     try {
-      await session.withTransaction(async () => {
-        const result = await Course.insertMany(courseDocs, { session, ordered: false });
-        inserted = result.length;
-      });
+      const result = await Course.insertMany(courseDocs, { ordered: false });
+      inserted = result.length;
     } catch (txErr: any) {
       if (txErr.insertedDocs) inserted = txErr.insertedDocs.length;
       if (txErr.writeErrors) {
         txErr.writeErrors.forEach((we: any) => {
           errors.push({ row: we.index + 2, message: we.errmsg || 'Insert error' });
         });
+      } else if (inserted === 0) {
+        errors.push({ row: 0, message: txErr.message || 'Import failed.' });
       }
-    } finally {
-      await session.endSession();
     }
   }
 

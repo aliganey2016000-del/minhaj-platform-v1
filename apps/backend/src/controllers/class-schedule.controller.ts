@@ -121,32 +121,29 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     createdBy: new mongoose.Types.ObjectId(req.user!.userId),
   };
 
-  // Cross-module auto-assignment + schedule creation run as one atomic
-  // unit: if the selected Course has no instructor yet (the frontend's
-  // "State B"), the teacher picked for this schedule becomes the course's
-  // assigned teacher too, so Course Management reflects it immediately
-  // without a second manual entry. Scoped to the caller's own tenant.
-  let createdId: mongoose.Types.ObjectId | null = null;
-  const session = await mongoose.startSession();
-  try {
-    await session.withTransaction(async () => {
-      if (payload.course && payload.teacher) {
-        const courseDoc = await Course.findById(payload.course).session(session);
-        if (!courseDoc) throw new NotFoundError('Course not found');
-        assertOwnsOrg(req, courseDoc, 'school');
+  // Cross-module auto-assignment + schedule creation: if the selected
+  // Course has no instructor yet (the frontend's "State B"), the teacher
+  // picked for this schedule becomes the course's assigned teacher too, so
+  // Course Management reflects it immediately without a second manual
+  // entry. Scoped to the caller's own tenant.
+  //
+  // No transaction — this deployment's MongoDB is a standalone instance (no
+  // replica set), which doesn't support transactions; session.withTransaction()
+  // throws immediately there, and this call previously had no catch, so
+  // every schedule creation was failing with an uncaught 500.
+  if (payload.course && payload.teacher) {
+    const courseDoc = await Course.findById(payload.course);
+    if (!courseDoc) throw new NotFoundError('Course not found');
+    assertOwnsOrg(req, courseDoc, 'school');
 
-        if (!courseDoc.teacher) {
-          courseDoc.teacher = payload.teacher;
-          await courseDoc.save({ session });
-        }
-      }
-
-      const created = await ClassSchedule.create([payload], { session });
-      createdId = created[0]._id;
-    });
-  } finally {
-    await session.endSession();
+    if (!courseDoc.teacher) {
+      courseDoc.teacher = payload.teacher;
+      await courseDoc.save();
+    }
   }
+
+  const created = await ClassSchedule.create(payload);
+  const createdId = created._id;
 
   const schedule = await ClassSchedule.findById(createdId)
     .populate('school', 'name')
@@ -167,38 +164,32 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (!existingSchedule) throw new NotFoundError('Schedule not found');
   assertOwnsOrg(req, existingSchedule, 'school');
 
-  // Same atomic cross-module assignment as create(): applies when the
-  // admin edits a schedule under "State B" (teacher-less course) and picks
-  // a teacher — the course only gets auto-assigned if it still has none.
-  let updatedId: mongoose.Types.ObjectId | null = null;
-  const session = await mongoose.startSession();
-  try {
-    await session.withTransaction(async () => {
-      const courseId = req.body.course || existingSchedule.course;
-      const teacherId = req.body.teacher;
+  // Same cross-module assignment as create(): applies when the admin edits
+  // a schedule under "State B" (teacher-less course) and picks a teacher —
+  // the course only gets auto-assigned if it still has none. No transaction
+  // (see create() above) — this call previously had no catch either, so
+  // every schedule update was failing with an uncaught 500.
+  const courseId = req.body.course || existingSchedule.course;
+  const teacherId = req.body.teacher;
 
-      if (courseId && teacherId) {
-        const courseDoc = await Course.findById(courseId).session(session);
-        if (!courseDoc) throw new NotFoundError('Course not found');
-        assertOwnsOrg(req, courseDoc, 'school');
+  if (courseId && teacherId) {
+    const courseDoc = await Course.findById(courseId);
+    if (!courseDoc) throw new NotFoundError('Course not found');
+    assertOwnsOrg(req, courseDoc, 'school');
 
-        if (!courseDoc.teacher) {
-          courseDoc.teacher = teacherId;
-          await courseDoc.save({ session });
-        }
-      }
-
-      const updated = await ClassSchedule.findByIdAndUpdate(
-        req.params.id,
-        req.body,
-        { new: true, runValidators: true, session }
-      );
-      if (!updated) throw new NotFoundError('Schedule not found');
-      updatedId = updated._id;
-    });
-  } finally {
-    await session.endSession();
+    if (!courseDoc.teacher) {
+      courseDoc.teacher = teacherId;
+      await courseDoc.save();
+    }
   }
+
+  const updated = await ClassSchedule.findByIdAndUpdate(
+    req.params.id,
+    req.body,
+    { new: true, runValidators: true }
+  );
+  if (!updated) throw new NotFoundError('Schedule not found');
+  const updatedId = updated._id;
 
   const schedule = await ClassSchedule.findById(updatedId)
     .populate('school', 'name')
@@ -615,26 +606,25 @@ export const bulkImportTransactional = async (req: Request, res: Response): Prom
     }
   }
 
-  // Transactional insertMany
+  // No transaction — this deployment's MongoDB is a standalone instance (no
+  // replica set), which doesn't support transactions; session.withTransaction()
+  // throws immediately there, and every prior "successful" import under that
+  // code path inserted zero documents. insertMany with ordered:false still
+  // continues past individual row errors and reports what succeeded.
   let inserted = 0;
   if (documents.length > 0) {
-    const session = await mongoose.startSession();
     try {
-      await session.withTransaction(async () => {
-        const result = await ClassSchedule.insertMany(documents, { session, ordered: false });
-        inserted = result.length;
-      });
+      const result = await ClassSchedule.insertMany(documents, { ordered: false });
+      inserted = result.length;
     } catch (txErr: any) {
-      // insertMany with ordered:false continues on individual errors;
-      // partial inserts are acceptable — report what succeeded
       if (txErr.insertedDocs) inserted = txErr.insertedDocs.length;
       if (txErr.writeErrors) {
         txErr.writeErrors.forEach((we: any) => {
           errors.push({ row: we.index + 2, message: we.errmsg || 'Insert error' });
         });
+      } else if (inserted === 0) {
+        errors.push({ row: 0, message: txErr.message || 'Import failed.' });
       }
-    } finally {
-      await session.endSession();
     }
   }
 

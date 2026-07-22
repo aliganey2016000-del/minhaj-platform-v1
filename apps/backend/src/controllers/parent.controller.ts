@@ -479,7 +479,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       }
 
       parentsToInsert.push({
-        firstName, lastName, gender: ['male', 'female'].includes(gender) ? gender : 'male',
+        rowNum, firstName, lastName, gender: ['male', 'female'].includes(gender) ? gender : 'male',
         email, hashedPassword, phone, occupation, address,
         school: schoolId ? new mongoose.Types.ObjectId(schoolId) : undefined,
         childIds,
@@ -489,51 +489,49 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     }
   }
 
+  // No transaction — this deployment's MongoDB is a standalone instance (no
+  // replica set), which doesn't support transactions; session.withTransaction()
+  // throws immediately there, and bundling the whole batch into one
+  // transaction meant a single bad row previously rolled back (or, on this
+  // DB, entirely prevented) every other row too. Each row now runs as plain
+  // sequential writes with its own try/catch, so one failure doesn't affect
+  // the rest of the batch.
   let inserted = 0;
   if (parentsToInsert.length > 0) {
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        for (const item of parentsToInsert) {
-          const count = await Parent.countDocuments();
-          const parentId = `PRN-${new Date().getFullYear()}-${String(count + inserted + 1).padStart(4, '0')}`;
+    const baseCount = await Parent.countDocuments();
+    for (let idx = 0; idx < parentsToInsert.length; idx++) {
+      const item = parentsToInsert[idx];
+      try {
+        const parentId = `PRN-${new Date().getFullYear()}-${String(baseCount + inserted + 1).padStart(4, '0')}`;
 
-          const user = await User.create([{
-            email: item.email, password: item.hashedPassword, role: 'parent',
-            organizationId: item.school, phone: item.phone || undefined,
-            isVerified: true, isActive: true, preferredLanguage: 'en',
-          }], { session });
-
-          const profile = await Profile.create([{
-            user: user[0]._id, firstName: item.firstName, lastName: item.lastName, gender: item.gender,
-          }], { session });
-
-          const parent = await Parent.create([{
-            user: user[0]._id, profile: profile[0]._id, parentId,
-            school: item.school, occupation: item.occupation,
-            address: item.address, children: item.childIds, status: 'active',
-          }], { session });
-
-          // Link students back to parent
-          if (item.childIds.length > 0) {
-            await Student.updateMany(
-              { _id: { $in: item.childIds } },
-              { parent: parent[0]._id },
-              { session },
-            );
-          }
-
-          inserted++;
-        }
-      });
-    } catch (txErr: any) {
-      if (txErr.writeErrors) {
-        txErr.writeErrors.forEach((we: any) => {
-          errors.push({ row: we.index + 2, message: we.errmsg || 'Insert error' });
+        const user = await User.create({
+          email: item.email, password: item.hashedPassword, role: 'parent',
+          organizationId: item.school, phone: item.phone || undefined,
+          isVerified: true, isActive: true, preferredLanguage: 'en',
         });
+
+        const profile = await Profile.create({
+          user: user._id, firstName: item.firstName, lastName: item.lastName, gender: item.gender,
+        });
+
+        const parent = await Parent.create({
+          user: user._id, profile: profile._id, parentId,
+          school: item.school, occupation: item.occupation,
+          address: item.address, children: item.childIds, status: 'active',
+        });
+
+        // Link students back to parent
+        if (item.childIds.length > 0) {
+          await Student.updateMany(
+            { _id: { $in: item.childIds } },
+            { parent: parent._id },
+          );
+        }
+
+        inserted++;
+      } catch (rowErr: any) {
+        errors.push({ row: item.rowNum, message: rowErr.message || 'Insert failed' });
       }
-    } finally {
-      await session.endSession();
     }
   }
 

@@ -253,61 +253,52 @@ export const submitAttempt = async (req: Request, res: Response): Promise<Respon
   const { gradedAnswers, earnedPoints, totalPoints, percentage, passed } = gradeQuiz(quizItem, answers);
   const safeDuration = Math.max(0, parseInt(durationSeconds, 10) || 0);
 
-  const session = await mongoose.startSession();
+  // No multi-document transaction here — this deployment's MongoDB runs as
+  // a standalone instance (no replica set), which doesn't support
+  // transactions at all: `session.withTransaction()` throws immediately
+  // ("Transaction numbers are only allowed on a replica set member or
+  // mongos"), and previously had no catch here, so every quiz submission
+  // was failing with an uncaught 500. Writes below run as plain sequential
+  // operations instead — not atomic, but functional.
   let gamification: QuizXPResult | null = null;
-  let isFirstAttempt = false;
+  let isFirstAttempt = !(await QuizAttempt.exists({ student: student._id, quizId }));
 
-  try {
-    await session.withTransaction(async () => {
-      isFirstAttempt = !(await QuizAttempt.exists({ student: student._id, quizId }).session(session));
+  await QuizAttempt.create({
+    student: student._id,
+    course: courseId,
+    quizId,
+    answers: gradedAnswers.map((a) => ({
+      questionId: a.questionId,
+      selectedAnswer: a.selectedAnswer,
+      correct: a.correct,
+      points: a.points,
+    })),
+    score: earnedPoints,
+    totalPoints,
+    percentage,
+    passed,
+    durationSeconds: safeDuration,
+    isFirstAttempt,
+  });
 
-      await QuizAttempt.create(
-        [{
-          student: student._id,
-          course: courseId,
-          quizId,
-          answers: gradedAnswers.map((a) => ({
-            questionId: a.questionId,
-            selectedAnswer: a.selectedAnswer,
-            correct: a.correct,
-            points: a.points,
-          })),
-          score: earnedPoints,
-          totalPoints,
-          percentage,
-          passed,
-          durationSeconds: safeDuration,
-          isFirstAttempt,
-        }],
-        { session }
-      );
+  if (isFirstAttempt) {
+    let progress = await Progress.findOne({ student: student._id, course: courseId });
+    if (!progress) {
+      const total = (content.totalLessons || 0) + (content.totalQuizzes || 0) + (content.totalAssignments || 0);
+      progress = await Progress.create({ student: student._id, course: courseId, completedQuizzes: 1, totalItems: total, lastAccessed: new Date(), status: 'in_progress' });
+    } else {
+      progress.completedQuizzes += 1;
+      const done = progress.completedLessons + progress.completedQuizzes + progress.completedAssignments;
+      if (done >= progress.totalItems && progress.totalItems > 0) progress.status = 'completed';
+      progress.lastAccessed = new Date();
+      await progress.save();
+    }
 
-      if (isFirstAttempt) {
-        let progress = await Progress.findOne({ student: student._id, course: courseId }).session(session);
-        if (!progress) {
-          const total = (content.totalLessons || 0) + (content.totalQuizzes || 0) + (content.totalAssignments || 0);
-          progress = (await Progress.create(
-            [{ student: student._id, course: courseId, completedQuizzes: 1, totalItems: total, lastAccessed: new Date(), status: 'in_progress' }],
-            { session }
-          ))[0];
-        } else {
-          progress.completedQuizzes += 1;
-          const done = progress.completedLessons + progress.completedQuizzes + progress.completedAssignments;
-          if (done >= progress.totalItems && progress.totalItems > 0) progress.status = 'completed';
-          progress.lastAccessed = new Date();
-          await progress.save({ session });
-        }
-
-        gamification = await awardQuizXP(
-          student._id.toString(),
-          (req.user as any).userId,
-          { score: earnedPoints, totalQuestions: quizItem.questions?.length || 0, timeSpentSeconds: safeDuration },
-          session
-        );
-      }
-    });
-  } finally {
-    await session.endSession();
+    gamification = await awardQuizXP(
+      student._id.toString(),
+      (req.user as any).userId,
+      { score: earnedPoints, totalQuestions: quizItem.questions?.length || 0, timeSpentSeconds: safeDuration },
+    );
   }
 
   const gam = gamification as QuizXPResult | null;
