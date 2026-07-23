@@ -14,6 +14,42 @@
 import { useRef, useState } from 'react';
 import api from '../../../../lib/axios';
 
+// Tab-separated parser that respects quoted fields — Excel/Sheets wraps any
+// copied cell containing a newline, tab, or quote in double quotes (quotes
+// doubled to escape) when it puts data on the clipboard as plain text. A
+// naive `split('\n')` would shred a multi-line Content cell into several
+// "rows", misreading the tail of that cell's text as a brand-new Chapter
+// Title with the next columns over as its Lesson Title.
+function parseTsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  let i = 0;
+
+  const pushField = () => { row.push(field.trim()); field = ''; };
+  const pushRow = () => { pushField(); rows.push(row); row = []; };
+
+  while (i < text.length) {
+    const char = text[i];
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+        inQuotes = false; i++; continue;
+      }
+      field += char; i++; continue;
+    }
+    if (char === '"' && field === '') { inQuotes = true; i++; continue; }
+    if (char === '\t') { pushField(); i++; continue; }
+    if (char === '\r') { i++; continue; }
+    if (char === '\n') { pushRow(); i++; continue; }
+    field += char; i++;
+  }
+  if (field !== '' || row.length > 0) pushRow();
+
+  return rows.filter((r) => r.length > 0 && r.some((cell) => cell !== ''));
+}
+
 interface CourseContentImportModalProps {
   courseId: string;
   onClose: () => void;
@@ -93,11 +129,7 @@ export function CourseContentImportModal({ courseId, onClose, onImported }: Cour
     }
   };
 
-  const parsePastedRows = (): string[][] => {
-    if (!pasteText.trim()) return [];
-    const lines = pasteText.trim().split(/\r?\n/);
-    return lines.map((line) => line.split('\t').map((cell) => cell.trim())).filter((row) => row.length > 0 && row.some((cell) => cell !== ''));
-  };
+  const parsePastedRows = (): string[][] => parseTsv(pasteText);
 
   const submitPasteImport = async () => {
     const rows = parsePastedRows();
