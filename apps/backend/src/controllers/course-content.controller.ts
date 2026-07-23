@@ -23,7 +23,7 @@ import { assertOwnsOrg } from '../utils/tenant-scope';
 export function hashGateAnswer(
   lessonId: string,
   scope: 'block' | 'checkpoint',
-  index: number,
+  index: number | string,
   answer: unknown
 ): string {
   return crypto
@@ -122,6 +122,27 @@ function stripQuizSecrets(content: any, isStudent: boolean) {
   return content;
 }
 
+// A block's Stop & Check questions, normalizing the legacy singular
+// `question` field (still present on lessons saved before multi-question
+// support) into the array shape every read/write path now uses.
+function blockQuestions(block: any): any[] {
+  return block.questions ?? (block.question ? [block.question] : []);
+}
+
+// `correctIndex` is the field the frontend/editor actually reads and writes
+// (course-builder.types.ts ContentBlockQuestion, shared with the main quiz
+// engine's QuizQuestion union) — grading and stripping must key off that
+// name, not a legacy `correctOptionIndex` that nothing ever populates.
+function stripOneGateQuestion(question: any, lessonId: string, scope: 'block' | 'checkpoint', compositeIndex: string) {
+  const correctValue = question.type === 'mcq' ? question.correctIndex : question.correctAnswer;
+  if (correctValue !== undefined) {
+    question.answerHash = hashGateAnswer(lessonId, scope, compositeIndex, correctValue);
+  }
+  delete question.correctIndex;
+  delete question.correctAnswer;
+  delete question.explanation; // often paraphrases the correct answer — same spoiler risk
+}
+
 function stripGateAnswers(content: any, isStudent: boolean) {
   if (!isStudent || !content?.chapters) return content;
   for (const chapter of content.chapters) {
@@ -129,29 +150,18 @@ function stripGateAnswers(content: any, isStudent: boolean) {
       if (item.type !== 'lesson') continue;
       const lessonId = item._id?.toString() || '';
       (item.contentBlocks || []).forEach((block: any, blockIndex: number) => {
-        if (block.question) {
-          const correctValue = block.question.type === 'mcq'
-            ? block.question.correctOptionIndex
-            : block.question.correctAnswer;
-          if (correctValue !== undefined) {
-            block.question.answerHash = hashGateAnswer(lessonId, 'block', blockIndex, correctValue);
-          }
-          delete block.question.correctOptionIndex;
-          delete block.question.correctAnswer;
-          delete block.question.explanation; // often paraphrases the correct answer — same spoiler risk
-        }
+        const questions = blockQuestions(block);
+        questions.forEach((question, qIndex) => {
+          stripOneGateQuestion(question, lessonId, 'block', `${blockIndex}.${qIndex}`);
+        });
+        // Normalize onto `questions` so a student payload never carries both
+        // the legacy singular field and the array disagreeing with it.
+        if (questions.length > 0) block.questions = questions;
+        delete block.question;
       });
       (item.videoCheckpoints || []).forEach((checkpoint: any, cpIndex: number) => {
         if (checkpoint.question) {
-          const correctValue = checkpoint.question.type === 'mcq'
-            ? checkpoint.question.correctOptionIndex
-            : checkpoint.question.correctAnswer;
-          if (correctValue !== undefined) {
-            checkpoint.question.answerHash = hashGateAnswer(lessonId, 'checkpoint', cpIndex, correctValue);
-          }
-          delete checkpoint.question.correctOptionIndex;
-          delete checkpoint.question.correctAnswer;
-          delete checkpoint.question.explanation;
+          stripOneGateQuestion(checkpoint.question, lessonId, 'checkpoint', `${cpIndex}`);
         }
       });
     }

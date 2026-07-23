@@ -50,7 +50,14 @@ export interface ContentBlock {
   order: number;
   content: string; // rich text/HTML, same as lesson.content
   minReadSeconds: number;
+  /** @deprecated legacy single-question field from before multi-question support — still read as a 1-item fallback when `questions` is absent; new saves always write `questions`. */
   question?: ContentBlockQuestion;
+  questions?: ContentBlockQuestion[];
+}
+
+/** A block's Stop & Check questions, normalizing the legacy singular `question` field into the array shape. */
+export function getBlockQuestions(block: ContentBlock): ContentBlockQuestion[] {
+  return block.questions ?? (block.question ? [block.question] : []);
 }
 
 // Video Checkpoint — a percentage-of-duration timestamp on the lesson's own

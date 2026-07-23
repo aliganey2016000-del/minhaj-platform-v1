@@ -23,7 +23,7 @@ async function sha256Hex(input: string): Promise<string> {
 export async function hashGateAnswer(
   lessonId: string,
   scope: 'block' | 'checkpoint',
-  index: number,
+  index: number | string,
   answer: unknown
 ): Promise<string> {
   return sha256Hex(`${lessonId}:${scope}:${index}:${String(answer)}`);
@@ -33,7 +33,7 @@ export async function hashGateAnswer(
 export async function checkGateAnswerOffline(
   lessonId: string,
   scope: 'block' | 'checkpoint',
-  index: number,
+  index: number | string,
   answer: unknown,
   answerHash: string | undefined
 ): Promise<boolean> {

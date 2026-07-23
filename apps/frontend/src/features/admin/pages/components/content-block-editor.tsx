@@ -15,7 +15,7 @@ import {
   RefreshCw, Pencil, Plus, X, AlertCircle, CircleCheck,
 } from 'lucide-react';
 import type { ContentBlock, ContentBlockQuestion, QuestionType } from '../course-builder.types';
-import { normalizeQuestion } from '../course-builder.types';
+import { normalizeQuestion, getBlockQuestions } from '../course-builder.types';
 import { QUESTION_TYPE_META, QUESTION_TYPE_ORDER } from '../quiz-question-meta';
 import { RichTextEditor } from './rich-text-editor';
 import api from '../../../../lib/axios';
@@ -113,7 +113,19 @@ function BlockCard({
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
 }) {
-  const setQuestion = (question: ContentBlockQuestion | undefined) => onChange({ question });
+  const questions = getBlockQuestions(block);
+
+  // Every write goes through `questions` (array) from now on — clearing the
+  // legacy singular `question` field so a block never ends up with both a
+  // stale single question AND a questions array disagreeing with each other.
+  const setQuestions = (next: ContentBlockQuestion[]) => onChange({ questions: next, question: undefined });
+
+  const updateQuestionAt = (idx: number, question: ContentBlockQuestion | undefined) => {
+    if (!question) setQuestions(questions.filter((_, i) => i !== idx));
+    else setQuestions(questions.map((q, i) => (i === idx ? question : q)));
+  };
+
+  const addQuestion = (question: ContentBlockQuestion) => setQuestions([...questions, question]);
 
   return (
     <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 space-y-3">
@@ -160,18 +172,57 @@ function BlockCard({
         />
       </div>
 
-      <div className="border-t border-[var(--color-border-subtle)] pt-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-[var(--color-text-secondary)]">Stop & Check Question (optional)</span>
-          {block.question && (
-            <button type="button" onClick={() => setQuestion(undefined)} className="text-xs text-red-500 hover:text-red-700">
-              Remove question
-            </button>
-          )}
-        </div>
+      <div className="border-t border-[var(--color-border-subtle)] pt-3 space-y-3">
+        <span className="text-xs font-semibold text-[var(--color-text-secondary)] block">
+          Stop & Check Questions (optional — add as many as you like)
+        </span>
 
-        <QuestionBuilder blockContent={block.content} question={block.question} onChange={setQuestion} />
+        {questions.map((question, qi) => (
+          <div key={qi} className="rounded-xl border border-[var(--color-border-default)] p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-[var(--color-text-primary)]">Question {qi + 1}</span>
+              <button type="button" onClick={() => updateQuestionAt(qi, undefined)} className="text-xs text-red-500 hover:text-red-700">
+                Remove question
+              </button>
+            </div>
+            <QuestionBuilder blockContent={block.content} question={question} onChange={(q) => updateQuestionAt(qi, q)} />
+          </div>
+        ))}
+
+        <NewQuestionComposer blockContent={block.content} onAdd={addQuestion} />
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// New Question Composer — a QuestionBuilder over purely local draft state;
+// "Add Question to Block" commits it into the parent's questions array and
+// resets, so the picker is ready again immediately for the next question.
+// ---------------------------------------------------------------------------
+
+function NewQuestionComposer({ blockContent, onAdd }: { blockContent: string; onAdd: (q: ContentBlockQuestion) => void }) {
+  const [draft, setDraft] = useState<ContentBlockQuestion | undefined>(undefined);
+
+  const commit = () => {
+    if (!draft) return;
+    onAdd(draft);
+    setDraft(undefined);
+  };
+
+  return (
+    <div className="rounded-xl border border-dashed border-[var(--color-border-default)] p-3 space-y-2">
+      <QuestionBuilder blockContent={blockContent} question={draft} onChange={setDraft} />
+      {draft && (
+        <div className="flex gap-2 pt-1">
+          <button type="button" onClick={commit} className="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 transition-colors">
+            <Plus className="h-3.5 w-3.5" /> Add Question to Block
+          </button>
+          <button type="button" onClick={() => setDraft(undefined)} className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   );
 }

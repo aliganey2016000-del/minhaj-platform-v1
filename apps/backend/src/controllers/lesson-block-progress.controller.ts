@@ -16,6 +16,21 @@ import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-err
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
 
+// A block's Stop & Check questions, normalizing the legacy singular
+// `question` field (lessons saved before multi-question support) into the
+// array shape every read/write path now uses.
+function blockQuestions(block: any): any[] {
+  return block.questions ?? (block.question ? [block.question] : []);
+}
+
+// mcq/true_false are the only types graded and rendered end-to-end today
+// (see interactive-gate-lesson-view.tsx) — `correctIndex` is the field the
+// editor actually writes (course-builder.types.ts ContentBlockQuestion),
+// not a legacy `correctOptionIndex` that nothing ever populates.
+function isCorrectGateAnswer(question: any, answer: unknown): boolean {
+  return question.type === 'mcq' ? answer === question.correctIndex : answer === question.correctAnswer;
+}
+
 async function findLesson(courseId: string, lessonId: string) {
   const content = await CourseContent.findOne({ course: courseId }).lean();
   if (!content) throw new NotFoundError('Course content');
@@ -49,6 +64,7 @@ export const submitBlockAnswer = async (req: Request, res: Response): Promise<Re
   const { courseId, lessonId } = req.params;
   const blockIndex = parseInt(req.params.blockIndex, 10);
   const { answer } = req.body;
+  const questionIndex = Number.isInteger(req.body.questionIndex) ? req.body.questionIndex : 0;
 
   if (Number.isNaN(blockIndex) || blockIndex < 0) {
     throw new BadRequestError('Invalid block index');
@@ -60,6 +76,11 @@ export const submitBlockAnswer = async (req: Request, res: Response): Promise<Re
   }
   const block = lesson.contentBlocks[blockIndex];
   if (!block) throw new NotFoundError('Content block');
+  const questions = blockQuestions(block);
+  if (questionIndex < 0 || (questions.length > 0 && questionIndex >= questions.length)) {
+    throw new BadRequestError('Invalid question index');
+  }
+  const question = questions[questionIndex];
 
   const student = await ensureStudentRecord(req.user!.userId);
 
@@ -76,28 +97,35 @@ export const submitBlockAnswer = async (req: Request, res: Response): Promise<Re
     throw new ForbiddenError('This block is not currently active for you.');
   }
 
-  const correct = block.question
-    ? block.question.type === 'mcq'
-      ? answer === block.question.correctOptionIndex
-      : answer === block.question.correctAnswer
-    : true; // no question on this block — reaching it is enough to advance
+  const correct = question ? isCorrectGateAnswer(question, answer) : true; // no question on this block — reaching it is enough to advance
 
-  progress.attempts.push({ blockIndex, selectedAnswer: answer, correct, attemptedAt: new Date() });
+  progress.attempts.push({ blockIndex, questionIndex, selectedAnswer: answer, correct, attemptedAt: new Date() });
 
+  // A block with several questions only unlocks the next block once every
+  // one of them has a correct attempt on record — order doesn't matter, only
+  // full coverage does.
+  let blockCleared = false;
   if (correct) {
-    const isLastBlock = blockIndex === lesson.contentBlocks.length - 1;
-    progress.unlockedBlockIndex = blockIndex + 1;
-    progress.gateCompleted = isLastBlock;
+    const clearedIndices = new Set(
+      progress.attempts.filter((a) => a.blockIndex === blockIndex && a.correct).map((a) => a.questionIndex)
+    );
+    blockCleared = questions.length === 0 || questions.every((_, qi) => clearedIndices.has(qi));
+    if (blockCleared) {
+      const isLastBlock = blockIndex === lesson.contentBlocks.length - 1;
+      progress.unlockedBlockIndex = blockIndex + 1;
+      progress.gateCompleted = isLastBlock;
+    }
   }
 
   await progress.save();
 
   return ApiResponse.success(res, {
     correct,
+    blockCleared,
     gateCompleted: progress.gateCompleted,
     unlockedBlockIndex: progress.unlockedBlockIndex,
     // Only worth sending on a miss — safe to reveal now since they already answered.
-    explanation: !correct ? block.question?.explanation || undefined : undefined,
+    explanation: !correct ? question?.explanation || undefined : undefined,
   });
 };
 
@@ -153,9 +181,7 @@ export const submitCheckpointAnswer = async (req: Request, res: Response): Promi
 
   const student = await ensureStudentRecord(req.user!.userId);
 
-  const correct = checkpoint.question.type === 'mcq'
-    ? answer === checkpoint.question.correctOptionIndex
-    : answer === checkpoint.question.correctAnswer;
+  const correct = isCorrectGateAnswer(checkpoint.question, answer);
 
   const update: any = {
     $setOnInsert: { student: student._id, course: courseId, lessonId },

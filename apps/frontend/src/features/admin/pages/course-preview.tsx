@@ -14,6 +14,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/axios';
 import type { CourseContent, Chapter, LessonItem, QuizItem, AssignmentItem, ContentBlock } from './course-builder.types';
+import { getBlockQuestions } from './course-builder.types';
 import { QuestionPreview } from '../../../components/shared/quiz-question-preview';
 import { HtmlPreview } from '../../../components/shared/html-preview';
 import { sanitizeHtml } from '../../../lib/sanitize-html';
@@ -861,18 +862,20 @@ function InteractiveGateBlocksPreview({ lesson }: { lesson: LessonItem }) {
             className="prose prose-sm dark:prose-invert max-w-none text-[var(--color-text-primary)] [&_p]:mb-3 [&_p]:leading-relaxed"
             dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.content) }}
           />
-          {block.question && <ContentBlockQuestionPreview question={block.question} />}
+          {getBlockQuestions(block).map((question, qi) => (
+            <ContentBlockQuestionPreview key={qi} index={qi} question={question} />
+          ))}
         </div>
       ))}
     </div>
   );
 }
 
-function ContentBlockQuestionPreview({ question }: { question: NonNullable<ContentBlock['question']> }) {
+function ContentBlockQuestionPreview({ question, index }: { question: NonNullable<ContentBlock['question']>; index: number }) {
   return (
     <div className="rounded-xl bg-[var(--color-surface-primary)] border border-[var(--color-border-default)] p-4 space-y-3">
       <p className="text-sm font-bold text-[var(--color-text-primary)] flex items-center gap-2">
-        <span>🛑</span> Stop & Check
+        <span>🛑</span> Stop & Check {index + 1}
       </p>
       <p className="text-sm text-[var(--color-text-primary)]">{question.question}</p>
 

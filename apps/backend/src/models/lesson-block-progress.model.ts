@@ -13,6 +13,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IBlockAttempt {
   blockIndex: number;
+  questionIndex: number; // which of the block's (possibly several) Stop & Check questions this attempt answers
   selectedAnswer: number | boolean; // mcq option index, or true/false
   correct: boolean;
   attemptedAt: Date;
@@ -36,6 +37,7 @@ export interface ILessonBlockProgress extends Document {
 const blockAttemptSchema = new Schema<IBlockAttempt>(
   {
     blockIndex: { type: Number, required: true },
+    questionIndex: { type: Number, default: 0 },
     selectedAnswer: { type: Schema.Types.Mixed },
     correct: { type: Boolean, required: true },
     attemptedAt: { type: Date, default: Date.now },

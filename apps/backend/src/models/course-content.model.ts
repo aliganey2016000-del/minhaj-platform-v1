@@ -12,14 +12,23 @@ import mongoose, { Schema, Document } from 'mongoose';
 // ---------------------------------------------------------------------------
 export type LessonDeliveryMode = 'traditional' | 'interactive_gate';
 
+// Loosely typed on purpose: the real payload mirrors the frontend's full
+// 10-type QuizQuestion union (course-builder.types.ts) — options/correctIndex
+// for mcq, pairs for matching, items for ordering, etc. — but chapter.items
+// (which actually holds these, nested under IContentBlock) is stored as
+// Schema.Types.Mixed, so nothing here is schema-enforced at the DB layer;
+// only mcq/true_false are graded/rendered end-to-end today (see
+// lesson-block-progress.controller.ts and interactive-gate-lesson-view.tsx).
 export interface IContentBlockQuestion {
   question: string;
-  type: 'mcq' | 'true_false';
-  options?: string[];          // mcq: 2-4
-  correctOptionIndex?: number; // mcq
-  correctAnswer?: boolean;     // true_false
-  explanation?: string;        // shown to the student after an incorrect attempt
+  type: string;
+  options?: string[];       // mcq: 2-4
+  correctIndex?: number;    // mcq / picture_choice — index into options/choices
+  correctAnswer?: boolean;  // true_false
+  explanation?: string;     // shown to the student after an incorrect attempt
   aiGenerated: boolean;
+  answerHash?: string;      // SHA-256 replacing the answer for student-facing reads (see hashGateAnswer)
+  [key: string]: unknown;   // remaining type-specific fields (pairs, items, choices, cards, etc.)
 }
 
 export interface IContentBlock {
@@ -28,7 +37,14 @@ export interface IContentBlock {
   order: number;
   content: string;             // rich text/HTML, same shape as lesson.content
   minReadSeconds: number;
+  /** @deprecated legacy single-question field — still read as a 1-item fallback when `questions` is absent. */
   question?: IContentBlockQuestion;
+  questions?: IContentBlockQuestion[]; // no cap — a block may carry as many Stop & Check questions as authored
+}
+
+/** A block's Stop & Check questions, normalizing the legacy singular `question` field into the array shape. */
+export function getBlockQuestions(block: { question?: IContentBlockQuestion; questions?: IContentBlockQuestion[] }): IContentBlockQuestion[] {
+  return block.questions ?? (block.question ? [block.question] : []);
 }
 
 // Video Checkpoint — a percentage-of-duration timestamp on the lesson's video
@@ -205,14 +221,14 @@ const attachmentSchema = new Schema(
 const contentBlockQuestionSchema = new Schema(
   {
     question: { type: String, required: true, trim: true },
-    type: { type: String, enum: ['mcq', 'true_false'], required: true },
+    type: { type: String, required: true },
     options: { type: [String], default: undefined },
-    correctOptionIndex: { type: Number, min: 0 },
+    correctIndex: { type: Number, min: 0 },
     correctAnswer: { type: Boolean },
     explanation: { type: String, default: '' },
     aiGenerated: { type: Boolean, default: false },
   },
-  { _id: false }
+  { _id: false, strict: false }
 );
 
 const videoCheckpointSchema = new Schema(
@@ -230,6 +246,7 @@ const contentBlockSchema = new Schema(
     content: { type: String, required: true },
     minReadSeconds: { type: Number, default: 30, min: 5, max: 600 },
     question: { type: contentBlockQuestionSchema, default: undefined },
+    questions: { type: [contentBlockQuestionSchema], default: undefined },
   },
   { timestamps: false }
 );
