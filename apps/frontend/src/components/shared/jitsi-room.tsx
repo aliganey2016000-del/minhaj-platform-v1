@@ -84,7 +84,12 @@ export function JitsiRoom({ roomName, displayName, isModerator, height = '70vh',
           height: '100%',
           userInfo: { displayName },
           configOverwrite: {
+            // Jitsi replaced the old `prejoinPageEnabled` flag with
+            // `prejoinConfig.enabled` — set both so this skips the "Join
+            // meeting" screen regardless of which the deployed meet.jit.si
+            // version reads.
             prejoinPageEnabled: false,
+            prejoinConfig: { enabled: false },
             disableDeepLinking: true,
             startWithAudioMuted: !isModerator,
             startWithVideoMuted: false,
@@ -127,11 +132,16 @@ export function JitsiRoom({ roomName, displayName, isModerator, height = '70vh',
   return (
     <div className="relative rounded-2xl overflow-hidden bg-black" style={{ height }}>
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
-          <div className="flex flex-col items-center gap-3 text-white">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-            <p className="text-sm">Joining the live classroom...</p>
-          </div>
+        // A small corner badge, not a full-screen cover — deliberately never
+        // obscures the iframe underneath. If the prejoin screen ever shows
+        // up anyway (camera/mic permission prompt, a Jitsi version that
+        // ignores the skip-prejoin config, etc.), the "Join meeting" button
+        // must stay fully visible and clickable, or the call looks stuck on
+        // "Joining..." forever with no way to actually join. pointer-events-
+        // none is the same belt-and-suspenders guarantee for clicks.
+        <div className="absolute top-3 left-3 z-10 pointer-events-none flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-white text-xs">
+          <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+          Connecting...
         </div>
       )}
       <div ref={containerRef} className="w-full h-full" />
