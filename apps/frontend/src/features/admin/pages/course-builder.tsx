@@ -581,7 +581,14 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
           <CourseContentImportModal
             courseId={courseId!}
             onClose={() => setShowImportModal(false)}
-            onImported={() => { fetchContent(); showToast('Course content imported successfully', 'success'); }}
+            onImported={(result) => {
+              fetchContent();
+              const parts = [`${result.chaptersCreated} unit${result.chaptersCreated === 1 ? '' : 's'} created`];
+              if (result.chaptersUpdated > 0) parts.push(`${result.chaptersUpdated} updated`);
+              parts.push(`${result.lessonsCreated} lesson${result.lessonsCreated === 1 ? '' : 's'} added`);
+              const suffix = result.errors.length > 0 ? ` — ${result.errors.length} row${result.errors.length === 1 ? '' : 's'} skipped` : '';
+              showToast(`${parts.join(', ')}${suffix}`, result.errors.length > 0 ? 'info' : 'success');
+            }}
           />
         )}
 

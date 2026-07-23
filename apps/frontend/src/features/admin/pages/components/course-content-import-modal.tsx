@@ -17,10 +17,10 @@ import api from '../../../../lib/axios';
 interface CourseContentImportModalProps {
   courseId: string;
   onClose: () => void;
-  onImported: () => void;
+  onImported: (result: ImportResult) => void;
 }
 
-interface ImportResult {
+export interface ImportResult {
   totalRows: number;
   chaptersCreated: number;
   chaptersUpdated: number;
@@ -76,8 +76,16 @@ export function CourseContentImportModal({ courseId, onClose, onImported }: Cour
       const formData = new FormData();
       formData.append('file', selectedFile);
       const { data } = await api.post(`/courses/${courseId}/content/import`, formData);
-      setResult(data.data);
-      if (data.data?.chaptersCreated > 0 || data.data?.chaptersUpdated > 0) onImported();
+      // Any lessons created/attached is a success — close and hand the
+      // summary up to the page so it can toast it, instead of leaving this
+      // modal sitting open waiting for a manual "Close" click. Only a total
+      // failure (nothing created/updated) keeps it open to show the errors.
+      if (data.data?.chaptersCreated > 0 || data.data?.chaptersUpdated > 0) {
+        onImported(data.data);
+        onClose();
+      } else {
+        setResult(data.data);
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Import failed');
     } finally {
@@ -112,8 +120,12 @@ export function CourseContentImportModal({ courseId, onClose, onImported }: Cour
       const formData = new FormData();
       formData.append('file', file);
       const { data } = await api.post(`/courses/${courseId}/content/import`, formData);
-      setResult(data.data);
-      if (data.data?.chaptersCreated > 0 || data.data?.chaptersUpdated > 0) onImported();
+      if (data.data?.chaptersCreated > 0 || data.data?.chaptersUpdated > 0) {
+        onImported(data.data);
+        onClose();
+      } else {
+        setResult(data.data);
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Import failed');
     } finally {
