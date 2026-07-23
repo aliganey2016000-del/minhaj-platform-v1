@@ -123,6 +123,12 @@ function BlockCard({
 
   const addQuestion = (question: ContentBlockQuestion) => setQuestions([...questions, question]);
 
+  // A single append for a whole AI-generated batch — calling `addQuestion`
+  // once per generated question in a loop would fire several synchronous
+  // `setQuestions` calls that each close over the same pre-update `questions`
+  // snapshot, so only the last one would "win" and the rest would be lost.
+  const addQuestions = (newOnes: ContentBlockQuestion[]) => setQuestions([...questions, ...newOnes]);
+
   return (
     <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 space-y-3">
       <div className="flex items-center justify-between">
@@ -185,7 +191,7 @@ function BlockCard({
           </div>
         ))}
 
-        <NewQuestionComposer blockContent={block.content} onAdd={addQuestion} />
+        <NewQuestionComposer blockContent={block.content} onAdd={addQuestion} onAddMany={addQuestions} />
       </div>
     </div>
   );
@@ -197,7 +203,11 @@ function BlockCard({
 // resets, so the picker is ready again immediately for the next question.
 // ---------------------------------------------------------------------------
 
-function NewQuestionComposer({ blockContent, onAdd }: { blockContent: string; onAdd: (q: ContentBlockQuestion) => void }) {
+function NewQuestionComposer({ blockContent, onAdd, onAddMany }: {
+  blockContent: string;
+  onAdd: (q: ContentBlockQuestion) => void;
+  onAddMany: (qs: ContentBlockQuestion[]) => void;
+}) {
   const [draft, setDraft] = useState<ContentBlockQuestion | undefined>(undefined);
   const [showAiModal, setShowAiModal] = useState(false);
 
@@ -224,7 +234,7 @@ function NewQuestionComposer({ blockContent, onAdd }: { blockContent: string; on
         isOpen={showAiModal}
         onClose={() => setShowAiModal(false)}
         blockContent={blockContent}
-        onGenerated={(questions) => questions.forEach(onAdd)}
+        onGenerated={onAddMany}
       />
     </div>
   );
