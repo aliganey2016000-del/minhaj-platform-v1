@@ -268,17 +268,26 @@ export function StudentCourseLearn() {
 
   const currentItem = flatItems[activeItemIdx] || null;
 
-  // Log a lightweight "opened this item" activity event for the Student
-  // Activity Tracking dashboard — best-effort, never blocks the UI.
+  // Log a "viewed this item" activity event for the Student Activity
+  // Tracking dashboard — fires on cleanup (moving to a different item, or
+  // leaving the page) rather than on open, so Start/End/Duration reflect
+  // actual time spent instead of a zero-duration "opened" point event.
+  // Best-effort: never blocks the UI.
   useEffect(() => {
     if (!currentItem || !courseId) return;
     const item = currentItem.item as any;
-    api.post('/activity/event', {
-      type: item.type === 'lesson' ? 'lesson_view' : 'course_view',
-      course: courseId,
-      lessonId: item._id,
-      resourceName: item.title,
-    }).catch(() => {});
+    const openedAt = Date.now();
+    return () => {
+      const durationSeconds = Math.round((Date.now() - openedAt) / 1000);
+      if (durationSeconds < 1) return; // ignore instant navigations
+      api.post('/activity/event', {
+        type: item.type === 'lesson' ? 'lesson_view' : 'course_view',
+        course: courseId,
+        lessonId: item._id,
+        resourceName: item.title,
+        durationSeconds,
+      }).catch(() => {});
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeItemIdx, courseId]);
 

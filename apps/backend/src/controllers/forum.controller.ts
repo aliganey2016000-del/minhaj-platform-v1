@@ -14,6 +14,7 @@ import Teacher from '../models/teacher.model';
 import Parent from '../models/parent.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
+import { logActivityFromRequest } from '../utils/learning-activity-logger';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -315,6 +316,16 @@ export const createMessage = async (req: Request, res: Response) => {
   await thread.save();
 
   await message.populate('senderId', 'email role preferredLanguage');
+
+  if (req.user?.role === 'student') {
+    const student = await Student.findOne({ user: userId }).select('_id school').lean();
+    void logActivityFromRequest(req, {
+      student: (student as any)?._id,
+      school: (student as any)?.school,
+      type: 'message_sent',
+      resourceName: thread.title || 'Discussion',
+    });
+  }
 
   return ApiResponse.created(res, message, 'Message sent');
 };

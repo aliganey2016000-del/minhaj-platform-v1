@@ -26,7 +26,8 @@ interface RosterRow {
 interface TimelineEvent {
   _id: string;
   type: string;
-  course?: { title?: string };
+  course?: { title?: { en?: string } };
+  lessonId?: string;
   resourceName?: string;
   status?: string;
   durationSeconds?: number;
@@ -37,6 +38,8 @@ interface TimelineEvent {
   ip?: string;
   createdAt: string;
 }
+
+interface CourseOption { _id: string; title?: { en?: string }; }
 
 interface Analytics {
   totalStudyTimeSeconds: number;
@@ -62,9 +65,19 @@ const DATE_PRESETS = [
 ];
 
 const ACTIVITY_TYPES = [
-  '', 'login', 'logout', 'course_view', 'lesson_view', 'video_progress', 'pdf_view',
-  'download', 'quiz_attempt', 'assignment_submitted', 'certificate_earned',
+  '', 'login', 'logout', 'session_end', 'page_view', 'course_view', 'course_enrolled',
+  'lesson_view', 'video_progress', 'pdf_view', 'audio_progress', 'download',
+  'quiz_attempt', 'exam_attempt', 'assignment_submitted', 'assignment_graded',
+  'certificate_earned', 'note_created', 'bookmark_added', 'forum_post',
+  'message_sent', 'notification_viewed',
 ];
+
+/** Start time isn't stored separately — it's derived from End (createdAt) minus Duration, so a point event (no duration) shows the same Start/End. */
+function computeStart(createdAt: string, durationSeconds?: number): Date {
+  const end = new Date(createdAt);
+  if (!durationSeconds) return end;
+  return new Date(end.getTime() - durationSeconds * 1000);
+}
 
 function formatDuration(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -105,9 +118,17 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
   const [dateTo, setDateTo] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [courseFilter, setCourseFilter] = useState('');
   const [timelineSearch, setTimelineSearch] = useState('');
+  const [courseOptions, setCourseOptions] = useState<CourseOption[]>([]);
 
   const socketRef = useRef<Socket | null>(null);
+
+  useEffect(() => {
+    api.get('/courses', { params: { limit: 200 } })
+      .then(({ data }) => setCourseOptions(data.data || []))
+      .catch(() => setCourseOptions([]));
+  }, []);
 
   const fetchRoster = useCallback(async () => {
     setRosterLoading(true);
@@ -146,6 +167,7 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
       if (datePreset === 'custom') { if (dateFrom) params.dateFrom = dateFrom; if (dateTo) params.dateTo = dateTo; }
       if (typeFilter) params.type = typeFilter;
       if (statusFilter) params.status = statusFilter;
+      if (courseFilter) params.course = courseFilter;
       if (timelineSearch) params.search = timelineSearch;
 
       const [timelineRes, analyticsRes] = await Promise.all([
@@ -160,7 +182,7 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
     } finally {
       setTimelineLoading(false);
     }
-  }, [datePreset, dateFrom, dateTo, typeFilter, statusFilter, timelineSearch]);
+  }, [datePreset, dateFrom, dateTo, typeFilter, statusFilter, courseFilter, timelineSearch]);
 
   useEffect(() => {
     if (selectedStudent) fetchTimelineAndAnalytics(selectedStudent);
@@ -176,6 +198,7 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
       if (datePreset === 'custom') { if (dateFrom) params.set('dateFrom', dateFrom); if (dateTo) params.set('dateTo', dateTo); }
       if (typeFilter) params.set('type', typeFilter);
       if (statusFilter) params.set('status', statusFilter);
+      if (courseFilter) params.set('course', courseFilter);
 
       const response = await fetch(`${api.defaults.baseURL}/activity/export/${selectedStudent._id}?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -317,9 +340,13 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
                     <option value="passed">Passed</option>
                     <option value="failed">Failed</option>
                   </select>
+                  <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs">
+                    <option value="">All Courses</option>
+                    {courseOptions.map((c) => <option key={c._id} value={c._id}>{c.title?.en || c._id}</option>)}
+                  </select>
                   <input
                     type="text"
-                    placeholder="Search timeline..."
+                    placeholder="Search by lesson/resource name..."
                     value={timelineSearch}
                     onChange={(e) => setTimelineSearch(e.target.value)}
                     className="flex-1 min-w-[150px] rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs"
@@ -342,26 +369,34 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
                         <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                           <tr>
                             <th className="text-left px-4 py-2.5 font-semibold">Date</th>
-                            <th className="text-left px-4 py-2.5 font-semibold">Time</th>
                             <th className="text-left px-4 py-2.5 font-semibold">Type</th>
                             <th className="text-left px-4 py-2.5 font-semibold">Resource</th>
                             <th className="text-left px-4 py-2.5 font-semibold hidden md:table-cell">Course</th>
                             <th className="text-left px-4 py-2.5 font-semibold">Status</th>
-                            <th className="text-left px-4 py-2.5 font-semibold hidden lg:table-cell">Duration</th>
+                            <th className="text-left px-4 py-2.5 font-semibold hidden lg:table-cell">Start</th>
+                            <th className="text-left px-4 py-2.5 font-semibold hidden lg:table-cell">End</th>
+                            <th className="text-left px-4 py-2.5 font-semibold">Duration</th>
+                            <th className="text-left px-4 py-2.5 font-semibold hidden xl:table-cell">Progress</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[var(--color-border-subtle)]">
-                          {timeline.map((e) => (
-                            <tr key={e._id} className="hover:bg-[var(--color-surface-secondary)] transition-colors">
-                              <td className="px-4 py-2.5 whitespace-nowrap">{new Date(e.createdAt).toLocaleDateString()}</td>
-                              <td className="px-4 py-2.5 whitespace-nowrap">{new Date(e.createdAt).toLocaleTimeString()}</td>
-                              <td className="px-4 py-2.5"><span className="rounded-full bg-primary-50 dark:bg-primary-950/30 px-2 py-0.5 text-[10px] font-semibold text-primary-700 dark:text-primary-300">{e.type.replace(/_/g, ' ')}</span></td>
-                              <td className="px-4 py-2.5 max-w-[160px] truncate">{e.resourceName || '—'}</td>
-                              <td className="px-4 py-2.5 hidden md:table-cell">{e.course?.title || '—'}</td>
-                              <td className="px-4 py-2.5">{e.status || '—'}{e.percent != null ? ` (${e.percent}%)` : ''}</td>
-                              <td className="px-4 py-2.5 hidden lg:table-cell">{e.durationSeconds ? formatDuration(e.durationSeconds) : '—'}</td>
-                            </tr>
-                          ))}
+                          {timeline.map((e) => {
+                            const end = new Date(e.createdAt);
+                            const start = computeStart(e.createdAt, e.durationSeconds);
+                            return (
+                              <tr key={e._id} className="hover:bg-[var(--color-surface-secondary)] transition-colors">
+                                <td className="px-4 py-2.5 whitespace-nowrap">{end.toLocaleDateString()}</td>
+                                <td className="px-4 py-2.5"><span className="rounded-full bg-primary-50 dark:bg-primary-950/30 px-2 py-0.5 text-[10px] font-semibold text-primary-700 dark:text-primary-300 whitespace-nowrap">{e.type.replace(/_/g, ' ')}</span></td>
+                                <td className="px-4 py-2.5 max-w-[160px] truncate">{e.resourceName || '—'}</td>
+                                <td className="px-4 py-2.5 hidden md:table-cell">{e.course?.title?.en || '—'}</td>
+                                <td className="px-4 py-2.5">{e.status || '—'}</td>
+                                <td className="px-4 py-2.5 hidden lg:table-cell whitespace-nowrap">{start.toLocaleTimeString()}</td>
+                                <td className="px-4 py-2.5 hidden lg:table-cell whitespace-nowrap">{end.toLocaleTimeString()}</td>
+                                <td className="px-4 py-2.5 whitespace-nowrap">{e.durationSeconds ? formatDuration(e.durationSeconds) : '—'}</td>
+                                <td className="px-4 py-2.5 hidden xl:table-cell">{e.percent != null ? `${e.percent}%` : '—'}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

@@ -5,6 +5,7 @@ import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
+import { logActivityFromRequest } from '../utils/learning-activity-logger';
 
 // GET /my — Student's downloads from enrolled courses
 export const getMyDownloads = async (req: Request, res: Response) => {
@@ -49,7 +50,19 @@ export const remove = async (req: Request, res: Response) => {
 
 // POST /:id/download — track download
 export const trackDownload = async (req: Request, res: Response) => {
-  const item = await Resource.findByIdAndUpdate(req.params.id, { $inc: { downloads: 1 } }, { new: true }).lean();
+  const item: any = await Resource.findByIdAndUpdate(req.params.id, { $inc: { downloads: 1 } }, { new: true }).lean();
   if (!item) throw new NotFoundError('Resource');
+
+  if (req.user?.role === 'student') {
+    const student = await Student.findOne({ user: req.user.userId }).select('_id school').lean();
+    void logActivityFromRequest(req, {
+      student: (student as any)?._id,
+      school: (student as any)?.school,
+      type: 'download',
+      course: item.course,
+      resourceName: item.title || item.name,
+    });
+  }
+
   return ApiResponse.success(res, item);
 };

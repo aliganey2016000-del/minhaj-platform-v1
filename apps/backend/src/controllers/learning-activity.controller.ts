@@ -273,7 +273,7 @@ export const getAnalytics = async (req: Request, res: Response): Promise<Respons
     totalStudyTimeSeconds: durationAgg[0]?.totalSeconds || 0,
     dailyStudyTime: dailyAgg.map((d: any) => ({ date: d._id, seconds: d.seconds })),
     courseProgress: progressDocs.map((p: any) => ({
-      course: p.course?.title || 'Unknown',
+      course: p.course?.title?.en || 'Unknown',
       status: p.status,
       completedLessons: p.completedLessons,
       totalItems: p.totalItems,
@@ -315,21 +315,26 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
   const events = await LearningActivity.find(filter).populate('course', 'title').sort({ createdAt: -1 }).lean();
 
   const format = (req.query.format as string) === 'csv' ? 'csv' : 'xlsx';
-  const headers = ['Date', 'Time', 'Activity Type', 'Resource', 'Course', 'Status', 'Duration (s)', 'Percent', 'Device', 'Browser', 'OS', 'IP'];
-  const rows = events.map((e: any) => [
-    new Date(e.createdAt).toLocaleDateString(),
-    new Date(e.createdAt).toLocaleTimeString(),
-    e.type,
-    e.resourceName || '',
-    e.course?.title || '',
-    e.status || '',
-    e.durationSeconds ?? '',
-    e.percent ?? '',
-    e.device || '',
-    e.browser || '',
-    e.os || '',
-    e.ip || '',
-  ]);
+  const headers = ['Date', 'Activity Type', 'Resource', 'Course', 'Status', 'Start', 'End', 'Duration (s)', 'Percent', 'Device', 'Browser', 'OS', 'IP'];
+  const rows = events.map((e: any) => {
+    const end = new Date(e.createdAt);
+    const start = e.durationSeconds ? new Date(end.getTime() - e.durationSeconds * 1000) : end;
+    return [
+      end.toLocaleDateString(),
+      e.type,
+      e.resourceName || '',
+      e.course?.title?.en || '',
+      e.status || '',
+      start.toLocaleTimeString(),
+      end.toLocaleTimeString(),
+      e.durationSeconds ?? '',
+      e.percent ?? '',
+      e.device || '',
+      e.browser || '',
+      e.os || '',
+      e.ip || '',
+    ];
+  });
 
   const studentName = `${(student as any).profile?.firstName || ''}-${(student as any).profile?.lastName || ''}`.replace(/\s+/g, '');
 
