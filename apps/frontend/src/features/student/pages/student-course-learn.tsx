@@ -843,21 +843,6 @@ export function StudentCourseLearn() {
           </div>
         </div>
       </div>
-
-      {/* Mobile Floating FAB */}
-      <button
-        onClick={() => setDrawerOpen(true)}
-        className={`lg:hidden fixed bottom-6 left-6 z-40 flex items-center gap-2 rounded-2xl bg-primary-600 text-white px-4 py-3 shadow-lg hover:bg-primary-700 active:scale-95 transition-all ${
-          drawerOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
-        }`}
-        aria-label="Open course contents"
-      >
-        <span className="text-lg">📑</span>
-        <span className="text-sm font-semibold">{t('course_progress')}</span>
-        <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-bold">
-          {activeItemIdx + 1}/{totalItems}
-        </span>
-      </button>
     </div>
   );
 }
@@ -868,12 +853,25 @@ export function StudentCourseLearn() {
 function LessonView({ lesson }: { lesson: LessonItem }) {
   const video = extractVideoEmbed(lesson.videoUrl || '');
   const [embedFailed, setEmbedFailed] = useState(false);
+  const [videoVisible, setVideoVisible] = useState(true);
+  const [imageVisible, setImageVisible] = useState(true);
 
   const showUnavailable = lesson.videoUrl && (video.type === null || embedFailed);
+  const hasVideo = video.type !== null || !!showUnavailable;
 
   return (
     <div className="space-y-5">
-      {video.type === 'youtube' && !embedFailed && (
+      {hasVideo && (
+        <button
+          type="button"
+          onClick={() => setVideoVisible((v) => !v)}
+          className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+        >
+          <span>{videoVisible ? '🙈' : '👁️'}</span>
+          {videoVisible ? 'Hide Video' : 'Show Video'}
+        </button>
+      )}
+      {videoVisible && video.type === 'youtube' && !embedFailed && (
         <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black">
           <iframe
             src={`https://www.youtube-nocookie.com/embed/${video.id}?rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3`}
@@ -886,7 +884,7 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
           />
         </div>
       )}
-      {video.type === 'vimeo' && !embedFailed && (
+      {videoVisible && video.type === 'vimeo' && !embedFailed && (
         <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black">
           <iframe
             src={`https://player.vimeo.com/video/${video.id}?title=0&byline=0&portrait=0&dnt=1`}
@@ -899,7 +897,7 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
           />
         </div>
       )}
-      {video.type === 'direct' && (
+      {videoVisible && video.type === 'direct' && (
         <div className="rounded-xl overflow-hidden bg-black">
           <video controls className="w-full rounded-xl" preload="metadata" controlsList="nodownload noremoteplayback" disablePictureInPicture>
             <source src={video.id} />
@@ -908,7 +906,7 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
         </div>
       )}
 
-      {showUnavailable && (
+      {videoVisible && showUnavailable && (
         <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-6 text-center">
           <p className="text-4xl mb-3">🎬</p>
           <p className="text-sm font-semibold text-amber-700 dark:text-amber-300 mb-2">Video Unavailable</p>
@@ -917,6 +915,16 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
       )}
 
       {lesson.featuredImage && (
+        <button
+          type="button"
+          onClick={() => setImageVisible((v) => !v)}
+          className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+        >
+          <span>{imageVisible ? '🙈' : '👁️'}</span>
+          {imageVisible ? 'Hide Image' : 'Show Image'}
+        </button>
+      )}
+      {imageVisible && lesson.featuredImage && (
         <img src={lesson.featuredImage} alt="Featured" className="w-full rounded-xl object-cover max-h-80" />
       )}
 
