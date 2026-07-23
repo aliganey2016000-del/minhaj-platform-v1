@@ -42,6 +42,7 @@ import quizRoutes from './quiz.routes';
 import teacherPortalRoutes from './teacher-portal.routes';
 import pushRoutes from './push.routes';
 import learningActivityRoutes from './learning-activity.routes';
+import gradebookRoutes from './gradebook.routes';
 
 const router = Router();
 
@@ -88,6 +89,7 @@ router.use('/search', searchRoutes);
 router.use('/teacher-portal', teacherPortalRoutes);
 router.use('/push', pushRoutes);
 router.use('/activity', learningActivityRoutes);
+router.use('/gradebook/:courseId', gradebookRoutes);
 
 // ---------------------------------------------------------------------------
 // Health Check Endpoint

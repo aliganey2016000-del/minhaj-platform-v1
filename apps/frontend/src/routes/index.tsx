@@ -113,6 +113,9 @@ const AdminDashboard = lazy(() =>
 const CoursesManage = lazy(() =>
   import('../features/admin/pages/courses-manage').then((m) => ({ default: m.CoursesManage }))
 );
+const CourseGradebook = lazy(() =>
+  import('../features/admin/pages/course-gradebook').then((m) => ({ default: m.CourseGradebook }))
+);
 const CourseBuilder = lazy(() =>
   import('../features/admin/pages/course-builder').then((m) => ({ default: m.CourseBuilder }))
 );
@@ -343,6 +346,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: L(<CoursesManage />) },
           { path: ':courseId/builder', element: L(<CourseBuilder />) },
+          { path: ':courseId/gradebook', element: L(<CourseGradebook />) },
           { path: ':courseId/lessons/:lessonId/edit', element: L(<LessonEditPage />) },
           { path: ':courseId/quizzes/:quizId/edit', element: L(<QuizEditPage />) },
           { path: ':courseId/preview', element: L(<CoursePreview />) },
@@ -391,6 +395,7 @@ export const router = createBrowserRouter([
       // ✅ COURSE_BUILDER permission: Full course authoring (chapters, lessons, quizzes, assignments)
       // Route guard in TeacherCourseBuilder checks permission and redirects to student view if denied
       { path: 'courses/:courseId/builder', element: L(<TeacherCourseBuilder />) },
+      { path: 'courses/:courseId/gradebook', element: L(<CourseGradebook basePath="/teacher" />) },
       { path: 'courses/:courseId/lessons/:lessonId/edit', element: L(<TeacherLessonEditPage />) },
       { path: 'courses/:courseId/quizzes/:quizId/edit', element: L(<TeacherQuizEditPage />) },
       { path: 'quizzes', element: L(<TeacherQuizzes />) },

@@ -582,6 +582,13 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
             </span>
 
             <button
+              onClick={() => navigate(`${basePath}/courses/${courseId}/gradebook`)}
+              className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors"
+            >
+              📐 Gradebook
+            </button>
+
+            <button
               onClick={() => setShowImportModal(true)}
               className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors"
             >
