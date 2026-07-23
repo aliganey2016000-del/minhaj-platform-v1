@@ -1,8 +1,14 @@
 /**
- * Jitsi Room — embeds a live video classroom directly in the page using the
- * free public Jitsi Meet server (meet.jit.si) via its IFrame External API.
- * No API key, no Jitsi account, no signup — a room is simply created the
- * moment the first participant joins a given room name.
+ * Jitsi Room — embeds a live video classroom directly in the page via the
+ * Jitsi Meet IFrame External API. No API key, no Jitsi account — a room is
+ * simply created the moment the first participant joins a given room name.
+ *
+ * The Jitsi domain is configurable via VITE_JITSI_DOMAIN and defaults to
+ * the free public meet.jit.si server. meet.jit.si caps embedded (non-
+ * jitsi.org) calls at 5 minutes — fine for trying this out, but a real
+ * class needs a self-hosted Jitsi Meet instance. Once one is deployed
+ * (e.g. meet.yourdomain.com), set VITE_JITSI_DOMAIN to that host and
+ * redeploy the frontend — nothing else in this file needs to change.
  *
  * Each course gets its own room, named deterministically from the course id
  * (see `jitsiRoomName` below) so teachers and students always land in the
@@ -23,7 +29,7 @@ interface JitsiMeetAPI {
   addEventListener: (event: string, handler: (...args: any[]) => void) => void;
 }
 
-const JITSI_DOMAIN = 'meet.jit.si';
+const JITSI_DOMAIN = import.meta.env.VITE_JITSI_DOMAIN || 'meet.jit.si';
 const SCRIPT_SRC = `https://${JITSI_DOMAIN}/external_api.js`;
 
 /** Deterministic, reasonably unguessable room name for a course's live class. */
