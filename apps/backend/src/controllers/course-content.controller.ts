@@ -430,41 +430,45 @@ export const importContent = async (req: Request, res: Response): Promise<Respon
   let lessonsCreated = 0;
 
   for (const group of groups.values()) {
-    let chapter: any = doc.chapters.find((ch: any) => String(ch.title || '').trim().toLowerCase() === group.title.toLowerCase());
-    if (!chapter) {
-      chapter = {
+    const existingChapter: any = doc.chapters.find((ch: any) => String(ch.title || '').trim().toLowerCase() === group.title.toLowerCase());
+    const baseOrder = existingChapter ? existingChapter.items.length : 0;
+    const lessonItems = group.lessons.map((lesson, idx) => ({
+      _id: new mongoose.Types.ObjectId(),
+      title: lesson.title,
+      type: 'lesson',
+      content: lesson.content,
+      videoUrl: '',
+      videoDuration: 0,
+      featuredImage: '',
+      attachments: [],
+      order: baseOrder + idx,
+      status: 'draft',
+      duration: lesson.duration,
+      deliveryMode: 'traditional',
+    }));
+
+    if (existingChapter) {
+      // A live subdocument reference from `.find()` — pushing onto its own
+      // `items` array mutates the actual document.
+      existingChapter.items.push(...lessonItems);
+      chaptersUpdated++;
+    } else {
+      // Build the chapter WITH its lessons already in place before pushing —
+      // `doc.chapters.push(x)` casts/clones `x` into a new subdocument
+      // instance, so a `chapter` variable holding the pre-push plain object
+      // would silently mutate a reference nothing actually saves.
+      doc.chapters.push({
         _id: new mongoose.Types.ObjectId(),
         title: group.title,
         description: '',
         order: doc.chapters.length,
         status: 'draft',
         collapsed: false,
-        items: [],
-      } as any;
-      doc.chapters.push(chapter);
-      chaptersCreated++;
-    } else {
-      chaptersUpdated++;
-    }
-
-    const baseOrder = chapter.items.length;
-    group.lessons.forEach((lesson, idx) => {
-      chapter.items.push({
-        _id: new mongoose.Types.ObjectId(),
-        title: lesson.title,
-        type: 'lesson',
-        content: lesson.content,
-        videoUrl: '',
-        videoDuration: 0,
-        featuredImage: '',
-        attachments: [],
-        order: baseOrder + idx,
-        status: 'draft',
-        duration: lesson.duration,
-        deliveryMode: 'traditional',
+        items: lessonItems,
       } as any);
-      lessonsCreated++;
-    });
+      chaptersCreated++;
+    }
+    lessonsCreated += lessonItems.length;
   }
 
   doc.markModified('chapters');
