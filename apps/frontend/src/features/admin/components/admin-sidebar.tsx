@@ -40,6 +40,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     items: [
       { path: '/admin',              label: 'Dashboard',          icon: '🏠' },
       { path: '/admin/students',     label: 'Manage Students',    icon: '🎓' },
+      { path: '/admin/activity',     label: 'Student Activity',   icon: '📊' },
       { path: '/admin/parents',      label: 'Manage Parents',     icon: '👨‍👩‍👧‍👦' },
       { path: '/admin/teachers',     label: 'Manage Teachers',    icon: '👨‍🏫' },
       { path: '/admin/courses',      label: 'Manage Courses',     icon: '📚' },

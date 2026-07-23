@@ -41,6 +41,7 @@ import searchRoutes from './search.routes';
 import quizRoutes from './quiz.routes';
 import teacherPortalRoutes from './teacher-portal.routes';
 import pushRoutes from './push.routes';
+import learningActivityRoutes from './learning-activity.routes';
 
 const router = Router();
 
@@ -86,6 +87,7 @@ router.use('/gamification', gamificationRoutes);
 router.use('/search', searchRoutes);
 router.use('/teacher-portal', teacherPortalRoutes);
 router.use('/push', pushRoutes);
+router.use('/activity', learningActivityRoutes);
 
 // ---------------------------------------------------------------------------
 // Health Check Endpoint

@@ -57,6 +57,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     title: 'Students',
     items: [
       { path: '/teacher/students',    label: 'My Students',       icon: '🎓' },
+      { path: '/teacher/activity',    label: 'Student Activity',  icon: '📊' },
       { path: '/teacher/gamification',label: 'Gamification',      icon: '🏆' },
       { path: '/teacher/analytics',   label: 'Class Analytics',   icon: '📈' },
     ],

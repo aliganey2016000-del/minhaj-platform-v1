@@ -21,6 +21,11 @@ import {
   NotFoundError,
 } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
+import { logLearningActivity } from '../utils/learning-activity-logger';
+
+function clientIp(req: Request): string {
+  return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
+}
 
 interface OrganizationPayload {
   organizationId?: string;
@@ -304,6 +309,18 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     path: '/api',
   });
 
+  if (user.role === 'student') {
+    const studentRecord = await Student.findOne({ user: user._id }).select('_id school').lean();
+    void logLearningActivity({
+      userId: user._id,
+      student: studentRecord?._id,
+      school: studentRecord?.school as any,
+      type: 'login',
+      ip: clientIp(req),
+      userAgent: req.headers['user-agent'] || '',
+    });
+  }
+
   return ApiResponse.success(
     res,
     {
@@ -347,6 +364,18 @@ export const logout = async (req: Request, res: Response): Promise<Response> => 
     sameSite: 'strict',
     path: '/api',
   });
+
+  if (req.user?.role === 'student') {
+    const studentRecord = await Student.findOne({ user: req.user.userId }).select('_id school').lean();
+    void logLearningActivity({
+      userId: req.user.userId,
+      student: studentRecord?._id,
+      school: studentRecord?.school as any,
+      type: 'logout',
+      ip: clientIp(req),
+      userAgent: req.headers['user-agent'] || '',
+    });
+  }
 
   return ApiResponse.success(res, null, 'Logged out successfully');
 };

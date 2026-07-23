@@ -23,6 +23,7 @@ export interface IUser extends Document {
   isVerified: boolean;
   isActive: boolean;
   lastLogin?: Date;
+  lastSeenAt?: Date;
   preferredLanguage: 'en' | 'so' | 'ar';
   refreshTokens: string[];          // hashed refresh tokens
   tokenVersion: number;             // incremented on password change / logout-all
@@ -99,6 +100,13 @@ const userSchema = new Schema<IUser, IUserModel>(
       default: true,
     },
     lastLogin: {
+      type: Date,
+      default: null,
+    },
+    // Updated on every socket connect/disconnect (see realtime/socket.ts) —
+    // "online now" is derived as lastSeenAt within the last presence window,
+    // not a separately-maintained boolean that could drift out of sync.
+    lastSeenAt: {
       type: Date,
       default: null,
     },

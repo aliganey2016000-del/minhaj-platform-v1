@@ -15,6 +15,7 @@ import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-err
 import ApiResponse from '../utils/api-response';
 import Student from '../models/student.model';
 import { awardQuizXP, QuizXPResult } from './gamification.controller';
+import { logActivityFromRequest } from '../utils/learning-activity-logger';
 
 interface QuizAnswerSubmission {
   questionId: string;
@@ -238,10 +239,10 @@ export const submitAttempt = async (req: Request, res: Response): Promise<Respon
     throw new BadRequestError('courseId, quizId, and answers are required');
   }
 
-  const course = await Course.findById(courseId).select('_id');
+  const course = await Course.findById(courseId).select('_id title');
   if (!course) throw new NotFoundError('Course');
 
-  const student = await Student.findOne({ user: (req.user as any).userId, enrolledCourses: courseId }).select('_id').lean();
+  const student = await Student.findOne({ user: (req.user as any).userId, enrolledCourses: courseId }).select('_id school').lean();
   if (!student) throw new ForbiddenError('You are not enrolled in this course');
 
   const content = await CourseContent.findOne({ course: courseId }).lean();
@@ -279,6 +280,18 @@ export const submitAttempt = async (req: Request, res: Response): Promise<Respon
     passed,
     durationSeconds: safeDuration,
     isFirstAttempt,
+  });
+
+  void logActivityFromRequest(req, {
+    student: (student as any)._id,
+    school: (student as any).school,
+    type: 'quiz_attempt',
+    course: courseId,
+    resourceName: (quizItem as any).title,
+    status: passed ? 'passed' : 'failed',
+    durationSeconds: safeDuration,
+    percent: percentage,
+    metadata: { score: earnedPoints, totalPoints, isFirstAttempt },
   });
 
   if (isFirstAttempt) {

@@ -267,6 +267,21 @@ export function StudentCourseLearn() {
   }, [activeItemIdx]);
 
   const currentItem = flatItems[activeItemIdx] || null;
+
+  // Log a lightweight "opened this item" activity event for the Student
+  // Activity Tracking dashboard — best-effort, never blocks the UI.
+  useEffect(() => {
+    if (!currentItem || !courseId) return;
+    const item = currentItem.item as any;
+    api.post('/activity/event', {
+      type: item.type === 'lesson' ? 'lesson_view' : 'course_view',
+      course: courseId,
+      lessonId: item._id,
+      resourceName: item.title,
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeItemIdx, courseId]);
+
   const totalItems = flatItems.length;
   const completedCount = course?.progress?.completedLessons
     ? (course.progress.completedLessons + (course.progress.completedQuizzes || 0) + (course.progress.completedAssignments || 0))
@@ -761,7 +776,7 @@ export function StudentCourseLearn() {
                       onGateCleared={() => setGateCleared((prev) => new Set(prev).add(activeItemIdx))}
                     />
                   ) : (
-                    <LessonView lesson={currentItem.item as LessonItem} />
+                    <LessonView lesson={currentItem.item as LessonItem} courseId={courseId!} />
                   )
                 )}
                 {currentItem.item.type === 'quiz' && (
@@ -858,11 +873,34 @@ export function StudentCourseLearn() {
 // ===========================================================================
 // Lesson View
 // ===========================================================================
-function LessonView({ lesson }: { lesson: LessonItem }) {
+function LessonView({ lesson, courseId }: { lesson: LessonItem; courseId: string }) {
   const video = extractVideoEmbed(lesson.videoUrl || '');
   const [embedFailed, setEmbedFailed] = useState(false);
   const [videoVisible, setVideoVisible] = useState(true);
   const [imageVisible, setImageVisible] = useState(true);
+  const videoStartRef = useRef<number | null>(null);
+  const lastReportedRef = useRef(0);
+
+  // Reports watch progress at most once every 15s while playing, plus once
+  // on pause/end — good enough resolution for the activity timeline without
+  // spamming the endpoint on every timeupdate tick (which fires ~4x/sec).
+  const reportVideoProgress = (el: HTMLVideoElement, final = false) => {
+    const now = Date.now();
+    if (!final && now - lastReportedRef.current < 15000) return;
+    lastReportedRef.current = now;
+    if (videoStartRef.current === null) videoStartRef.current = now;
+    const percent = el.duration > 0 ? Math.min(100, Math.round((el.currentTime / el.duration) * 100)) : 0;
+    api.post('/activity/event', {
+      type: 'video_progress',
+      course: courseId,
+      lessonId: lesson._id,
+      resourceName: lesson.title,
+      percent,
+      durationSeconds: Math.round((now - videoStartRef.current) / 1000),
+      status: final && percent >= 95 ? 'completed' : 'in_progress',
+      metadata: { startTime: 0, endTime: Math.round(el.currentTime) },
+    }).catch(() => {});
+  };
 
   const showUnavailable = lesson.videoUrl && (video.type === null || embedFailed);
   const hasVideo = video.type !== null || !!showUnavailable;
@@ -907,7 +945,16 @@ function LessonView({ lesson }: { lesson: LessonItem }) {
       )}
       {videoVisible && video.type === 'direct' && (
         <div className="rounded-xl overflow-hidden bg-black">
-          <video controls className="w-full rounded-xl" preload="metadata" controlsList="nodownload noremoteplayback" disablePictureInPicture>
+          <video
+            controls
+            className="w-full rounded-xl"
+            preload="metadata"
+            controlsList="nodownload noremoteplayback"
+            disablePictureInPicture
+            onTimeUpdate={(e) => reportVideoProgress(e.currentTarget)}
+            onPause={(e) => reportVideoProgress(e.currentTarget, true)}
+            onEnded={(e) => reportVideoProgress(e.currentTarget, true)}
+          >
             <source src={video.id} />
             <p className="text-white p-4 text-sm text-center">Your browser does not support the video tag.</p>
           </video>

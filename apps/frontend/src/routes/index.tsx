@@ -134,6 +134,9 @@ const UsersManage = lazy(() =>
 const StudentsManage = lazy(() =>
   import('../features/admin/pages/students-manage').then((m) => ({ default: m.StudentsManage }))
 );
+const StudentActivity = lazy(() =>
+  import('../features/admin/pages/student-activity').then((m) => ({ default: m.StudentActivity }))
+);
 const PaymentsOverview = lazy(() =>
   import('../features/admin/pages/payments-overview').then((m) => ({ default: m.PaymentsOverview }))
 );
@@ -250,6 +253,9 @@ const TeacherGradebook = lazy(() =>
 const TeacherStudents = lazy(() =>
   import('../features/teacher/pages/teacher-students').then((m) => ({ default: m.TeacherStudents }))
 );
+const TeacherActivity = lazy(() =>
+  import('../features/admin/pages/student-activity').then((m) => ({ default: m.StudentActivity }))
+);
 const TeacherAnalytics = lazy(() =>
   import('../features/teacher/pages/teacher-analytics').then((m) => ({ default: m.TeacherAnalytics }))
 );
@@ -329,6 +335,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: L(<AdminDashboard />) },
       { path: 'students', element: L(<StudentsManage />) },
+      { path: 'activity', element: L(<StudentActivity />) },
       { path: 'parents', element: L(<ParentsManage />) },
       { path: 'teachers', element: L(<TeachersManage />) },
       {
@@ -392,6 +399,7 @@ export const router = createBrowserRouter([
       { path: 'gradebook', element: L(<TeacherGradebook />) },
       { path: 'gradebook/review', element: L(<TeacherGradebook />) },
       { path: 'students', element: L(<TeacherStudents />) },
+      { path: 'activity', element: L(<TeacherActivity basePath="/teacher" />) },
       { path: 'gamification', element: L(<TeacherStudents />) },
       { path: 'analytics', element: L(<TeacherAnalytics />) },
       { path: 'schedule', element: L(<TeacherSchedule />) },

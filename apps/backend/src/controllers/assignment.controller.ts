@@ -27,6 +27,7 @@ import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-err
 import ensureStudentRecord from '../utils/ensure-student';
 import { getOwnTeacherRecord } from '../utils/tenant-scope';
 import { notifyUsers } from '../utils/notify';
+import { logActivityFromRequest } from '../utils/learning-activity-logger';
 
 // ---------------------------------------------------------------------------
 // Shared ownership guard for assignment mutation/read endpoints — mirrors the
@@ -224,6 +225,15 @@ export const submitAssignment = async (req: Request, res: Response) => {
     },
     { new: true, upsert: true, runValidators: true }
   ).lean();
+
+  void logActivityFromRequest(req, {
+    student: student._id,
+    school: (student as any).school,
+    type: 'assignment_submitted',
+    course: (assignment as any).course,
+    resourceName: (assignment as any).title,
+    status: isLate ? 'late' : 'on_time',
+  });
 
   return ApiResponse.success(res, submission, isLate ? 'Submitted (late)' : 'Submitted successfully');
 };
