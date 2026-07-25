@@ -547,15 +547,6 @@ function CourseCard({
                   <span>Teacher Content Permission</span>
                 </button>
 
-                {/* Video-Gated Lesson Settings */}
-                <button
-                  onClick={() => handleAction(() => onSetVideoGating(course))}
-                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"
-                >
-                  <span className="w-4 text-center flex-shrink-0">🎬</span>
-                  <span>Video-Gated Lesson Settings</span>
-                </button>
-
                 {/* View Enrolled Students */}
                 <button
                   onClick={() => handleAction(() => onViewStudents(course))}
