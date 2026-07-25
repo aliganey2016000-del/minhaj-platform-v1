@@ -173,9 +173,31 @@ export interface IAssignmentItem {
 }
 
 // ---------------------------------------------------------------------------
+// Sub-document: Exam (a link into the full Exam Management system)
+// ---------------------------------------------------------------------------
+// Exams have their own full lifecycle (scheduling, room allocation,
+// attendance, papers, results) on the separate Exam model — this is just a
+// pointer to one, with a display snapshot so the builder can render it
+// without an extra fetch. Editing the exam itself still happens in Manage
+// Exams; this sub-document is not the source of truth.
+export interface IExamItem {
+  _id?: mongoose.Types.ObjectId;
+  title: string;
+  type: 'exam';
+  examId: mongoose.Types.ObjectId;
+  examDate?: Date;
+  totalMarks?: number;
+  order: number;
+  status: 'draft' | 'published';
+  duration: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// ---------------------------------------------------------------------------
 // Sub-document: Chapter (Topic)
 // ---------------------------------------------------------------------------
-export type ChapterItem = ILesson | IQuiz | IAssignmentItem;
+export type ChapterItem = ILesson | IQuiz | IAssignmentItem | IExamItem;
 
 export interface IChapter {
   _id?: mongoose.Types.ObjectId;
@@ -199,6 +221,7 @@ export interface ICourseContent extends Document {
   totalLessons: number;        // computed count
   totalQuizzes: number;
   totalAssignments: number;
+  totalExams: number;
   lastSaved: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -398,6 +421,7 @@ const courseContentSchema = new Schema<ICourseContent>(
     totalLessons: { type: Number, default: 0 },
     totalQuizzes: { type: Number, default: 0 },
     totalAssignments: { type: Number, default: 0 },
+    totalExams: { type: Number, default: 0 },
     lastSaved: { type: Date, default: Date.now },
   },
   {
@@ -419,6 +443,7 @@ courseContentSchema.pre('save', function (next) {
   let totalLessons = 0;
   let totalQuizzes = 0;
   let totalAssignments = 0;
+  let totalExams = 0;
 
   for (const chapter of this.chapters) {
     for (const item of chapter.items) {
@@ -426,6 +451,7 @@ courseContentSchema.pre('save', function (next) {
       if (item.type === 'lesson') totalLessons++;
       else if (item.type === 'quiz') totalQuizzes++;
       else if (item.type === 'assignment') totalAssignments++;
+      else if (item.type === 'exam') totalExams++;
     }
   }
 
@@ -433,6 +459,7 @@ courseContentSchema.pre('save', function (next) {
   this.totalLessons = totalLessons;
   this.totalQuizzes = totalQuizzes;
   this.totalAssignments = totalAssignments;
+  this.totalExams = totalExams;
   this.lastSaved = new Date();
 
   next();

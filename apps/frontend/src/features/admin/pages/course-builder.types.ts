@@ -18,7 +18,7 @@ export interface Attachment {
 // ---------------------------------------------------------------------------
 // Content Item Types
 // ---------------------------------------------------------------------------
-export type ChapterItemType = 'lesson' | 'quiz' | 'assignment';
+export type ChapterItemType = 'lesson' | 'quiz' | 'assignment' | 'exam';
 
 // ---------------------------------------------------------------------------
 // Lesson Flow Delivery Control — "Interactive Gate" content blocks
@@ -275,8 +275,32 @@ export interface AssignmentItem {
   _isEditing?: boolean;
 }
 
+/**
+ * A linked exam — a lightweight pointer into the full Exam Management
+ * system (scheduling, room allocation, attendance, papers, results all live
+ * on the Exam document itself, keyed by `examId`). Title/date/marks are
+ * snapshotted here at link time purely so this card can render without an
+ * extra fetch; the source of truth — and the place to actually edit any of
+ * it — stays Manage Exams.
+ */
+export interface ExamItem {
+  _id: string;
+  title: string;
+  type: 'exam';
+  examId: string;
+  examDate?: string;
+  totalMarks?: number;
+  order: number;
+  status: 'draft' | 'published';
+  duration: number; // minutes, mirrors the exam's own duration
+  createdAt?: string;
+  updatedAt?: string;
+  // UI state
+  _isNew?: boolean;
+}
+
 // Union type for any item in a chapter
-export type ChapterItem = LessonItem | QuizItem | AssignmentItem;
+export type ChapterItem = LessonItem | QuizItem | AssignmentItem | ExamItem;
 
 // ---------------------------------------------------------------------------
 // Chapter (Module)

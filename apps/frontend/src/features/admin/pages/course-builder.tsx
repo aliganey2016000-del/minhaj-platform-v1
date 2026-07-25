@@ -13,6 +13,7 @@ import api from '../../../lib/axios';
 import { useCourseContent, useAutoSave, generateTempId } from './course-builder.api';
 import { AssignmentEditor } from './components/builder-assignment-editor';
 import { CourseContentImportModal } from './components/course-content-import-modal';
+import { ExamPickerModal, type ExamSummary } from '../components/exam-picker-modal';
 import { JitsiCallModal } from '../../../components/shared/jitsi-call-modal';
 import { jitsiRoomName } from '../../../components/shared/jitsi-room';
 import { useAuth } from '../../../store/auth-context';
@@ -21,6 +22,7 @@ import type {
   CourseContent,
   QuizItem,
   AssignmentItem,
+  ExamItem,
   DragPayload,
 } from './course-builder.types';
 
@@ -46,6 +48,7 @@ const itemTypeMeta: Record<string, { icon: string; label: string; color: string 
   lesson: { icon: '📖', label: 'Lesson', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
   quiz: { icon: '❓', label: 'Quiz', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
   assignment: { icon: '📋', label: 'Assignment', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+  exam: { icon: '🎓', label: 'Exam', color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300' },
 };
 
 // ---------------------------------------------------------------------------
@@ -96,6 +99,7 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
     itemIdx: number;
   } | null>(null);
   const [addingItemChapter, setAddingItemChapter] = useState<number | null>(null);
+  const [examPickerChapter, setExamPickerChapter] = useState<number | null>(null);
 
   // Drag state
   const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
@@ -277,6 +281,40 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
     } else {
       const newItemIdx = content.chapters[chapterIdx]?.items.length || 0;
       setEditingItem({ chapterIdx, itemIdx: newItemIdx });
+    }
+  };
+
+  const handleLinkExam = async (chapterIdx: number, exam: ExamSummary) => {
+    if (!content) return;
+    const examItem: ExamItem = {
+      _id: generateTempId(),
+      title: exam.title,
+      type: 'exam',
+      examId: exam._id,
+      examDate: exam.examDate,
+      totalMarks: exam.totalMarks,
+      order: content.chapters[chapterIdx]?.items.length || 0,
+      status: 'published',
+      duration: exam.duration,
+      _isNew: true,
+    };
+
+    const newContent: CourseContent = {
+      ...content,
+      chapters: content.chapters.map((ch, i) =>
+        i === chapterIdx ? { ...ch, items: [...ch.items, examItem] } : ch,
+      ),
+    };
+
+    updateContentLocally(() => newContent);
+    setExamPickerChapter(null);
+
+    // Persist immediately — this links a real Exam record, not a draft, so
+    // a refresh right after adding it shouldn't lose the link.
+    try {
+      await saveContent(newContent);
+    } catch {
+      showToast('Failed to link exam. Please try again.', 'error');
     }
   };
 
@@ -496,8 +534,9 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
   const totalLessons = chapters.reduce((sum, ch) => sum + ch.items.filter((it) => it.type === 'lesson').length, 0);
   const totalQuizzes = chapters.reduce((sum, ch) => sum + ch.items.filter((it) => it.type === 'quiz').length, 0);
   const totalAssignments = chapters.reduce((sum, ch) => sum + ch.items.filter((it) => it.type === 'assignment').length, 0);
+  const totalExams = chapters.reduce((sum, ch) => sum + ch.items.filter((it) => it.type === 'exam').length, 0);
   const publishedChapters = chapters.filter((ch) => ch.status === 'published').length;
-  const totalItems = totalLessons + totalQuizzes + totalAssignments;
+  const totalItems = totalLessons + totalQuizzes + totalAssignments + totalExams;
   const publishedItems = chapters.reduce(
     (sum, ch) => sum + ch.items.filter((it) => it.status === 'published').length,
     0,
@@ -608,6 +647,14 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
           />
         )}
 
+        {examPickerChapter !== null && courseId && (
+          <ExamPickerModal
+            courseId={courseId}
+            onClose={() => setExamPickerChapter(null)}
+            onLink={(exam) => handleLinkExam(examPickerChapter, exam)}
+          />
+        )}
+
         {/* ── Live Session (embedded Jitsi classroom) ── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -669,6 +716,7 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
           <StatCard label="Lessons" value={totalLessons} sub="" icon="📖" />
           <StatCard label="Quizzes" value={totalQuizzes} sub="" icon="❓" />
           <StatCard label="Assignments" value={totalAssignments} sub="" icon="📋" />
+          <StatCard label="Exams" value={totalExams} sub="" icon="🎓" />
           <StatCard label="Items" value={totalItems} sub={`${publishedItems} published`} icon="📊" />
           <StatCard label="Duration" value={`${totalDuration}m`} sub="total est." icon="⏱️" />
         </motion.div>
@@ -819,7 +867,7 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                       {/* Items */}
                       {chapter.items.length === 0 && (
                         <p className="text-xs text-[var(--color-text-tertiary)] py-4 text-center border border-dashed border-[var(--color-border-default)] rounded-lg">
-                          No lessons, quizzes, or assignments yet. Add one below.
+                          No lessons, quizzes, assignments, or exams yet. Add one below.
                         </p>
                       )}
 
@@ -849,12 +897,14 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
 
                             {/* Title + meta */}
                             <div
-                              className={`flex-1 min-w-0 ${item.type === 'lesson' || item.type === 'quiz' ? 'cursor-pointer' : ''}`}
+                              className={`flex-1 min-w-0 ${item.type === 'lesson' || item.type === 'quiz' || item.type === 'exam' ? 'cursor-pointer' : ''}`}
                             onClick={() => {
                                 if (item.type === 'lesson') {
                                   navigate(`${basePath}/courses/${courseId}/lessons/${item._id}/edit`);
                                 } else if (item.type === 'quiz') {
                                   navigate(`${basePath}/courses/${courseId}/quizzes/${item._id}/edit`);
+                                } else if (item.type === 'exam') {
+                                  navigate(`${basePath}/exams`);
                                 }
                               }}
                             >
@@ -883,6 +933,18 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                                     <span>Max {(item as AssignmentItem).maxScore} pts</span>
                                   </>
                                 )}
+                                {item.type === 'exam' && (
+                                  <>
+                                    <span>·</span>
+                                    <span>{(item as ExamItem).totalMarks ?? '—'} marks</span>
+                                    {(item as ExamItem).examDate && (
+                                      <>
+                                        <span>·</span>
+                                        <span>{new Date((item as ExamItem).examDate!).toLocaleDateString()}</span>
+                                      </>
+                                    )}
+                                  </>
+                                )}
                               </div>
                             </div>
 
@@ -892,6 +954,7 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                                 onClick={() => {
                                   if (item.type === 'lesson') navigate(`${basePath}/courses/${courseId}/lessons/${item._id}/edit`);
                                   else if (item.type === 'quiz') navigate(`${basePath}/courses/${courseId}/quizzes/${item._id}/edit`);
+                                  else if (item.type === 'exam') navigate(`${basePath}/exams`);
                                   else setEditingItem({ chapterIdx: chIdx, itemIdx });
                                 }}
                                 className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors text-xs"
@@ -946,6 +1009,9 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                           <button onClick={() => handleAddItem(chIdx, 'assignment')} className="rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 px-3 py-1.5 text-xs font-semibold hover:bg-purple-200 dark:hover:bg-purple-900/60 transition-colors">
                             📋 Assignment
                           </button>
+                          <button onClick={() => { setAddingItemChapter(null); setExamPickerChapter(chIdx); }} className="rounded-lg bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-200 dark:hover:bg-rose-900/60 transition-colors">
+                            🎓 Exam
+                          </button>
                           <button onClick={() => setAddingItemChapter(null)} className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] ml-2">
                             Cancel
                           </button>
@@ -955,7 +1021,7 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                           onClick={() => setAddingItemChapter(chIdx)}
                           className="w-full text-center text-xs font-medium text-[var(--color-text-tertiary)] hover:text-primary-600 dark:hover:text-primary-400 py-2 border border-dashed border-[var(--color-border-default)] rounded-lg hover:border-primary-400 transition-colors"
                         >
-                          + Add Lesson, Quiz, or Assignment
+                          + Add Lesson, Quiz, Assignment, or Exam
                         </button>
                       )}
                     </div>

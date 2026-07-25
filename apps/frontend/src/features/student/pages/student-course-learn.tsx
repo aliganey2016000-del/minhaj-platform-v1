@@ -96,7 +96,7 @@ const levelColors: Record<string, string> = {
 };
 
 const itemTypeIcons: Record<string, string> = {
-  lesson: '📖', quiz: '❓', assignment: '📋',
+  lesson: '📖', quiz: '❓', assignment: '📋', exam: '🎓',
 };
 
 function extractVideoEmbed(url: string): { type: 'youtube' | 'vimeo' | 'direct' | null; id: string } {
@@ -810,9 +810,22 @@ export function StudentCourseLearn() {
                   />
                 )}
                 {currentItem.item.type === 'assignment' && <AssignmentView assignment={currentItem.item as AssignmentItem} />}
+                {currentItem.item.type === 'exam' && (
+                  <div className="rounded-2xl border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/20 p-6 text-center">
+                    <p className="text-3xl mb-2">🎓</p>
+                    <p className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">{currentItem.item.title}</p>
+                    {(currentItem.item as any).examDate && (
+                      <p className="text-xs text-[var(--color-text-tertiary)] mb-3">
+                        Scheduled for {new Date((currentItem.item as any).examDate).toLocaleDateString()}
+                      </p>
+                    )}
+                    <p className="text-xs text-[var(--color-text-tertiary)]">Go to the Exams page to see the time, room, and your results for this exam.</p>
+                  </div>
+                )}
 
-                {/* ── Mark as Completed Button (hidden during live quiz, or while an Interactive Gate lesson is still locked) ── */}
+                {/* ── Mark as Completed Button (hidden during live quiz, hidden entirely for exams — completion there comes from actual attendance/results, not a checkbox — or while an Interactive Gate lesson is still locked) ── */}
                 {(() => {
+                  if (currentItem.item.type === 'exam') return null;
                   const isGateLesson = currentItem.item.type === 'lesson' && (currentItem.item as LessonItem).deliveryMode === 'interactive_gate';
                   const isGateLocked = isGateLesson && !isCurrentItemCompleted && !gateCleared.has(activeItemIdx);
                   if (currentItem.item.type === 'quiz' && !quizFinished) return null;

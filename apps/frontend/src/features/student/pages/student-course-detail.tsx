@@ -49,7 +49,7 @@ interface CourseContent {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const itemTypeIcons: Record<string, string> = { lesson: '📖', quiz: '❓', assignment: '📋' };
+const itemTypeIcons: Record<string, string> = { lesson: '📖', quiz: '❓', assignment: '📋', exam: '🎓' };
 const catLabels: Record<string, string> = {
   quran: 'Quran', fiqh: 'Fiqh', aqeedah: 'Aqeedah', seerah: 'Seerah',
   arabic: 'Arabic', tajweed: 'Tajweed', hadith: 'Hadith', akhlaq: 'Akhlaq',

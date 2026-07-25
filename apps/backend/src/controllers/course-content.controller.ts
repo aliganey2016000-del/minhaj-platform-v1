@@ -201,6 +201,7 @@ export const getByCourse = async (req: Request, res: Response): Promise<Response
       totalLessons: 0,
       totalQuizzes: 0,
       totalAssignments: 0,
+      totalExams: 0,
       lastSaved: new Date(),
     } as any;
   }
