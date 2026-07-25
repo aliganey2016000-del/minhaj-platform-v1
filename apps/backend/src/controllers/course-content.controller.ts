@@ -9,7 +9,14 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
-import { marked } from 'marked';
+// `marked` ships ESM-only from v5+, which breaks a static `require()` once
+// this file is compiled to CommonJS for production. Load it dynamically
+// instead — `import()` works from CJS regardless of the target's module type.
+let markedModulePromise: Promise<typeof import('marked')> | null = null;
+function getMarked(): Promise<typeof import('marked')> {
+  if (!markedModulePromise) markedModulePromise = import('marked');
+  return markedModulePromise;
+}
 import CourseContent from '../models/course-content.model';
 import Course from '../models/course.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
@@ -402,6 +409,7 @@ export const importContent = async (req: Request, res: Response): Promise<Respon
 
   const errors: { row: number; message: string }[] = [];
   const groups = new Map<string, { title: string; lessons: { title: string; content: string; duration: number; videoUrl: string; featuredImage: string }[] }>();
+  const { marked } = await getMarked();
 
   for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 2; // +1 for 0-index, +1 for the header row already stripped by sheet_to_json
