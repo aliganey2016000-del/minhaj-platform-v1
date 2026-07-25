@@ -7,7 +7,14 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'autoUpdate' silently reloads the page the instant a new service
+      // worker activates — with 'auto' injection, vite-plugin-pwa reloads
+      // as soon as the update is detected, with no warning. Deploying a new
+      // build while someone has the app open (e.g. mid-edit in the Course
+      // Builder) would blow away unsaved work. 'prompt' + the update banner
+      // below (registered in main.tsx) lets the user choose when to reload.
+      registerType: 'prompt',
+      injectRegister: false,
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
