@@ -37,6 +37,27 @@ api.interceptors.request.use((config) => {
 // retry/redirect flow below (there is no session to refresh yet).
 const AUTH_ENDPOINTS_EXEMPT_FROM_REFRESH = ['/auth/login', '/auth/register', '/auth/refresh-token'];
 
+// When several requests 401 around the same moment (e.g. autosave + a
+// status poll firing together right as the access token expires), they
+// used to each launch their own /auth/refresh-token call. Concurrent
+// refresh calls raced on the backend and could fail, which this interceptor
+// treated as "session expired" and force-redirected to /auth/login —
+// interrupting whatever the user was doing. Sharing one in-flight refresh
+// promise across all of them means only one refresh call ever goes out.
+let refreshPromise: Promise<string | null> | null = null;
+
+function refreshAccessToken(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = axios
+      .post(`/api/v1/auth/refresh-token`, {}, { withCredentials: true })
+      .then(({ data }) => data.data?.accessToken || null)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
 // Response interceptor — handle 401, refresh token
 api.interceptors.response.use(
   (response) => response,
@@ -51,14 +72,7 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-      const { data } = await axios.post(
-          `/api/v1/auth/refresh-token`,
-          {},
-          { withCredentials: true }
-        );
-
-        // Store new access token
-        const newToken = data.data?.accessToken;
+        const newToken = await refreshAccessToken();
         if (newToken) {
           localStorage.setItem('accessToken', newToken);
           originalRequest.headers.Authorization = `Bearer ${newToken}`;

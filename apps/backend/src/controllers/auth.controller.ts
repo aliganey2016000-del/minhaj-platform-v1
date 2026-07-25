@@ -444,10 +444,6 @@ export const refreshToken = async (req: Request, res: Response): Promise<Respons
   }
 
   // 6. Remove old token, generate new pair (token rotation)
-  user.refreshTokens = user.refreshTokens.filter(
-    (t) => t !== hashedOldToken
-  );
-
   const effectiveOrg = await resolveEffectiveOrganization(user);
 
   const newTokenPair = generateTokenPair(
@@ -461,8 +457,25 @@ export const refreshToken = async (req: Request, res: Response): Promise<Respons
   );
 
   const hashedNewToken = User.hashToken(newTokenPair.refreshToken);
-  user.refreshTokens.push(hashedNewToken);
-  await user.save({ validateBeforeSave: false });
+
+  // Atomic $pull + $push instead of load-mutate-save — concurrent refresh
+  // requests (several API calls hitting a 401 at once and each retrying)
+  // used to race on the same in-memory document version and throw a
+  // Mongoose VersionError, which the frontend treated as "session expired"
+  // and force-redirected to /auth/login mid-edit. An atomic update has no
+  // version to race on.
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $pull: { refreshTokens: hashedOldToken },
+    }
+  );
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $push: { refreshTokens: hashedNewToken },
+    }
+  );
 
   // 7. Set new refresh token cookie
   res.cookie('refreshToken', newTokenPair.refreshToken, {
