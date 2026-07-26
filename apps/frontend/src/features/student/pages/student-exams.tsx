@@ -118,6 +118,42 @@ function computeState(e: Exam): ExamState {
   return submitted ? 'completed' : 'missed';
 }
 
+/** Start timestamp for an upcoming exam, whichever scheduling mode it uses — null if not yet known (e.g. auto-scheduled but prerequisites not met). */
+function getUpcomingStart(e: Exam): number | null {
+  if (e.autoSchedule) return e.myScheduledStart ? new Date(e.myScheduledStart).getTime() : null;
+  if (!e.examDate || !e.startTime) return null;
+  return new Date(`${e.examDate.split('T')[0]}T${e.startTime}`).getTime();
+}
+
+function formatCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return days > 0 ? `${days}d ${pad(hours)}:${pad(minutes)}:${pad(seconds)}` : `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
+/** Ticks every second so an upcoming exam's remaining time counts down live, without the whole card list needing to re-render. */
+function Countdown({ target, lang }: { target: number; lang: 'en' | 'so' | 'ar' }) {
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const remaining = target - Date.now();
+  const label = lang === 'so' ? 'Waqtiga ka haray' : lang === 'ar' ? 'الوقت المتبقي' : 'Time remaining';
+  return (
+    <div className="flex items-center justify-between rounded-lg bg-[var(--color-surface-tertiary)] px-3 py-2">
+      <span className="text-[11px] font-medium text-[var(--color-text-tertiary)]">⏱️ {label}</span>
+      <span className="text-xs font-mono font-bold text-[var(--color-text-primary)] tabular-nums">
+        {remaining > 0 ? formatCountdown(remaining) : (lang === 'so' ? 'Hadda ayuu furmayaa…' : lang === 'ar' ? 'يفتح الآن…' : 'Opening now…')}
+      </span>
+    </div>
+  );
+}
+
 // Same deterministic gradient set + hash as the admin Papers & Approval
 // cards, so a course without a thumbnail still looks intentional and
 // matches identically wherever it's shown.
@@ -164,6 +200,15 @@ export function StudentExams() {
   const [retakeReason, setRetakeReason] = useState('');
   const [retakeSubmitting, setRetakeSubmitting] = useState(false);
   const [retakeError, setRetakeError] = useState('');
+
+  // computeState() reads Date.now() internally — this tick just forces a
+  // periodic re-render so an exam whose countdown hits zero actually flips
+  // from Upcoming to Active on screen, not only once the page is reloaded.
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((t) => t + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   const fetchExams = async () => {
     try {
@@ -372,6 +417,10 @@ export function StudentExams() {
                         ? `سيفتح هذا الامتحان لك في ${new Date(e.myScheduledStart).toLocaleString()}.`
                         : `This exam opens for you on ${new Date(e.myScheduledStart).toLocaleString()}.`}
                     </p>
+                  )}
+
+                  {state === 'upcoming' && (!e.autoSchedule || e.myMetPrerequisites) && getUpcomingStart(e) !== null && (
+                    <Countdown target={getUpcomingStart(e)!} lang={lang} />
                   )}
 
                   {state === 'active' && (
