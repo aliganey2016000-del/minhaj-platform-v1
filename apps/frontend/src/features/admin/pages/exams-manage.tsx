@@ -512,6 +512,7 @@ export function ExamsManage() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [scheduleFilter, setScheduleFilter] = useState<'all' | 'manual' | 'auto'>('all');
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
   const [viewingExam, setViewingExam] = useState<Exam | undefined>(undefined);
@@ -558,6 +559,14 @@ export function ExamsManage() {
   const ongoingCount = exams.filter((e) => e.status === 'ongoing').length;
   const completedCount = exams.filter((e) => e.status === 'completed').length;
   const cancelledCount = exams.filter((e) => e.status === 'cancelled').length;
+
+  const manualCount = exams.filter((e) => !e.autoSchedule).length;
+  const autoCount = exams.filter((e) => e.autoSchedule).length;
+  const visibleExams = exams.filter((e) => {
+    if (scheduleFilter === 'manual') return !e.autoSchedule;
+    if (scheduleFilter === 'auto') return !!e.autoSchedule;
+    return true;
+  });
 
   if (loading) {
     return (
@@ -621,6 +630,26 @@ export function ExamsManage() {
           </select>
         </div>
 
+        {/* Manual vs Automatic scheduling */}
+        <div className="inline-flex rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 w-full sm:w-auto">
+          {([
+            { key: 'all', label: 'All', count: exams.length },
+            { key: 'manual', label: '📅 Manual', count: manualCount },
+            { key: 'auto', label: '🤖 Automatic', count: autoCount },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setScheduleFilter(t.key)}
+              className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap ${
+                scheduleFilter === t.key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
+              }`}
+            >
+              {t.label}
+              <span className={`rounded-full px-1.5 text-[10px] ${scheduleFilter === t.key ? 'bg-white/20' : 'bg-[var(--color-surface-tertiary)]'}`}>{t.count}</span>
+            </button>
+          ))}
+        </div>
+
         {error && (
           <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center">
             <p className="text-red-600 text-sm mb-2">{error}</p>
@@ -644,13 +673,13 @@ export function ExamsManage() {
                 </tr>
               </thead>
               <tbody>
-                {exams.length === 0 ? (
+                {visibleExams.length === 0 ? (
                   <tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]">
                     <p className="text-lg mb-1">📝 No exams found</p>
                     <p className="text-sm">Click "+ Schedule Exam" to create one.</p>
                   </td></tr>
                 ) : (
-                  exams.map((exam) => (
+                  visibleExams.map((exam) => (
                     <tr key={exam._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingExam(exam)}>
                       <td className="px-5 py-4">
                         <p className="font-semibold">{exam.title}</p>
