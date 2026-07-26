@@ -12,7 +12,7 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
 import { sanitizeQuestionForStudent, gradeQuestionSet, questionFraction } from '../utils/question-engine';
-import { isEligibleForAutoScheduledExam } from '../utils/exam-eligibility';
+import { getAutoScheduleWindow, isWindowActive, isWindowPast } from '../utils/exam-eligibility';
 
 /** Strips correct-answer fields (and shuffles options/choices/etc.) so students never receive them — same engine as course quizzes. */
 function sanitizeQuestion(q: IPaperQuestion) {
@@ -38,9 +38,8 @@ function isWithinExamWindow(exam: { examDate?: Date; startTime?: string; endTime
   return now >= start && now <= end;
 }
 
-/** Whether the exam's window has fully finished — the earliest point review/results can be shown. Auto-scheduled exams have no calendar window, so review is available as soon as there's something to review (a submitted attempt, or — for a missed review — never, since "missed" isn't meaningful without a deadline). */
-function isPastExamWindow(exam: { examDate?: Date; endTime?: string; autoSchedule?: boolean }): boolean {
-  if (exam.autoSchedule) return true;
+/** Whether a fixed-schedule exam's window has fully finished — the earliest point review/results can be shown for it. Auto-scheduled exams use their own per-student window (see getAutoScheduleWindow) instead. */
+function isPastExamWindow(exam: { examDate?: Date; endTime?: string }): boolean {
   if (!exam.examDate || !exam.endTime) return false;
   const datePart = new Date(exam.examDate).toISOString().split('T')[0];
   const end = new Date(`${datePart}T${exam.endTime}`);
@@ -85,20 +84,21 @@ export const getReview = async (req: Request, res: Response): Promise<Response> 
 
   const exam = await Exam.findById(req.params.id).lean();
   if (!exam) throw new NotFoundError('Exam');
-  if (!isPastExamWindow(exam as any)) throw new BadRequestError('This exam has not finished yet.');
 
   const isEnrolled = (student.enrolledCourses || []).some((id: any) => id.toString() === exam.course.toString());
   if (!isEnrolled) throw new ForbiddenError('You are not enrolled in this exam\'s course.');
+
+  if (exam.autoSchedule) {
+    const win = await getAutoScheduleWindow(exam as any, student._id);
+    if (!isWindowPast(win)) throw new BadRequestError('This exam has not finished yet.');
+  } else if (!isPastExamWindow(exam as any)) {
+    throw new BadRequestError('This exam has not finished yet.');
+  }
 
   const paper = await ExamPaper.findOne({ exam: exam._id, status: 'approved' }).lean();
   if (!paper) throw new NotFoundError('Exam paper');
 
   const attempt = await ExamAttempt.findOne({ exam: exam._id, student: student._id }).lean();
-  // Auto-scheduled exams have no calendar deadline, so "missed" (a deadline
-  // that passed with nothing submitted) isn't a meaningful state — a
-  // student who simply hasn't reached this exam yet has no attempt to
-  // review, full stop, rather than a false "you missed it".
-  if (!attempt && exam.autoSchedule) throw new BadRequestError('You have not taken this exam yet.');
 
   const answerByQuestion: Record<string, unknown> = {};
   if (attempt) {
@@ -150,10 +150,10 @@ export const getActiveExams = async (req: Request, res: Response): Promise<Respo
   const allExams = await Exam.find({ course: { $in: courseIds }, status: { $ne: 'cancelled' } })
     .populate('course', 'title.en slug category')
     .lean();
-  const eligibility = await Promise.all(
-    allExams.map((e: any) => (e.autoSchedule ? isEligibleForAutoScheduledExam(e, student._id) : Promise.resolve(isWithinExamWindow(e))))
+  const openNow = await Promise.all(
+    allExams.map(async (e: any) => (e.autoSchedule ? isWindowActive(await getAutoScheduleWindow(e, student._id)) : isWithinExamWindow(e)))
   );
-  const exams = allExams.filter((_: any, i: number) => eligibility[i]);
+  const exams = allExams.filter((_: any, i: number) => openNow[i]);
 
   const examIds = exams.map((e: any) => e._id);
   const [papers, attempts] = await Promise.all([
@@ -188,13 +188,22 @@ export const start = async (req: Request, res: Response): Promise<Response> => {
   const isEnrolled = (student.enrolledCourses || []).some((id: any) => id.toString() === exam.course.toString());
   if (!isEnrolled) throw new ForbiddenError('You are not enrolled in this exam\'s course.');
 
-  const eligible = exam.autoSchedule ? await isEligibleForAutoScheduledExam(exam, student._id) : isWithinExamWindow(exam);
-  if (!eligible) {
-    throw new BadRequestError(
-      exam.autoSchedule
-        ? 'Complete the required lessons for this course before starting this exam.'
-        : 'This exam is not currently live.'
-    );
+  let open: boolean;
+  if (exam.autoSchedule) {
+    const win = await getAutoScheduleWindow(exam, student._id);
+    open = isWindowActive(win);
+    if (!open) {
+      throw new BadRequestError(
+        !win.metPrerequisites
+          ? 'Complete the required lessons for this course before this exam opens.'
+          : win.scheduledStart && Date.now() < win.scheduledStart.getTime()
+          ? `This exam opens for you on ${win.scheduledStart.toLocaleString()}.`
+          : 'The window for this exam has closed.'
+      );
+    }
+  } else {
+    open = isWithinExamWindow(exam);
+    if (!open) throw new BadRequestError('This exam is not currently live.');
   }
 
   // .lean() matters here — sanitizeQuestionForStudent spreads each question

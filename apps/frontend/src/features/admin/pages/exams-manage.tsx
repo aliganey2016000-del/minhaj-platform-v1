@@ -38,6 +38,8 @@ interface Exam {
   status: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
   autoSchedule?: boolean;
   milestone?: 'mid' | 'final' | null;
+  autoScheduleDelayDays?: number;
+  autoScheduleWindowDays?: number;
   createdBy?: { _id: string; email: string };
   createdAt: string;
 }
@@ -56,6 +58,8 @@ interface ExamForm {
   status: string;
   autoSchedule: boolean;
   milestone: 'mid' | 'final' | '';
+  autoScheduleDelayDays: number;
+  autoScheduleWindowDays: number;
 }
 
 const emptyForm: ExamForm = {
@@ -72,6 +76,8 @@ const emptyForm: ExamForm = {
   status: 'scheduled',
   autoSchedule: false,
   milestone: '',
+  autoScheduleDelayDays: 1,
+  autoScheduleWindowDays: 2,
 };
 
 // ---------------------------------------------------------------------------
@@ -126,6 +132,8 @@ function ExamModal({
           status: exam.status,
           autoSchedule: !!exam.autoSchedule,
           milestone: exam.milestone || '',
+          autoScheduleDelayDays: exam.autoScheduleDelayDays ?? 1,
+          autoScheduleWindowDays: exam.autoScheduleWindowDays ?? 2,
         }
       : emptyForm
   );
@@ -245,7 +253,11 @@ function ExamModal({
         // entirely rather than send empty strings, which would fail the
         // schema's HH:MM format validation.
         ...(form.autoSchedule
-          ? { milestone: form.milestone || null }
+          ? {
+              milestone: form.milestone || null,
+              autoScheduleDelayDays: Number(form.autoScheduleDelayDays),
+              autoScheduleWindowDays: Number(form.autoScheduleWindowDays),
+            }
           : { examDate: form.examDate, startTime: form.startTime, endTime: form.endTime }),
         duration: Number(form.duration),
         totalMarks: Number(form.totalMarks),
@@ -378,6 +390,16 @@ function ExamModal({
                 <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Duration (min) *</label>
                 <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="number" min={1} value={form.duration} onChange={(e) => handleChange('duration', Number(e.target.value))} required />
               </div>
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Opens After (days)</label>
+                <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="number" min={0} value={form.autoScheduleDelayDays} onChange={(e) => handleChange('autoScheduleDelayDays', Number(e.target.value))} required />
+                <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Days after a student finishes the required lessons before their exam becomes active.</p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Window Stays Open (days)</label>
+                <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="number" min={1} value={form.autoScheduleWindowDays} onChange={(e) => handleChange('autoScheduleWindowDays', Number(e.target.value))} required />
+                <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">How many days the student has to take it once it opens, before it's marked missed.</p>
+              </div>
             </div>
           ) : (
             <>
@@ -471,7 +493,10 @@ function ViewModal({ exam, onClose }: { exam: Exam; onClose: () => void }) {
 
           <DetailRow label="Status" value={<StatusBadge status={exam.status} />} />
           {exam.autoSchedule ? (
-            <DetailRow label="Scheduling" value={`🤖 Automatic — unlocks after ${exam.milestone === 'mid' ? 'tagged modules' : 'the whole course'}`} />
+            <>
+              <DetailRow label="Scheduling" value={`🤖 Automatic — unlocks after ${exam.milestone === 'mid' ? 'tagged modules' : 'the whole course'}`} />
+              <DetailRow label="Personal Window" value={`Opens ${exam.autoScheduleDelayDays ?? 1} day(s) after eligible, stays open ${exam.autoScheduleWindowDays ?? 2} day(s)`} />
+            </>
           ) : (
             <>
               <DetailRow label="Date" value={exam.examDate ? new Date(exam.examDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '—'} />

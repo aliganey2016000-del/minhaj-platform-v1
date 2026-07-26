@@ -506,20 +506,14 @@ export function StudentCourseLearn() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setExamReadyModal(null)}>
           <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl text-center" onClick={(e) => e.stopPropagation()}>
             <p className="text-4xl mb-2">🎉</p>
-            <h3 className="text-lg font-bold text-[var(--color-text-primary)] mb-1">{examReadyModal.title} is Ready!</h3>
-            <p className="text-sm text-[var(--color-text-tertiary)] mb-5">You've completed the required lessons — this exam is now open for you.</p>
+            <h3 className="text-lg font-bold text-[var(--color-text-primary)] mb-1">{examReadyModal.title} is Scheduled!</h3>
+            <p className="text-sm text-[var(--color-text-tertiary)] mb-5">You've completed the required lessons — a personal exam date has been set for you. Check your schedule for the exact date and time.</p>
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => navigate('/student/exams')}
                 className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-primary-700 transition-colors"
               >
                 📅 Go to My Exam Schedule
-              </button>
-              <button
-                onClick={() => setExamReadyModal(null)}
-                className="w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
-              >
-                Continue Learning
               </button>
             </div>
           </div>

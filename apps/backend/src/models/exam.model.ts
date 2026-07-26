@@ -18,11 +18,17 @@ export interface IExam extends Document {
   status: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
   resultsPublished: boolean;
   // Per-student, progress-driven scheduling instead of a fixed calendar
-  // window: unlocks for a student once they've completed every chapter
-  // tagged with this exam's milestone (see course-content.model.ts
-  // IChapter.examMilestone).
+  // window: each student gets their own personal exam window, computed from
+  // the moment THEY finish every chapter tagged with this exam's milestone
+  // (see course-content.model.ts IChapter.examMilestone) —
+  // ExamEligibility.eligibleAt for that student + these two admin-set
+  // offsets:
   autoSchedule: boolean;
   milestone?: 'mid' | 'final' | null;
+  /** Days after a student becomes eligible before their personal window opens (0 = opens immediately). */
+  autoScheduleDelayDays: number;
+  /** How many days a student's personal window stays open once it starts, before it counts as missed. */
+  autoScheduleWindowDays: number;
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -47,6 +53,8 @@ const examSchema = new Schema<IExam>(
     resultsPublished: { type: Boolean, default: false },
     autoSchedule: { type: Boolean, default: false },
     milestone: { type: String, enum: ['mid', 'final', null], default: null },
+    autoScheduleDelayDays: { type: Number, default: 0, min: 0 },
+    autoScheduleWindowDays: { type: Number, default: 2, min: 1 },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }

@@ -3,7 +3,7 @@ import Exam from '../models/exam.model';
 import Course from '../models/course.model';
 import ExamPaper from '../models/exam-paper.model';
 import ExamAttempt from '../models/exam-attempt.model';
-import { isEligibleForAutoScheduledExam } from '../utils/exam-eligibility';
+import { getAutoScheduleWindow } from '../utils/exam-eligibility';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -189,18 +189,23 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
   const attemptStatusByExam: Record<string, string> = {};
   for (const a of attempts) attemptStatusByExam[a.exam.toString()] = a.status;
 
-  // Auto-scheduled exams have no calendar date to show — the frontend
-  // needs to know per-student whether the prerequisite chapters are done
-  // yet (locked) or not (ready to start).
-  const eligibility = await Promise.all(
-    exams.map((e: any) => (e.autoSchedule ? isEligibleForAutoScheduledExam(e, student._id) : Promise.resolve(null)))
+  // Auto-scheduled exams have no shared calendar date — each student gets
+  // their own personal window instead, computed from the moment THEY met
+  // the prerequisites (see exam-eligibility.ts).
+  const windows = await Promise.all(
+    exams.map((e: any) => (e.autoSchedule ? getAutoScheduleWindow(e, student._id) : Promise.resolve(null)))
   );
 
-  const result = exams.map((e: any, i: number) => ({
-    ...e,
-    myAttemptStatus: attemptStatusByExam[e._id.toString()] || null,
-    myEligible: eligibility[i],
-  }));
+  const result = exams.map((e: any, i: number) => {
+    const win = windows[i];
+    return {
+      ...e,
+      myAttemptStatus: attemptStatusByExam[e._id.toString()] || null,
+      myScheduledStart: win?.scheduledStart || null,
+      myScheduledEnd: win?.scheduledEnd || null,
+      myMetPrerequisites: win?.metPrerequisites ?? null,
+    };
+  });
 
   return ApiResponse.success(res, result);
 };

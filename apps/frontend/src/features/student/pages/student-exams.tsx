@@ -34,11 +34,15 @@ interface Exam {
   status: string;
   myAttemptStatus: 'in_progress' | 'submitted' | 'auto_submitted' | null;
   // Progress-based scheduling instead of a fixed calendar window — see
-  // exam-eligibility.ts on the backend. myEligible is only meaningful when
-  // autoSchedule is true (null for fixed-schedule exams).
+  // exam-eligibility.ts on the backend. These are only meaningful when
+  // autoSchedule is true (null for fixed-schedule exams). myScheduledStart/
+  // End are this student's own personal window, computed once from the
+  // moment they became eligible — not a shared class-wide date.
   autoSchedule?: boolean;
   milestone?: 'mid' | 'final' | null;
-  myEligible?: boolean | null;
+  myScheduledStart?: string | null;
+  myScheduledEnd?: string | null;
+  myMetPrerequisites?: boolean | null;
   course?: {
     _id: string;
     title: { en: string; so: string; ar: string };
@@ -80,7 +84,7 @@ const TABS: { key: 'all' | ExamState; icon: string }[] = [
   { key: 'missed', icon: '⚠️' },
 ];
 
-/** Real-time state — computed from now vs. the exam's own start/end, plus this student's attempt. Auto-scheduled exams have no calendar window: they're locked (upcoming) until this student's progress makes them eligible, then active until submitted — never "missed", since there's no deadline to miss. */
+/** Real-time state — computed from now vs. the exam's own start/end, plus this student's attempt. Auto-scheduled exams use this student's own personal window (myScheduledStart/End) instead of a shared calendar date: locked (upcoming) until they finish the prerequisites, then upcoming again until their personal window opens, active during it, and missed once it closes without a submission. */
 function computeState(e: Exam): ExamState {
   if (e.status === 'cancelled') return 'cancelled';
 
@@ -88,7 +92,13 @@ function computeState(e: Exam): ExamState {
 
   if (e.autoSchedule) {
     if (submitted) return 'completed';
-    return e.myEligible ? 'active' : 'upcoming';
+    if (!e.myScheduledStart || !e.myScheduledEnd) return 'upcoming';
+    const start = new Date(e.myScheduledStart).getTime();
+    const end = new Date(e.myScheduledEnd).getTime();
+    const now = Date.now();
+    if (now < start) return 'upcoming';
+    if (now <= end) return 'active';
+    return 'missed';
   }
 
   if (!e.examDate || !e.startTime || !e.endTime) return 'upcoming';
@@ -272,12 +282,28 @@ export function StudentExams() {
 
                   <div className="space-y-1 text-xs pt-1">
                     {e.autoSchedule ? (
-                      <div className="flex justify-between">
-                        <span className="text-[var(--color-text-tertiary)]">{lang === 'so' ? 'Jadwalka' : lang === 'ar' ? 'الجدول' : 'Schedule'}</span>
-                        <span className="font-semibold text-[var(--color-text-primary)]">
-                          🤖 {lang === 'so' ? 'Automatic' : lang === 'ar' ? 'تلقائي' : 'Automatic'}
-                        </span>
-                      </div>
+                      e.myScheduledStart ? (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-[var(--color-text-tertiary)]">{dateLabel}</span>
+                            <span className="font-semibold text-[var(--color-text-primary)]">{new Date(e.myScheduledStart).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[var(--color-text-tertiary)]">{timeLabel}</span>
+                            <span className="font-semibold text-[var(--color-text-primary)]">
+                              {new Date(e.myScheduledStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {e.myScheduledEnd ? ` – ${new Date(e.myScheduledEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex justify-between">
+                          <span className="text-[var(--color-text-tertiary)]">{lang === 'so' ? 'Jadwalka' : lang === 'ar' ? 'الجدول' : 'Schedule'}</span>
+                          <span className="font-semibold text-[var(--color-text-primary)]">
+                            🤖 {lang === 'so' ? 'Automatic' : lang === 'ar' ? 'تلقائي' : 'Automatic'}
+                          </span>
+                        </div>
+                      )
                     ) : (
                       <>
                         <div className="flex justify-between">
@@ -298,11 +324,21 @@ export function StudentExams() {
                     )}
                   </div>
 
-                  {e.autoSchedule && state === 'upcoming' && (
+                  {e.autoSchedule && state === 'upcoming' && !e.myMetPrerequisites && (
                     <p className="rounded-lg bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-[11px] font-medium text-amber-700 dark:text-amber-400">
                       🔒 {lang === 'so'
                         ? (e.milestone === 'mid' ? 'Dhammaystir cashiradii ka horeeyay si loo furo imtixaankan.' : 'Dhammaystir koorsada oo dhan si loo furo imtixaankan.')
                         : (e.milestone === 'mid' ? 'Complete the required lessons to unlock this exam.' : 'Complete the whole course to unlock this exam.')}
+                    </p>
+                  )}
+
+                  {e.autoSchedule && state === 'upcoming' && e.myMetPrerequisites && e.myScheduledStart && (
+                    <p className="rounded-lg bg-blue-50 dark:bg-blue-950/30 px-3 py-2 text-[11px] font-medium text-blue-700 dark:text-blue-400">
+                      📅 {lang === 'so'
+                        ? `Imtixaankan wuxuu kuu furmayaa ${new Date(e.myScheduledStart).toLocaleString()}.`
+                        : lang === 'ar'
+                        ? `سيفتح هذا الامتحان لك في ${new Date(e.myScheduledStart).toLocaleString()}.`
+                        : `This exam opens for you on ${new Date(e.myScheduledStart).toLocaleString()}.`}
                     </p>
                   )}
 
