@@ -13,11 +13,12 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
-import type { QuizQuestion, QuestionType } from '../pages/course-builder.types';
+import type { Chapter, QuizQuestion, QuestionType } from '../pages/course-builder.types';
 import { normalizeQuestion } from '../pages/course-builder.types';
 import { QUESTION_TYPE_META } from '../pages/quiz-question-meta';
 import { QuestionEditor } from '../pages/components/quiz-question-editor';
 import { QuestionTypeMenu } from '../pages/components/quiz-question-type-menu';
+import { AiQuizGeneratorModal } from '../pages/components/ai-quiz-generator-modal';
 import { groupQuestionsByType, QuestionGroupHeader, createQuestion, isQuestionValid } from '../pages/components/builder-quiz-editor';
 
 export interface ExamPaper {
@@ -46,14 +47,17 @@ interface ExamPaperEditorProps {
   examId: string;
   /** Fires whenever the paper is loaded or changes (saved/submitted), so a parent (Papers & Approval) can render admin-only review actions from the same data without a second fetch. */
   onChange?: (paper: ExamPaper | null) => void;
+  /** The course's chapters, so the AI Exam Generator's "from course content" option can offer a lesson picker — same as the AI Quiz Generator. Omit when not available (e.g. Papers & Approval doesn't load course content); the generator still works from a custom topic. */
+  chapters?: Chapter[];
 }
 
-export function ExamPaperEditor({ examId, onChange }: ExamPaperEditorProps) {
+export function ExamPaperEditor({ examId, onChange, chapters = [] }: ExamPaperEditorProps) {
   const [paper, setPaper] = useState<ExamPaper | null>(null);
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
   const [invalidIds, setInvalidIds] = useState<Set<string>>(new Set());
   const [validationError, setValidationError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -87,6 +91,12 @@ export function ExamPaperEditor({ examId, onChange }: ExamPaperEditorProps) {
   const addQuestion = (type: QuestionType) => {
     setQuestions((prev) => [...prev, createQuestion(type)]);
     setTypeMenuOpen(false);
+    setValidationError('');
+    setInvalidIds(new Set());
+  };
+
+  const addGeneratedQuestions = (generated: QuizQuestion[]) => {
+    setQuestions((prev) => [...prev, ...generated]);
     setValidationError('');
     setInvalidIds(new Set());
   };
@@ -214,13 +224,22 @@ export function ExamPaperEditor({ examId, onChange }: ExamPaperEditorProps) {
         <div>
           <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
             <span className="text-xs font-semibold text-[var(--color-text-secondary)]">Questions ({questions.length})</span>
-            <button
-              type="button"
-              onClick={() => setTypeMenuOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary-600 to-primary-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-primary-700 hover:to-primary-600 transition-all"
-            >
-              <span>🎮</span> Add Question
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAiModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-violet-700 hover:to-indigo-700 transition-all"
+              >
+                <span>✨</span> AI Exam Generator
+              </button>
+              <button
+                type="button"
+                onClick={() => setTypeMenuOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary-600 to-primary-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-primary-700 hover:to-primary-600 transition-all"
+              >
+                <span>🎮</span> Add Question
+              </button>
+            </div>
           </div>
 
           {validationError && (
@@ -256,6 +275,12 @@ export function ExamPaperEditor({ examId, onChange }: ExamPaperEditorProps) {
           </div>
 
           <QuestionTypeMenu isOpen={typeMenuOpen} onClose={() => setTypeMenuOpen(false)} onSelect={addQuestion} />
+          <AiQuizGeneratorModal
+            isOpen={aiModalOpen}
+            onClose={() => setAiModalOpen(false)}
+            chapters={chapters}
+            onGenerated={addGeneratedQuestions}
+          />
         </div>
 
         <div className="flex gap-2 pt-2">

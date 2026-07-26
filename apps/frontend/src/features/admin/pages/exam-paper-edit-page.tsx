@@ -86,10 +86,7 @@ export function ExamPaperEditPage() {
 
       {/* Editor — 100% of the workspace, no curriculum tree alongside it */}
       <div className="mx-auto max-w-3xl px-4 py-6 space-y-4">
-        <p className="text-xs text-[var(--color-text-tertiary)]">
-          Add questions here — the same types as a course quiz. When you're ready, "Submit for Review" sends it to Papers &amp; Approval for admin moderation before it can be used.
-        </p>
-        <ExamPaperEditor examId={examItem.examId} />
+        <ExamPaperEditor examId={examItem.examId} chapters={content?.chapters || []} />
       </div>
     </div>
   );
