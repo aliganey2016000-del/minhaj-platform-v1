@@ -104,12 +104,21 @@ function placeholderGradient(seed: string): string {
 }
 
 function ExamThumbnail({ e }: { e: ExamBrief }) {
-  if (e.course?.thumbnail) {
-    return <img src={e.course.thumbnail} alt="" className="h-28 w-full object-cover" />;
-  }
   return (
-    <div className={`h-28 w-full bg-gradient-to-br ${placeholderGradient(e.course?._id || e._id)} flex items-center justify-center text-3xl`}>
-      🎓
+    <div className="relative aspect-[16/9] w-full overflow-hidden">
+      {e.course?.thumbnail ? (
+        <img src={e.course.thumbnail} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <div className={`h-full w-full bg-gradient-to-br ${placeholderGradient(e.course?._id || e._id)} flex items-center justify-center text-6xl`}>
+          🎓
+        </div>
+      )}
+      {/* Bottom gradient so the status badge and title always read clearly over any photo */}
+      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent" />
+      <div className="absolute top-3 end-3">
+        <PaperStatusBadge status={e.paperStatus} />
+      </div>
+      <p className="absolute bottom-2.5 start-3.5 end-3.5 text-sm font-bold text-white truncate drop-shadow">{e.title}</p>
     </div>
   );
 }
@@ -271,10 +280,6 @@ export function ExamPapersManage() {
                   >
                     <ExamThumbnail e={e} />
                     <div className="p-4 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-bold text-[var(--color-text-primary)] truncate">{e.title}</p>
-                        <PaperStatusBadge status={e.paperStatus} />
-                      </div>
                       <p className="text-xs text-[var(--color-text-secondary)] truncate">📘 {e.course?.title?.en || '—'}</p>
                       <p className="text-xs text-[var(--color-text-tertiary)] truncate">🧑‍🏫 {teacherName(e)}</p>
                       <p className="text-xs text-[var(--color-text-tertiary)] truncate">🏫 {orgName(e)} · {departmentName(e)} · {className(e)}</p>
