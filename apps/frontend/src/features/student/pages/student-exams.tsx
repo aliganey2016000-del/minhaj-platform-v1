@@ -43,6 +43,12 @@ interface Exam {
   myScheduledStart?: string | null;
   myScheduledEnd?: string | null;
   myMetPrerequisites?: boolean | null;
+  // Latest retake request this student filed for this exam, if any — see
+  // ExamAppeal (type: 'retake_request'). 'approved' resets and reopens the
+  // window server-side, so it doesn't itself block filing a new request if
+  // the student misses that reopened window too; only 'pending'/
+  // 'under_review' does.
+  myRetakeRequestStatus?: 'pending' | 'under_review' | 'approved' | 'rejected' | null;
   course?: {
     _id: string;
     title: { en: string; so: string; ar: string };
@@ -154,18 +160,44 @@ export function StudentExams() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'all' | ExamState>('all');
+  const [retakeModal, setRetakeModal] = useState<Exam | null>(null);
+  const [retakeReason, setRetakeReason] = useState('');
+  const [retakeSubmitting, setRetakeSubmitting] = useState(false);
+  const [retakeError, setRetakeError] = useState('');
+
+  const fetchExams = async () => {
+    try {
+      const { data } = await api.get('/exams/my');
+      setExams(data.data || []);
+    } catch (err: any) {
+      setError(err.response?.data?.message || t('error_occurred'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitRetakeRequest = async () => {
+    if (!retakeModal) return;
+    setRetakeSubmitting(true);
+    setRetakeError('');
+    try {
+      await api.post(`/exams/${retakeModal._id}/appeals`, {
+        type: 'retake_request',
+        description: retakeReason.trim() || 'Requesting a retake for this exam.',
+      });
+      setRetakeModal(null);
+      setRetakeReason('');
+      await fetchExams();
+    } catch (err: any) {
+      setRetakeError(err.response?.data?.message || 'Failed to submit retake request');
+    } finally {
+      setRetakeSubmitting(false);
+    }
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await api.get('/exams/my');
-        setExams(data.data || []);
-      } catch (err: any) {
-        setError(err.response?.data?.message || t('error_occurred'));
-      } finally {
-        setLoading(false);
-      }
-    })();
+    fetchExams();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t]);
 
   const withState = exams.map((e) => ({ exam: e, state: computeState(e) }));
@@ -357,6 +389,25 @@ export function StudentExams() {
                     </p>
                   )}
 
+                  {state === 'missed' && e.autoSchedule && (
+                    e.myRetakeRequestStatus === 'pending' || e.myRetakeRequestStatus === 'under_review' ? (
+                      <p className="rounded-lg bg-blue-50 dark:bg-blue-950/30 px-3 py-2 text-[11px] font-medium text-blue-700 dark:text-blue-400">
+                        ⏳ {lang === 'so' ? 'Codsigaaga wuxuu sugayaa ansixinta maamulka.' : lang === 'ar' ? 'طلبك بانتظار موافقة الإدارة.' : 'Your retake request is awaiting admin approval.'}
+                      </p>
+                    ) : e.myRetakeRequestStatus === 'rejected' ? (
+                      <p className="rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2 text-[11px] font-medium text-red-700 dark:text-red-400">
+                        🚫 {lang === 'so' ? 'Lagu ma ogola inaad dib ugu laabato imtixaankan — la xiriir maamulka.' : lang === 'ar' ? 'غير مسموح لك بإعادة هذا الامتحان — يرجى التواصل مع الإدارة.' : 'You are not allowed to retake this exam — contact administration.'}
+                      </p>
+                    ) : (
+                      <button
+                        onClick={() => { setRetakeModal(e); setRetakeReason(''); setRetakeError(''); }}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-primary-300 dark:border-primary-800 bg-primary-50 dark:bg-primary-950/30 px-4 py-2.5 text-sm font-semibold text-primary-700 dark:text-primary-300 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors"
+                      >
+                        🔁 {lang === 'so' ? 'Codso Dib U Imtixaan' : lang === 'ar' ? 'طلب إعادة الامتحان' : 'Request Retake'}
+                      </button>
+                    )
+                  )}
+
                   {(state === 'completed' || state === 'missed') && (
                     <button
                       onClick={() => navigate(`/student/exams/${e._id}/review`)}
@@ -371,6 +422,44 @@ export function StudentExams() {
           </div>
         )}
       </div>
+
+      {retakeModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => !retakeSubmitting && setRetakeModal(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-[var(--color-text-primary)] mb-1">🔁 {lang === 'so' ? 'Codso Dib U Imtixaan' : lang === 'ar' ? 'طلب إعادة الامتحان' : 'Request Retake'}</h3>
+            <p className="text-sm text-[var(--color-text-tertiary)] mb-4">{retakeModal.title}</p>
+            {retakeError && <p className="text-red-500 text-sm mb-3 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{retakeError}</p>}
+            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">
+              {lang === 'so' ? 'Sababta (ikhtiyaari)' : lang === 'ar' ? 'السبب (اختياري)' : 'Reason (optional)'}
+            </label>
+            <textarea
+              value={retakeReason}
+              onChange={(e) => setRetakeReason(e.target.value)}
+              rows={3}
+              className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm mb-4"
+              placeholder={lang === 'so' ? 'Maxaad u seegtay imtixaanka?' : lang === 'ar' ? 'لماذا فاتك الامتحان؟' : 'Why did you miss the exam?'}
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setRetakeModal(null)}
+                disabled={retakeSubmitting}
+                className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-60"
+              >
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={submitRetakeRequest}
+                disabled={retakeSubmitting}
+                className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors"
+              >
+                {retakeSubmitting ? '...' : (lang === 'so' ? 'Dir Codsiga' : lang === 'ar' ? 'إرسال الطلب' : 'Submit Request')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

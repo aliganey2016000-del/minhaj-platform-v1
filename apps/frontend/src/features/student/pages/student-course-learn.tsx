@@ -857,7 +857,13 @@ export function StudentCourseLearn() {
                         Scheduled for {new Date((currentItem.item as any).examDate).toLocaleDateString()}
                       </p>
                     )}
-                    <p className="text-xs text-[var(--color-text-tertiary)]">Go to the Exams page to see the time, room, and your results for this exam.</p>
+                    <p className="text-xs text-[var(--color-text-tertiary)] mb-4">Go to the Exams page to see the time, room, and your results for this exam.</p>
+                    <button
+                      onClick={() => navigate('/student/exams')}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-primary-700 transition-colors"
+                    >
+                      📅 Go to My Exam Schedule
+                    </button>
                   </div>
                 )}
 

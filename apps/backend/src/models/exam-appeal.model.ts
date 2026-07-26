@@ -10,7 +10,7 @@ export interface IExamAppeal extends Document {
   _id: mongoose.Types.ObjectId;
   exam: mongoose.Types.ObjectId;
   student: mongoose.Types.ObjectId;
-  type: 'grade_review' | 'violation_dispute' | 'other';
+  type: 'grade_review' | 'violation_dispute' | 'retake_request' | 'other';
   description: string;
   status: 'pending' | 'under_review' | 'approved' | 'rejected';
   adminResponse?: string;
@@ -25,7 +25,7 @@ const examAppealSchema = new Schema<IExamAppeal>(
   {
     exam: { type: Schema.Types.ObjectId, ref: 'Exam', required: true, index: true },
     student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
-    type: { type: String, enum: ['grade_review', 'violation_dispute', 'other'], required: true },
+    type: { type: String, enum: ['grade_review', 'violation_dispute', 'retake_request', 'other'], required: true },
     description: { type: String, required: [true, 'Description is required'], maxlength: 2000 },
     status: { type: String, enum: ['pending', 'under_review', 'approved', 'rejected'], default: 'pending', index: true },
     adminResponse: { type: String, default: '' },

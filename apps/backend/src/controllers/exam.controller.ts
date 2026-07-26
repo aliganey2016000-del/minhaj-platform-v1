@@ -3,6 +3,7 @@ import Exam from '../models/exam.model';
 import Course from '../models/course.model';
 import ExamPaper from '../models/exam-paper.model';
 import ExamAttempt from '../models/exam-attempt.model';
+import ExamAppeal from '../models/exam-appeal.model';
 import { getAutoScheduleWindow } from '../utils/exam-eligibility';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
@@ -196,6 +197,22 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
     exams.map((e: any) => (e.autoSchedule ? getAutoScheduleWindow(e, student._id) : Promise.resolve(null)))
   );
 
+  // A student's own retake requests — lets the frontend show "pending
+  // admin approval" or "not allowed, contact administration" instead of
+  // just silently re-showing the Request Retake button. Only the latest
+  // request per exam matters (an approved one already reopened the window
+  // and reset via the ExamAppeal controller, so a stale rejected one from
+  // before that shouldn't keep blocking the student).
+  const retakeRequests = await ExamAppeal.find({ student: student._id, type: 'retake_request' })
+    .select('exam status createdAt')
+    .sort({ createdAt: -1 })
+    .lean();
+  const retakeStatusByExam: Record<string, string> = {};
+  for (const r of retakeRequests) {
+    const key = r.exam.toString();
+    if (!(key in retakeStatusByExam)) retakeStatusByExam[key] = r.status;
+  }
+
   const result = exams.map((e: any, i: number) => {
     const win = windows[i];
     return {
@@ -204,6 +221,7 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
       myScheduledStart: win?.scheduledStart || null,
       myScheduledEnd: win?.scheduledEnd || null,
       myMetPrerequisites: win?.metPrerequisites ?? null,
+      myRetakeRequestStatus: retakeStatusByExam[e._id.toString()] || null,
     };
   });
 

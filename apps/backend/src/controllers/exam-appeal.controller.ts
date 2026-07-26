@@ -8,12 +8,14 @@ import { Request, Response } from 'express';
 import Exam from '../models/exam.model';
 import Course from '../models/course.model';
 import ExamAppeal from '../models/exam-appeal.model';
+import ExamEligibility from '../models/exam-eligibility.model';
+import ExamAttempt from '../models/exam-attempt.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, assertOwnsExamIfTeacher, getOwnTeacherRecord } from '../utils/tenant-scope';
 import ensureStudentRecord from '../utils/ensure-student';
 
-const TYPES = ['grade_review', 'violation_dispute', 'other'];
+const TYPES = ['grade_review', 'violation_dispute', 'retake_request', 'other'];
 
 async function resolveAllowedExamIds(req: Request): Promise<string[] | null> {
   if (req.user?.role === 'admin') return null;
@@ -61,10 +63,19 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const { status, adminResponse } = req.body;
   if (status !== undefined) {
     if (!['pending', 'under_review', 'approved', 'rejected'].includes(status)) throw new BadRequestError('Invalid status');
+    const wasApproved = existing.status === 'approved';
     existing.status = status;
     if (status === 'approved' || status === 'rejected') {
       existing.resolvedBy = req.user!.userId as any;
       existing.resolvedAt = new Date();
+    }
+    // Approving a retake request reopens this student's personal
+    // auto-schedule window: clear their eligibility anchor so the next
+    // check re-stamps eligibleAt as now, and clear any prior attempt so
+    // they aren't blocked from starting a fresh one.
+    if (status === 'approved' && !wasApproved && existing.type === 'retake_request') {
+      await ExamEligibility.deleteOne({ exam: existing.exam, student: existing.student });
+      await ExamAttempt.deleteMany({ exam: existing.exam, student: existing.student });
     }
   }
   if (adminResponse !== undefined) existing.adminResponse = adminResponse;
@@ -90,6 +101,17 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   if (!exam) throw new NotFoundError('Exam');
 
   const student = await ensureStudentRecord(req.user!.userId);
+
+  if (type === 'retake_request') {
+    if (!exam.autoSchedule) throw new BadRequestError('Retake requests are only available for automatically-scheduled exams');
+    const existingPending = await ExamAppeal.findOne({
+      exam: exam._id,
+      student: student._id,
+      type: 'retake_request',
+      status: { $in: ['pending', 'under_review'] },
+    });
+    if (existingPending) throw new BadRequestError('You already have a pending retake request for this exam');
+  }
 
   const appeal = await ExamAppeal.create({
     exam: exam._id,
