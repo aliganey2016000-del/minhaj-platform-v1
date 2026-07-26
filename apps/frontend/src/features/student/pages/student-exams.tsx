@@ -245,6 +245,7 @@ export function StudentExams() {
                 </div>
 
                 <div className="p-4 space-y-2">
+                  <p className="text-sm font-bold text-[var(--color-text-primary)] truncate">{e.title}</p>
                   {e.course && (
                     <p className="text-xs text-[var(--color-text-secondary)] truncate">
                       📘 {getTitle(e.course)} <span className="text-[var(--color-text-tertiary)]">· {getCat(e.course.category)}</span>
