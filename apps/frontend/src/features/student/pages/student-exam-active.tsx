@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 
 type AttemptQuestionType =
@@ -63,6 +64,7 @@ function formatRemaining(ms: number): string {
 const inputCls = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm';
 
 export function StudentExamActive() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [list, setList] = useState<LaunchableExam[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -89,6 +91,21 @@ export function StudentExamActive() {
   }, []);
 
   useEffect(() => { fetchList(); }, [fetchList]);
+
+  // Deep-linked from "My Exam Schedule"'s "Start Exam" button
+  // (?examId=...) — launch straight into it instead of making the student
+  // find and click it again in the list below.
+  useEffect(() => {
+    const examId = searchParams.get('examId');
+    if (!examId || session) return;
+    handleLaunch(examId);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('examId');
+      return next;
+    }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Countdown timer
   useEffect(() => {

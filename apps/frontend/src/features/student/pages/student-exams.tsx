@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
 
@@ -123,6 +124,7 @@ function teacherName(e: Exam): string {
 
 export function StudentExams() {
   const { t, i18n } = useTranslation('common');
+  const navigate = useNavigate();
   const lang = i18n.language as 'en' | 'so' | 'ar';
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
@@ -270,6 +272,15 @@ export function StudentExams() {
                       </div>
                     )}
                   </div>
+
+                  {state === 'active' && (
+                    <button
+                      onClick={() => navigate(`/student/exams/active?examId=${e._id}`)}
+                      className="mt-2 w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-emerald-500/25 hover:from-green-600 hover:to-emerald-700 transition-all active:scale-[0.98]"
+                    >
+                      🚀 {lang === 'so' ? 'Bilow Imtixaanka' : lang === 'ar' ? 'ابدأ الامتحان' : 'Start Exam'}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

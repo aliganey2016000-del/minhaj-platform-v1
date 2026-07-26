@@ -77,7 +77,6 @@ export function StudentSidebar() {
           children: [
             { path: '/student/exams',            label: 'My Exam Schedule',       icon: '🗓️' },
             { path: '/student/exams/seating',     label: 'Seat & Hall Allocation', icon: '🪑' },
-            { path: '/student/exams/active',      label: 'Active Exams',           icon: '⏱️' },
             { path: '/student/exams/attendance',  label: 'Attendance History',     icon: '✅' },
             { path: '/student/exams/results',     label: 'Exam Results & Grades',  icon: '📊' },
             { path: '/student/exams/appeals',     label: 'Academic Appeals',       icon: '⚖️' },
