@@ -24,7 +24,15 @@ interface Exam {
   room: string;
   instructions: string;
   status: string;
-  course?: { _id: string; title: { en: string; so: string; ar: string }; category: string; thumbnail?: string };
+  course?: {
+    _id: string;
+    title: { en: string; so: string; ar: string };
+    category: string;
+    thumbnail?: string;
+    class?: { title?: string; section?: string; department?: { name?: string } };
+    school?: { name?: string };
+  };
+  school?: { name?: string };
 }
 
 const catLabels: Record<string, { so: string; ar: string }> = {
@@ -66,6 +74,19 @@ function placeholderGradient(seed: string): string {
   return PLACEHOLDER_GRADIENTS[hash % PLACEHOLDER_GRADIENTS.length];
 }
 
+// Same course -> school/class/department chain the admin cards show.
+function orgName(e: Exam): string {
+  return e.school?.name || e.course?.school?.name || '—';
+}
+function departmentName(e: Exam): string {
+  return e.course?.class?.department?.name || '—';
+}
+function className(e: Exam): string {
+  const cls = e.course?.class;
+  if (!cls?.title) return '—';
+  return cls.section ? `${cls.title} - ${cls.section}` : cls.title;
+}
+
 export function StudentExams() {
   const { t, i18n } = useTranslation('common');
   const lang = i18n.language as 'en' | 'so' | 'ar';
@@ -101,7 +122,6 @@ export function StudentExams() {
   const getCat = (c: string) => (catLabels as any)[c]?.[lang] || c;
   const dateLabel = lang === 'so' ? 'Taariikh' : lang === 'ar' ? 'التاريخ' : 'Date';
   const timeLabel = lang === 'so' ? 'Waqti' : lang === 'ar' ? 'الوقت' : 'Time';
-  const marksLabel = lang === 'so' ? 'Dhibcaha' : lang === 'ar' ? 'الدرجة' : 'Marks';
 
   if (loading) return <div className="flex justify-center py-20"><div className="h-10 w-10 animate-spin rounded-full border-3 border-t-primary-600" /></div>;
   if (error) return <div className="text-center py-20"><p className="text-red-500 mb-4">{error}</p><button onClick={() => window.location.reload()} className="rounded-xl bg-primary-600 px-5 py-2 text-sm text-white">{t('retry')}</button></div>;
@@ -185,6 +205,7 @@ export function StudentExams() {
                       📘 {getTitle(e.course)} <span className="text-[var(--color-text-tertiary)]">· {getCat(e.course.category)}</span>
                     </p>
                   )}
+                  <p className="text-xs text-[var(--color-text-tertiary)] truncate">🏫 {orgName(e)} · {departmentName(e)} · {className(e)}</p>
 
                   <div className="space-y-1 text-xs pt-1">
                     <div className="flex justify-between">
@@ -194,10 +215,6 @@ export function StudentExams() {
                     <div className="flex justify-between">
                       <span className="text-[var(--color-text-tertiary)]">{timeLabel}</span>
                       <span className="font-semibold text-[var(--color-text-primary)]">{e.startTime} - {e.endTime}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[var(--color-text-tertiary)]">{marksLabel}</span>
-                      <span className="font-semibold text-[var(--color-text-primary)]">{e.totalMarks} / {e.passingMarks} {lang === 'so' ? 'gudub' : lang === 'ar' ? 'نجاح' : 'pass'}</span>
                     </div>
                     {e.room && (
                       <div className="flex justify-between">

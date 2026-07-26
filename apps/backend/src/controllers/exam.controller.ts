@@ -164,7 +164,15 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
 
   const courseIds = (student.enrolledCourses || []).map((id: any) => id);
   const exams = await Exam.find({ course: { $in: courseIds } })
-    .populate('course', 'title.en slug category thumbnail')
+    .populate({
+      path: 'course',
+      select: 'title.en slug category thumbnail class school',
+      populate: [
+        { path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } },
+        { path: 'school', select: 'name' },
+      ],
+    })
+    .populate('school', 'name')
     .populate('createdBy', 'email')
     .sort({ examDate: 1, startTime: 1 })
     .lean();
