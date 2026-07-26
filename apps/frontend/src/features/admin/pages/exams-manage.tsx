@@ -6,6 +6,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { toTitleCase } from '../../../lib/format';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -487,7 +488,7 @@ function ViewModal({ exam, onClose }: { exam: Exam; onClose: () => void }) {
 
         <div className="space-y-3">
           <div className="text-center pb-3 border-b border-[var(--color-border-subtle)]">
-            <p className="text-lg font-bold">{exam.title}</p>
+            <p className="text-lg font-bold">{toTitleCase(exam.title)}</p>
             <p className="text-sm text-[var(--color-text-tertiary)]">{exam.course?.title?.en}</p>
           </div>
 
@@ -707,7 +708,7 @@ export function ExamsManage() {
                   visibleExams.map((exam) => (
                     <tr key={exam._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingExam(exam)}>
                       <td className="px-5 py-4">
-                        <p className="font-semibold">{exam.title}</p>
+                        <p className="font-semibold">{toTitleCase(exam.title)}</p>
                         <p className="text-xs text-[var(--color-text-tertiary)]">{exam.duration} min</p>
                       </td>
                       <td className="px-5 py-4 hidden md:table-cell">

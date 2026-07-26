@@ -6,6 +6,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
+import { toTitleCase } from '../../../lib/format';
 
 interface ExamBrief { _id: string; title: string; examDate: string; course?: { _id: string; title: { en: string } }; }
 interface StudentBrief { _id: string; studentId: string; profile?: { firstName: string; lastName: string }; }
@@ -222,7 +223,7 @@ export function ExamComplianceManage() {
                   ) : incidents.map((i) => (
                     <tr key={i._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
                       <td className="px-5 py-4">
-                        <p className="font-semibold">{i.exam?.title}</p>
+                        <p className="font-semibold">{i.exam?.title ? toTitleCase(i.exam.title) : ''}</p>
                         {i.student && <p className="text-xs text-[var(--color-text-tertiary)]">{i.student.profile?.firstName} {i.student.profile?.lastName} · {i.student.studentId}</p>}
                       </td>
                       <td className="px-5 py-4 hidden md:table-cell capitalize">{i.type.replace('_', ' ')}</td>
@@ -269,7 +270,7 @@ function AppealRow({ appeal, onResolve }: { appeal: Appeal; onResolve: (id: stri
     <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="font-semibold">{appeal.exam?.title} <span className="text-xs font-normal text-[var(--color-text-tertiary)]">— {appeal.exam?.course?.title?.en}</span></p>
+          <p className="font-semibold">{appeal.exam?.title ? toTitleCase(appeal.exam.title) : ''} <span className="text-xs font-normal text-[var(--color-text-tertiary)]">— {appeal.exam?.course?.title?.en}</span></p>
           {appeal.student && <p className="text-xs text-[var(--color-text-tertiary)]">{appeal.student.profile?.firstName} {appeal.student.profile?.lastName} · {appeal.student.studentId}</p>}
           <p className="text-xs text-[var(--color-text-tertiary)] capitalize mt-1">{appeal.type.replace('_', ' ')}</p>
         </div>

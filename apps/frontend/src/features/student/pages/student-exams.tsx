@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
+import { toTitleCase } from '../../../lib/format';
 
 interface Exam {
   _id: string;
@@ -344,11 +345,11 @@ export function StudentExams() {
                       {STATE_META[state].label}
                     </span>
                   </div>
-                  <p className="absolute bottom-2.5 start-3.5 end-3.5 text-sm font-bold text-white truncate drop-shadow">{e.title}</p>
+                  <p className="absolute bottom-2.5 start-3.5 end-3.5 text-sm font-bold text-white truncate drop-shadow">{toTitleCase(e.title)}</p>
                 </div>
 
                 <div className="p-4 space-y-2">
-                  <p className="text-sm font-bold text-[var(--color-text-primary)] truncate">{e.title}</p>
+                  <p className="text-sm font-bold text-[var(--color-text-primary)] truncate">{toTitleCase(e.title)}</p>
                   {e.course && (
                     <p className="text-xs text-[var(--color-text-secondary)] truncate">
                       📘 {getTitle(e.course)} <span className="text-[var(--color-text-tertiary)]">· {getCat(e.course.category)}</span>
@@ -438,7 +439,7 @@ export function StudentExams() {
                     </p>
                   )}
 
-                  {state === 'missed' && e.autoSchedule && (
+                  {state === 'missed' && (
                     e.myRetakeRequestStatus === 'pending' || e.myRetakeRequestStatus === 'under_review' ? (
                       <p className="rounded-lg bg-blue-50 dark:bg-blue-950/30 px-3 py-2 text-[11px] font-medium text-blue-700 dark:text-blue-400">
                         ⏳ {lang === 'so' ? 'Codsigaaga wuxuu sugayaa ansixinta maamulka.' : lang === 'ar' ? 'طلبك بانتظار موافقة الإدارة.' : 'Your retake request is awaiting admin approval.'}
@@ -457,7 +458,7 @@ export function StudentExams() {
                     )
                   )}
 
-                  {(state === 'completed' || state === 'missed') && (
+                  {state === 'completed' && (
                     <button
                       onClick={() => navigate(`/student/exams/${e._id}/review`)}
                       className="mt-1 w-full inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
@@ -476,7 +477,7 @@ export function StudentExams() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => !retakeSubmitting && setRetakeModal(null)}>
           <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-[var(--color-text-primary)] mb-1">🔁 {lang === 'so' ? 'Codso Dib U Imtixaan' : lang === 'ar' ? 'طلب إعادة الامتحان' : 'Request Retake'}</h3>
-            <p className="text-sm text-[var(--color-text-tertiary)] mb-4">{retakeModal.title}</p>
+            <p className="text-sm text-[var(--color-text-tertiary)] mb-4">{toTitleCase(retakeModal.title)}</p>
             {retakeError && <p className="text-red-500 text-sm mb-3 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{retakeError}</p>}
             <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">
               {lang === 'so' ? 'Sababta (ikhtiyaari)' : lang === 'ar' ? 'السبب (اختياري)' : 'Reason (optional)'}

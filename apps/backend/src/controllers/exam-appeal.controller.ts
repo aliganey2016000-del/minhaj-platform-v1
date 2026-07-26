@@ -69,12 +69,16 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       existing.resolvedBy = req.user!.userId as any;
       existing.resolvedAt = new Date();
     }
-    // Approving a retake request reopens this student's personal
-    // auto-schedule window: clear their eligibility anchor so the next
-    // check re-stamps eligibleAt as now, and clear any prior attempt so
-    // they aren't blocked from starting a fresh one.
+    // Approving a retake request clears any prior attempt so the student
+    // isn't blocked from starting a fresh one. For auto-scheduled exams it
+    // also clears their eligibility anchor, reopening their personal window
+    // from scratch. Manual exams have one shared class-wide date/time —
+    // there's no per-student window to reopen, so re-admitting a specific
+    // student to a missed manual exam is left to the admin (e.g. adjusting
+    // the exam's status/window) after approving here.
     if (status === 'approved' && !wasApproved && existing.type === 'retake_request') {
-      await ExamEligibility.deleteOne({ exam: existing.exam, student: existing.student });
+      const exam = existing.exam as any;
+      if (exam?.autoSchedule) await ExamEligibility.deleteOne({ exam: exam._id, student: existing.student });
       await ExamAttempt.deleteMany({ exam: existing.exam, student: existing.student });
     }
   }
@@ -103,7 +107,6 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const student = await ensureStudentRecord(req.user!.userId);
 
   if (type === 'retake_request') {
-    if (!exam.autoSchedule) throw new BadRequestError('Retake requests are only available for automatically-scheduled exams');
     const existingPending = await ExamAppeal.findOne({
       exam: exam._id,
       student: student._id,

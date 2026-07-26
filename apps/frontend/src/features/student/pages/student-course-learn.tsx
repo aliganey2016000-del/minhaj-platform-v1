@@ -24,6 +24,7 @@ import { JitsiCallModal } from '../../../components/shared/jitsi-call-modal';
 import { jitsiRoomName } from '../../../components/shared/jitsi-room';
 import { getDownloadedCourse, queueAction } from '../../../lib/offline-store';
 import { sanitizeHtml } from '../../../lib/sanitize-html';
+import { toTitleCase } from '../../../lib/format';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -506,7 +507,7 @@ export function StudentCourseLearn() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setExamReadyModal(null)}>
           <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl text-center" onClick={(e) => e.stopPropagation()}>
             <p className="text-4xl mb-2">🎉</p>
-            <h3 className="text-lg font-bold text-[var(--color-text-primary)] mb-1">{examReadyModal.title} is Scheduled!</h3>
+            <h3 className="text-lg font-bold text-[var(--color-text-primary)] mb-1">{toTitleCase(examReadyModal.title)} is Scheduled!</h3>
             <p className="text-sm text-[var(--color-text-tertiary)] mb-5">You've completed the required lessons — a personal exam date has been set for you. Check your schedule for the exact date and time.</p>
             <div className="flex flex-col gap-2">
               <button
@@ -818,7 +819,7 @@ export function StudentCourseLearn() {
                     </span>
                   </div>
                   <h2 className="text-lg lg:text-xl font-bold text-[var(--color-text-primary)]">
-                    {currentItem.item.title}
+                    {currentItem.item.type === 'exam' ? toTitleCase(currentItem.item.title) : currentItem.item.title}
                   </h2>
                   <div className="flex items-center gap-3 mt-1 text-xs text-[var(--color-text-tertiary)]">
                     <span>{currentItem.item.duration || 0} min</span>
@@ -851,7 +852,7 @@ export function StudentCourseLearn() {
                 {currentItem.item.type === 'exam' && (
                   <div className="rounded-2xl border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/20 p-6 text-center">
                     <p className="text-3xl mb-2">🎓</p>
-                    <p className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">{currentItem.item.title}</p>
+                    <p className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">{toTitleCase(currentItem.item.title)}</p>
                     {(currentItem.item as any).examDate && (
                       <p className="text-xs text-[var(--color-text-tertiary)] mb-3">
                         Scheduled for {new Date((currentItem.item as any).examDate).toLocaleDateString()}
