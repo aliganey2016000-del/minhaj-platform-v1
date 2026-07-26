@@ -14,6 +14,7 @@ import School from '../models/school.model';
 import ClassModel from '../models/class.model';
 import Teacher from '../models/teacher.model';
 import User from '../models/user.model';
+import Exam from '../models/exam.model';
 import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -206,6 +207,27 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     prerequisites: prerequisites || [],
     status: 'draft',
   });
+
+  // Every course gets a Mid Exam and a Final Exam shell right away — no
+  // date/time, auto-scheduled per student off course progress (see
+  // exam-attempt.controller.ts isEligibleForAutoScheduledExam) — so a
+  // teacher can start writing each paper's questions immediately instead
+  // of an admin having to remember to manually schedule these first.
+  // Best-effort: a hiccup here must never fail course creation itself.
+  try {
+    await Exam.create([
+      {
+        title: 'Mid Exam', course: course._id, school: course.school || null,
+        duration: 60, totalMarks: 100, passingMarks: 50,
+        autoSchedule: true, milestone: 'mid', createdBy: req.user!.userId,
+      },
+      {
+        title: 'Final Exam', course: course._id, school: course.school || null,
+        duration: 60, totalMarks: 100, passingMarks: 50,
+        autoSchedule: true, milestone: 'final', createdBy: req.user!.userId,
+      },
+    ]);
+  } catch { /* non-fatal */ }
 
   const populated = await Course.findById(course._id)
     .populate({

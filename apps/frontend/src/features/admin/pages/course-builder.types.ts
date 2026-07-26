@@ -313,6 +313,11 @@ export interface Chapter {
   status: 'draft' | 'published';
   collapsed?: boolean;
   items: ChapterItem[];
+  // Auto-scheduling prerequisite tag — 'mid' means this module must be
+  // fully completed before the course's auto-scheduled Mid Exam unlocks
+  // for a student. Final Exam auto-schedule requires the whole course
+  // instead of a tag, so there's no 'final' option here to set.
+  examMilestone?: 'mid' | null;
   createdAt?: string;
   updatedAt?: string;
   // UI state

@@ -328,7 +328,7 @@ export function StudentCourseLearn() {
     setMarkingComplete(true);
 
     const timeSpentSeconds = Math.round((Date.now() - itemStartRef.current) / 1000);
-    const progressBody = { courseId, itemType: currentItem.item.type };
+    const progressBody = { courseId, itemType: currentItem.item.type, itemId: currentItem.item._id };
 
     // Offline: queue everything for replay on reconnect, update local state
     // optimistically (there's no server response to refresh from yet).

@@ -1166,7 +1166,7 @@ export const reject = async (req: Request, res: Response): Promise<Response> => 
 // Record Progress — POST /api/v1/students/my/progress
 // ---------------------------------------------------------------------------
 export const recordProgress = async (req: Request, res: Response): Promise<Response> => {
-  const { courseId, itemType } = req.body as { courseId: string; itemType: 'lesson' | 'quiz' | 'assignment' };
+  const { courseId, itemType, itemId } = req.body as { courseId: string; itemType: 'lesson' | 'quiz' | 'assignment'; itemId?: string };
 
   if (!courseId) throw new BadRequestError('Course ID is required.');
   if (!['lesson','quiz','assignment'].includes(itemType)) throw new BadRequestError('itemType must be lesson, quiz, or assignment.');
@@ -1180,11 +1180,17 @@ export const recordProgress = async (req: Request, res: Response): Promise<Respo
     const total = content ? (content.totalLessons||0)+(content.totalQuizzes||0)+(content.totalAssignments||0) : 0;
     progress = await Progress.create({ student: student._id, course: courseId,
       completedLessons: itemType==='lesson'?1:0, completedQuizzes: itemType==='quiz'?1:0,
-      completedAssignments: itemType==='assignment'?1:0, totalItems: total, lastAccessed: new Date(), status: 'in_progress' });
+      completedAssignments: itemType==='assignment'?1:0, completedItemIds: itemId ? [itemId] : [],
+      totalItems: total, lastAccessed: new Date(), status: 'in_progress' });
   } else {
+    // completedItemIds is the only thing here that's genuinely idempotent
+    // (a set, not a counter) — the counters above have never de-duped a
+    // repeat call for the same item, so they're left exactly as they were
+    // to avoid shifting existing progressPercent behavior elsewhere.
     if (itemType==='lesson') progress.completedLessons += 1;
     else if (itemType==='quiz') progress.completedQuizzes += 1;
     else progress.completedAssignments += 1;
+    if (itemId && !progress.completedItemIds.includes(itemId)) progress.completedItemIds.push(itemId);
     const done = progress.completedLessons + progress.completedQuizzes + progress.completedAssignments;
     if (done >= progress.totalItems && progress.totalItems > 0) progress.status = 'completed';
     progress.lastAccessed = new Date();

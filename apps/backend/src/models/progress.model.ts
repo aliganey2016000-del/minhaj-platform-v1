@@ -17,6 +17,11 @@ export interface IProgress extends Document {
   completedLessons: number;
   completedQuizzes: number;
   completedAssignments: number;
+  // Which specific chapter items (lesson/quiz/assignment _id strings) this
+  // student has actually completed — the counters above are aggregate-only
+  // and can't answer "did they finish chapter X specifically", which
+  // auto-scheduled exam eligibility needs (see exam-attempt.controller.ts).
+  completedItemIds: string[];
   totalItems: number; // cached from CourseContent for quick display
   lastAccessed: Date;
   status: 'in_progress' | 'completed';
@@ -56,6 +61,10 @@ const progressSchema = new Schema<IProgress>(
       type: Number,
       default: 0,
       min: 0,
+    },
+    completedItemIds: {
+      type: [String],
+      default: [],
     },
     totalItems: {
       type: Number,

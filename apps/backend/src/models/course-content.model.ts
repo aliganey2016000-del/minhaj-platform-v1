@@ -165,6 +165,12 @@ export interface IChapter {
   status: 'draft' | 'published';
   collapsed?: boolean;
   items: ChapterItem[];
+  // Auto-scheduling prerequisite tag: a 'mid'-tagged module must be fully
+  // completed by a student before the course's auto-scheduled Mid Exam
+  // unlocks for them. Final Exam auto-schedule requires the whole course
+  // (every chapter, tagged or not) instead of a specific tag — see
+  // exam-attempt.controller.ts isEligibleForAutoScheduledExam.
+  examMilestone?: 'mid' | 'final' | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -293,6 +299,7 @@ const chapterSchema = new Schema(
     status: { type: String, enum: ['draft', 'published'], default: 'draft' },
     collapsed: { type: Boolean, default: false },
     items: { type: [Schema.Types.Mixed], default: [] },
+    examMilestone: { type: String, enum: ['mid', 'final', null], default: null },
   },
   { timestamps: true }
 );

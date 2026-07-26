@@ -27,15 +27,17 @@ interface Exam {
   _id: string;
   title: string;
   course: CourseBrief;
-  examDate: string;
-  startTime: string;
-  endTime: string;
+  examDate?: string;
+  startTime?: string;
+  endTime?: string;
   duration: number;
   totalMarks: number;
   passingMarks: number;
   room: string;
   instructions: string;
   status: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
+  autoSchedule?: boolean;
+  milestone?: 'mid' | 'final' | null;
   createdBy?: { _id: string; email: string };
   createdAt: string;
 }
@@ -52,6 +54,8 @@ interface ExamForm {
   room: string;
   instructions: string;
   status: string;
+  autoSchedule: boolean;
+  milestone: 'mid' | 'final' | '';
 }
 
 const emptyForm: ExamForm = {
@@ -66,6 +70,8 @@ const emptyForm: ExamForm = {
   room: '',
   instructions: '',
   status: 'scheduled',
+  autoSchedule: false,
+  milestone: '',
 };
 
 // ---------------------------------------------------------------------------
@@ -110,14 +116,16 @@ function ExamModal({
           title: exam.title,
           course: exam.course?._id || '',
           examDate: exam.examDate ? new Date(exam.examDate).toISOString().split('T')[0] : '',
-          startTime: exam.startTime,
-          endTime: exam.endTime,
+          startTime: exam.startTime || '',
+          endTime: exam.endTime || '',
           duration: exam.duration,
           totalMarks: exam.totalMarks,
           passingMarks: exam.passingMarks,
           room: exam.room || '',
           instructions: exam.instructions || '',
           status: exam.status,
+          autoSchedule: !!exam.autoSchedule,
+          milestone: exam.milestone || '',
         }
       : emptyForm
   );
@@ -201,7 +209,7 @@ function ExamModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit]);
 
-  const handleChange = (field: keyof ExamForm, value: string | number) => {
+  const handleChange = (field: keyof ExamForm, value: string | number | boolean) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -232,9 +240,13 @@ function ExamModal({
       const payload = {
         title: form.title,
         course: form.course || undefined,
-        examDate: form.examDate,
-        startTime: form.startTime,
-        endTime: form.endTime,
+        autoSchedule: form.autoSchedule,
+        // Auto-scheduled exams have no calendar window at all — omit these
+        // entirely rather than send empty strings, which would fail the
+        // schema's HH:MM format validation.
+        ...(form.autoSchedule
+          ? { milestone: form.milestone || null }
+          : { examDate: form.examDate, startTime: form.startTime, endTime: form.endTime }),
         duration: Number(form.duration),
         totalMarks: Number(form.totalMarks),
         passingMarks: Number(form.passingMarks),
@@ -326,27 +338,72 @@ function ExamModal({
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Exam Date *</label>
-              <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="date" value={form.examDate} onChange={(e) => handleChange('examDate', e.target.value)} required />
+          {/* Manual vs. Automatic scheduling */}
+          <div>
+            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Scheduling</label>
+            <div className="inline-flex w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1">
+              <button
+                type="button"
+                onClick={() => handleChange('autoSchedule', false)}
+                className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${!form.autoSchedule ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)]'}`}
+              >
+                📅 Manual
+              </button>
+              <button
+                type="button"
+                onClick={() => handleChange('autoSchedule', true)}
+                className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${form.autoSchedule ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)]'}`}
+              >
+                🤖 Automatic
+              </button>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Duration (min) *</label>
-              <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="number" min={1} value={form.duration} onChange={(e) => handleChange('duration', Number(e.target.value))} required />
-            </div>
+            {form.autoSchedule && (
+              <p className="mt-1.5 text-xs text-[var(--color-text-tertiary)]">
+                No fixed date/time — this exam unlocks for each student individually once they finish the required lessons.
+              </p>
+            )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Start Time *</label>
-              <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="time" value={form.startTime} onChange={(e) => handleChange('startTime', e.target.value)} required />
+          {form.autoSchedule ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Unlocks After</label>
+                <select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.milestone} onChange={(e) => handleChange('milestone', e.target.value)}>
+                  <option value="">Select milestone...</option>
+                  <option value="mid">Modules tagged "Before Mid Exam"</option>
+                  <option value="final">The entire course</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Duration (min) *</label>
+                <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="number" min={1} value={form.duration} onChange={(e) => handleChange('duration', Number(e.target.value))} required />
+              </div>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">End Time *</label>
-              <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="time" value={form.endTime} onChange={(e) => handleChange('endTime', e.target.value)} required />
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Exam Date *</label>
+                  <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="date" value={form.examDate} onChange={(e) => handleChange('examDate', e.target.value)} required />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Duration (min) *</label>
+                  <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="number" min={1} value={form.duration} onChange={(e) => handleChange('duration', Number(e.target.value))} required />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Start Time *</label>
+                  <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="time" value={form.startTime} onChange={(e) => handleChange('startTime', e.target.value)} required />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">End Time *</label>
+                  <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="time" value={form.endTime} onChange={(e) => handleChange('endTime', e.target.value)} required />
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -413,8 +470,14 @@ function ViewModal({ exam, onClose }: { exam: Exam; onClose: () => void }) {
           </div>
 
           <DetailRow label="Status" value={<StatusBadge status={exam.status} />} />
-          <DetailRow label="Date" value={new Date(exam.examDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} />
-          <DetailRow label="Time" value={`${exam.startTime} — ${exam.endTime}`} />
+          {exam.autoSchedule ? (
+            <DetailRow label="Scheduling" value={`🤖 Automatic — unlocks after ${exam.milestone === 'mid' ? 'tagged modules' : 'the whole course'}`} />
+          ) : (
+            <>
+              <DetailRow label="Date" value={exam.examDate ? new Date(exam.examDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '—'} />
+              <DetailRow label="Time" value={exam.startTime && exam.endTime ? `${exam.startTime} — ${exam.endTime}` : '—'} />
+            </>
+          )}
           <DetailRow label="Duration" value={`${exam.duration} minutes`} />
           <DetailRow label="Total Marks" value={exam.totalMarks} />
           <DetailRow label="Passing Marks" value={`${exam.passingMarks} (${Math.round((exam.passingMarks / exam.totalMarks) * 100)}%)`} />
@@ -599,10 +662,14 @@ export function ExamsManage() {
                         </span>
                       </td>
                       <td className="px-5 py-4 text-center hidden lg:table-cell text-sm">
-                        {new Date(exam.examDate).toLocaleDateString()}
+                        {exam.autoSchedule ? <span className="text-[var(--color-text-tertiary)]">—</span> : exam.examDate ? new Date(exam.examDate).toLocaleDateString() : '—'}
                       </td>
                       <td className="px-5 py-4 text-center">
-                        <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{exam.startTime} - {exam.endTime}</code>
+                        {exam.autoSchedule ? (
+                          <span className="rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-1 text-[10px] font-semibold text-violet-700 dark:text-violet-300">🤖 Auto</span>
+                        ) : (
+                          <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{exam.startTime} - {exam.endTime}</code>
+                        )}
                       </td>
                       <td className="px-5 py-4 text-center hidden sm:table-cell">
                         <span className="text-xs">

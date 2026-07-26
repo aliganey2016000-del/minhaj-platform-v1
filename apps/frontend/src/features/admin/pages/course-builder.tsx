@@ -219,6 +219,18 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
     }));
   };
 
+  // Tags a module as a prerequisite for the course's auto-scheduled Mid
+  // Exam (see exam-eligibility.ts on the backend) — a student must finish
+  // every 'mid'-tagged module before that exam unlocks for them.
+  const handleSetChapterMilestone = (chapterIdx: number, value: 'mid' | '') => {
+    updateContentLocally((prev) => ({
+      ...prev,
+      chapters: prev.chapters.map((ch, i) =>
+        i === chapterIdx ? { ...ch, examMilestone: value || null } : ch,
+      ),
+    }));
+  };
+
   // -----------------------------------------------------------------------
   // Item CRUD
   // -----------------------------------------------------------------------
@@ -817,6 +829,20 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                     <span className="text-xs text-[var(--color-text-tertiary)]">
                       {chapter.items.length} items
                     </span>
+                    <select
+                      value={chapter.examMilestone || ''}
+                      onChange={(e) => handleSetChapterMilestone(chIdx, e.target.value as 'mid' | '')}
+                      onClick={(e) => e.stopPropagation()}
+                      title="Tag this module as a prerequisite for the auto-scheduled Mid Exam"
+                      className={`flex-shrink-0 rounded-full border-0 px-2 py-0.5 text-[10px] font-semibold cursor-pointer ${
+                        chapter.examMilestone === 'mid'
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                          : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-tertiary)]'
+                      }`}
+                    >
+                      <option value="">Applies to: —</option>
+                      <option value="mid">🎓 Before Mid Exam</option>
+                    </select>
                   </div>
                 )}
 

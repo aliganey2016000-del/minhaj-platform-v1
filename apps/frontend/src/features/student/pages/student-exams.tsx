@@ -23,9 +23,9 @@ import api from '../../../lib/axios';
 interface Exam {
   _id: string;
   title: string;
-  examDate: string;
-  startTime: string;
-  endTime: string;
+  examDate?: string;
+  startTime?: string;
+  endTime?: string;
   duration: number;
   totalMarks: number;
   passingMarks: number;
@@ -33,6 +33,12 @@ interface Exam {
   instructions: string;
   status: string;
   myAttemptStatus: 'in_progress' | 'submitted' | 'auto_submitted' | null;
+  // Progress-based scheduling instead of a fixed calendar window — see
+  // exam-eligibility.ts on the backend. myEligible is only meaningful when
+  // autoSchedule is true (null for fixed-schedule exams).
+  autoSchedule?: boolean;
+  milestone?: 'mid' | 'final' | null;
+  myEligible?: boolean | null;
   course?: {
     _id: string;
     title: { en: string; so: string; ar: string };
@@ -74,10 +80,18 @@ const TABS: { key: 'all' | ExamState; icon: string }[] = [
   { key: 'missed', icon: '⚠️' },
 ];
 
-/** Real-time state — computed from now vs. the exam's own start/end, plus this student's attempt. */
+/** Real-time state — computed from now vs. the exam's own start/end, plus this student's attempt. Auto-scheduled exams have no calendar window: they're locked (upcoming) until this student's progress makes them eligible, then active until submitted — never "missed", since there's no deadline to miss. */
 function computeState(e: Exam): ExamState {
   if (e.status === 'cancelled') return 'cancelled';
 
+  const submitted = e.myAttemptStatus === 'submitted' || e.myAttemptStatus === 'auto_submitted';
+
+  if (e.autoSchedule) {
+    if (submitted) return 'completed';
+    return e.myEligible ? 'active' : 'upcoming';
+  }
+
+  if (!e.examDate || !e.startTime || !e.endTime) return 'upcoming';
   const datePart = e.examDate.split('T')[0];
   const start = new Date(`${datePart}T${e.startTime}`).getTime();
   const end = new Date(`${datePart}T${e.endTime}`).getTime();
@@ -85,7 +99,7 @@ function computeState(e: Exam): ExamState {
 
   if (now < start) return 'upcoming';
   if (now <= end) return 'active';
-  return e.myAttemptStatus === 'submitted' || e.myAttemptStatus === 'auto_submitted' ? 'completed' : 'missed';
+  return submitted ? 'completed' : 'missed';
 }
 
 // Same deterministic gradient set + hash as the admin Papers & Approval
@@ -257,14 +271,25 @@ export function StudentExams() {
                   <p className="text-xs text-[var(--color-text-tertiary)] truncate">🏫 {orgName(e)} · {departmentName(e)} · {className(e)}</p>
 
                   <div className="space-y-1 text-xs pt-1">
-                    <div className="flex justify-between">
-                      <span className="text-[var(--color-text-tertiary)]">{dateLabel}</span>
-                      <span className="font-semibold text-[var(--color-text-primary)]">{new Date(e.examDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[var(--color-text-tertiary)]">{timeLabel}</span>
-                      <span className="font-semibold text-[var(--color-text-primary)]">{e.startTime} - {e.endTime}</span>
-                    </div>
+                    {e.autoSchedule ? (
+                      <div className="flex justify-between">
+                        <span className="text-[var(--color-text-tertiary)]">{lang === 'so' ? 'Jadwalka' : lang === 'ar' ? 'الجدول' : 'Schedule'}</span>
+                        <span className="font-semibold text-[var(--color-text-primary)]">
+                          🤖 {lang === 'so' ? 'Automatic' : lang === 'ar' ? 'تلقائي' : 'Automatic'}
+                        </span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-[var(--color-text-tertiary)]">{dateLabel}</span>
+                          <span className="font-semibold text-[var(--color-text-primary)]">{e.examDate ? new Date(e.examDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[var(--color-text-tertiary)]">{timeLabel}</span>
+                          <span className="font-semibold text-[var(--color-text-primary)]">{e.startTime} - {e.endTime}</span>
+                        </div>
+                      </>
+                    )}
                     {e.room && (
                       <div className="flex justify-between">
                         <span className="text-[var(--color-text-tertiary)]">{lang === 'so' ? 'Qolka' : lang === 'ar' ? 'القاعة' : 'Room'}</span>
@@ -272,6 +297,14 @@ export function StudentExams() {
                       </div>
                     )}
                   </div>
+
+                  {e.autoSchedule && state === 'upcoming' && (
+                    <p className="rounded-lg bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                      🔒 {lang === 'so'
+                        ? (e.milestone === 'mid' ? 'Dhammaystir cashiradii ka horeeyay si loo furo imtixaankan.' : 'Dhammaystir koorsada oo dhan si loo furo imtixaankan.')
+                        : (e.milestone === 'mid' ? 'Complete the required lessons to unlock this exam.' : 'Complete the whole course to unlock this exam.')}
+                    </p>
+                  )}
 
                   {state === 'active' && (
                     <button

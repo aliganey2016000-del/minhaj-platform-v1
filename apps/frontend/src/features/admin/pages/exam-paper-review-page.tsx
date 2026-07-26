@@ -10,7 +10,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { ExamPaperEditor, type ExamPaper } from '../components/exam-paper-editor';
 
-interface ExamBrief { _id: string; title: string; examDate: string; course?: { title: { en: string } }; }
+interface ExamBrief { _id: string; title: string; examDate?: string; course?: { title: { en: string } }; }
 
 export function ExamPaperReviewPage() {
   const { examId } = useParams<{ examId: string }>();

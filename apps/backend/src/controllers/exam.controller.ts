@@ -3,6 +3,7 @@ import Exam from '../models/exam.model';
 import Course from '../models/course.model';
 import ExamPaper from '../models/exam-paper.model';
 import ExamAttempt from '../models/exam-attempt.model';
+import { isEligibleForAutoScheduledExam } from '../utils/exam-eligibility';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -187,7 +188,19 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
     .lean();
   const attemptStatusByExam: Record<string, string> = {};
   for (const a of attempts) attemptStatusByExam[a.exam.toString()] = a.status;
-  const result = exams.map((e: any) => ({ ...e, myAttemptStatus: attemptStatusByExam[e._id.toString()] || null }));
+
+  // Auto-scheduled exams have no calendar date to show — the frontend
+  // needs to know per-student whether the prerequisite chapters are done
+  // yet (locked) or not (ready to start).
+  const eligibility = await Promise.all(
+    exams.map((e: any) => (e.autoSchedule ? isEligibleForAutoScheduledExam(e, student._id) : Promise.resolve(null)))
+  );
+
+  const result = exams.map((e: any, i: number) => ({
+    ...e,
+    myAttemptStatus: attemptStatusByExam[e._id.toString()] || null,
+    myEligible: eligibility[i],
+  }));
 
   return ApiResponse.success(res, result);
 };

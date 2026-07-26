@@ -24,10 +24,11 @@ interface School { _id: string; name: string; status?: string; }
 interface ExamBrief {
   _id: string;
   title: string;
-  examDate: string;
+  examDate?: string;
   startTime?: string;
   endTime?: string;
   status: string;
+  autoSchedule?: boolean;
   course?: {
     _id: string;
     title: { en: string };
@@ -70,7 +71,8 @@ function className(e: ExamBrief): string {
   if (!cls?.title) return '—';
   return cls.section ? `${cls.title} - ${cls.section}` : cls.title;
 }
-function formatDate(d: string): string {
+function formatDate(d?: string): string {
+  if (!d) return '🤖 Auto';
   return new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 function formatTime(e: ExamBrief): string {

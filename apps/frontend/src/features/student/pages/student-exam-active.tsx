@@ -20,7 +20,7 @@ type AttemptQuestionType =
   | 'swipe_sort' | 'listen_write' | 'fill_blank' | 'word_scramble' | 'sentence_build';
 
 interface LaunchableExam {
-  exam: { _id: string; title: string; examDate: string; duration: number; course?: { title: { en: string } } };
+  exam: { _id: string; title: string; examDate?: string; duration: number; course?: { title: { en: string } } };
   paper: { title: string; totalPoints: number };
   attempt: { status: string; autoGradedScore?: number; maxScore?: number } | null;
 }
