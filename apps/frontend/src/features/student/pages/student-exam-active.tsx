@@ -2,10 +2,20 @@
  * Active Exams — Student self-service
  * Launch, take, and submit a timed computer-based exam once its paper has
  * been approved and the exam is live.
+ *
+ * Questions use the exact same 10-type schema, sanitize-for-student shape,
+ * and grading engine as course quizzes (see backend/src/utils/question-
+ * engine.ts) — an exam paper is quiz questions, so answer shapes here match
+ * the same conventions student-quiz-take.tsx uses (e.g. mcq graded by the
+ * option's text, not its index, since options are server-shuffled).
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import api from '../../../lib/axios';
+
+type AttemptQuestionType =
+  | 'mcq' | 'true_false' | 'matching' | 'ordering' | 'picture_choice'
+  | 'swipe_sort' | 'listen_write' | 'fill_blank' | 'word_scramble' | 'sentence_build';
 
 interface LaunchableExam {
   exam: { _id: string; title: string; examDate: string; duration: number; course?: { title: { en: string } } };
@@ -13,12 +23,26 @@ interface LaunchableExam {
   attempt: { status: string; autoGradedScore?: number; maxScore?: number } | null;
 }
 
+// Shape after the backend's sanitizeQuestionForStudent strips every
+// answer-revealing field — only what's needed to render + answer remains.
 interface AttemptQuestion {
   _id: string;
-  type: 'mcq' | 'true_false' | 'short_answer';
+  type: AttemptQuestionType;
   question: string;
   points: number;
-  options?: string[];
+  options?: string[];                          // mcq
+  choices?: { image: string; label?: string }[]; // picture_choice
+  leftItems?: string[];                          // matching
+  rightItems?: string[];                         // matching
+  items?: string[];                              // ordering
+  cards?: { text: string }[];                    // swipe_sort
+  leftLabel?: string;                            // swipe_sort
+  rightLabel?: string;                           // swipe_sort
+  audioUrl?: string;                             // listen_write
+  hint?: string;                                 // listen_write / word_scramble
+  textTemplate?: string;                         // fill_blank
+  wordBank?: string[];                           // fill_blank / sentence_build
+  scrambledLetters?: string[];                   // word_scramble
 }
 
 interface AttemptSession {
@@ -36,6 +60,8 @@ function formatRemaining(ms: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+const inputCls = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm';
+
 export function StudentExamActive() {
   const [list, setList] = useState<LaunchableExam[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,7 +72,7 @@ export function StudentExamActive() {
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [remaining, setRemaining] = useState(0);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ autoGradedScore: number; maxScore: number; ungradedQuestionCount: number } | null>(null);
+  const [result, setResult] = useState<{ autoGradedScore: number; maxScore: number } | null>(null);
   const autosaveTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchList = useCallback(async () => {
@@ -152,38 +178,7 @@ export function StudentExamActive() {
             {session.paper.questions.map((q, idx) => (
               <div key={q._id} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
                 <p className="font-semibold mb-3">{idx + 1}. {q.question} <span className="text-xs font-normal text-[var(--color-text-tertiary)]">({q.points} pt{q.points === 1 ? '' : 's'})</span></p>
-
-                {q.type === 'mcq' && (
-                  <div className="space-y-2">
-                    {(q.options || []).map((opt, oi) => (
-                      <label key={oi} className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-sm cursor-pointer hover:bg-[var(--color-surface-tertiary)]">
-                        <input type="radio" name={q._id} checked={answers[q._id] === oi} onChange={() => setAnswer(q._id, oi)} />
-                        {opt}
-                      </label>
-                    ))}
-                  </div>
-                )}
-
-                {q.type === 'true_false' && (
-                  <div className="flex gap-3">
-                    <label className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm cursor-pointer hover:bg-[var(--color-surface-tertiary)]">
-                      <input type="radio" name={q._id} checked={answers[q._id] === true} onChange={() => setAnswer(q._id, true)} /> True
-                    </label>
-                    <label className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm cursor-pointer hover:bg-[var(--color-surface-tertiary)]">
-                      <input type="radio" name={q._id} checked={answers[q._id] === false} onChange={() => setAnswer(q._id, false)} /> False
-                    </label>
-                  </div>
-                )}
-
-                {q.type === 'short_answer' && (
-                  <textarea
-                    value={(answers[q._id] as string) || ''}
-                    onChange={(e) => setAnswer(q._id, e.target.value)}
-                    rows={3}
-                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
-                    placeholder="Type your answer..."
-                  />
-                )}
+                <QuestionAnswerInput question={q} value={answers[q._id]} onChange={(v) => setAnswer(q._id, v)} />
               </div>
             ))}
           </div>
@@ -212,7 +207,6 @@ export function StudentExamActive() {
             <p className="font-bold text-green-700 dark:text-green-300">✅ Exam submitted</p>
             <p className="text-sm text-green-600 dark:text-green-400 mt-1">
               Auto-graded score: {result.autoGradedScore}/{result.maxScore}
-              {result.ungradedQuestionCount > 0 && ` — ${result.ungradedQuestionCount} short-answer question(s) awaiting manual grading`}
             </p>
           </div>
         )}
@@ -247,6 +241,195 @@ export function StudentExamActive() {
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Per-type answer input — value shapes match backend evaluateQuestion
+// (question-engine.ts) exactly, question by question, same as the quiz
+// engine's convention (e.g. mcq/picture_choice graded by value, not index,
+// since options are shuffled server-side).
+// ---------------------------------------------------------------------------
+function QuestionAnswerInput({ question: q, value, onChange }: { question: AttemptQuestion; value: unknown; onChange: (v: unknown) => void }) {
+  switch (q.type) {
+    case 'mcq':
+      return (
+        <div className="space-y-2">
+          {(q.options || []).map((opt) => (
+            <label key={opt} className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-sm cursor-pointer hover:bg-[var(--color-surface-tertiary)]">
+              <input type="radio" name={q._id} checked={value === opt} onChange={() => onChange(opt)} />
+              {opt}
+            </label>
+          ))}
+        </div>
+      );
+
+    case 'true_false':
+      return (
+        <div className="flex gap-3">
+          <label className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm cursor-pointer hover:bg-[var(--color-surface-tertiary)]">
+            <input type="radio" name={q._id} checked={value === true} onChange={() => onChange(true)} /> True
+          </label>
+          <label className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm cursor-pointer hover:bg-[var(--color-surface-tertiary)]">
+            <input type="radio" name={q._id} checked={value === false} onChange={() => onChange(false)} /> False
+          </label>
+        </div>
+      );
+
+    case 'picture_choice':
+      return (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {(q.choices || []).map((c) => (
+            <button
+              key={c.image}
+              type="button"
+              onClick={() => onChange(c.image)}
+              className={`rounded-xl border-2 overflow-hidden ${value === c.image ? 'border-primary-500' : 'border-[var(--color-border-default)]'}`}
+            >
+              <img src={c.image} alt={c.label || ''} className="w-full h-24 object-cover" />
+              {c.label && <p className="text-xs p-1 text-center">{c.label}</p>}
+            </button>
+          ))}
+        </div>
+      );
+
+    case 'matching': {
+      const pairs = (value as { left: string; right: string }[]) || [];
+      const getRight = (left: string) => pairs.find((p) => p.left === left)?.right || '';
+      const setRight = (left: string, right: string) => {
+        const next = (q.leftItems || []).map((l) => ({ left: l, right: l === left ? right : getRight(l) }));
+        onChange(next);
+      };
+      return (
+        <div className="space-y-2">
+          {(q.leftItems || []).map((left) => (
+            <div key={left} className="flex items-center gap-2">
+              <span className="flex-1 text-sm rounded-xl border border-[var(--color-border-default)] px-3 py-2">{left}</span>
+              <span className="text-[var(--color-text-tertiary)]">→</span>
+              <select className={`${inputCls} flex-1`} value={getRight(left)} onChange={(e) => setRight(left, e.target.value)}>
+                <option value="">Select match...</option>
+                {(q.rightItems || []).map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    case 'ordering': {
+      const order = (value as string[]) || q.items || [];
+      const move = (i: number, dir: -1 | 1) => {
+        const next = [...order];
+        const j = i + dir;
+        if (j < 0 || j >= next.length) return;
+        [next[i], next[j]] = [next[j], next[i]];
+        onChange(next);
+      };
+      return (
+        <div className="space-y-1.5">
+          {order.map((item, i) => (
+            <div key={item} className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-sm">
+              <span className="flex-1">{i + 1}. {item}</span>
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="disabled:opacity-30">▲</button>
+              <button type="button" onClick={() => move(i, 1)} disabled={i === order.length - 1} className="disabled:opacity-30">▼</button>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    case 'sentence_build': {
+      const built = (value as string[]) || [];
+      const bank = (q.wordBank || []).filter((w) => !built.includes(w));
+      return (
+        <div className="space-y-2">
+          <div className="min-h-[2.5rem] flex flex-wrap gap-2 rounded-xl border border-dashed border-[var(--color-border-default)] p-2">
+            {built.map((w, i) => (
+              <button key={`${w}-${i}`} type="button" onClick={() => onChange(built.filter((_, j) => j !== i))} className="rounded-lg bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 px-2.5 py-1 text-sm">
+                {w} ✕
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {bank.map((w, i) => (
+              <button key={`${w}-${i}`} type="button" onClick={() => onChange([...built, w])} className="rounded-lg border border-[var(--color-border-default)] px-2.5 py-1 text-sm hover:bg-[var(--color-surface-tertiary)]">
+                {w}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    case 'fill_blank': {
+      const blanks = (value as string[]) || [];
+      const blankCount = (q.textTemplate?.match(/___/g) || []).length;
+      const setBlank = (i: number, word: string) => {
+        const next = [...blanks];
+        next[i] = word;
+        onChange(next);
+      };
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-[var(--color-text-secondary)]">{q.textTemplate}</p>
+          <div className="flex flex-wrap gap-2">
+            {Array.from({ length: blankCount }).map((_, i) => (
+              <select key={i} className={inputCls} style={{ width: 'auto' }} value={blanks[i] || ''} onChange={(e) => setBlank(i, e.target.value)}>
+                <option value="">Blank {i + 1}...</option>
+                {(q.wordBank || []).map((w) => <option key={w} value={w}>{w}</option>)}
+              </select>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    case 'word_scramble':
+      return (
+        <div className="space-y-2">
+          <p className="tracking-widest font-mono text-lg">{(q.scrambledLetters || []).join(' ')}</p>
+          {q.hint && <p className="text-xs text-[var(--color-text-tertiary)]">Hint: {q.hint}</p>}
+          <input className={inputCls} value={(value as string) || ''} onChange={(e) => onChange(e.target.value)} placeholder="Unscramble..." />
+        </div>
+      );
+
+    case 'listen_write':
+      return (
+        <div className="space-y-2">
+          {q.audioUrl && <audio controls src={q.audioUrl} className="w-full" />}
+          {q.hint && <p className="text-xs text-[var(--color-text-tertiary)]">Hint: {q.hint}</p>}
+          <input className={inputCls} value={(value as string) || ''} onChange={(e) => onChange(e.target.value)} placeholder="Type what you heard..." />
+        </div>
+      );
+
+    case 'swipe_sort': {
+      const sides = (value as { text: string; side: 'left' | 'right' }[]) || [];
+      const sideOf = (text: string) => sides.find((s) => s.text === text)?.side;
+      const setSide = (text: string, side: 'left' | 'right') => {
+        const next = (q.cards || [])
+          .map((c) => ({ text: c.text, side: c.text === text ? side : sideOf(c.text) }))
+          .filter((s): s is { text: string; side: 'left' | 'right' } => !!s.side);
+        onChange(next);
+      };
+      return (
+        <div className="space-y-2">
+          {(q.cards || []).map((c) => (
+            <div key={c.text} className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-sm">
+              <span className="flex-1">{c.text}</span>
+              <button type="button" onClick={() => setSide(c.text, 'left')} className={`rounded-lg px-3 py-1 text-xs font-semibold ${sideOf(c.text) === 'left' ? 'bg-primary-600 text-white' : 'border border-[var(--color-border-default)]'}`}>
+                {q.leftLabel || 'Left'}
+              </button>
+              <button type="button" onClick={() => setSide(c.text, 'right')} className={`rounded-lg px-3 py-1 text-xs font-semibold ${sideOf(c.text) === 'right' ? 'bg-primary-600 text-white' : 'border border-[var(--color-border-default)]'}`}>
+                {q.rightLabel || 'Right'}
+              </button>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    default:
+      return null;
+  }
 }
 
 export default StudentExamActive;

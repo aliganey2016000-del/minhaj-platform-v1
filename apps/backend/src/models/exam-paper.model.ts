@@ -3,22 +3,19 @@
  * The instructor-authored question set for an exam, subject to admin
  * proofreading/approval before it can be used for "Active Exams".
  * One paper per exam.
+ *
+ * Questions use the exact same schema as course quizzes (see
+ * ./shared/question.schema) — same 10 types, same authoring UI, same
+ * grading engine (../utils/question-grading) — so there is one codebase for
+ * "what a question looks like" and "how it's graded", not two diverging
+ * ones for exam vs quiz.
  */
 
 import mongoose, { Schema, Document } from 'mongoose';
+import { questionSchema, type IQuizQuestion } from './shared/question.schema';
 
-export type PaperQuestionType = 'mcq' | 'true_false' | 'short_answer';
-
-export interface IPaperQuestion {
-  _id?: mongoose.Types.ObjectId;
-  type: PaperQuestionType;
-  question: string;
-  points: number;
-  options?: string[];        // mcq
-  correctIndex?: number;     // mcq — 0-based
-  correctAnswer?: boolean;   // true_false
-  correctText?: string;      // short_answer — reference answer for manual grading
-}
+/** @deprecated kept as an alias so existing imports keep working — use IQuizQuestion directly in new code. */
+export type IPaperQuestion = IQuizQuestion & { _id?: mongoose.Types.ObjectId };
 
 export interface IExamPaper extends Document {
   _id: mongoose.Types.ObjectId;
@@ -37,25 +34,12 @@ export interface IExamPaper extends Document {
   updatedAt: Date;
 }
 
-const paperQuestionSchema = new Schema<IPaperQuestion>(
-  {
-    type: { type: String, enum: ['mcq', 'true_false', 'short_answer'], required: true, default: 'mcq' },
-    question: { type: String, required: true, trim: true },
-    points: { type: Number, required: true, min: 0, default: 1 },
-    options: { type: [String], default: undefined },
-    correctIndex: { type: Number, min: 0 },
-    correctAnswer: { type: Boolean },
-    correctText: { type: String, trim: true },
-  },
-  { _id: true }
-);
-
 const examPaperSchema = new Schema<IExamPaper>(
   {
     exam: { type: Schema.Types.ObjectId, ref: 'Exam', required: true, unique: true, index: true },
     title: { type: String, required: true, trim: true, maxlength: 200 },
     instructions: { type: String, default: '' },
-    questions: { type: [paperQuestionSchema], default: [] },
+    questions: { type: [questionSchema], default: [] },
     totalPoints: { type: Number, default: 0 },
     status: { type: String, enum: ['draft', 'submitted', 'approved', 'rejected'], default: 'draft', index: true },
     submittedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

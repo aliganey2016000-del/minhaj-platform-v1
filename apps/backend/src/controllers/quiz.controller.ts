@@ -16,19 +16,7 @@ import ApiResponse from '../utils/api-response';
 import Student from '../models/student.model';
 import { awardQuizXP, QuizXPResult } from './gamification.controller';
 import { logActivityFromRequest } from '../utils/learning-activity-logger';
-
-interface QuizAnswerSubmission {
-  questionId: string;
-  answer: unknown;
-}
-
-interface QuizAnswerResult {
-  questionId: string;
-  selectedAnswer: unknown;
-  correct: boolean;
-  points: number;
-  explanation?: string;
-}
+import { gradeQuestionSet } from '../utils/question-engine';
 
 function normalizeAnswers(submittedAnswers: any[]): Record<string, unknown> {
   const answerMap: Record<string, unknown> = {};
@@ -42,106 +30,6 @@ function normalizeAnswers(submittedAnswers: any[]): Record<string, unknown> {
   return answerMap;
 }
 
-function arraysMatch<T>(a: T[], b: T[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((value, index) => value === b[index]);
-}
-
-function normalizeText(s: unknown): string {
-  return typeof s === 'string' ? s.trim().toLowerCase() : '';
-}
-
-function textArraysMatch(a: unknown[], b: string[]): boolean {
-  if (!Array.isArray(a) || a.length !== b.length) return false;
-  return a.every((value, index) => normalizeText(value) === normalizeText(b[index]));
-}
-
-function compareMatching(correctPairs: any[], submittedPairs: any[]): boolean {
-  if (!Array.isArray(submittedPairs) || submittedPairs.length !== correctPairs.length) {
-    return false;
-  }
-
-  return correctPairs.every((correct) => {
-    return submittedPairs.some(
-      (submitted) =>
-        submitted?.left === correct.left && submitted?.right === correct.right
-    );
-  });
-}
-
-function evaluateQuestion(question: any, answer: any): boolean {
-  if (!question || typeof question !== 'object') return false;
-
-  switch (question.type) {
-    case 'mcq':
-      // Graded by VALUE (the option text), not array index — the student
-      // sees options in a server-shuffled order, so their submitted index
-      // would be meaningless against the original (unshuffled) correctIndex.
-      return (
-        typeof answer === 'string' &&
-        Array.isArray(question.options) &&
-        typeof question.correctIndex === 'number' &&
-        normalizeText(answer) === normalizeText(question.options[question.correctIndex])
-      );
-
-    case 'picture_choice':
-      // Same reasoning as mcq, graded against each choice's image URL
-      // (the stable identifier — choices are shuffled for display too).
-      return (
-        typeof answer === 'string' &&
-        Array.isArray(question.choices) &&
-        typeof question.correctIndex === 'number' &&
-        answer === question.choices[question.correctIndex]?.image
-      );
-
-    case 'true_false':
-      return answer === question.correctAnswer;
-
-    case 'matching':
-      return compareMatching(question.pairs || [], Array.isArray(answer) ? answer : []);
-
-    case 'ordering':
-      return Array.isArray(answer) && Array.isArray(question.items)
-        ? arraysMatch(answer, question.items)
-        : false;
-
-    case 'fill_blank':
-      // `answer` is one submitted word per blank, in blank order — matches
-      // the real question shape (textTemplate + blanks[]), not a single
-      // correctAnswer string (which this question type doesn't have).
-      return Array.isArray(question.blanks) ? textArraysMatch(answer, question.blanks) : false;
-
-    case 'word_scramble':
-      return (
-        typeof answer === 'string' &&
-        typeof question.answer === 'string' &&
-        answer.trim().toLowerCase() === question.answer.trim().toLowerCase()
-      );
-
-    case 'sentence_build':
-      return Array.isArray(answer) && Array.isArray(question.words)
-        ? arraysMatch(answer, question.words)
-        : false;
-
-    case 'listen_write':
-      return (
-        typeof answer === 'string' &&
-        typeof question.correctText === 'string' &&
-        answer.trim().toLowerCase() === question.correctText.trim().toLowerCase()
-      );
-
-    case 'swipe_sort':
-      if (!Array.isArray(answer) || !Array.isArray(question.cards)) return false;
-      return question.cards.every((card: any) => {
-        const submitted = (answer as any[]).find((item) => item?.text === card.text);
-        return submitted?.side === card.correctSide;
-      });
-
-    default:
-      return false;
-  }
-}
-
 /** Locates the quiz subdocument by id within a course's content, or null. */
 function findQuizItem(content: any, quizId: string): any {
   for (const chapter of content.chapters || []) {
@@ -152,33 +40,10 @@ function findQuizItem(content: any, quizId: string): any {
   return null;
 }
 
-/** Grades every question server-side and returns per-question results + totals. Explanations are only included here — never in the student-facing content payload (see stripQuizSecrets) — since this only runs after the student has already submitted an answer. */
+/** Grades every question server-side and returns per-question results + totals, plus the quiz's own pass/fail threshold. Explanations are only included here — never in the student-facing content payload (see stripQuizSecrets) — since this only runs after the student has already submitted an answer. */
 function gradeQuiz(quizItem: any, answers: any[]) {
   const answerMap = normalizeAnswers(answers);
-  const gradedAnswers: QuizAnswerResult[] = [];
-  let earnedPoints = 0;
-  let totalPoints = 0;
-
-  for (const question of quizItem.questions || []) {
-    const questionId = question._id?.toString();
-    const selectedAnswer = questionId ? answerMap[questionId] : undefined;
-    const isCorrect = evaluateQuestion(question, selectedAnswer);
-    const points = typeof question.points === 'number' ? question.points : 1;
-
-    if (isCorrect) earnedPoints += points;
-
-    gradedAnswers.push({
-      questionId,
-      selectedAnswer,
-      correct: isCorrect,
-      points: isCorrect ? points : 0,
-      explanation: !isCorrect && question.explanation ? question.explanation : undefined,
-    });
-
-    totalPoints += points;
-  }
-
-  const percentage = totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+  const { gradedAnswers, earnedPoints, totalPoints, percentage } = gradeQuestionSet(quizItem.questions || [], answerMap);
   const passed = percentage >= (quizItem.passingScore || 60);
 
   return { gradedAnswers, earnedPoints, totalPoints, percentage, passed };

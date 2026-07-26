@@ -11,16 +11,11 @@ import ExamAttempt from '../models/exam-attempt.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
+import { sanitizeQuestionForStudent, gradeQuestionSet } from '../utils/question-engine';
 
-/** Strips correct-answer fields so students never receive them. */
+/** Strips correct-answer fields (and shuffles options/choices/etc.) so students never receive them — same engine as course quizzes. */
 function sanitizeQuestion(q: IPaperQuestion) {
-  return {
-    _id: q._id,
-    type: q.type,
-    question: q.question,
-    points: q.points,
-    options: q.options,
-  };
+  return sanitizeQuestionForStudent(q);
 }
 
 // GET /exams/my/active — exams the student can currently launch (or resume)
@@ -159,22 +154,13 @@ export const submit = async (req: Request, res: Response): Promise<Response> => 
   const answerByQuestion: Record<string, unknown> = {};
   for (const a of attempt.answers) answerByQuestion[a.questionId.toString()] = a.value;
 
-  let autoGradedScore = 0;
-  let ungradedQuestionCount = 0;
-  for (const q of paper.questions) {
-    const given = answerByQuestion[(q._id as any).toString()];
-    if (q.type === 'mcq') {
-      if (typeof given === 'number' && given === q.correctIndex) autoGradedScore += q.points;
-    } else if (q.type === 'true_false') {
-      if (typeof given === 'boolean' && given === q.correctAnswer) autoGradedScore += q.points;
-    } else {
-      ungradedQuestionCount += 1; // short_answer needs manual grading
-    }
-  }
+  // Same grading engine as course quizzes — every one of the 10 question
+  // types is auto-graded server-side, nothing needs manual review anymore.
+  const { earnedPoints } = gradeQuestionSet(paper.questions as any, answerByQuestion);
 
   const isLate = new Date() > attempt.deadline;
-  attempt.autoGradedScore = autoGradedScore;
-  attempt.ungradedQuestionCount = ungradedQuestionCount;
+  attempt.autoGradedScore = earnedPoints;
+  attempt.ungradedQuestionCount = 0;
   attempt.status = isLate ? 'auto_submitted' : 'submitted';
   attempt.submittedAt = new Date();
   await attempt.save();

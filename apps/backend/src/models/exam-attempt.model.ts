@@ -8,7 +8,12 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IExamAnswer {
   questionId: mongoose.Types.ObjectId;
-  // mcq: number (option index); true_false: boolean; short_answer: string
+  // Shape matches question type, same convention as quiz attempts (see
+  // ../utils/question-engine evaluateQuestion): mcq/picture_choice: string
+  // (the chosen option's value, not its index — options are shuffled per
+  // student); true_false: boolean; matching: {left,right}[]; ordering /
+  // sentence_build: string[]; fill_blank: string[] (one per blank);
+  // word_scramble / listen_write: string; swipe_sort: {text,side}[].
   value: mongoose.Schema.Types.Mixed;
 }
 
@@ -23,7 +28,8 @@ export interface IExamAttempt extends Document {
   submittedAt?: Date;
   autoGradedScore: number;
   maxScore: number;
-  ungradedQuestionCount: number; // short_answer questions needing manual review
+  /** @deprecated always 0 now — every question type is auto-graded server-side (see ../utils/question-engine). Kept for API/schema compatibility. */
+  ungradedQuestionCount: number;
   status: 'in_progress' | 'submitted' | 'auto_submitted';
   school?: mongoose.Types.ObjectId;
   createdAt: Date;

@@ -2,39 +2,36 @@
  * Papers & Approval — Admin/Teacher
  * Instructor paper submission (question authoring) with admin proofreading,
  * moderation, and approval workflow.
+ *
+ * Questions use the exact same 10-type engine as course quizzes — the same
+ * QuestionEditor, the same "+ Add Question" type picker, the same
+ * QuizQuestion shape (see course-builder.types.ts) and validation
+ * (isQuestionValid, from builder-quiz-editor.tsx) as quiz authoring. One
+ * codebase for "what a question looks like", not a smaller parallel one.
  */
 
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
+import type { QuizQuestion, QuestionType } from './course-builder.types';
+import { normalizeQuestion } from './course-builder.types';
+import { QUESTION_TYPE_META } from './quiz-question-meta';
+import { QuestionEditor } from './components/quiz-question-editor';
+import { QuestionTypeMenu } from './components/quiz-question-type-menu';
+import { groupQuestionsByType, QuestionGroupHeader, createQuestion, isQuestionValid } from './components/builder-quiz-editor';
 
 interface ExamBrief { _id: string; title: string; examDate: string; course?: { _id: string; title: { en: string } }; }
-
-type QType = 'mcq' | 'true_false' | 'short_answer';
-
-interface PaperQuestion {
-  _id?: string;
-  type: QType;
-  question: string;
-  points: number;
-  options?: string[];
-  correctIndex?: number;
-  correctAnswer?: boolean;
-  correctText?: string;
-}
 
 interface Paper {
   _id: string;
   title: string;
   instructions: string;
-  questions: PaperQuestion[];
+  questions: QuizQuestion[];
   totalPoints: number;
   status: 'draft' | 'submitted' | 'approved' | 'rejected';
   submittedBy?: { email: string };
   reviewedBy?: { email: string };
   reviewNotes?: string;
 }
-
-const emptyQuestion = (): PaperQuestion => ({ type: 'mcq', question: '', points: 1, options: ['', ''], correctIndex: 0 });
 
 function StatusBadge({ status }: { status: string }) {
   const c: Record<string, string> = {
@@ -52,7 +49,10 @@ export function ExamPapersManage() {
   const [paper, setPaper] = useState<Paper | null>(null);
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [questions, setQuestions] = useState<PaperQuestion[]>([]);
+  const [questions, setQuestions] = useState<QuizQuestion[]>([]);
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const [invalidIds, setInvalidIds] = useState<Set<string>>(new Set());
+  const [validationError, setValidationError] = useState('');
   const [loading, setLoading] = useState(true);
   const [paperLoading, setPaperLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -78,6 +78,8 @@ export function ExamPapersManage() {
     setSelectedExam(examId);
     setPaper(null);
     setMessage('');
+    setValidationError('');
+    setInvalidIds(new Set());
     if (!examId) return;
     setPaperLoading(true);
     setError('');
@@ -87,7 +89,7 @@ export function ExamPapersManage() {
       setPaper(p);
       setTitle(p?.title || '');
       setInstructions(p?.instructions || '');
-      setQuestions(p?.questions?.length ? p.questions : [emptyQuestion()]);
+      setQuestions((p?.questions?.length ? p.questions : []).map(normalizeQuestion));
       setReviewNotes('');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load paper');
@@ -98,37 +100,59 @@ export function ExamPapersManage() {
 
   const isLocked = paper && !['draft', 'rejected'].includes(paper.status);
 
-  const updateQuestion = (idx: number, patch: Partial<PaperQuestion>) => {
-    setQuestions((prev) => prev.map((q, i) => (i === idx ? { ...q, ...patch } : q)));
+  const addQuestion = (type: QuestionType) => {
+    setQuestions((prev) => [...prev, createQuestion(type)]);
+    setTypeMenuOpen(false);
+    setValidationError('');
+    setInvalidIds(new Set());
   };
 
-  const updateOption = (qIdx: number, optIdx: number, value: string) => {
-    setQuestions((prev) => prev.map((q, i) => {
-      if (i !== qIdx) return q;
-      const options = [...(q.options || [])];
-      options[optIdx] = value;
-      return { ...q, options };
-    }));
+  const updateQuestion = (idx: number, updated: QuizQuestion) => {
+    setQuestions((prev) => prev.map((q, i) => (i === idx ? updated : q)));
+    if (updated._id) {
+      setInvalidIds((prev) => {
+        if (!prev.has(updated._id!)) return prev;
+        const next = new Set(prev);
+        next.delete(updated._id!);
+        return next;
+      });
+    }
   };
 
-  const addOption = (qIdx: number) => {
-    setQuestions((prev) => prev.map((q, i) => (i === qIdx ? { ...q, options: [...(q.options || []), ''] } : q)));
+  const removeQuestion = (idx: number) => {
+    setQuestions((prev) => prev.filter((_, i) => i !== idx));
+    setValidationError('');
+    setInvalidIds(new Set());
   };
 
-  const removeOption = (qIdx: number, optIdx: number) => {
-    setQuestions((prev) => prev.map((q, i) => {
-      if (i !== qIdx) return q;
-      const options = (q.options || []).filter((_, oi) => oi !== optIdx);
-      const correctIndex = q.correctIndex && q.correctIndex >= options.length ? 0 : q.correctIndex;
-      return { ...q, options, correctIndex };
-    }));
-  };
+  const groupedQuestions = groupQuestionsByType(questions);
 
-  const addQuestion = () => setQuestions((prev) => [...prev, emptyQuestion()]);
-  const removeQuestion = (idx: number) => setQuestions((prev) => prev.filter((_, i) => i !== idx));
+  /** Returns true (and clears any prior error) only if every question is complete — same rule as quiz authoring. */
+  const validate = (): boolean => {
+    const invalid = questions.filter((q) => !isQuestionValid(q));
+    if (invalid.length > 0) {
+      setInvalidIds(new Set(invalid.map((q) => q._id).filter(Boolean) as string[]));
+      const names = invalid
+        .map((q) => {
+          const flatIndex = questions.indexOf(q);
+          const label = QUESTION_TYPE_META[q.type]?.label || q.type;
+          return `Q${flatIndex + 1} (${label})`;
+        })
+        .join(', ');
+      setValidationError(`Please finish these question${invalid.length === 1 ? '' : 's'} before saving — highlighted below: ${names}.`);
+      const firstInvalidId = invalid[0]._id;
+      if (firstInvalidId) {
+        document.querySelector(`[data-question-id="${firstInvalidId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return false;
+    }
+    setValidationError('');
+    setInvalidIds(new Set());
+    return true;
+  };
 
   const handleSave = async () => {
-    if (!selectedExam) return;
+    if (!selectedExam || !validate()) return;
     setSaving(true);
     setError('');
     setMessage('');
@@ -144,7 +168,7 @@ export function ExamPapersManage() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedExam) return;
+    if (!selectedExam || !validate()) return;
     setSaving(true);
     setError('');
     setMessage('');
@@ -243,54 +267,53 @@ export function ExamPapersManage() {
                 <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" placeholder="Instructions shown to the student before they start" />
               </div>
 
-              <div className="space-y-3">
-                {questions.map((q, qIdx) => (
-                  <div key={qIdx} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 space-y-3 shadow-card">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">Question {qIdx + 1}</span>
-                      <div className="flex items-center gap-2">
-                        <select value={q.type} onChange={(e) => updateQuestion(qIdx, { type: e.target.value as QType, options: e.target.value === 'mcq' ? ['', ''] : undefined })} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs">
-                          <option value="mcq">Multiple Choice</option>
-                          <option value="true_false">True / False</option>
-                          <option value="short_answer">Short Answer</option>
-                        </select>
-                        <input type="number" min={0} value={q.points} onChange={(e) => updateQuestion(qIdx, { points: Number(e.target.value) })} className="w-16 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs text-center" title="Points" />
-                        <button type="button" onClick={() => removeQuestion(qIdx)} className="text-red-500 hover:text-red-700 text-xs">🗑️</button>
+              {/* Questions — identical engine to quiz authoring (grouped by type, same QuestionEditor, same type picker) */}
+              <div>
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                  <span className="text-xs font-semibold text-[var(--color-text-secondary)]">Questions ({questions.length})</span>
+                  <button
+                    type="button"
+                    onClick={() => setTypeMenuOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary-600 to-primary-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-primary-700 hover:to-primary-600 transition-all"
+                  >
+                    <span>🎮</span> Add Question
+                  </button>
+                </div>
+
+                {validationError && (
+                  <p className="mb-2 flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">
+                    <span>⚠</span> {validationError}
+                  </p>
+                )}
+
+                {questions.length === 0 && (
+                  <p className="text-xs text-[var(--color-text-tertiary)] py-4 text-center border border-dashed border-[var(--color-border-default)] rounded-lg">
+                    No questions yet. Click "Add Question" to choose an interactive question type — the same types available for course quizzes.
+                  </p>
+                )}
+
+                <div className="space-y-5">
+                  {groupedQuestions.map((group) => (
+                    <div key={group.type}>
+                      <QuestionGroupHeader type={group.type} count={group.items.length} totalPoints={group.totalPoints} />
+                      <div className="space-y-3">
+                        {group.items.map(({ question, flatIndex }, localIdx) => (
+                          <QuestionEditor
+                            key={question._id || flatIndex}
+                            question={question}
+                            index={localIdx}
+                            onChange={(updated) => updateQuestion(flatIndex, updated)}
+                            onRemove={() => removeQuestion(flatIndex)}
+                            isInvalid={!!question._id && invalidIds.has(question._id)}
+                          />
+                        ))}
                       </div>
                     </div>
+                  ))}
+                </div>
 
-                    <input value={q.question} onChange={(e) => updateQuestion(qIdx, { question: e.target.value })} placeholder="Question text" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" />
-
-                    {q.type === 'mcq' && (
-                      <div className="space-y-1.5">
-                        {(q.options || []).map((opt, oIdx) => (
-                          <div key={oIdx} className="flex items-center gap-2">
-                            <input type="radio" checked={q.correctIndex === oIdx} onChange={() => updateQuestion(qIdx, { correctIndex: oIdx })} title="Correct answer" />
-                            <input value={opt} onChange={(e) => updateOption(qIdx, oIdx, e.target.value)} placeholder={`Option ${oIdx + 1}`} className="flex-1 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-sm" />
-                            {(q.options?.length || 0) > 2 && <button type="button" onClick={() => removeOption(qIdx, oIdx)} className="text-red-500 text-xs">✕</button>}
-                          </div>
-                        ))}
-                        <button type="button" onClick={() => addOption(qIdx)} className="text-xs text-primary-600 hover:underline">+ Add option</button>
-                      </div>
-                    )}
-
-                    {q.type === 'true_false' && (
-                      <div className="flex gap-4 text-sm">
-                        <label className="flex items-center gap-1.5"><input type="radio" checked={q.correctAnswer === true} onChange={() => updateQuestion(qIdx, { correctAnswer: true })} /> True</label>
-                        <label className="flex items-center gap-1.5"><input type="radio" checked={q.correctAnswer === false} onChange={() => updateQuestion(qIdx, { correctAnswer: false })} /> False</label>
-                      </div>
-                    )}
-
-                    {q.type === 'short_answer' && (
-                      <input value={q.correctText || ''} onChange={(e) => updateQuestion(qIdx, { correctText: e.target.value })} placeholder="Reference answer (for manual grading)" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" />
-                    )}
-                  </div>
-                ))}
+                <QuestionTypeMenu isOpen={typeMenuOpen} onClose={() => setTypeMenuOpen(false)} onSelect={addQuestion} />
               </div>
-
-              <button type="button" onClick={addQuestion} className="rounded-xl border border-dashed border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors w-full">
-                + Add Question
-              </button>
 
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={handleSave} disabled={saving} className="rounded-xl border border-[var(--color-border-default)] px-5 py-2.5 text-sm font-semibold hover:bg-[var(--color-surface-tertiary)] disabled:opacity-60 transition-colors">

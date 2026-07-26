@@ -10,8 +10,7 @@ import ExamPaper from '../models/exam-paper.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import { assertOwnsOrg, assertOwnsExamIfTeacher } from '../utils/tenant-scope';
-
-const QUESTION_TYPES = ['mcq', 'true_false', 'short_answer'];
+import { validateQuestions as validateQuestionSet } from '../utils/question-engine';
 
 /** Loads the exam and verifies the caller may manage its paper. */
 async function loadManageableExam(req: Request, examId: string) {
@@ -22,22 +21,13 @@ async function loadManageableExam(req: Request, examId: string) {
   return exam;
 }
 
+// Same 10-type validation as course quizzes (../utils/question-engine) —
+// exam paper questions are quiz questions, not a separate smaller schema.
 function validateQuestions(questions: any[]): void {
-  if (!Array.isArray(questions) || questions.length === 0) {
-    throw new BadRequestError('At least one question is required');
-  }
-  for (const q of questions) {
-    if (!QUESTION_TYPES.includes(q.type)) throw new BadRequestError(`Invalid question type "${q.type}"`);
-    if (!q.question || !q.question.trim()) throw new BadRequestError('Every question needs question text');
-    if (q.type === 'mcq') {
-      if (!Array.isArray(q.options) || q.options.length < 2) throw new BadRequestError('MCQ questions need at least 2 options');
-      if (typeof q.correctIndex !== 'number' || q.correctIndex < 0 || q.correctIndex >= q.options.length) {
-        throw new BadRequestError('MCQ questions need a valid correctIndex');
-      }
-    }
-    if (q.type === 'true_false' && typeof q.correctAnswer !== 'boolean') {
-      throw new BadRequestError('True/False questions need a correctAnswer');
-    }
+  try {
+    validateQuestionSet(questions);
+  } catch (err: any) {
+    throw new BadRequestError(err.message);
   }
 }
 

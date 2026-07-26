@@ -29,8 +29,15 @@ interface QuizEditorProps {
   chapters?: Chapter[];
 }
 
-/** Groups questions by type in canonical order, keeping each question's original array index for edit/remove callbacks. */
-function groupQuestionsByType(questions: QuizQuestion[]) {
+/**
+ * Groups questions by type in canonical order, keeping each question's
+ * original array index for edit/remove callbacks. Exported (along with
+ * QuestionGroupHeader/createQuestion/isQuestionValid below) so exam papers
+ * (exam-papers-manage.tsx) can build their own question list with the exact
+ * same authoring UI/behavior as a course quiz — one question engine, not
+ * two that can drift apart.
+ */
+export function groupQuestionsByType(questions: QuizQuestion[]) {
   const byType = new Map<QuestionType, { question: QuizQuestion; flatIndex: number }[]>();
   questions.forEach((q, flatIndex) => {
     const list = byType.get(q.type) || [];
@@ -46,7 +53,7 @@ function groupQuestionsByType(questions: QuizQuestion[]) {
     });
 }
 
-function QuestionGroupHeader({ type, count, totalPoints }: { type: QuestionType; count: number; totalPoints: number }) {
+export function QuestionGroupHeader({ type, count, totalPoints }: { type: QuestionType; count: number; totalPoints: number }) {
   const meta = QUESTION_TYPE_META[type];
   return (
     <div className="flex items-center justify-between gap-2 px-1 py-2 mb-2 border-b-2 border-[var(--color-border-default)]">
@@ -65,7 +72,7 @@ function QuestionGroupHeader({ type, count, totalPoints }: { type: QuestionType;
   );
 }
 
-function createQuestion(type: QuestionType): QuizQuestion {
+export function createQuestion(type: QuestionType): QuizQuestion {
   const base = { _id: generateTempId(), question: '', explanation: '', points: 1 };
   switch (type) {
     case 'true_false':
@@ -98,7 +105,7 @@ function createQuestion(type: QuestionType): QuizQuestion {
   }
 }
 
-function isQuestionValid(q: QuizQuestion): boolean {
+export function isQuestionValid(q: QuizQuestion): boolean {
   if (!q.question.trim()) return false;
   switch (q.type) {
     case 'mcq':
