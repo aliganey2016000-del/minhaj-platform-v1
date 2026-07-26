@@ -19,7 +19,10 @@
     /* Text */
     --color-text-primary: #0f172a;
     --color-text-secondary: #475569;
-    --color-text-tertiary: #94a3b8;
+    /* Was #94a3b8 (slate-400) — only ~2.6:1 against the cream/white surfaces
+       above, failing WCAG AA (4.5:1) for normal text. slate-500 keeps the
+       same muted/tertiary feel at ~4.8:1. */
+    --color-text-tertiary: #64748b;
     --color-text-inverse: #ffffff;
 
     /* Brand */
