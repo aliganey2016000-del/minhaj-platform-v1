@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import Exam from '../models/exam.model';
 import Course from '../models/course.model';
+import ExamPaper from '../models/exam-paper.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -8,12 +9,17 @@ import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, assertOwnsExamIfTea
 
 // GET /exams — List all with optional filters
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const { courseId, status, page = '1', limit = '50', search } = req.query;
+  const { courseId, status, school, page = '1', limit = '50', search } = req.query;
 
   const filter: Record<string, unknown> = {};
   if (courseId) filter.course = courseId as string;
   if (status && ['scheduled', 'ongoing', 'completed', 'cancelled'].includes(status as string))
     filter.status = status;
+  // applyOrgFilter below auto-scopes org_admin to their own org and leaves
+  // admin/teacher unrestricted — `school` lets a super admin (role 'admin')
+  // narrow the platform-wide exam list down to one organization, e.g. for
+  // Papers & Approval's org picker.
+  if (school) filter.school = school as string;
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
 
@@ -48,6 +54,16 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
       return title.includes(s) || courseName.includes(s) || room.includes(s);
     });
   }
+
+  // Attach each exam's paper status (draft/submitted/approved/rejected, or
+  // null if no paper exists yet) in one batched lookup — lets callers like
+  // Papers & Approval filter/tab by review status without an N+1 fetch.
+  const papers = await ExamPaper.find({ exam: { $in: result.map((e: any) => e._id) } })
+    .select('exam status')
+    .lean();
+  const paperStatusByExam: Record<string, string> = {};
+  for (const p of papers) paperStatusByExam[p.exam.toString()] = p.status;
+  result = result.map((e: any) => ({ ...e, paperStatus: paperStatusByExam[e._id.toString()] || null }));
 
   return ApiResponse.paginated(res, result, {
     page: pageNum,
