@@ -227,7 +227,12 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
         autoSchedule: true, milestone: 'final', createdBy: req.user!.userId,
       },
     ]);
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    // Was a silent catch — a validation failure here left the course
+    // created with no Mid/Final Exam and zero trace of why. Log it so a
+    // real bug doesn't look identical to "not deployed yet".
+    console.error(`❌ Failed to auto-create Mid/Final exams for course ${course._id}:`, err);
+  }
 
   const populated = await Course.findById(course._id)
     .populate({
