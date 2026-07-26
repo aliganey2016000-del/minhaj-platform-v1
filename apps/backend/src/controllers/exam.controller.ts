@@ -164,7 +164,7 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
 
   const courseIds = (student.enrolledCourses || []).map((id: any) => id);
   const exams = await Exam.find({ course: { $in: courseIds } })
-    .populate('course', 'title.en slug category')
+    .populate('course', 'title.en slug category thumbnail')
     .populate('createdBy', 'email')
     .sort({ examDate: 1, startTime: 1 })
     .lean();
