@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { QUESTION_TYPE_META } from '../../admin/pages/quiz-question-meta';
 
@@ -20,7 +20,7 @@ type AttemptQuestionType =
   | 'swipe_sort' | 'listen_write' | 'fill_blank' | 'word_scramble' | 'sentence_build';
 
 interface LaunchableExam {
-  exam: { _id: string; title: string; examDate?: string; duration: number; course?: { title: { en: string } } };
+  exam: { _id: string; title: string; examDate?: string; duration: number; course?: { _id: string; title: { en: string } } };
   paper: { title: string; totalPoints: number };
   attempt: { status: string; autoGradedScore?: number; maxScore?: number } | null;
 }
@@ -65,6 +65,7 @@ function formatRemaining(ms: number): string {
 const inputCls = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm';
 
 export function StudentExamActive() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [list, setList] = useState<LaunchableExam[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,11 +73,26 @@ export function StudentExamActive() {
 
   const [session, setSession] = useState<AttemptSession | null>(null);
   const [activeExamId, setActiveExamId] = useState('');
+  const [activeCourseId, setActiveCourseId] = useState('');
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [remaining, setRemaining] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ autoGradedScore: number; maxScore: number } | null>(null);
   const autosaveTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /** Best-effort resume point — the course's own completed-item count, in flat curriculum order (accurate for the normal sequential-completion case). */
+  const continueLearning = async () => {
+    if (!activeCourseId) { navigate('/student/courses'); return; }
+    try {
+      const { data } = await api.get('/students/my/courses');
+      const course = (data.data || []).find((c: any) => c._id === activeCourseId);
+      const p = course?.progress;
+      const startItemIdx = p ? (p.completedLessons || 0) + (p.completedQuizzes || 0) + (p.completedAssignments || 0) : 0;
+      navigate(`/student/courses/${activeCourseId}/learn`, { state: { startItemIdx } });
+    } catch {
+      navigate(`/student/courses/${activeCourseId}/learn`);
+    }
+  };
 
   const fetchList = useCallback(async () => {
     setLoading(true);
@@ -98,7 +114,11 @@ export function StudentExamActive() {
   // find and click it again in the list below.
   useEffect(() => {
     const examId = searchParams.get('examId');
-    if (!examId || session) return;
+    // Wait for `list` to finish loading first — handleLaunch reads the
+    // course id for this exam out of it (for the post-submit "Continue
+    // Learning" link), which would come back empty if we launched before
+    // the list ever populated.
+    if (!examId || session || loading) return;
     handleLaunch(examId);
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -106,7 +126,7 @@ export function StudentExamActive() {
       return next;
     }, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, loading]);
 
   // Countdown timer
   useEffect(() => {
@@ -148,6 +168,7 @@ export function StudentExamActive() {
       const s: AttemptSession = data.data;
       setSession(s);
       setActiveExamId(examId);
+      setActiveCourseId(list.find((l) => l.exam._id === examId)?.exam.course?._id || '');
       const initial: Record<string, unknown> = {};
       s.answers.forEach((a) => { initial[a.questionId] = a.value; });
       setAnswers(initial);
@@ -251,11 +272,19 @@ export function StudentExamActive() {
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
 
         {result && (
-          <div className="rounded-2xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-5 text-center">
-            <p className="font-bold text-green-700 dark:text-green-300">✅ Exam submitted</p>
-            <p className="text-sm text-green-600 dark:text-green-400 mt-1">
-              Auto-graded score: {result.autoGradedScore}/{result.maxScore}
-            </p>
+          <div className="rounded-2xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-5 text-center space-y-3">
+            <div>
+              <p className="font-bold text-green-700 dark:text-green-300">✅ Exam submitted</p>
+              <p className="text-sm text-green-600 dark:text-green-400 mt-1">
+                Auto-graded score: {result.autoGradedScore}/{result.maxScore}
+              </p>
+            </div>
+            <button
+              onClick={continueLearning}
+              className="rounded-xl bg-primary-600 text-white px-5 py-2.5 text-sm font-semibold hover:bg-primary-700 transition-colors"
+            >
+              ▶️ Continue Learning
+            </button>
           </div>
         )}
 

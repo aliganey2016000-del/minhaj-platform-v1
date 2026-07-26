@@ -156,6 +156,11 @@ export function StudentCourseLearn() {
   const [markingComplete, setMarkingComplete] = useState(false);
   // Track locally which flat-item indices have been marked completed
   const [locallyCompleted, setLocallyCompleted] = useState<Set<number>>(new Set());
+  // Auto-scheduled exam that just became available after this completion —
+  // shown as a one-time "it's ready" notice rather than making the student
+  // discover it by happening to check My Exam Schedule later.
+  const [examReadyModal, setExamReadyModal] = useState<{ examId: string; title: string } | null>(null);
+  const shownExamNoticesRef = useRef<Set<string>>(new Set());
   // Track whether quiz is finished (hide mark-complete during active quiz)
   const [quizFinished, setQuizFinished] = useState(false);
   // Result of the just-finished quiz, so "Mark as Completed" can report real XP to gamification
@@ -386,6 +391,21 @@ export function StudentCourseLearn() {
       const courses: EnrolledCourse[] = myCoursesRes.data.data || [];
       const updated = courses.find((c) => c._id === courseId);
       if (updated) setCourse(updated);
+
+      // Did this completion just cross an auto-scheduled exam's prerequisite
+      // threshold? Fire-and-forget — must never block or delay advancing to
+      // the next item below.
+      api.get('/exams/my').then(({ data }) => {
+        const newlyReady = (data.data || []).find((e: any) =>
+          e.course?._id === courseId && e.autoSchedule && e.myEligible &&
+          !e.myAttemptStatus && !shownExamNoticesRef.current.has(e._id)
+        );
+        if (newlyReady) {
+          shownExamNoticesRef.current.add(newlyReady._id);
+          setExamReadyModal({ examId: newlyReady._id, title: newlyReady.title });
+        }
+      }).catch(() => {});
+
       // Auto-advance to next item if available
       if (activeItemIdx < totalItems - 1) {
         const nextIdx = activeItemIdx + 1;
@@ -480,6 +500,30 @@ export function StudentCourseLearn() {
           title="Live Classroom"
           onClose={() => setShowLiveCall(false)}
         />
+      )}
+
+      {examReadyModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setExamReadyModal(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl text-center" onClick={(e) => e.stopPropagation()}>
+            <p className="text-4xl mb-2">🎉</p>
+            <h3 className="text-lg font-bold text-[var(--color-text-primary)] mb-1">{examReadyModal.title} is Ready!</h3>
+            <p className="text-sm text-[var(--color-text-tertiary)] mb-5">You've completed the required lessons — this exam is now open for you.</p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => navigate('/student/exams')}
+                className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-primary-700 transition-colors"
+              >
+                📅 Go to My Exam Schedule
+              </button>
+              <button
+                onClick={() => setExamReadyModal(null)}
+                className="w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+              >
+                Continue Learning
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Offline banner ── */}
