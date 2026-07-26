@@ -215,7 +215,7 @@ export function StudentExamActive() {
           <div className="text-center py-16 text-[var(--color-text-tertiary)]">
             <p className="text-5xl mb-4">⏱️</p>
             <p className="text-lg">No active exams right now</p>
-            <p className="text-sm mt-1">An exam appears here once your teacher marks it "ongoing" and its paper is approved.</p>
+            <p className="text-sm mt-1">An exam appears here automatically once its scheduled time starts and its paper is approved.</p>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">

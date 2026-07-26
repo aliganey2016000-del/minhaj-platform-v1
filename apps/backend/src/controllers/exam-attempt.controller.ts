@@ -18,14 +18,33 @@ function sanitizeQuestion(q: IPaperQuestion) {
   return sanitizeQuestionForStudent(q);
 }
 
+/**
+ * Whether `now` actually falls inside an exam's scheduled start/end window.
+ * "Active Exams" used to key off the exam's manually-set `status ===
+ * 'ongoing'` field alone — a teacher had to remember to flip it, so an exam
+ * could be scheduled for right now and still not be launchable because
+ * nobody toggled the status. Time is the source of truth; `cancelled`
+ * still short-circuits it (a cancelled exam is never launchable no matter
+ * what its clock says).
+ */
+function isWithinExamWindow(exam: { examDate: Date; startTime: string; endTime: string; status: string }): boolean {
+  if (exam.status === 'cancelled') return false;
+  const datePart = new Date(exam.examDate).toISOString().split('T')[0];
+  const start = new Date(`${datePart}T${exam.startTime}`);
+  const end = new Date(`${datePart}T${exam.endTime}`);
+  const now = new Date();
+  return now >= start && now <= end;
+}
+
 // GET /exams/my/active — exams the student can currently launch (or resume)
 export const getActiveExams = async (req: Request, res: Response): Promise<Response> => {
   const student = await ensureStudentRecord(req.user!.userId);
   const courseIds = (student.enrolledCourses || []).map((id: any) => id);
 
-  const exams = await Exam.find({ course: { $in: courseIds }, status: 'ongoing' })
+  const allExams = await Exam.find({ course: { $in: courseIds }, status: { $ne: 'cancelled' } })
     .populate('course', 'title.en slug category')
     .lean();
+  const exams = allExams.filter((e: any) => isWithinExamWindow(e));
 
   const examIds = exams.map((e: any) => e._id);
   const [papers, attempts] = await Promise.all([
@@ -56,7 +75,7 @@ export const start = async (req: Request, res: Response): Promise<Response> => {
 
   const exam = await Exam.findById(req.params.id);
   if (!exam) throw new NotFoundError('Exam');
-  if (exam.status !== 'ongoing') throw new BadRequestError('This exam is not currently live.');
+  if (!isWithinExamWindow(exam)) throw new BadRequestError('This exam is not currently live.');
 
   const isEnrolled = (student.enrolledCourses || []).some((id: any) => id.toString() === exam.course.toString());
   if (!isEnrolled) throw new ForbiddenError('You are not enrolled in this exam\'s course.');
