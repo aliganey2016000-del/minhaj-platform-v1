@@ -13,6 +13,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { QUESTION_TYPE_META } from '../../admin/pages/quiz-question-meta';
 
 type AttemptQuestionType =
   | 'mcq' | 'true_false' | 'matching' | 'ordering' | 'picture_choice'
@@ -179,12 +180,27 @@ export function StudentExamActive() {
 
   // ── Taking an exam ──
   if (session) {
+    const answeredCount = session.paper.questions.filter((q) => {
+      const v = answers[q._id];
+      return v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
+    }).length;
+    const totalQuestions = session.paper.questions.length;
+    const progressPct = totalQuestions ? Math.round((answeredCount / totalQuestions) * 100) : 0;
+
     return (
       <div className="p-6 lg:p-10 pt-20 lg:pt-10">
         <div className="mx-auto max-w-3xl space-y-6">
-          <div className="sticky top-16 z-10 flex items-center justify-between rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-5 py-3 shadow-card">
-            <h1 className="font-bold">{session.paper.title}</h1>
-            <span className={`font-mono text-lg font-bold ${remaining < 60000 ? 'text-red-600' : 'text-primary-600'}`}>⏱️ {formatRemaining(remaining)}</span>
+          <div className="sticky top-16 z-10 space-y-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-5 py-3 shadow-card">
+            <div className="flex items-center justify-between">
+              <h1 className="font-bold">{session.paper.title}</h1>
+              <span className={`font-mono text-lg font-bold ${remaining < 60000 ? 'text-red-600' : 'text-primary-600'}`}>⏱️ {formatRemaining(remaining)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 flex-1 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden">
+                <div className="h-full rounded-full bg-primary-600 transition-all" style={{ width: `${progressPct}%` }} />
+              </div>
+              <span className="text-[11px] font-semibold text-[var(--color-text-tertiary)] whitespace-nowrap">{answeredCount}/{totalQuestions} answered</span>
+            </div>
           </div>
 
           {session.paper.instructions && (
@@ -192,12 +208,27 @@ export function StudentExamActive() {
           )}
 
           <div className="space-y-4">
-            {session.paper.questions.map((q, idx) => (
-              <div key={q._id} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
-                <p className="font-semibold mb-3">{idx + 1}. {q.question} <span className="text-xs font-normal text-[var(--color-text-tertiary)]">({q.points} pt{q.points === 1 ? '' : 's'})</span></p>
-                <QuestionAnswerInput question={q} value={answers[q._id]} onChange={(v) => setAnswer(q._id, v)} />
-              </div>
-            ))}
+            {session.paper.questions.map((q, idx) => {
+              const meta = QUESTION_TYPE_META[q.type as keyof typeof QUESTION_TYPE_META];
+              return (
+                <div key={q._id} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <p className="font-semibold flex-1">
+                      <span className="text-[var(--color-text-tertiary)]">{idx + 1}.</span> {q.question}
+                    </p>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      {meta && (
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap ${meta.color}`}>
+                          {meta.icon} {meta.label}
+                        </span>
+                      )}
+                      <span className="text-[11px] text-[var(--color-text-tertiary)]">{q.points} pt{q.points === 1 ? '' : 's'}</span>
+                    </div>
+                  </div>
+                  <QuestionAnswerInput question={q} value={answers[q._id]} onChange={(v) => setAnswer(q._id, v)} />
+                </div>
+              );
+            })}
           </div>
 
           <button onClick={() => handleSubmit(false)} disabled={submitting} className="w-full rounded-xl bg-primary-600 text-white px-6 py-3 text-sm font-bold hover:bg-primary-700 disabled:opacity-60 transition-colors shadow-sm">

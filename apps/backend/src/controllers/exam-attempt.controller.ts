@@ -80,7 +80,12 @@ export const start = async (req: Request, res: Response): Promise<Response> => {
   const isEnrolled = (student.enrolledCourses || []).some((id: any) => id.toString() === exam.course.toString());
   if (!isEnrolled) throw new ForbiddenError('You are not enrolled in this exam\'s course.');
 
-  const paper = await ExamPaper.findOne({ exam: exam._id, status: 'approved' });
+  // .lean() matters here — sanitizeQuestionForStudent spreads each question
+  // with `{...question}`, which only sees a Mongoose subdocument's actual
+  // field values (question text, options, etc. — schema paths are getters,
+  // not own enumerable properties) once it's a plain lean object. Without
+  // it every question came back looking empty (no text, no options).
+  const paper = await ExamPaper.findOne({ exam: exam._id, status: 'approved' }).lean();
   if (!paper) throw new BadRequestError('This exam has no approved paper yet.');
 
   let attempt = await ExamAttempt.findOne({ exam: exam._id, student: student._id });
@@ -119,7 +124,7 @@ export const getMine = async (req: Request, res: Response): Promise<Response> =>
   const attempt = await ExamAttempt.findOne({ exam: req.params.id, student: student._id });
   if (!attempt) throw new NotFoundError('Exam attempt');
 
-  const paper = await ExamPaper.findById(attempt.paper);
+  const paper = await ExamPaper.findById(attempt.paper).lean();
   if (!paper) throw new NotFoundError('Exam paper');
 
   return ApiResponse.success(res, {
@@ -167,7 +172,7 @@ export const submit = async (req: Request, res: Response): Promise<Response> => 
     attempt.answers = answers.map((a) => ({ questionId: a.questionId as any, value: a.value as any }));
   }
 
-  const paper = await ExamPaper.findById(attempt.paper);
+  const paper = await ExamPaper.findById(attempt.paper).lean();
   if (!paper) throw new NotFoundError('Exam paper');
 
   const answerByQuestion: Record<string, unknown> = {};
