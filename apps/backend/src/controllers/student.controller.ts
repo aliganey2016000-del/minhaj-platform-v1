@@ -618,7 +618,7 @@ export const getMyCourses = async (req: Request, res: Response): Promise<Respons
   const courseIds = enrolled.map((c: any) => c._id);
   const [progressRecords, contentRecords] = await Promise.all([
     Progress.find({ student: student._id, course: { $in: courseIds } }).lean(),
-    CourseContent.find({ course: { $in: courseIds } }).select('course totalLessons totalQuizzes totalAssignments totalDuration').lean(),
+    CourseContent.find({ course: { $in: courseIds } }).select('course totalLessons totalQuizzes totalAssignments totalExams totalDuration').lean(),
   ]);
 
   const progressMap: Record<string, any> = {};
@@ -639,7 +639,8 @@ export const getMyCourses = async (req: Request, res: Response): Promise<Respons
     const totalLessons = content?.totalLessons || 0;
     const totalQuizzes = content?.totalQuizzes || 0;
     const totalAssignments = content?.totalAssignments || 0;
-    const totalItems = totalLessons + totalQuizzes + totalAssignments;
+    const totalExams = content?.totalExams || 0;
+    const totalItems = totalLessons + totalQuizzes + totalAssignments + totalExams;
     const completedItems = (prog?.completedLessons || 0) + (prog?.completedQuizzes || 0) + (prog?.completedAssignments || 0);
     const progressPercent = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
 
@@ -653,6 +654,7 @@ export const getMyCourses = async (req: Request, res: Response): Promise<Respons
         totalLessons,
         totalQuizzes,
         totalAssignments,
+        totalExams,
         totalItems,
         completedItems,
         status: prog?.status || 'in_progress',
@@ -1177,7 +1179,7 @@ export const recordProgress = async (req: Request, res: Response): Promise<Respo
   let progress = await Progress.findOne({ student: student._id, course: courseId });
   if (!progress) {
     const content = await CourseContent.findOne({ course: courseId });
-    const total = content ? (content.totalLessons||0)+(content.totalQuizzes||0)+(content.totalAssignments||0) : 0;
+    const total = content ? (content.totalLessons||0)+(content.totalQuizzes||0)+(content.totalAssignments||0)+(content.totalExams||0) : 0;
     progress = await Progress.create({ student: student._id, course: courseId,
       completedLessons: itemType==='lesson'?1:0, completedQuizzes: itemType==='quiz'?1:0,
       completedAssignments: itemType==='assignment'?1:0, completedItemIds: itemId ? [itemId] : [],

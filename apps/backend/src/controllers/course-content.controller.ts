@@ -17,7 +17,7 @@ function getMarked(): Promise<typeof import('marked')> {
   if (!markedModulePromise) markedModulePromise = import('marked');
   return markedModulePromise;
 }
-import CourseContent from '../models/course-content.model';
+import CourseContent, { computeContentTotals } from '../models/course-content.model';
 import Course from '../models/course.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
@@ -156,11 +156,17 @@ export const saveContent = async (req: Request, res: Response): Promise<Response
   if (!course) throw new NotFoundError('Course');
   assertOwnsOrg(req, course, 'school');
 
+  // findOneAndUpdate is document-middleware-free — the model's pre('save')
+  // hook that recomputes totalLessons/totalQuizzes/etc. never runs here, so
+  // those totals are computed explicitly and included in the update instead
+  // of silently drifting stale (see computeContentTotals in the model).
   const content = await CourseContent.findOneAndUpdate(
     { course: courseId },
     {
       course: courseId,
       chapters: chapters || [],
+      ...computeContentTotals(chapters || []),
+      lastSaved: new Date(),
     },
     {
       new: true,

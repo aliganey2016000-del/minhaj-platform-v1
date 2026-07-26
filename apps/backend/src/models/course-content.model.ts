@@ -333,17 +333,22 @@ const courseContentSchema = new Schema<ICourseContent>(
 );
 
 // ---------------------------------------------------------------------------
-// Pre-save hook — compute totals
+// Totals — shared by the pre-save hook below AND saveContent in the
+// controller, which upserts via findOneAndUpdate and therefore never runs
+// this document middleware. Keeping the counting logic in one place means
+// findOneAndUpdate-based writes can't silently leave totalLessons/etc. stale
+// (which previously left "My Courses" showing "0 lessons" and a completed/
+// total ratio like "2/0" for courses saved that way).
 // ---------------------------------------------------------------------------
-courseContentSchema.pre('save', function (next) {
+export function computeContentTotals(chapters: IChapter[]) {
   let totalDuration = 0;
   let totalLessons = 0;
   let totalQuizzes = 0;
   let totalAssignments = 0;
   let totalExams = 0;
 
-  for (const chapter of this.chapters) {
-    for (const item of chapter.items) {
+  for (const chapter of chapters || []) {
+    for (const item of chapter.items || []) {
       totalDuration += item.duration || 0;
       if (item.type === 'lesson') totalLessons++;
       else if (item.type === 'quiz') totalQuizzes++;
@@ -352,11 +357,16 @@ courseContentSchema.pre('save', function (next) {
     }
   }
 
-  this.totalDuration = totalDuration;
-  this.totalLessons = totalLessons;
-  this.totalQuizzes = totalQuizzes;
-  this.totalAssignments = totalAssignments;
-  this.totalExams = totalExams;
+  return { totalDuration, totalLessons, totalQuizzes, totalAssignments, totalExams };
+}
+
+courseContentSchema.pre('save', function (next) {
+  const totals = computeContentTotals(this.chapters);
+  this.totalDuration = totals.totalDuration;
+  this.totalLessons = totals.totalLessons;
+  this.totalQuizzes = totals.totalQuizzes;
+  this.totalAssignments = totals.totalAssignments;
+  this.totalExams = totals.totalExams;
   this.lastSaved = new Date();
 
   next();

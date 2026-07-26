@@ -162,7 +162,7 @@ export const submitAttempt = async (req: Request, res: Response): Promise<Respon
   if (isFirstAttempt) {
     let progress = await Progress.findOne({ student: student._id, course: courseId });
     if (!progress) {
-      const total = (content.totalLessons || 0) + (content.totalQuizzes || 0) + (content.totalAssignments || 0);
+      const total = (content.totalLessons || 0) + (content.totalQuizzes || 0) + (content.totalAssignments || 0) + (content.totalExams || 0);
       progress = await Progress.create({ student: student._id, course: courseId, completedQuizzes: 1, totalItems: total, lastAccessed: new Date(), status: 'in_progress' });
     } else {
       progress.completedQuizzes += 1;

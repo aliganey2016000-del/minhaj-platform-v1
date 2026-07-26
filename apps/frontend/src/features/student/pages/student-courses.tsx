@@ -332,6 +332,7 @@ export function StudentCourses() {
             {filteredCourses.map((c) => {
               const progress = c.progress || {} as Progress;
               const isCompleted = progress.status === 'completed';
+              const notStarted = !isCompleted && !progress.lastAccessed;
               const pct = progress.percent || 0;
 
               return (
@@ -365,6 +366,10 @@ export function StudentCourses() {
                       {isCompleted ? (
                         <span className="rounded-full bg-green-500 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
                           ✅ {t('completed')}
+                        </span>
+                      ) : notStarted ? (
+                        <span className="rounded-full bg-sky-500 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
+                          ✨ {lang === 'so' ? 'Cusub' : lang === 'ar' ? 'جديد' : 'New'}
                         </span>
                       ) : (
                         <span className="rounded-full bg-amber-500 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
