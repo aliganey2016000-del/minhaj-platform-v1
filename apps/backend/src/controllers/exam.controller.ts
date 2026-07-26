@@ -35,7 +35,16 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const [exams, total] = await Promise.all([
     Exam.find(scopedFilter)
-      .populate('course', 'title.en slug category')
+      .populate({
+        path: 'course',
+        select: 'title.en slug category teacher class school thumbnail',
+        populate: [
+          { path: 'teacher', select: 'profile', populate: { path: 'profile', select: 'firstName lastName' } },
+          { path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } },
+          { path: 'school', select: 'name' },
+        ],
+      })
+      .populate('school', 'name')
       .populate('createdBy', 'email')
       .sort({ examDate: 1, startTime: 1 })
       .skip((pageNum - 1) * limitNum)
