@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import Exam from '../models/exam.model';
 import Course from '../models/course.model';
 import ExamPaper from '../models/exam-paper.model';
+import ExamAttempt from '../models/exam-attempt.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -166,10 +167,11 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
   const exams = await Exam.find({ course: { $in: courseIds } })
     .populate({
       path: 'course',
-      select: 'title.en slug category thumbnail class school',
+      select: 'title.en slug category thumbnail class school teacher',
       populate: [
         { path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } },
         { path: 'school', select: 'name' },
+        { path: 'teacher', select: 'profile', populate: { path: 'profile', select: 'firstName lastName' } },
       ],
     })
     .populate('school', 'name')
@@ -177,7 +179,17 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
     .sort({ examDate: 1, startTime: 1 })
     .lean();
 
-  return ApiResponse.success(res, exams);
+  // Join in this student's own attempt status per exam — lets the frontend
+  // tell "time's up, you submitted" (completed) apart from "time's up, you
+  // never took it" (missed), which the Exam document alone can't express.
+  const attempts = await ExamAttempt.find({ exam: { $in: exams.map((e: any) => e._id) }, student: student._id })
+    .select('exam status')
+    .lean();
+  const attemptStatusByExam: Record<string, string> = {};
+  for (const a of attempts) attemptStatusByExam[a.exam.toString()] = a.status;
+  const result = exams.map((e: any) => ({ ...e, myAttemptStatus: attemptStatusByExam[e._id.toString()] || null }));
+
+  return ApiResponse.success(res, result);
 };
 
 // PATCH /exams/:id/status

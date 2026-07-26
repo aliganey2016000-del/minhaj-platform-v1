@@ -6,6 +6,13 @@
  * bottom gradient scrim, auto-generated gradient placeholder when the
  * course has no thumbnail) — one card design used everywhere an exam is
  * shown as a card, not a bespoke student-only look.
+ *
+ * Tabs reflect the exam's actual real-time state relative to now and this
+ * student's own attempt, not just the teacher-set admin status:
+ *   Upcoming  — hasn't started yet
+ *   Active    — happening right now (between start and end time)
+ *   Completed — time is over AND this student submitted an attempt
+ *   Missed    — time is over and this student never submitted one
  */
 
 import { useEffect, useState } from 'react';
@@ -24,6 +31,7 @@ interface Exam {
   room: string;
   instructions: string;
   status: string;
+  myAttemptStatus: 'in_progress' | 'submitted' | 'auto_submitted' | null;
   course?: {
     _id: string;
     title: { en: string; so: string; ar: string };
@@ -31,9 +39,12 @@ interface Exam {
     thumbnail?: string;
     class?: { title?: string; section?: string; department?: { name?: string } };
     school?: { name?: string };
+    teacher?: { profile?: { firstName?: string; lastName?: string } };
   };
   school?: { name?: string };
 }
+
+type ExamState = 'upcoming' | 'active' | 'completed' | 'missed' | 'cancelled';
 
 const catLabels: Record<string, { so: string; ar: string }> = {
   quran: { so: "Qur'aanka", ar: 'القرآن' },
@@ -45,18 +56,36 @@ const catLabels: Record<string, { so: string; ar: string }> = {
   hadith: { so: 'Xadiithka', ar: 'الحديث' },
   akhlaq: { so: 'Akhlaaqda', ar: 'الأخلاق' },
 };
-const statusLabels: Record<string, { so: string; ar: string }> = {
-  scheduled: { so: 'La Qorsheeyey', ar: 'مجدول' },
-  ongoing: { so: 'Socda', ar: 'جاري' },
-  completed: { so: 'Dhameystiran', ar: 'مكتمل' },
-  cancelled: { so: 'La Joojiyey', ar: 'ملغي' },
+
+const STATE_META: Record<ExamState, { label: string; color: string }> = {
+  upcoming: { label: 'Upcoming', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+  active: { label: 'Active', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+  completed: { label: 'Completed', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+  missed: { label: 'Missed', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+  cancelled: { label: 'Cancelled', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
 };
-const statusColors: Record<string, string> = {
-  scheduled: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-  ongoing: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-  completed: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-  cancelled: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-};
+
+const TABS: { key: 'all' | ExamState; icon: string }[] = [
+  { key: 'all', icon: '📋' },
+  { key: 'upcoming', icon: '⏳' },
+  { key: 'active', icon: '🟢' },
+  { key: 'completed', icon: '✅' },
+  { key: 'missed', icon: '⚠️' },
+];
+
+/** Real-time state — computed from now vs. the exam's own start/end, plus this student's attempt. */
+function computeState(e: Exam): ExamState {
+  if (e.status === 'cancelled') return 'cancelled';
+
+  const datePart = e.examDate.split('T')[0];
+  const start = new Date(`${datePart}T${e.startTime}`).getTime();
+  const end = new Date(`${datePart}T${e.endTime}`).getTime();
+  const now = Date.now();
+
+  if (now < start) return 'upcoming';
+  if (now <= end) return 'active';
+  return e.myAttemptStatus === 'submitted' || e.myAttemptStatus === 'auto_submitted' ? 'completed' : 'missed';
+}
 
 // Same deterministic gradient set + hash as the admin Papers & Approval
 // cards, so a course without a thumbnail still looks intentional and
@@ -74,7 +103,7 @@ function placeholderGradient(seed: string): string {
   return PLACEHOLDER_GRADIENTS[hash % PLACEHOLDER_GRADIENTS.length];
 }
 
-// Same course -> school/class/department chain the admin cards show.
+// Same course -> school/class/department/teacher chain the admin cards show.
 function orgName(e: Exam): string {
   return e.school?.name || e.course?.school?.name || '—';
 }
@@ -86,6 +115,11 @@ function className(e: Exam): string {
   if (!cls?.title) return '—';
   return cls.section ? `${cls.title} - ${cls.section}` : cls.title;
 }
+function teacherName(e: Exam): string {
+  const p = e.course?.teacher?.profile;
+  const name = [p?.firstName, p?.lastName].filter(Boolean).join(' ');
+  return name || '—';
+}
 
 export function StudentExams() {
   const { t, i18n } = useTranslation('common');
@@ -93,7 +127,7 @@ export function StudentExams() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState<'all' | 'upcoming' | 'completed'>('all');
+  const [tab, setTab] = useState<'all' | ExamState>('all');
 
   useEffect(() => {
     (async () => {
@@ -108,20 +142,26 @@ export function StudentExams() {
     })();
   }, [t]);
 
-  const upcoming = exams.filter((e) => e.status === 'scheduled' || e.status === 'ongoing');
-  const completed = exams.filter((e) => e.status === 'completed');
-  const cancelled = exams.filter((e) => e.status === 'cancelled');
-  const filtered = filter === 'upcoming' ? upcoming : filter === 'completed' ? completed : exams;
+  const withState = exams.map((e) => ({ exam: e, state: computeState(e) }));
+  const counts = {
+    all: withState.length,
+    upcoming: withState.filter((x) => x.state === 'upcoming').length,
+    active: withState.filter((x) => x.state === 'active').length,
+    completed: withState.filter((x) => x.state === 'completed').length,
+    missed: withState.filter((x) => x.state === 'missed').length,
+    cancelled: withState.filter((x) => x.state === 'cancelled').length,
+  };
+  const filtered = tab === 'all' ? withState : withState.filter((x) => x.state === tab);
 
   const getTitle = (course: any) => {
     if (lang === 'so' && course?.title?.so) return course.title.so;
     if (lang === 'ar' && course?.title?.ar) return course.title.ar;
     return course?.title?.en || '';
   };
-  const getStatus = (s: string) => (statusLabels as any)[s]?.[lang] || s;
   const getCat = (c: string) => (catLabels as any)[c]?.[lang] || c;
   const dateLabel = lang === 'so' ? 'Taariikh' : lang === 'ar' ? 'التاريخ' : 'Date';
   const timeLabel = lang === 'so' ? 'Waqti' : lang === 'ar' ? 'الوقت' : 'Time';
+  const tabLabel = (k: 'all' | ExamState) => (k === 'all' ? 'All' : STATE_META[k].label);
 
   if (loading) return <div className="flex justify-center py-20"><div className="h-10 w-10 animate-spin rounded-full border-3 border-t-primary-600" /></div>;
   if (error) return <div className="text-center py-20"><p className="text-red-500 mb-4">{error}</p><button onClick={() => window.location.reload()} className="rounded-xl bg-primary-600 px-5 py-2 text-sm text-white">{t('retry')}</button></div>;
@@ -132,37 +172,42 @@ export function StudentExams() {
         <div>
           <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">📖 {t('exams')}</h1>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-            {exams.length} {t('total')} — {upcoming.length} {t('upcoming')}, {completed.length} {t('completed')}, {cancelled.length} {t('cancelled')}
+            {counts.all} {t('total')} — {counts.upcoming} Upcoming, {counts.active} Active, {counts.completed} Completed, {counts.missed} Missed
           </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{upcoming.length}</p>
-            <p className="text-xs text-blue-600 dark:text-blue-400">{t('upcoming')}</p>
+            <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{counts.upcoming}</p>
+            <p className="text-xs text-blue-600 dark:text-blue-400">Upcoming</p>
           </div>
           <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-green-700 dark:text-green-300">{completed.length}</p>
-            <p className="text-xs text-green-600 dark:text-green-400">{t('completed')}</p>
+            <p className="text-2xl font-bold text-green-700 dark:text-green-300">{counts.active}</p>
+            <p className="text-xs text-green-600 dark:text-green-400">Active</p>
+          </div>
+          <div className="rounded-xl border border-purple-200 dark:border-purple-900/50 bg-purple-50 dark:bg-purple-950/30 p-4 text-center">
+            <p className="text-2xl font-bold text-purple-700 dark:text-purple-300">{counts.completed}</p>
+            <p className="text-xs text-purple-600 dark:text-purple-400">Completed</p>
           </div>
           <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-red-700 dark:text-red-300">{cancelled.length}</p>
-            <p className="text-xs text-red-600 dark:text-red-400">{t('cancelled')}</p>
+            <p className="text-2xl font-bold text-red-700 dark:text-red-300">{counts.missed}</p>
+            <p className="text-xs text-red-600 dark:text-red-400">Missed</p>
           </div>
         </div>
 
-        <div className="flex gap-2">
-          {(['all', 'upcoming', 'completed'] as const).map((f) => (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {TABS.map(({ key, icon }) => (
             <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
-                filter === f
+              key={key}
+              onClick={() => setTab(key)}
+              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
+                tab === key
                   ? 'bg-primary-600 text-white shadow-sm'
                   : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
               }`}
             >
-              {f === 'all' ? 'All' : f === 'upcoming' ? t('upcoming') : t('completed')}
+              <span>{icon}</span> {tabLabel(key)}
+              <span className={`rounded-full px-1.5 text-[10px] ${tab === key ? 'bg-white/20' : 'bg-[var(--color-surface-secondary)]'}`}>{counts[key]}</span>
             </button>
           ))}
         </div>
@@ -174,11 +219,11 @@ export function StudentExams() {
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((e) => (
+            {filtered.map(({ exam: e, state }) => (
               <div
                 key={e._id}
                 className={`rounded-2xl border overflow-hidden bg-[var(--color-surface-primary)] hover:shadow-lg hover:-translate-y-0.5 transition-all ${
-                  e.status === 'cancelled' ? 'border-red-300 opacity-60' : 'border-[var(--color-border-default)]'
+                  state === 'cancelled' || state === 'missed' ? 'border-red-300 opacity-70' : 'border-[var(--color-border-default)]'
                 }`}
               >
                 {/* Thumbnail — identical to the admin Papers & Approval card */}
@@ -192,8 +237,8 @@ export function StudentExams() {
                   )}
                   <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent" />
                   <div className="absolute top-3 end-3">
-                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize flex-shrink-0 ${statusColors[e.status] || 'bg-gray-100 text-gray-500'}`}>
-                      {getStatus(e.status)}
+                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold flex-shrink-0 ${STATE_META[state].color}`}>
+                      {STATE_META[state].label}
                     </span>
                   </div>
                   <p className="absolute bottom-2.5 start-3.5 end-3.5 text-sm font-bold text-white truncate drop-shadow">{e.title}</p>
@@ -205,6 +250,7 @@ export function StudentExams() {
                       📘 {getTitle(e.course)} <span className="text-[var(--color-text-tertiary)]">· {getCat(e.course.category)}</span>
                     </p>
                   )}
+                  <p className="text-xs text-[var(--color-text-tertiary)] truncate">🧑‍🏫 {teacherName(e)}</p>
                   <p className="text-xs text-[var(--color-text-tertiary)] truncate">🏫 {orgName(e)} · {departmentName(e)} · {className(e)}</p>
 
                   <div className="space-y-1 text-xs pt-1">
