@@ -5,6 +5,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,6 +18,10 @@ interface CourseBrief {
   category: string;
   enrolledStudents: number;
 }
+
+interface SchoolBrief { _id: string; name: string; status?: string; }
+interface DepartmentBrief { _id: string; name: string; }
+interface ClassBrief { _id: string; title: string; section: string; }
 
 interface Exam {
   _id: string;
@@ -87,15 +92,17 @@ function StatusBadge({ status }: { status: string }) {
 
 function ExamModal({
   exam,
-  courses,
   onClose,
   onSaved,
 }: {
   exam?: Exam;
-  courses: CourseBrief[];
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { user: currentUser } = useAuth();
+  const isSuperAdmin = currentUser?.role === 'admin';
+  const isOrgAdmin = currentUser?.role === 'org_admin';
+
   const isEdit = !!exam;
   const [form, setForm] = useState<ExamForm>(
     exam
@@ -117,8 +124,104 @@ function ExamModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // ---------------------------------------------------------------------
+  // Organization -> Department -> Class -> Course cascade. Narrows the
+  // Course dropdown to courses actually taught in the chosen class, instead
+  // of a flat list of every course the caller can see.
+  // ---------------------------------------------------------------------
+  const [schools, setSchools] = useState<SchoolBrief[]>([]);
+  const [departments, setDepartments] = useState<DepartmentBrief[]>([]);
+  const [classes, setClasses] = useState<ClassBrief[]>([]);
+  const [courses, setCourses] = useState<CourseBrief[]>([]);
+  const [organization, setOrganization] = useState('');
+  const [department, setDepartment] = useState('');
+  const [classId, setClassId] = useState('');
+  const [cascadeLoading, setCascadeLoading] = useState(isEdit);
+
+  const fetchDepartments = async (school: string) => {
+    try {
+      const { data } = await api.get('/departments', { params: { school, limit: 200 } });
+      setDepartments(data.data || []);
+    } catch { setDepartments([]); }
+  };
+  const fetchClasses = async (dept: string) => {
+    try {
+      const { data } = await api.get('/classes', { params: { department: dept, limit: 200 } });
+      setClasses(data.data || []);
+    } catch { setClasses([]); }
+  };
+  const fetchCourses = async (cls: string) => {
+    try {
+      const { data } = await api.get('/courses/admin', { params: { classId: cls, limit: 200 } });
+      setCourses(data.data || []);
+    } catch { setCourses([]); }
+  };
+
+  // Super admin: load the organization list. Org admin: auto-scope.
+  useEffect(() => {
+    if (isSuperAdmin) {
+      api.get('/schools', { params: { limit: 100 } })
+        .then(({ data }) => setSchools((data.data || []).filter((s: SchoolBrief) => s.status === 'active')))
+        .catch(() => {});
+    } else if (isOrgAdmin && currentUser?.organizationId) {
+      setOrganization(currentUser.organizationId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin, isOrgAdmin]);
+
+  // Editing an existing exam: reverse-populate the cascade from its course
+  // so the dropdowns open already showing where that course actually lives.
+  useEffect(() => {
+    if (!isEdit || !exam?.course?._id) { setCascadeLoading(false); return; }
+    (async () => {
+      try {
+        const { data } = await api.get(`/courses/${exam.course._id}/admin`);
+        const c = data.data;
+        const schoolId: string = c.school?._id || '';
+        const deptId: string = c.class?.department?._id || '';
+        const clsId: string = c.class?._id || '';
+
+        if (isSuperAdmin && schoolId) setOrganization(schoolId);
+        if (deptId) {
+          setDepartment(deptId);
+          if (schoolId) await fetchDepartments(schoolId);
+        }
+        if (clsId) {
+          setClassId(clsId);
+          if (deptId) await fetchClasses(deptId);
+        }
+        if (clsId) await fetchCourses(clsId);
+      } catch {
+        // Non-fatal — the course is still pre-selected in `form.course`,
+        // just without the cascade filters populated above it.
+      } finally {
+        setCascadeLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit]);
+
   const handleChange = (field: keyof ExamForm, value: string | number) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleOrgChange = (value: string) => {
+    setOrganization(value);
+    setDepartment(''); setClassId(''); handleChange('course', '');
+    setDepartments([]); setClasses([]); setCourses([]);
+    if (value) fetchDepartments(value);
+  };
+  const handleDeptChange = (value: string) => {
+    setDepartment(value);
+    setClassId(''); handleChange('course', '');
+    setClasses([]); setCourses([]);
+    if (value) fetchClasses(value);
+  };
+  const handleClassChange = (value: string) => {
+    setClassId(value);
+    handleChange('course', '');
+    setCourses([]);
+    if (value) fetchCourses(value);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -165,10 +268,58 @@ function ExamModal({
             <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.title} onChange={(e) => handleChange('title', e.target.value)} placeholder="e.g. Midterm Exam" required />
           </div>
 
+          {isSuperAdmin && (
+            <div>
+              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Organization</label>
+              <select
+                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm disabled:opacity-60"
+                value={organization}
+                onChange={(e) => handleOrgChange(e.target.value)}
+                disabled={cascadeLoading}
+              >
+                <option value="">Select an organization...</option>
+                {schools.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Department</label>
+              <select
+                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm disabled:opacity-60"
+                value={department}
+                onChange={(e) => handleDeptChange(e.target.value)}
+                disabled={cascadeLoading || (isSuperAdmin && !organization)}
+              >
+                <option value="">{isSuperAdmin && !organization ? 'Select an organization first' : 'Select department...'}</option>
+                {departments.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Class</label>
+              <select
+                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm disabled:opacity-60"
+                value={classId}
+                onChange={(e) => handleClassChange(e.target.value)}
+                disabled={cascadeLoading || !department}
+              >
+                <option value="">{!department ? 'Select a department first' : 'Select class...'}</option>
+                {classes.map((c) => <option key={c._id} value={c._id}>{c.title}{c.section ? ` - ${c.section}` : ''}</option>)}
+              </select>
+            </div>
+          </div>
+
           <div>
             <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Course *</label>
-            <select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.course} onChange={(e) => handleChange('course', e.target.value)} required>
-              <option value="">Select Course</option>
+            <select
+              className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm disabled:opacity-60"
+              value={form.course}
+              onChange={(e) => handleChange('course', e.target.value)}
+              disabled={cascadeLoading || !classId}
+              required
+            >
+              <option value="">{!classId ? 'Select a class first' : 'Select course...'}</option>
               {courses.map((c) => (
                 <option key={c._id} value={c._id}>{c.title.en} ({c.category})</option>
               ))}
@@ -294,7 +445,6 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 export function ExamsManage() {
   const [exams, setExams] = useState<Exam[]>([]);
-  const [courses, setCourses] = useState<CourseBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -311,13 +461,8 @@ export function ExamsManage() {
       if (search) params.search = search;
       if (statusFilter) params.status = statusFilter;
 
-      const [examsRes, coursesRes] = await Promise.all([
-        api.get('/exams', { params }),
-        api.get('/courses/admin'),
-      ]);
-
-      setExams(examsRes.data.data || []);
-      setCourses(coursesRes.data.data || []);
+      const { data } = await api.get('/exams', { params });
+      setExams(data.data || []);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load exams');
     } finally {
@@ -495,7 +640,6 @@ export function ExamsManage() {
       {/* Modals */}
       {showCreate && (
         <ExamModal
-          courses={courses}
           onClose={() => setShowCreate(false)}
           onSaved={() => { setShowCreate(false); fetchData(); }}
         />
@@ -503,7 +647,6 @@ export function ExamsManage() {
       {editingExam && (
         <ExamModal
           exam={editingExam}
-          courses={courses}
           onClose={() => setEditingExam(undefined)}
           onSaved={() => { setEditingExam(undefined); fetchData(); }}
         />

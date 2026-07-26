@@ -12,6 +12,12 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   if (req.user?.role === 'org_admin') {
     if (!req.user.organizationId) return ApiResponse.success(res, []);
     filter.tenantId = req.user.organizationId;
+  } else if (req.query.school) {
+    // Super admin narrowing the list to one organization (e.g. the
+    // Organization -> Department -> Class -> Course cascade on the exam
+    // scheduling form) — org_admin above is already auto-scoped and
+    // shouldn't be able to see another org's departments via this param.
+    filter.tenantId = req.query.school as string;
   }
 
   const departments = await Department.find(filter)

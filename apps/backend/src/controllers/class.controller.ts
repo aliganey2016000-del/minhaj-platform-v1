@@ -16,12 +16,13 @@ const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 // ---------------------------------------------------------------------------
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const { schoolId, status, page = '1', limit = '50', search } = req.query;
+  const { schoolId, department, status, page = '1', limit = '50', search } = req.query;
 
   const filter: Record<string, unknown> = {};
   // org_admin can't widen the filter to another org via ?schoolId=; their
   // own organization always wins (applied below via applyOrgFilter).
   if (schoolId && req.user?.role !== 'org_admin') filter.school = schoolId as string;
+  if (department) filter.department = department as string;
   if (status && ['active', 'inactive', 'completed'].includes(status as string)) filter.status = status;
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');

@@ -155,7 +155,11 @@ export const getByIdAdmin = async (req: Request, res: Response): Promise<Respons
       populate: { path: 'profile', select: 'firstName lastName' },
     })
     .populate('school', 'name')
-    .populate({ path: 'class', select: 'title section' })
+    .populate({
+      path: 'class',
+      select: 'title section department',
+      populate: { path: 'department', select: 'name' },
+    })
     .lean();
 
   if (!course) {
