@@ -14,7 +14,6 @@ import { useCourseContent, useAutoSave, generateTempId } from './course-builder.
 import { AssignmentEditor } from './components/builder-assignment-editor';
 import { CourseContentImportModal } from './components/course-content-import-modal';
 import { ExamPickerModal, type ExamSummary } from '../components/exam-picker-modal';
-import { ExamPaperEditorModal } from '../components/exam-paper-editor-modal';
 import { JitsiCallModal } from '../../../components/shared/jitsi-call-modal';
 import { jitsiRoomName } from '../../../components/shared/jitsi-room';
 import { useAuth } from '../../../store/auth-context';
@@ -101,7 +100,6 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
   } | null>(null);
   const [addingItemChapter, setAddingItemChapter] = useState<number | null>(null);
   const [examPickerChapter, setExamPickerChapter] = useState<number | null>(null);
-  const [editingExamPaper, setEditingExamPaper] = useState<{ examId: string; examTitle: string } | null>(null);
 
   // Drag state
   const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
@@ -310,13 +308,14 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
 
     updateContentLocally(() => newContent);
     setExamPickerChapter(null);
-    // Straight into writing its questions — same as adding a quiz opens its editor.
-    setEditingExamPaper({ examId: exam._id, examTitle: exam.title });
 
     // Persist immediately — this links a real Exam record, not a draft, so
-    // a refresh right after adding it shouldn't lose the link.
+    // a refresh right after adding it shouldn't lose the link. Same pattern
+    // as adding a lesson/quiz: save first, then jump straight into its
+    // dedicated full-page editor to start writing questions.
     try {
       await saveContent(newContent);
+      navigate(`${basePath}/courses/${courseId}/exams/${examItem._id}/paper/edit`);
     } catch {
       showToast('Failed to link exam. Please try again.', 'error');
     }
@@ -659,14 +658,6 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
           />
         )}
 
-        {editingExamPaper && (
-          <ExamPaperEditorModal
-            examId={editingExamPaper.examId}
-            examTitle={editingExamPaper.examTitle}
-            onClose={() => setEditingExamPaper(null)}
-          />
-        )}
-
         {/* ── Live Session (embedded Jitsi classroom) ── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -916,7 +907,7 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                                 } else if (item.type === 'quiz') {
                                   navigate(`${basePath}/courses/${courseId}/quizzes/${item._id}/edit`);
                                 } else if (item.type === 'exam') {
-                                  setEditingExamPaper({ examId: (item as ExamItem).examId, examTitle: item.title });
+                                  navigate(`${basePath}/courses/${courseId}/exams/${item._id}/paper/edit`);
                                 }
                               }}
                             >
@@ -966,7 +957,7 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                                 onClick={() => {
                                   if (item.type === 'lesson') navigate(`${basePath}/courses/${courseId}/lessons/${item._id}/edit`);
                                   else if (item.type === 'quiz') navigate(`${basePath}/courses/${courseId}/quizzes/${item._id}/edit`);
-                                  else if (item.type === 'exam') setEditingExamPaper({ examId: (item as ExamItem).examId, examTitle: item.title });
+                                  else if (item.type === 'exam') navigate(`${basePath}/courses/${courseId}/exams/${item._id}/paper/edit`);
                                   else setEditingItem({ chapterIdx: chIdx, itemIdx });
                                 }}
                                 className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors text-xs"

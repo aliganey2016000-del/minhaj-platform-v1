@@ -125,6 +125,9 @@ const LessonEditPage = lazy(() =>
 const QuizEditPage = lazy(() =>
   import('../features/admin/pages/quiz-edit-page').then((m) => ({ default: m.QuizEditPage }))
 );
+const ExamPaperEditPage = lazy(() =>
+  import('../features/admin/pages/exam-paper-edit-page').then((m) => ({ default: m.ExamPaperEditPage }))
+);
 const CoursePreview = lazy(() =>
   import('../features/admin/pages/course-preview').then((m) => ({ default: m.CoursePreview }))
 );
@@ -275,6 +278,9 @@ const TeacherLessonEditPage = lazy(() =>
 const TeacherQuizEditPage = lazy(() =>
   import('../features/admin/pages/quiz-edit-page').then((m) => ({ default: m.QuizEditPage }))
 );
+const TeacherExamPaperEditPage = lazy(() =>
+  import('../features/admin/pages/exam-paper-edit-page').then((m) => ({ default: m.ExamPaperEditPage }))
+);
 
 function PageLoader() {
   return (
@@ -349,6 +355,7 @@ export const router = createBrowserRouter([
           { path: ':courseId/gradebook', element: L(<CourseGradebook />) },
           { path: ':courseId/lessons/:lessonId/edit', element: L(<LessonEditPage />) },
           { path: ':courseId/quizzes/:quizId/edit', element: L(<QuizEditPage />) },
+          { path: ':courseId/exams/:itemId/paper/edit', element: L(<ExamPaperEditPage />) },
           { path: ':courseId/preview', element: L(<CoursePreview />) },
         ],
       },
@@ -398,6 +405,7 @@ export const router = createBrowserRouter([
       { path: 'courses/:courseId/gradebook', element: L(<CourseGradebook basePath="/teacher" />) },
       { path: 'courses/:courseId/lessons/:lessonId/edit', element: L(<TeacherLessonEditPage />) },
       { path: 'courses/:courseId/quizzes/:quizId/edit', element: L(<TeacherQuizEditPage />) },
+      { path: 'courses/:courseId/exams/:itemId/paper/edit', element: L(<TeacherExamPaperEditPage />) },
       { path: 'quizzes', element: L(<TeacherQuizzes />) },
       { path: 'quizzes/create', element: L(<TeacherQuizzes />) },
       { path: 'lessons', element: L(<TeacherLessons />) },
