@@ -9,6 +9,11 @@ import axios from 'axios';
 import { BadRequestError, InternalServerError } from './api-error';
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
+// 'deepseek-chat' was retired — the API now only accepts 'deepseek-v4-pro'
+// or 'deepseek-v4-flash'. Flash is the fast/cheap tier, plenty for the
+// structured generation tasks in this file (quiz/exam/lesson/assignment
+// content, chat replies) — none of them need the heavier pro tier.
+const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 // Keep the prompt bounded so a huge document upload can't blow past
 // request/token limits — DeepSeek's context window is much larger than this,
@@ -105,7 +110,7 @@ export async function tutorChatResponse(params: {
     response = await axios.post(
       DEEPSEEK_API_URL,
       {
-        model: 'deepseek-chat',
+        model: DEEPSEEK_MODEL,
         messages,
         temperature: 0.5,
         max_tokens: 2000,
@@ -157,7 +162,7 @@ export async function generateLessonHtml(sourceText: string): Promise<string> {
     response = await axios.post(
       DEEPSEEK_API_URL,
       {
-        model: 'deepseek-chat',
+        model: DEEPSEEK_MODEL,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: `Write a complete lesson from this source material:\n\n${clipped}` },
@@ -229,7 +234,7 @@ export async function generateAssignmentHtml(sourceText: string, customInstructi
     response = await axios.post(
       DEEPSEEK_API_URL,
       {
-        model: 'deepseek-chat',
+        model: DEEPSEEK_MODEL,
         messages: [
           { role: 'system', content: ASSIGNMENT_SYSTEM_PROMPT },
           { role: 'user', content: `Write an assignment based on this source material:\n\n${clipped}${instructionsBlock}` },
@@ -297,7 +302,7 @@ const callDeepSeekForQuestions = async (apiKey: string, messages: { role: string
     response = await axios.post(
       DEEPSEEK_API_URL,
       {
-        model: 'deepseek-chat',
+        model: DEEPSEEK_MODEL,
         messages,
         temperature: 0.6,
         max_tokens: 4000,
@@ -463,7 +468,7 @@ export async function generateStopCheckQuestion(blockText: string): Promise<Stop
     response = await axios.post(
       DEEPSEEK_API_URL,
       {
-        model: 'deepseek-chat',
+        model: DEEPSEEK_MODEL,
         messages: [
           { role: 'system', content: STOP_CHECK_SYSTEM_PROMPT },
           { role: 'user', content: clipped },
@@ -566,7 +571,7 @@ export async function splitLessonWithAi(html: string): Promise<SplitLessonBlock[
     response = await axios.post(
       DEEPSEEK_API_URL,
       {
-        model: 'deepseek-chat',
+        model: DEEPSEEK_MODEL,
         messages: [
           { role: 'system', content: SPLIT_LESSON_SYSTEM_PROMPT },
           { role: 'user', content: `Split this lesson content:\n\n${clipped}` },
