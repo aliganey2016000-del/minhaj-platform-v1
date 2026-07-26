@@ -11,7 +11,7 @@ import ExamAttempt from '../models/exam-attempt.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
-import { sanitizeQuestionForStudent, gradeQuestionSet } from '../utils/question-engine';
+import { sanitizeQuestionForStudent, gradeQuestionSet, questionFraction } from '../utils/question-engine';
 
 /** Strips correct-answer fields (and shuffles options/choices/etc.) so students never receive them — same engine as course quizzes. */
 function sanitizeQuestion(q: IPaperQuestion) {
@@ -35,6 +35,103 @@ function isWithinExamWindow(exam: { examDate: Date; startTime: string; endTime: 
   const now = new Date();
   return now >= start && now <= end;
 }
+
+/** Whether the exam's window has fully finished — the earliest point review/results can be shown. */
+function isPastExamWindow(exam: { examDate: Date; endTime: string }): boolean {
+  const datePart = new Date(exam.examDate).toISOString().split('T')[0];
+  const end = new Date(`${datePart}T${exam.endTime}`);
+  return new Date() > end;
+}
+
+/** The correct-answer value in the same shape evaluateQuestion compares a submitted answer against — normalized once here so the review screen can show "correct answer" per type without re-deriving it on the frontend. */
+function correctAnswerFor(q: any): unknown {
+  switch (q.type) {
+    case 'mcq':
+      return typeof q.correctIndex === 'number' ? q.options?.[q.correctIndex] : undefined;
+    case 'picture_choice':
+      return typeof q.correctIndex === 'number' ? q.choices?.[q.correctIndex]?.image : undefined;
+    case 'true_false':
+      return q.correctAnswer;
+    case 'matching':
+      return q.pairs;
+    case 'ordering':
+      return q.items;
+    case 'fill_blank':
+      return q.blanks;
+    case 'word_scramble':
+      return q.answer;
+    case 'sentence_build':
+      return q.words;
+    case 'listen_write':
+      return q.correctText;
+    case 'swipe_sort':
+      return (q.cards || []).map((c: any) => ({ text: c.text, side: c.correctSide }));
+    default:
+      return undefined;
+  }
+}
+
+// GET /exams/:id/review — this student's per-question breakdown after the
+// exam window has closed: their answer, the correct answer, and whether it
+// was right, for both a submitted attempt AND a missed one (a missed exam
+// has no attempt document at all, so every question is shown as
+// unanswered/incorrect with an earned score of 0).
+export const getReview = async (req: Request, res: Response): Promise<Response> => {
+  const student = await ensureStudentRecord(req.user!.userId);
+
+  const exam = await Exam.findById(req.params.id).lean();
+  if (!exam) throw new NotFoundError('Exam');
+  if (!isPastExamWindow(exam as any)) throw new BadRequestError('This exam has not finished yet.');
+
+  const isEnrolled = (student.enrolledCourses || []).some((id: any) => id.toString() === exam.course.toString());
+  if (!isEnrolled) throw new ForbiddenError('You are not enrolled in this exam\'s course.');
+
+  const paper = await ExamPaper.findOne({ exam: exam._id, status: 'approved' }).lean();
+  if (!paper) throw new NotFoundError('Exam paper');
+
+  const attempt = await ExamAttempt.findOne({ exam: exam._id, student: student._id }).lean();
+
+  const answerByQuestion: Record<string, unknown> = {};
+  if (attempt) {
+    for (const a of attempt.answers) answerByQuestion[a.questionId.toString()] = a.value;
+  }
+
+  let earnedPoints = 0;
+  let totalPoints = 0;
+  const questions = (paper.questions as any[]).map((q) => {
+    const givenAnswer = attempt ? answerByQuestion[q._id.toString()] : undefined;
+    const points = typeof q.points === 'number' ? q.points : 1;
+    // Matching gets partial credit (2 of 3 pairs right = 2/3 the points),
+    // same rule as actual grading (question-engine.ts) — the review's score
+    // must match what was actually awarded, not re-derive a stricter one.
+    const fraction = attempt ? questionFraction(q, givenAnswer) : 0;
+    const earned = Math.round(points * fraction * 100) / 100;
+    const isCorrect = fraction === 1;
+    totalPoints += points;
+    earnedPoints += earned;
+
+    return {
+      _id: q._id,
+      type: q.type,
+      question: q.question,
+      points,
+      earnedPoints: earned,
+      isCorrect,
+      givenAnswer: givenAnswer ?? null,
+      correctAnswer: correctAnswerFor(q),
+    };
+  });
+
+  return ApiResponse.success(res, {
+    examTitle: exam.title,
+    paperTitle: paper.title,
+    missed: !attempt,
+    submittedAt: attempt?.submittedAt || null,
+    earnedPoints,
+    totalPoints,
+    questions,
+  });
+};
 
 // GET /exams/my/active — exams the student can currently launch (or resume)
 export const getActiveExams = async (req: Request, res: Response): Promise<Response> => {

@@ -51,6 +51,9 @@ const StudentExamAttendance = lazy(() =>
 const StudentExamActive = lazy(() =>
   import('../features/student/pages/student-exam-active').then((m) => ({ default: m.StudentExamActive }))
 );
+const StudentExamReview = lazy(() =>
+  import('../features/student/pages/student-exam-review').then((m) => ({ default: m.StudentExamReview }))
+);
 const StudentExamAppeals = lazy(() =>
   import('../features/student/pages/student-exam-appeals').then((m) => ({ default: m.StudentExamAppeals }))
 );
@@ -325,6 +328,7 @@ export const router = createBrowserRouter([
       { path: 'exams', element: L(<StudentExams />) },
       { path: 'exams/seating', element: L(<StudentExamSeating />) },
       { path: 'exams/active', element: L(<StudentExamActive />) },
+      { path: 'exams/:examId/review', element: L(<StudentExamReview />) },
       { path: 'exams/attendance', element: L(<StudentExamAttendance />) },
       { path: 'exams/results', element: L(<StudentExamResults />) },
       { path: 'exams/appeals', element: L(<StudentExamAppeals />) },

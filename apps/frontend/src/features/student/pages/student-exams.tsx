@@ -281,6 +281,21 @@ export function StudentExams() {
                       🚀 {lang === 'so' ? 'Bilow Imtixaanka' : lang === 'ar' ? 'ابدأ الامتحان' : 'Start Exam'}
                     </button>
                   )}
+
+                  {state === 'missed' && (
+                    <p className="rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2 text-[11px] font-medium text-red-700 dark:text-red-400">
+                      ⚠️ {lang === 'so' ? 'Imtixaankan waad seegtay — 0 dhibco ayaa lagu siiyay.' : lang === 'ar' ? 'لقد فاتك هذا الامتحان — حصلت على 0 نقطة.' : "You missed this exam — scored 0."}
+                    </p>
+                  )}
+
+                  {(state === 'completed' || state === 'missed') && (
+                    <button
+                      onClick={() => navigate(`/student/exams/${e._id}/review`)}
+                      className="mt-1 w-full inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                    >
+                      📋 {lang === 'so' ? 'Eeg Jawaabaha' : lang === 'ar' ? 'مراجعة الإجابات' : 'Review Answers'}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

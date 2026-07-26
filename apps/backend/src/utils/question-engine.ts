@@ -220,6 +220,31 @@ export function evaluateQuestion(question: any, answer: any): boolean {
   }
 }
 
+/**
+ * What fraction (0..1) of a question's points were earned. Every type
+ * except `matching` is all-or-nothing (1 if evaluateQuestion says correct,
+ * 0 otherwise) — matching gets partial credit instead: a student who pairs
+ * 2 of 3 correctly earns 2/3 of the points, not 0, since they demonstrably
+ * knew part of the answer. correctPairs.length is the denominator (not the
+ * submitted count) so guessing extra/fewer pairs than exist can't inflate
+ * the score.
+ */
+function matchingFraction(correctPairs: any[], submittedPairs: any[]): number {
+  if (!Array.isArray(correctPairs) || correctPairs.length === 0) return 0;
+  if (!Array.isArray(submittedPairs)) return 0;
+  const correctCount = correctPairs.filter((correct) =>
+    submittedPairs.some((s) => s?.left === correct.left && s?.right === correct.right)
+  ).length;
+  return correctCount / correctPairs.length;
+}
+
+export function questionFraction(question: any, answer: any): number {
+  if (question?.type === 'matching') {
+    return matchingFraction(question.pairs || [], answer);
+  }
+  return evaluateQuestion(question, answer) ? 1 : 0;
+}
+
 export interface GradedAnswer {
   questionId: string | undefined;
   selectedAnswer: unknown;
@@ -237,16 +262,18 @@ export function gradeQuestionSet(questions: IQuizQuestion[] & { _id?: any }[], a
   for (const question of questions as any[]) {
     const questionId = question._id?.toString();
     const selectedAnswer = questionId ? answerMap[questionId] : undefined;
-    const isCorrect = evaluateQuestion(question, selectedAnswer);
     const points = typeof question.points === 'number' ? question.points : 1;
+    const fraction = questionFraction(question, selectedAnswer);
+    const earned = Math.round(points * fraction * 100) / 100;
+    const isCorrect = fraction === 1;
 
-    if (isCorrect) earnedPoints += points;
+    earnedPoints += earned;
 
     gradedAnswers.push({
       questionId,
       selectedAnswer,
       correct: isCorrect,
-      points: isCorrect ? points : 0,
+      points: earned,
       explanation: !isCorrect && question.explanation ? question.explanation : undefined,
     });
 
