@@ -1,9 +1,10 @@
 /**
  * Papers & Approval — Admin/Teacher
- * Admin proofreading/moderation/approval for exam papers. The actual
- * question-authoring UI is shared with the Course Content Builder (both
- * embed ExamPaperEditor) — a teacher normally writes the paper right there
- * in the builder and never needs this page until it's time to review it.
+ * Admin proofreading/moderation/approval for exam papers. This page is
+ * just the list — clicking an exam opens its full-page review
+ * (ExamPaperReviewPage), same pattern as the Course Builder's exam item
+ * opening ExamPaperEditPage. Question authoring itself is the shared
+ * ExamPaperEditor, embedded in both of those full pages.
  *
  * Super admin (role 'admin') scopes down to one Organization first, then
  * sees that org's exams as a tabbed list (All/Pending/Approved/Rejected) —
@@ -12,9 +13,9 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
-import { ExamPaperEditor, type ExamPaper } from '../components/exam-paper-editor';
 
 interface School { _id: string; name: string; status?: string; }
 interface ExamBrief {
@@ -47,6 +48,7 @@ function PaperStatusBadge({ status }: { status: ExamBrief['paperStatus'] }) {
 
 export function ExamPapersManage() {
   const { user: currentUser } = useAuth();
+  const navigate = useNavigate();
   const isSuperAdmin = currentUser?.role === 'admin';
   const isOrgAdmin = currentUser?.role === 'org_admin';
 
@@ -57,14 +59,7 @@ export function ExamPapersManage() {
   const [exams, setExams] = useState<ExamBrief[]>([]);
   const [examsLoading, setExamsLoading] = useState(false);
   const [tab, setTab] = useState<TabKey>('all');
-
-  const [selectedExam, setSelectedExam] = useState('');
-  const [paper, setPaper] = useState<ExamPaper | null>(null);
-  const [editorKey, setEditorKey] = useState(0);
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [reviewNotes, setReviewNotes] = useState('');
 
   // Load the organization list (super admin) or the org_admin's own org.
   useEffect(() => {
@@ -116,31 +111,6 @@ export function ExamPapersManage() {
     return e.paperStatus === tab;
   });
 
-  const selectExam = (examId: string) => {
-    setSelectedExam(examId);
-    setPaper(null);
-    setMessage('');
-    setReviewNotes('');
-  };
-
-  const handleReview = async (approved: boolean) => {
-    if (!selectedExam) return;
-    setSaving(true);
-    setError('');
-    setMessage('');
-    try {
-      const { data } = await api.patch(`/exams/${selectedExam}/paper/review`, { approved, notes: reviewNotes });
-      setPaper(data.data);
-      setEditorKey((k) => k + 1); // remount ExamPaperEditor so it re-fetches the now-reviewed paper
-      setMessage(approved ? '✅ Paper approved' : 'Paper rejected — sent back to the instructor');
-      fetchExams(); // refresh the list's paperStatus badges/counts
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to review paper');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -155,7 +125,7 @@ export function ExamPapersManage() {
             <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Select Organization</label>
             <select
               value={selectedOrg}
-              onChange={(e) => { setSelectedOrg(e.target.value); setSelectedExam(''); setPaper(null); setTab('all'); }}
+              onChange={(e) => { setSelectedOrg(e.target.value); setTab('all'); }}
               className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
             >
               <option value="">Choose an organization...</option>
@@ -169,7 +139,6 @@ export function ExamPapersManage() {
           </div>
         ) : null}
 
-        {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
 
         {!selectedOrg && isSuperAdmin && (
@@ -208,12 +177,8 @@ export function ExamPapersManage() {
                 {visibleExams.map((e) => (
                   <button
                     key={e._id}
-                    onClick={() => selectExam(e._id)}
-                    className={`w-full flex items-center justify-between gap-3 rounded-xl border p-4 text-left transition-colors ${
-                      selectedExam === e._id
-                        ? 'border-primary-400 bg-primary-50/50 dark:bg-primary-950/20'
-                        : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] hover:bg-[var(--color-surface-tertiary)]'
-                    }`}
+                    onClick={() => navigate(`/admin/exams/${e._id}/paper/review`)}
+                    className="w-full flex items-center justify-between gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 text-left transition-colors hover:bg-[var(--color-surface-tertiary)]"
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-[var(--color-text-primary)] truncate">{e.title}</p>
@@ -222,30 +187,6 @@ export function ExamPapersManage() {
                     <PaperStatusBadge status={e.paperStatus} />
                   </button>
                 ))}
-              </div>
-            )}
-
-            {/* Selected exam's paper */}
-            {selectedExam && (
-              <div className="space-y-4 pt-2">
-                {paper?.status === 'submitted' && (
-                  <div className="rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-5 space-y-3">
-                    <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">🔍 Admin Review</p>
-                    <textarea
-                      value={reviewNotes}
-                      onChange={(e) => setReviewNotes(e.target.value)}
-                      placeholder="Optional notes (required detail if rejecting)"
-                      className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
-                      rows={2}
-                    />
-                    <div className="flex gap-2">
-                      <button onClick={() => handleReview(true)} disabled={saving} className="rounded-xl bg-green-600 text-white px-5 py-2 text-sm font-semibold hover:bg-green-700 disabled:opacity-60 transition-colors">✅ Approve</button>
-                      <button onClick={() => handleReview(false)} disabled={saving} className="rounded-xl bg-red-600 text-white px-5 py-2 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors">❌ Reject</button>
-                    </div>
-                  </div>
-                )}
-
-                <ExamPaperEditor key={editorKey} examId={selectedExam} onChange={setPaper} />
               </div>
             )}
           </div>

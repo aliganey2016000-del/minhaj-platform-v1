@@ -185,6 +185,9 @@ const ExamAttendanceManage = lazy(() =>
 const ExamPapersManage = lazy(() =>
   import('../features/admin/pages/exam-papers-manage').then((m) => ({ default: m.ExamPapersManage }))
 );
+const ExamPaperReviewPage = lazy(() =>
+  import('../features/admin/pages/exam-paper-review-page').then((m) => ({ default: m.ExamPaperReviewPage }))
+);
 const ExamComplianceManage = lazy(() =>
   import('../features/admin/pages/exam-compliance-manage').then((m) => ({ default: m.ExamComplianceManage }))
 );
@@ -369,6 +372,7 @@ export const router = createBrowserRouter([
       { path: 'exams/rooms', element: L(<ExamRoomsManage />) },
       { path: 'exams/attendance', element: L(<ExamAttendanceManage />) },
       { path: 'exams/papers', element: L(<ExamPapersManage />) },
+      { path: 'exams/:examId/paper/review', element: L(<ExamPaperReviewPage />) },
       { path: 'exams/compliance', element: L(<ExamComplianceManage />) },
       { path: 'results', element: L(<ResultsManage />) },
       { path: 'payments', element: L(<PaymentsOverview />) },
