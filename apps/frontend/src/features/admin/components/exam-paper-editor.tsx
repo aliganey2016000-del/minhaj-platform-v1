@@ -31,6 +31,7 @@ export interface ExamPaper {
   submittedBy?: { email: string };
   reviewedBy?: { email: string };
   reviewNotes?: string;
+  reviewedAt?: string;
 }
 
 export function StatusBadge({ status }: { status: string }) {
@@ -194,8 +195,13 @@ export function ExamPaperEditor({ examId, onChange, chapters = [] }: ExamPaperEd
       {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
 
       {paper?.status === 'rejected' && paper.reviewNotes && (
-        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-700">
-          <strong>Rejection notes:</strong> {paper.reviewNotes}
+        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-700 space-y-1">
+          <p><strong>Rejection notes:</strong> {paper.reviewNotes}</p>
+          {(paper.reviewedBy?.email || paper.reviewedAt) && (
+            <p className="text-xs text-red-600/80">
+              — {paper.reviewedBy?.email || 'admin'}{paper.reviewedAt ? `, ${new Date(paper.reviewedAt).toLocaleString()}` : ''}
+            </p>
+          )}
         </div>
       )}
 
@@ -206,8 +212,13 @@ export function ExamPaperEditor({ examId, onChange, chapters = [] }: ExamPaperEd
       )}
 
       {paper?.status === 'approved' && (
-        <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 dark:text-green-300">
-          ✅ Approved — this paper is live for "Active Exams".
+        <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 dark:text-green-300 space-y-1">
+          <p>✅ Approved — this paper is live for "Active Exams".</p>
+          {(paper.reviewedBy?.email || paper.reviewedAt) && (
+            <p className="text-xs text-green-600/80">
+              — {paper.reviewedBy?.email || 'admin'}{paper.reviewedAt ? `, ${new Date(paper.reviewedAt).toLocaleString()}` : ''}
+            </p>
+          )}
         </div>
       )}
 

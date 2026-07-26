@@ -7,10 +7,12 @@
 import { Request, Response } from 'express';
 import Exam from '../models/exam.model';
 import ExamPaper from '../models/exam-paper.model';
+import User from '../models/user.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import { assertOwnsOrg, assertOwnsExamIfTeacher } from '../utils/tenant-scope';
 import { validateQuestions as validateQuestionSet } from '../utils/question-engine';
+import { notifyUser, notifyUsers } from '../utils/notify';
 
 /** Loads the exam and verifies the caller may manage its paper. */
 async function loadManageableExam(req: Request, examId: string) {
@@ -93,6 +95,22 @@ export const submit = async (req: Request, res: Response): Promise<Response> => 
   paper.reviewNotes = '';
   await paper.save();
 
+  // Nudge whoever can actually approve it — the platform admin plus any
+  // org_admin scoped to this exam's school — otherwise a submitted paper
+  // can sit unnoticed until someone happens to open Papers & Approval.
+  User.find({ $or: [{ role: 'admin' }, { role: 'org_admin', organizationId: exam.school || undefined }] })
+    .select('_id')
+    .lean()
+    .then((admins) =>
+      notifyUsers(admins.map((a: any) => a._id.toString()), {
+        title: 'Exam paper submitted for review',
+        message: `"${paper.title}" (${(exam as any).course?.title?.en || exam.title}) is awaiting your approval.`,
+        type: 'info',
+        link: `/admin/exams/${exam._id}/paper/review`,
+      })
+    )
+    .catch(() => {});
+
   return ApiResponse.success(res, paper, 'Paper submitted for review');
 };
 
@@ -103,6 +121,11 @@ export const review = async (req: Request, res: Response): Promise<Response> => 
   const exam = await loadManageableExam(req, req.params.id);
   const { approved, notes } = req.body;
   if (typeof approved !== 'boolean') throw new BadRequestError('approved must be true or false');
+  // A reject with no reason leaves the instructor guessing what to fix —
+  // require actual feedback whenever a paper is sent back.
+  if (!approved && (!notes || !String(notes).trim())) {
+    throw new BadRequestError('Please explain what needs to change before rejecting a paper.');
+  }
 
   const paper = await ExamPaper.findOne({ exam: exam._id });
   if (!paper) throw new NotFoundError('Exam paper');
@@ -118,6 +141,28 @@ export const review = async (req: Request, res: Response): Promise<Response> => 
     .populate('submittedBy', 'email')
     .populate('reviewedBy', 'email')
     .lean();
+
+  // Let the instructor know right away instead of them finding out only by
+  // reopening this exam later. Link them back to the course builder (not
+  // the paper editor directly — that route needs the module item's id,
+  // which this controller doesn't have) where the exam item is one click away.
+  User.findById(paper.submittedBy)
+    .select('role')
+    .lean()
+    .then((submitter: any) => {
+      const portal = submitter?.role === 'teacher' ? 'teacher' : 'admin';
+      const courseId = (exam as any).course?._id || '';
+      return notifyUser({
+        userId: paper.submittedBy.toString(),
+        title: approved ? 'Exam paper approved' : 'Exam paper rejected',
+        message: approved
+          ? `"${paper.title}" was approved and is now live for Active Exams.`
+          : `"${paper.title}" was rejected: ${paper.reviewNotes}`,
+        type: approved ? 'success' : 'warning',
+        link: courseId ? `/${portal}/courses/${courseId}/builder` : '',
+      });
+    })
+    .catch(() => {});
 
   return ApiResponse.success(res, populated, approved ? 'Paper approved' : 'Paper rejected');
 };

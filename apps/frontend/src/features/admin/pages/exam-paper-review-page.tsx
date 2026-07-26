@@ -45,6 +45,10 @@ export function ExamPaperReviewPage() {
 
   const handleReview = async (approved: boolean) => {
     if (!examId) return;
+    if (!approved && !reviewNotes.trim()) {
+      setError('Please explain what needs to change before rejecting this paper.');
+      return;
+    }
     setSaving(true);
     setError('');
     setMessage('');
@@ -104,13 +108,20 @@ export function ExamPaperReviewPage() {
             <textarea
               value={reviewNotes}
               onChange={(e) => setReviewNotes(e.target.value)}
-              placeholder="Optional notes (required detail if rejecting)"
+              placeholder="Notes shown to the instructor — required if you reject (e.g. what to fix before resubmitting)"
               className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
               rows={2}
             />
             <div className="flex gap-2">
               <button onClick={() => handleReview(true)} disabled={saving} className="rounded-xl bg-green-600 text-white px-5 py-2 text-sm font-semibold hover:bg-green-700 disabled:opacity-60 transition-colors">✅ Approve</button>
-              <button onClick={() => handleReview(false)} disabled={saving} className="rounded-xl bg-red-600 text-white px-5 py-2 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors">❌ Reject</button>
+              <button
+                onClick={() => handleReview(false)}
+                disabled={saving || !reviewNotes.trim()}
+                title={!reviewNotes.trim() ? 'Add feedback above before rejecting' : undefined}
+                className="rounded-xl bg-red-600 text-white px-5 py-2 text-sm font-semibold hover:bg-red-700 disabled:opacity-40 transition-colors"
+              >
+                ❌ Reject
+              </button>
             </div>
           </div>
         )}
