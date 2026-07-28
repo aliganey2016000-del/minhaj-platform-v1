@@ -420,12 +420,15 @@ export function StudentCourses() {
                       </span>
                     </div>
 
-                    {/* Progress bar */}
+                    {/* Progress bar — track is a fixed-height div with an
+                        always-visible gray background, independent of the
+                        fill width, so a 0% course's card doesn't lose its
+                        track and shift the text below it up. */}
                     <div className="space-y-1">
-                      <div className="w-full h-2 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden">
+                      <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-green-500' : 'bg-primary-500'}`}
-                          style={{ width: `${Math.min(pct, 100)}%` }}
+                          style={{ width: `${Math.max(Math.min(pct, 100), pct > 0 ? 2 : 0)}%` }}
                         />
                       </div>
                       <div className="flex justify-between text-[10px] text-[var(--color-text-tertiary)]">
@@ -524,7 +527,7 @@ export function StudentCourses() {
                 {/* Progress */}
                 <div className="space-y-1.5">
                   <span className="text-xs text-[var(--color-text-tertiary)]">{t('course_progress')}</span>
-                  <div className="w-full h-3 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden">
+                  <div className="w-full h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${
                         (selectedCourse.progress?.percent || 0) >= 100 ? 'bg-green-500' : 'bg-primary-500'
