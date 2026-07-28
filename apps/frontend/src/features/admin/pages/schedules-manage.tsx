@@ -67,7 +67,8 @@ function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: ()
 }
 
 interface SchoolBrief { _id: string; name: string; }
-interface ClassBrief { _id: string; title: string; section: string; school?: string | { _id: string }; }
+interface DepartmentBrief { _id: string; name: string; }
+interface ClassBrief { _id: string; title: string; section: string; school?: string | { _id: string }; department?: string | { _id: string; name: string }; }
 interface CourseBrief { _id: string; title: { en: string }; teacher?: string | { _id: string; profile?: { firstName: string; lastName: string } }; }
 interface TeacherBrief { _id: string; name?: string; profile?: { firstName: string; lastName: string }; }
 interface Schedule {
@@ -117,11 +118,13 @@ export function SchedulesManage() {
 
   // Reference data
   const [schools, setSchools] = useState<SchoolBrief[]>([]);
+  const [departments, setDepartments] = useState<DepartmentBrief[]>([]);
   const [classes, setClasses] = useState<ClassBrief[]>([]);
   const [courses, setCourses] = useState<CourseBrief[]>([]);
   const [teachers, setTeachers] = useState<TeacherBrief[]>([]);
 
   // Cascading loading flags
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
   const [classesLoading, setClassesLoading] = useState(false);
   const [coursesLoading, setCoursesLoading] = useState(false);
 
@@ -134,6 +137,7 @@ export function SchedulesManage() {
 
   // Form values
   const [formSchool, setFormSchool] = useState('');
+  const [formDepartment, setFormDepartment] = useState('');
   const [formClass, setFormClass] = useState('');
   const [formCourse, setFormCourse] = useState('');
   const [formTeacher, setFormTeacher] = useState('');
@@ -218,9 +222,29 @@ export function SchedulesManage() {
     fetchSchedules(newPage);
   };
 
-  // ── Cascading 1: School → Classes (form) ──
+  // ── Cascading 1: School → Departments (form) ──
   useEffect(() => {
     if (!formSchool) {
+      setDepartments([]);
+      setFormDepartment('');
+      return;
+    }
+    setDepartmentsLoading(true);
+    (async () => {
+      try {
+        const { data } = await api.get(`/departments?school=${formSchool}`);
+        setDepartments(data.data || []);
+      } catch {
+        setDepartments([]);
+      } finally {
+        setDepartmentsLoading(false);
+      }
+    })();
+  }, [formSchool]);
+
+  // ── Cascading 2: Department → Classes ──
+  useEffect(() => {
+    if (!formDepartment) {
       setClasses([]);
       setFormClass('');
       return;
@@ -228,7 +252,7 @@ export function SchedulesManage() {
     setClassesLoading(true);
     (async () => {
       try {
-        const { data } = await api.get(`/classes?schoolId=${formSchool}`);
+        const { data } = await api.get(`/classes?department=${formDepartment}`);
         setClasses(data.data || []);
       } catch {
         setClasses([]);
@@ -236,9 +260,9 @@ export function SchedulesManage() {
         setClassesLoading(false);
       }
     })();
-  }, [formSchool]);
+  }, [formDepartment]);
 
-  // ── Cascading 2: Class → Courses ──
+  // ── Cascading 3: Class → Courses ──
   useEffect(() => {
     if (!formClass) {
       setCourses([]);
@@ -285,6 +309,14 @@ export function SchedulesManage() {
   // ── Clear downstream selections ──
   const handleSchoolChange = (schoolId: string) => {
     setFormSchool(schoolId);
+    setFormDepartment('');
+    setFormClass('');
+    setFormCourse('');
+    setFormTeacher('');
+  };
+
+  const handleDepartmentChange = (deptId: string) => {
+    setFormDepartment(deptId);
     setFormClass('');
     setFormCourse('');
     setFormTeacher('');
@@ -330,18 +362,22 @@ export function SchedulesManage() {
 
   const resetForm = () => {
     setFormSchool(isOrgAdmin ? formSchool : '');
-    setFormClass(''); setFormCourse('');
+    setFormDepartment(''); setFormClass(''); setFormCourse('');
     setFormTeacher(''); setFormDay(0); setFormStart('08:00');
     setFormEnd('09:30'); setFormActive(true); setEditId(null); setShowForm(false);
   };
 
   const handleEdit = (s: Schedule) => {
+    const deptId = typeof s.class?.department === 'string' ? s.class.department : s.class?.department?._id;
     setFormSchool(s.school._id);
     setTimeout(() => {
-      setFormClass(s.class._id);
+      if (deptId) setFormDepartment(deptId);
       setTimeout(() => {
-        setFormCourse(s.course._id);
-        setFormTeacher(s.teacher._id);
+        setFormClass(s.class._id);
+        setTimeout(() => {
+          setFormCourse(s.course._id);
+          setFormTeacher(s.teacher._id);
+        }, 100);
       }, 100);
     }, 100);
     setFormDay(s.dayOfWeek);
@@ -893,16 +929,32 @@ export function SchedulesManage() {
 
               <div>
                 <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">
+                  Department {departmentsLoading && <span className="text-[var(--color-text-tertiary)] font-normal">(loading...)</span>}
+                </label>
+                <select
+                  value={formDepartment}
+                  onChange={(e) => handleDepartmentChange(e.target.value)}
+                  required
+                  disabled={!formSchool || departmentsLoading}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm disabled:opacity-50"
+                >
+                  <option value="">{!formSchool ? 'Select organization first' : 'Select a department...'}</option>
+                  {departments.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">
                   Class {classesLoading && <span className="text-[var(--color-text-tertiary)] font-normal">(loading...)</span>}
                 </label>
                 <select
                   value={formClass}
                   onChange={(e) => handleClassChange(e.target.value)}
                   required
-                  disabled={!formSchool || classesLoading}
+                  disabled={!formDepartment || classesLoading}
                   className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm disabled:opacity-50"
                 >
-                  <option value="">{!formSchool ? 'Select organization first' : 'Select a class...'}</option>
+                  <option value="">{!formDepartment ? 'Select department first' : 'Select a class...'}</option>
                   {classes.map((c) => <option key={c._id} value={c._id}>{c.title} {c.section}</option>)}
                 </select>
               </div>
@@ -1067,11 +1119,12 @@ export function SchedulesManage() {
                 <thead className="bg-[var(--color-surface-secondary)] text-left text-xs font-semibold text-[var(--color-text-tertiary)] uppercase">
                   <tr>
                     <th className="px-4 py-3">Organization</th>
+                    <th className="px-4 py-3">Department</th>
+                    <th className="px-4 py-3">Class</th>
                     <th className="px-4 py-3">Course</th>
+                    <th className="px-4 py-3">Teacher</th>
                     <th className="px-4 py-3">Day</th>
                     <th className="px-4 py-3">Time</th>
-                    <th className="px-4 py-3">Teacher</th>
-                    <th className="px-4 py-3">Class</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
@@ -1086,11 +1139,12 @@ export function SchedulesManage() {
                             {s.school?.name || '—'}
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-[var(--color-text-secondary)]">{typeof s.class?.department === 'string' ? '—' : s.class?.department?.name || '—'}</td>
+                        <td className="px-4 py-3">{s.class?.title} {s.class?.section}</td>
                         <td className="px-4 py-3 font-medium text-[var(--color-text-primary)]">{s.course?.title?.en || '—'}</td>
+                        <td className="px-4 py-3">{teacherLabel(s.teacher)}</td>
                         <td className="px-4 py-3">{DAYS[s.dayOfWeek]}</td>
                         <td className="px-4 py-3 whitespace-nowrap">{s.startTime} – {s.endTime}</td>
-                        <td className="px-4 py-3">{teacherLabel(s.teacher)}</td>
-                        <td className="px-4 py-3">{s.class?.title} {s.class?.section}</td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
                             s.isActive

@@ -39,6 +39,16 @@ const TEACHER_POPULATE = {
   populate: { path: 'profile', select: 'firstName lastName' },
 };
 
+// Same nested-populate need as TEACHER_POPULATE above: a bare
+// `.populate('class', 'title section')` never resolves the Class
+// document's own `department` ref, so the Organization -> Department ->
+// Class -> Course hierarchy this page now displays needs its own hop.
+const CLASS_POPULATE = {
+  path: 'class',
+  select: 'title section department',
+  populate: { path: 'department', select: 'name' },
+};
+
 // ---------------------------------------------------------------------------
 // GET /class-schedules — List schedules (paginated, filterable)
 // ---------------------------------------------------------------------------
@@ -67,7 +77,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const [schedules, total] = await Promise.all([
     ClassSchedule.find(filter)
       .populate('school', 'name')
-      .populate('class', 'title section')
+      .populate(CLASS_POPULATE)
       .populate('course', 'title')
       .populate(TEACHER_POPULATE)
       .sort({ dayOfWeek: 1, startTime: 1 })
@@ -112,7 +122,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 export const getById = async (req: Request, res: Response): Promise<Response> => {
   const schedule = await ClassSchedule.findById(req.params.id)
     .populate('school', 'name')
-    .populate('class', 'title section')
+    .populate(CLASS_POPULATE)
     .populate('course', 'title')
     .populate({ path: 'teacher', populate: { path: 'profile', select: 'firstName lastName' } })
     .lean();
@@ -160,7 +170,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const schedule = await ClassSchedule.findById(createdId)
     .populate('school', 'name')
-    .populate('class', 'title section')
+    .populate(CLASS_POPULATE)
     .populate('course', 'title')
     .populate(TEACHER_POPULATE)
     .lean();
@@ -206,7 +216,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   const schedule = await ClassSchedule.findById(updatedId)
     .populate('school', 'name')
-    .populate('class', 'title section')
+    .populate(CLASS_POPULATE)
     .populate('course', 'title')
     .populate(TEACHER_POPULATE)
     .lean();
@@ -275,7 +285,7 @@ export const getMyScheduleAsTeacher = async (req: Request, res: Response): Promi
     isActive: true,
   })
     .populate('school', 'name')
-    .populate('class', 'title section')
+    .populate(CLASS_POPULATE)
     .populate('course', 'title')
     .sort({ dayOfWeek: 1, startTime: 1 })
     .lean();
@@ -464,7 +474,7 @@ export const exportSchedules = async (req: Request, res: Response): Promise<void
 
   const schedules = await ClassSchedule.find(filter)
     .populate('school', 'name')
-    .populate('class', 'title section')
+    .populate(CLASS_POPULATE)
     .populate('course', 'title')
     .populate({ path: 'teacher', populate: { path: 'user', select: 'email' } })
     .sort({ dayOfWeek: 1, startTime: 1 })
