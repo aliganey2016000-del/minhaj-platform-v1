@@ -39,7 +39,9 @@ export interface ICourse extends Document {
     so: string;
     ar: string;
   };
-  category: 'quran' | 'fiqh' | 'aqeedah' | 'seerah' | 'arabic' | 'tajweed' | 'hadith' | 'akhlaq';
+  // A per-organization CourseCategory's `slug` (see course-category.model.ts)
+  // — no longer a fixed enum now that admins manage their own categories.
+  category: string;
   level: 'beginner' | 'intermediate' | 'advanced';
   duration: number;             // Duration in weeks
   fee: number;                  // 0 = free course
@@ -136,10 +138,8 @@ const courseSchema = new Schema<ICourse>(
     category: {
       type: String,
       required: [true, 'Category is required'],
-      enum: {
-        values: ['quran', 'fiqh', 'aqeedah', 'seerah', 'arabic', 'tajweed', 'hadith', 'akhlaq'],
-        message: '{VALUE} is not a valid course category',
-      },
+      trim: true,
+      lowercase: true,
       index: true,
     },
     level: {

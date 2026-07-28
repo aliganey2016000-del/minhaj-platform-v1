@@ -8,6 +8,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
 import Course from '../models/course.model';
+import CourseCategory from '../models/course-category.model';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Student from '../models/student.model';
 import School from '../models/school.model';
@@ -191,6 +192,12 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     throw new ConflictError('A course with this title already exists');
   }
 
+  const resolvedSchool = resolveOrgIdForCreate(req, school) || null;
+  if (category && resolvedSchool) {
+    const categoryExists = await CourseCategory.exists({ school: resolvedSchool, slug: String(category).toLowerCase() });
+    if (!categoryExists) throw new BadRequestError(`Category "${category}" does not exist for this organization`);
+  }
+
   const course = await Course.create({
     title,
     slug,
@@ -200,7 +207,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     duration,
     fee: fee || 0,
     teacher: teacher || null,
-    school: resolveOrgIdForCreate(req, school) || null,
+    school: resolvedSchool,
     class: classId || null,
     maxStudents,
     syllabus: syllabus || [],
@@ -285,6 +292,14 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
+  }
+
+  if (updates.category) {
+    const schoolForCategory = updates.school || existing.school;
+    if (schoolForCategory) {
+      const categoryExists = await CourseCategory.exists({ school: schoolForCategory, slug: String(updates.category).toLowerCase() });
+      if (!categoryExists) throw new BadRequestError(`Category "${updates.category}" does not exist for this organization`);
+    }
   }
 
   const course = await Course.findByIdAndUpdate(req.params.id, updates, {
@@ -701,7 +716,6 @@ function getField(row: Record<string, any>, ...names: string[]): unknown {
   return undefined;
 }
 
-const VALID_CATEGORIES = ['quran', 'fiqh', 'aqeedah', 'seerah', 'arabic', 'tajweed', 'hadith', 'akhlaq'];
 const VALID_LEVELS = ['beginner', 'intermediate', 'advanced'];
 
 // ---------------------------------------------------------------------------
@@ -740,6 +754,13 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     if (email) teacherMap.set(email, t._id);
   }
 
+  // Categories are per-organization now — keyed by `${schoolId}:${slug}` so
+  // a super-admin import spanning multiple orgs can't cross-match another
+  // school's category of the same name.
+  const categories = ownOrgId ? await CourseCategory.find({ school: ownOrgId }).lean() : await CourseCategory.find({}).lean();
+  const categoryMap = new Set<string>();
+  for (const c of categories) categoryMap.add(`${(c as any).school.toString()}:${(c as any).slug}`);
+
   // ── Phase 2: Parse rows ──
   const errors: { row: number; message: string }[] = [];
   const courseDocs: any[] = [];
@@ -753,7 +774,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
     try {
       const titleEn = String(getField(row, 'Course Title (English)', 'Course Title', 'Title') ?? '').trim();
-      const categoryRaw = String(getField(row, 'Category') ?? 'quran').trim().toLowerCase();
+      const categoryRaw = String(getField(row, 'Category') ?? '').trim().toLowerCase();
       const levelRaw = String(getField(row, 'Level') ?? 'beginner').trim().toLowerCase();
       const schoolName = String(getField(row, 'Organization Name', 'Organization', 'School') ?? '').trim();
       const classTitle = String(getField(row, 'Class Title', 'Class') ?? '').trim();
@@ -765,7 +786,6 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
       if (!titleEn) throw new Error('Course Title (English) is required');
 
-      const category = VALID_CATEGORIES.includes(categoryRaw) ? categoryRaw : 'quran';
       const level = VALID_LEVELS.includes(levelRaw) ? levelRaw : 'beginner';
       const duration = parseInt(durationRaw, 10) || 8;
       const fee = parseFloat(priceRaw) || 0;
@@ -778,6 +798,16 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         if (!sid) throw new Error(`Organization "${schoolName}" not found`);
         schoolId = sid;
       }
+      if (!schoolId) throw new Error('Organization is required');
+
+      // Resolve category — must already exist for this organization (via
+      // Manage Categories); previously an unrecognized value here silently
+      // fell back to "quran", which is how mislabeled rows went unnoticed.
+      if (!categoryRaw) throw new Error('Category is required');
+      if (!categoryMap.has(`${schoolId.toString()}:${categoryRaw}`)) {
+        throw new Error(`Category "${categoryRaw}" does not exist for this organization — add it first via Manage Categories`);
+      }
+      const category = categoryRaw;
 
       // Resolve class (optional)
       let classId: mongoose.Types.ObjectId | undefined;

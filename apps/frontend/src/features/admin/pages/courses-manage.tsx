@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Scale, Landmark, ScrollText, Languages, Mic, BookMarked, Gem, BookOpen, Globe,
-  Building2, Layers, User, Clock, DollarSign, MoreVertical,
+  Building2, Layers, User, Clock, DollarSign, MoreVertical, Settings, Plus, Pencil, Trash2, X, Check,
   type LucideIcon,
 } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -143,6 +143,154 @@ function inferCategoryColor(category: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Category Manager — inline CRUD for a school's course categories, opened
+// either from the Category dropdown's "+ Add New Category" option or the
+// gear icon beside it, without leaving the Add/Edit Course form.
+// ---------------------------------------------------------------------------
+
+interface CategoryBrief { _id: string; name: string; slug: string; }
+
+function CategoryManagerModal({
+  schoolId,
+  categories,
+  onClose,
+  onChanged,
+}: {
+  schoolId: string;
+  categories: CategoryBrief[];
+  onClose: () => void;
+  onChanged: (categories: CategoryBrief[], justCreated?: CategoryBrief) => void;
+}) {
+  const [newName, setNewName] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const refresh = async () => {
+    const { data } = await api.get('/course-categories', { params: { school: schoolId } });
+    return (data.data || []) as CategoryBrief[];
+  };
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setAdding(true);
+    setError('');
+    try {
+      const { data } = await api.post('/course-categories', { name: newName.trim(), school: schoolId });
+      const list = await refresh();
+      setNewName('');
+      onChanged(list, data.data);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to add category');
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const startEdit = (c: CategoryBrief) => {
+    setEditingId(c._id);
+    setEditingName(c.name);
+    setError('');
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    if (!editingName.trim()) return;
+    setSavingEdit(true);
+    setError('');
+    try {
+      await api.put(`/course-categories/${id}`, { name: editingName.trim() });
+      const list = await refresh();
+      setEditingId(null);
+      onChanged(list);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to rename category');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id);
+    setError('');
+    try {
+      await api.delete(`/course-categories/${id}`);
+      const list = await refresh();
+      onChanged(list);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Cannot delete category. Move assigned courses first.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-5 w-full max-w-sm shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-bold text-[var(--color-text-primary)]">Manage Categories</h3>
+          <button onClick={onClose} className="rounded-lg p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <X className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        </div>
+
+        {error && <p className="text-xs text-red-500 mb-2 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{error}</p>}
+
+        <form onSubmit={handleAdd} className="flex gap-2 mb-3">
+          <input
+            className="flex-1 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-sm"
+            placeholder="New category name..."
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <button type="submit" disabled={adding || !newName.trim()} className="rounded-lg bg-primary-600 px-3 py-1.5 text-white disabled:opacity-50 transition-colors">
+            <Plus className="h-4 w-4" strokeWidth={2} />
+          </button>
+        </form>
+
+        <div className="space-y-1 max-h-64 overflow-y-auto">
+          {categories.length === 0 ? (
+            <p className="text-xs text-[var(--color-text-tertiary)] text-center py-4">No categories yet — add one above.</p>
+          ) : (
+            categories.map((c) => (
+              <div key={c._id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--color-surface-tertiary)] transition-colors">
+                {editingId === c._id ? (
+                  <>
+                    <input
+                      autoFocus
+                      className="flex-1 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-sm"
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEdit(c._id); if (e.key === 'Escape') setEditingId(null); }}
+                    />
+                    <button onClick={() => handleSaveEdit(c._id)} disabled={savingEdit} className="rounded-lg p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30 transition-colors">
+                      <Check className="h-4 w-4" strokeWidth={1.75} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 text-sm text-[var(--color-text-primary)] truncate">{c.name}</span>
+                    <button onClick={() => startEdit(c)} className="rounded-lg p-1.5 text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors" title="Rename">
+                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    </button>
+                    <button onClick={() => handleDelete(c._id)} disabled={deletingId === c._id} className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50" title="Delete">
+                      <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Create / Edit Modal
 // ---------------------------------------------------------------------------
 
@@ -160,7 +308,7 @@ function CourseModal({
   const isOrgAdmin = user?.role === 'org_admin';
   const [form, setForm] = useState({
     titleEn: course?.title?.en || '',
-    category: course?.category || 'quran',
+    category: course?.category || '',
     level: course?.level || 'beginner',
     duration: course?.duration || 8,
     fee: course?.fee || 0,
@@ -179,9 +327,13 @@ function CourseModal({
   const [teachers, setTeachers] = useState<{ _id: string; profile?: { firstName: string; lastName: string } }[]>([]);
   const [schools, setSchools] = useState<{ _id: string; name: string; status: string }[]>([]);
   const [classes, setClasses] = useState<{ _id: string; title: string; section: string }[]>([]);
+  const [categories, setCategories] = useState<CategoryBrief[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [teachersLoading, setTeachersLoading] = useState(false);
   const [classesLoading, setClassesLoading] = useState(false);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const ADD_NEW_CATEGORY = '__add_new__';
 
   // Load schools on mount
   useEffect(() => {
@@ -236,6 +388,27 @@ function CourseModal({
       }
     };
     loadClasses();
+  }, [form.school]);
+
+  // Load categories when school changes — per-organization now, not a
+  // fixed enum (see CategoryManagerModal above).
+  useEffect(() => {
+    const loadCategories = async () => {
+      if (!form.school) {
+        setCategories([]);
+        return;
+      }
+      setCategoriesLoading(true);
+      try {
+        const { data } = await api.get('/course-categories', { params: { school: form.school } });
+        setCategories(data.data || []);
+      } catch {
+        setCategories([]);
+      } finally {
+        setCategoriesLoading(false);
+      }
+    };
+    loadCategories();
   }, [form.school]);
 
   const update = (field: string, value: string | number) => {
@@ -312,9 +485,33 @@ function CourseModal({
           {/* Row: Category + Level */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Category</label>
-              <select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.category} onChange={(e) => update('category', e.target.value)}>
-                {Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] block">
+                  Category {categoriesLoading && <span className="text-[var(--color-text-tertiary)] font-normal">(loading...)</span>}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowCategoryManager(true)}
+                  disabled={!form.school}
+                  title={!form.school ? 'Select an organization first' : 'Manage Categories'}
+                  className="text-[var(--color-text-tertiary)] hover:text-primary-600 disabled:opacity-40 transition-colors"
+                >
+                  <Settings className="h-3.5 w-3.5" strokeWidth={1.75} />
+                </button>
+              </div>
+              <select
+                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm disabled:opacity-50"
+                value={form.category}
+                disabled={!form.school || categoriesLoading}
+                required
+                onChange={(e) => {
+                  if (e.target.value === ADD_NEW_CATEGORY) { setShowCategoryManager(true); return; }
+                  update('category', e.target.value);
+                }}
+              >
+                <option value="">{!form.school ? 'Select an organization first' : 'Select a category...'}</option>
+                {categories.map((c) => <option key={c._id} value={c.slug}>{c.name}</option>)}
+                {form.school && <option value={ADD_NEW_CATEGORY}>+ Add New Category</option>}
               </select>
             </div>
             <div>
@@ -423,6 +620,18 @@ function CourseModal({
           </div>
         </form>
       </div>
+      {showCategoryManager && form.school && createPortal(
+        <CategoryManagerModal
+          schoolId={form.school}
+          categories={categories}
+          onClose={() => setShowCategoryManager(false)}
+          onChanged={(list, justCreated) => {
+            setCategories(list);
+            if (justCreated) update('category', justCreated.slug);
+          }}
+        />,
+        document.body,
+      )}
     </div>
   );
 }
