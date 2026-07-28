@@ -521,12 +521,12 @@ export function SchedulesManage() {
     }
 
     // First row should be header; validate expected column count. Section
-    // and Active are optional on the backend, so this only checks the
-    // minimum — School (non-org-admin only), Class, Course, Teacher Email,
-    // Day, Start Time, End Time.
-    const minCols = isOrgAdmin ? 6 : 7;
+    // and Status are optional on the backend, so this only checks the
+    // minimum — School (non-org-admin only), Department, Class, Course,
+    // Teacher Email, Day, Start Time, End Time.
+    const minCols = isOrgAdmin ? 7 : 8;
     if (rows[0].length < minCols) {
-      setPasteError(`Expected at least ${minCols} columns (${isOrgAdmin ? 'Class, Course, Teacher Email, Day, Start Time, End Time' : 'School, Class, Course, Teacher Email, Day, Start Time, End Time'}). Found ${rows[0].length}.`);
+      setPasteError(`Expected at least ${minCols} columns (${isOrgAdmin ? 'Department, Class, Course, Teacher Email, Day, Start Time, End Time' : 'School, Department, Class, Course, Teacher Email, Day, Start Time, End Time'}). Found ${rows[0].length}.`);
       return;
     }
 
@@ -786,8 +786,8 @@ export function SchedulesManage() {
                       </p>
                       <p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">
                         {isOrgAdmin
-                          ? 'Class &nbsp; Section &nbsp; Course &nbsp; Teacher Email &nbsp; Day &nbsp; Start Time &nbsp; End Time &nbsp; Active'
-                          : 'School &nbsp; Class &nbsp; Section &nbsp; Course &nbsp; Teacher Email &nbsp; Day &nbsp; Start Time &nbsp; End Time &nbsp; Active'}
+                          ? 'Department · Class · Section · Course · Teacher Email · Day · Start Time · End Time · Status'
+                          : 'School · Department · Class · Section · Course · Teacher Email · Day · Start Time · End Time · Status'}
                       </p>
                       <textarea
                         value={pasteText}

@@ -18,6 +18,7 @@ import * as XLSX from 'xlsx';
 import ClassSchedule, { DayOfWeek } from '../models/class-schedule.model';
 import { getCourseScheduleStatus } from '../models/class-schedule.model';
 import ClassModel from '../models/class.model';
+import Department from '../models/department.model';
 import Course from '../models/course.model';
 import Teacher from '../models/teacher.model';
 import User from '../models/user.model';
@@ -379,6 +380,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
     try {
       const schoolName = String(getField(row, 'School', 'Organization') ?? '').trim();
+      const departmentName = String(getField(row, 'Department') ?? '').trim();
       const className = String(getField(row, 'Class') ?? '').trim();
       const section = String(getField(row, 'Section') ?? '').trim();
       const courseTitle = String(getField(row, 'Course') ?? '').trim();
@@ -386,8 +388,9 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const dayRaw = getField(row, 'Day', 'Day of Week');
       const startRaw = getField(row, 'Start Time', 'Start');
       const endRaw = getField(row, 'End Time', 'End');
-      const activeRaw = getField(row, 'Active');
+      const activeRaw = getField(row, 'Status', 'Active');
 
+      if (!departmentName) throw new Error('Department is required');
       if (!className) throw new Error('Class is required');
       if (!courseTitle) throw new Error('Course is required');
       if (!teacherEmail) throw new Error('Teacher Email is required');
@@ -401,13 +404,20 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         schoolId = school._id.toString();
       }
 
+      const departmentDoc = await Department.findOne({
+        tenantId: schoolId,
+        name: new RegExp(`^${escapeRegex(departmentName)}$`, 'i'),
+      }).lean();
+      if (!departmentDoc) throw new Error(`Department "${departmentName}" not found`);
+
       const classFilter: Record<string, unknown> = {
         school: schoolId,
+        department: departmentDoc._id,
         title: new RegExp(`^${escapeRegex(className)}$`, 'i'),
       };
       if (section) classFilter.section = new RegExp(`^${escapeRegex(section)}$`, 'i');
       const classDoc = await ClassModel.findOne(classFilter).lean();
-      if (!classDoc) throw new Error(`Class "${className}${section ? ' ' + section : ''}" not found`);
+      if (!classDoc) throw new Error(`Class "${className}${section ? ' ' + section : ''}" not found in department "${departmentName}"`);
 
       const courseDoc = await Course.findOne({
         school: schoolId,
@@ -513,13 +523,19 @@ export const exportSchedules = async (req: Request, res: Response): Promise<void
 export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
   const isOrgAdmin = req.user?.role === 'org_admin';
 
+  // Column order mirrors the Organization -> Department -> Class -> Course
+  // hierarchy shown on the Class Schedules page/table (Department is
+  // required — a Class always belongs to exactly one). Start/End Time stay
+  // as two columns rather than one combined "Time" range so parseTime()
+  // can validate each independently; Teacher is keyed by email (unique)
+  // rather than display name, which two teachers could share.
   const headers = isOrgAdmin
-    ? ['Class', 'Section', 'Course', 'Teacher Email', 'Day', 'Start Time', 'End Time', 'Active']
-    : ['School', 'Class', 'Section', 'Course', 'Teacher Email', 'Day', 'Start Time', 'End Time', 'Active'];
+    ? ['Department', 'Class', 'Section', 'Course', 'Teacher Email', 'Day', 'Start Time', 'End Time', 'Status']
+    : ['Organization', 'Department', 'Class', 'Section', 'Course', 'Teacher Email', 'Day', 'Start Time', 'End Time', 'Status'];
 
   const sampleRow = isOrgAdmin
-    ? ['Quran Beginners', 'A', 'Quran Recitation', 'teacher@example.com', 'Monday', '08:00', '09:30', 'Yes']
-    : ['Madrasa Al-Noor', 'Quran Beginners', 'A', 'Quran Recitation', 'teacher@example.com', 'Monday', '08:00', '09:30', 'Yes'];
+    ? ['Primary', 'Quran Beginners', 'A', 'Quran Recitation', 'teacher@example.com', 'Sunday', '08:00', '09:30', 'Scheduled']
+    : ['Madrasa Al-Noor', 'Primary', 'Quran Beginners', 'A', 'Quran Recitation', 'teacher@example.com', 'Sunday', '08:00', '09:30', 'Scheduled'];
 
   const sheet = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
   sheet['!cols'] = headers.map((h) => ({ wch: Math.min(h.length + 8, 28) }));
@@ -559,6 +575,7 @@ export const bulkImportTransactional = async (req: Request, res: Response): Prom
 
     try {
       const schoolName = String(getField(row, 'School', 'Organization') ?? '').trim();
+      const departmentName = String(getField(row, 'Department') ?? '').trim();
       const className = String(getField(row, 'Class') ?? '').trim();
       const section = String(getField(row, 'Section') ?? '').trim();
       const courseTitle = String(getField(row, 'Course') ?? '').trim();
@@ -566,8 +583,9 @@ export const bulkImportTransactional = async (req: Request, res: Response): Prom
       const dayRaw = getField(row, 'Day', 'Day of Week');
       const startRaw = getField(row, 'Start Time', 'Start');
       const endRaw = getField(row, 'End Time', 'End');
-      const activeRaw = getField(row, 'Active');
+      const activeRaw = getField(row, 'Status', 'Active');
 
+      if (!departmentName) throw new Error('Department is required');
       if (!className) throw new Error('Class is required');
       if (!courseTitle) throw new Error('Course is required');
       if (!teacherEmail) throw new Error('Teacher Email is required');
@@ -581,13 +599,20 @@ export const bulkImportTransactional = async (req: Request, res: Response): Prom
         schoolId = school._id.toString();
       }
 
+      const departmentDoc = await Department.findOne({
+        tenantId: schoolId,
+        name: new RegExp(`^${escapeRegex(departmentName)}$`, 'i'),
+      }).lean();
+      if (!departmentDoc) throw new Error(`Department "${departmentName}" not found`);
+
       const classFilter: Record<string, unknown> = {
         school: schoolId,
+        department: departmentDoc._id,
         title: new RegExp(`^${escapeRegex(className)}$`, 'i'),
       };
       if (section) classFilter.section = new RegExp(`^${escapeRegex(section)}$`, 'i');
       const classDoc = await ClassModel.findOne(classFilter).lean();
-      if (!classDoc) throw new Error(`Class "${className}${section ? ' ' + section : ''}" not found`);
+      if (!classDoc) throw new Error(`Class "${className}${section ? ' ' + section : ''}" not found in department "${departmentName}"`);
 
       const courseDoc = await Course.findOne({
         school: schoolId,
