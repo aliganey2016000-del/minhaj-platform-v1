@@ -4,11 +4,25 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight } from 'lucide-react';
+import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, DollarSign } from 'lucide-react';
 import api from '../../../lib/axios';
-import { categoryLabels, inferCategoryIcon, inferCategoryColor } from '../../../lib/course-category-visuals';
+import { categoryLabels, inferCategoryIcon, inferCategoryColor, levelColors, statusColors } from '../../../lib/course-category-visuals';
 
-interface Course { _id: string; title: { en: string }; enrolledStudents: number; category?: string; thumbnail?: string; }
+interface Course {
+  _id: string;
+  title: { en: string };
+  enrolledStudents: number;
+  category?: string;
+  thumbnail?: string;
+  status?: string;
+  level?: string;
+  duration?: number;
+  fee?: number;
+  maxStudents?: number;
+  teacher?: { profile?: { firstName: string; lastName: string } } | null;
+  school?: { name: string } | null;
+  class?: { title: string; section: string } | null;
+}
 
 interface TodaySchedule {
   _id: string;
@@ -472,14 +486,21 @@ export function AttendanceManage() {
                     const category = courseInfo?.category || '';
                     const FallbackIcon = inferCategoryIcon(category);
                     const hasThumbnail = !!courseInfo?.thumbnail && !brokenThumbnails.has(s._id);
+                    const teacherName = courseInfo?.teacher?.profile
+                      ? `${courseInfo.teacher.profile.firstName} ${courseInfo.teacher.profile.lastName}`
+                      : 'Unassigned';
+                    const schoolName = courseInfo?.school?.name || '—';
+                    const className = courseInfo?.class ? `${courseInfo.class.title} (${courseInfo.class.section})` : '—';
+                    const maxStudents = courseInfo?.maxStudents || 0;
+                    const enrolled = courseInfo?.enrolledStudents || 0;
                     return (
                       <div
                         key={s._id}
                         onClick={() => s.course?._id && pickTodaysCourse(s.course._id)}
-                        className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl shadow-sm hover:border-indigo-500 hover:shadow-md transition-all cursor-pointer overflow-hidden flex flex-col justify-between"
+                        className="group bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl shadow-sm hover:border-indigo-500 hover:shadow-md transition-all cursor-pointer overflow-hidden flex flex-col"
                       >
-                        {/* Thumbnail — matches Manage Courses' course cards exactly */}
-                        <div className="relative h-28 bg-gradient-to-br from-primary-100 via-primary-50 to-sky-100 dark:from-primary-900/40 dark:via-sky-900/30 dark:to-primary-950/50 flex items-center justify-center">
+                        {/* Thumbnail — identical treatment to Manage Courses' course cards */}
+                        <div className="relative h-40 bg-gradient-to-br from-primary-100 via-primary-50 to-sky-100 dark:from-primary-900/40 dark:via-sky-900/30 dark:to-primary-950/50 flex items-center justify-center">
                           {hasThumbnail ? (
                             <img
                               src={courseInfo!.thumbnail}
@@ -488,33 +509,82 @@ export function AttendanceManage() {
                               onError={() => markThumbnailBroken(s._id)}
                             />
                           ) : (
-                            <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${inferCategoryColor(category)}`}>
-                              <FallbackIcon className="h-5 w-5" strokeWidth={1.5} />
+                            <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${inferCategoryColor(category)}`}>
+                              <FallbackIcon className="h-7 w-7" strokeWidth={1.5} />
                             </div>
                           )}
-                          {category && (
-                            <span className={`absolute top-2 left-2 rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-sm ${inferCategoryColor(category)}`}>
-                              {categoryLabels[category] || category}
+                          {courseInfo?.status && (
+                            <span className={`absolute top-3 right-3 rounded-full px-2.5 py-0.5 text-xs font-semibold shadow-sm ${statusColors[courseInfo.status] || 'bg-gray-100 text-gray-600'}`}>
+                              {courseInfo.status}
                             </span>
                           )}
                         </div>
 
-                        <div className="p-4 flex flex-col flex-1 justify-between">
-                          <div>
-                            <p className="font-semibold text-sm text-[var(--color-text-primary)] truncate">{s.course?.title?.en || 'Untitled Course'}</p>
-                            <span className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-                              <Clock className="h-3.5 w-3.5" strokeWidth={1.75} />
-                              {s.startTime} – {s.endTime}
-                            </span>
+                        <div className="p-4 flex flex-col flex-1 gap-2.5">
+                          <p className="font-bold text-sm text-[var(--color-text-primary)] truncate">{s.course?.title?.en || 'Untitled Course'}</p>
+
+                          {/* Category + Level pills */}
+                          <div className="flex flex-wrap gap-1.5">
+                            {category && (
+                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${inferCategoryColor(category)}`}>
+                                {categoryLabels[category] || category}
+                              </span>
+                            )}
+                            {courseInfo?.level && (
+                              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${levelColors[courseInfo.level] || 'bg-gray-100 text-gray-600'}`}>
+                                {courseInfo.level}
+                              </span>
+                            )}
                           </div>
-                          <div className="flex items-center justify-between mt-4">
-                            <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-                              {courseInfo?.enrolledStudents ?? 0} enrolled
-                            </span>
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-                              Take Attendance <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} />
-                            </span>
+
+                          {/* Info rows — same fields/order as Manage Courses */}
+                          <div className="space-y-1.5 text-sm">
+                            <div className="flex items-center gap-2">
+                              <Building2 className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
+                              <span className="text-xs text-[var(--color-text-tertiary)] w-20 flex-shrink-0">Organization</span>
+                              <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">{schoolName}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Layers className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
+                              <span className="text-xs text-[var(--color-text-tertiary)] w-20 flex-shrink-0">Class</span>
+                              <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">{className}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <User className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
+                              <span className="text-xs text-[var(--color-text-tertiary)] w-20 flex-shrink-0">Teacher</span>
+                              <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">{teacherName}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Clock className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
+                              <span className="text-xs text-[var(--color-text-tertiary)] w-20 flex-shrink-0">Time</span>
+                              <span className="text-xs font-medium text-[var(--color-text-primary)] truncate">{s.startTime} – {s.endTime}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <DollarSign className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
+                              <span className="text-xs text-[var(--color-text-tertiary)] w-20 flex-shrink-0">Price</span>
+                              <span className={`text-xs font-medium truncate ${!courseInfo?.fee ? 'text-green-600 dark:text-green-400' : 'text-[var(--color-text-primary)]'}`}>
+                                {courseInfo?.fee ? `$${courseInfo.fee}` : 'Free'}
+                              </span>
+                            </div>
                           </div>
+
+                          {/* Enrollment progress bar */}
+                          <div className="mt-1">
+                            <div className="flex justify-between text-xs text-[var(--color-text-tertiary)] mb-1">
+                              <span>Enrollment</span>
+                              <span>{enrolled}/{maxStudents}</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-[var(--color-surface-tertiary)] rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-primary-500 rounded-full transition-all duration-500"
+                                style={{ width: `${maxStudents > 0 ? Math.min(100, (enrolled / maxStudents) * 100) : 0}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <span className="inline-flex items-center justify-center gap-1 mt-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 group-hover:gap-1.5 transition-all">
+                            Take Attendance <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} />
+                          </span>
                         </div>
                       </div>
                     );

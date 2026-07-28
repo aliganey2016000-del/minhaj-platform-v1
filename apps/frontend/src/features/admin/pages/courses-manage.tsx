@@ -14,7 +14,7 @@ import {
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { VideoGatedSettingsModal, type VideoGatingSettings } from '../components/video-gated-settings-modal';
-import { categoryLabels, inferCategoryIcon, inferCategoryColor } from '../../../lib/course-category-visuals';
+import { categoryLabels, inferCategoryIcon, inferCategoryColor, levelColors, statusColors } from '../../../lib/course-category-visuals';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,22 +59,6 @@ interface Course {
   createdAt: string;
   accessMode?: 'open' | 'restricted';
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const levelColors: Record<string, string> = {
-  beginner: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-  intermediate: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  advanced: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-};
-
-const statusColors: Record<string, string> = {
-  published: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-  draft: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  archived: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-};
 
 // ---------------------------------------------------------------------------
 // Category Manager — inline CRUD for a school's course categories, opened

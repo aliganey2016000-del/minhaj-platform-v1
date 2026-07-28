@@ -75,3 +75,15 @@ export function inferCategoryColor(category: string): string {
   if (/english|language|lugha|linguist|esl/.test(key)) return categoryColors.english;
   return 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400';
 }
+
+export const levelColors: Record<string, string> = {
+  beginner: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  intermediate: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  advanced: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+};
+
+export const statusColors: Record<string, string> = {
+  published: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  draft: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  archived: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+};
