@@ -19,7 +19,11 @@ interface Schedule {
   teacher?: { _id: string; name?: string; profile?: { firstName: string; lastName: string } };
 }
 
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// dayOfWeek is stored/compared as JS Date.getDay() (0 = Sunday .. 6 = Saturday).
+// DAY_NAMES stays indexed by that number; DISPLAY_ORDER just controls what
+// order the day cards render in — the school week starts Saturday here.
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5];
 
 /** "09:30" -> 570 (minutes since midnight), for comparing two HH:MM times. */
 function toMinutes(time: string): number {
@@ -86,6 +90,8 @@ export function StudentSchedule() {
   // Sort each day's schedules by start time
   Object.values(grouped).forEach((arr) => arr.sort((a, b) => a.startTime.localeCompare(b.startTime)));
 
+  const todayDow = new Date().getDay();
+
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-5xl w-full px-0 sm:px-4 space-y-6">
@@ -116,10 +122,25 @@ export function StudentSchedule() {
 
         {!loading && schedules.length > 0 && (
           <div className="space-y-4">
-            {DAYS.map((dayName, day) => (
-              <div key={day} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-                <div className="px-5 py-3 bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-subtle)]">
+            {DISPLAY_ORDER.map((day) => {
+              const dayName = DAY_NAMES[day];
+              const isToday = day === todayDow;
+              return (
+              <div
+                key={day}
+                className={`rounded-2xl border overflow-hidden shadow-card ${
+                  isToday
+                    ? 'border-blue-400 bg-blue-50/40 dark:bg-blue-950/20'
+                    : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)]'
+                }`}
+              >
+                <div className={`flex items-center gap-2 px-5 py-3 border-b ${isToday ? 'border-blue-200 dark:border-blue-900/50' : 'bg-[var(--color-surface-secondary)] border-[var(--color-border-subtle)]'}`}>
                   <h3 className="text-sm font-bold text-[var(--color-text-primary)]">{dayName}</h3>
+                  {isToday && (
+                    <span className="inline-flex items-center rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                      Today
+                    </span>
+                  )}
                 </div>
                 {grouped[day] ? (
                   <div className="divide-y divide-[var(--color-border-subtle)]">
@@ -137,12 +158,12 @@ export function StudentSchedule() {
                       ) : (
                         <div key={row.schedule._id} className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--color-surface-secondary)] transition-colors">
                           <div className="flex-shrink-0 w-24 text-center">
-                            <span className="inline-block rounded-lg bg-primary-50 dark:bg-primary-950/30 px-3 py-1.5 text-sm font-semibold text-primary-700 dark:text-primary-300">
+                            <span className="inline-block rounded-lg bg-slate-100 dark:bg-slate-800/60 px-3 py-1.5 text-sm font-medium text-slate-500 dark:text-slate-400">
                               {row.schedule.startTime} – {row.schedule.endTime}
                             </span>
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
+                            <p className="text-base font-bold text-[var(--color-text-primary)] truncate">
                               {row.schedule.course?.title?.en || 'Untitled Course'}
                             </p>
                             <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] mt-0.5">
@@ -158,7 +179,8 @@ export function StudentSchedule() {
                   <p className="px-5 py-4 text-xs text-[var(--color-text-tertiary)]">No classes scheduled.</p>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
