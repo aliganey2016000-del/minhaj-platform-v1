@@ -6,6 +6,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { BookOpen, User } from 'lucide-react';
 import api from '../../../lib/axios';
 
 // ---------------------------------------------------------------------------
@@ -201,16 +202,17 @@ export function StudentCourses() {
       <div className="mx-auto max-w-7xl space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">
-            📚 {t('my_courses')}
+          <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]">
+            <BookOpen className="h-7 w-7 text-primary-600" strokeWidth={1.75} />
+            {t('my_courses')}
           </h1>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
             {stats.total} {t('enrolled_courses')}
           </p>
         </div>
 
-        {/* Statistics Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Statistics Cards — same column breakpoints as the course grid below, so edges line up */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card flex items-center gap-3">
             <span className="text-2xl">📘</span>
             <div>
@@ -351,8 +353,8 @@ export function StudentCourses() {
                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <span className="text-5xl opacity-30 select-none">📚</span>
+                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-500/10 to-teal-500/10">
+                        <BookOpen className="h-12 w-12 text-emerald-600/40" strokeWidth={1.5} />
                       </div>
                     )}
                     {/* Category badge */}
@@ -396,8 +398,9 @@ export function StudentCourses() {
 
                     {/* Teacher */}
                     {c.teacher?.profile && (
-                      <p className="text-xs text-[var(--color-text-tertiary)] truncate">
-                        👨‍🏫 {c.teacher.profile.firstName} {c.teacher.profile.lastName}
+                      <p className="flex items-center text-xs text-[var(--color-text-tertiary)] truncate">
+                        <User className="h-3.5 w-3.5 text-slate-400 mr-1.5 flex-shrink-0" strokeWidth={1.75} />
+                        {c.teacher.profile.firstName} {c.teacher.profile.lastName}
                       </p>
                     )}
 
