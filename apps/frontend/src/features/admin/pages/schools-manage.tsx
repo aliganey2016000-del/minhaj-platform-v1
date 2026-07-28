@@ -8,7 +8,9 @@
  * - Search, filter by status, and paginate
  */
 
-import { useState, useEffect, useCallback, type FormEvent, type ChangeEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { Building2, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -338,6 +340,52 @@ function StepIndicator({ current }: { current: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Row Actions — compact "⋮" dropdown replacing plain Edit/Delete text links,
+// matching the pattern established on Manage Teachers.
+// ---------------------------------------------------------------------------
+
+function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  return (<>
+    <button
+      ref={btnRef}
+      onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+      className="rounded-lg border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-1.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors"
+      title="More Actions"
+    >
+      <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
+    </button>
+    {open && btnRef.current && createPortal(
+      <div
+        ref={menuRef}
+        style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }}
+        className="w-40 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-elevated py-1"
+      >
+        <button onClick={() => { setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
+          <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
+        </button>
+        {onDelete && (
+          <button onClick={() => { setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
+          </button>
+        )}
+      </div>,
+      document.body,
+    )}
+  </>);
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -651,7 +699,7 @@ export function SchoolsManage() {
         {/* ── Header ── */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🏛️ Organization Management</h1>
+            <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]"><Building2 className="h-8 w-8 text-primary-600" strokeWidth={1.75} />Organization Management</h1>
             <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
               Register and manage organizations in the system
             </p>
@@ -763,22 +811,10 @@ export function SchoolsManage() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => openEdit(school)}
-                            className="rounded-lg px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors"
-                          >
-                            Edit
-                          </button>
-                          {isSuperAdmin && (
-                            <button
-                              onClick={() => setDeleteTarget(school)}
-                              className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
+                        <RowActionsMenu
+                          onEdit={() => openEdit(school)}
+                          onDelete={isSuperAdmin ? () => setDeleteTarget(school) : undefined}
+                        />
                       </td>
                     </tr>
                   ))

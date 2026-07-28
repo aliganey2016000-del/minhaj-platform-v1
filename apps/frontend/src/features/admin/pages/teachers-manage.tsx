@@ -6,6 +6,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { Presentation, Search, MoreVertical } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -188,10 +189,8 @@ function ActionsDropdown({ onImport, onExport, exporting, label }: { onImport: (
   const toggle = (e: React.MouseEvent) => { e.stopPropagation(); setOpen(!open); };
 
   return (<>
-    <button ref={btnRef} onClick={toggle} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors" title="More Actions">
-      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 16 16">
-        <circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" />
-      </svg>
+    <button ref={btnRef} onClick={toggle} className="rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] px-3 py-2.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors" title="More Actions">
+      <MoreVertical className="h-5 w-5" strokeWidth={1.75} />
     </button>
     {open && btnRef.current && createPortal(
       <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
@@ -306,7 +305,7 @@ export function TeachersManage() {
 
         {/* Header + Buttons — stay top-right of the title on every screen size */}
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0"><h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">👨‍🏫 Manage Teachers</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{hasFetched ? `${teachers.length} total — ${activeCount} active, ${inactiveCount} inactive, ${onLeaveCount} on leave` : 'Apply a filter to view teachers'}</p></div>
+          <div className="min-w-0"><h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]"><Presentation className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />Manage Teachers</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{hasFetched ? `${teachers.length} total — ${activeCount} active, ${inactiveCount} inactive, ${onLeaveCount} on leave` : 'Apply a filter to view teachers'}</p></div>
           <div className="flex gap-2 sm:gap-3 flex-shrink-0">
             <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={e => { const f = e.target.files?.[0]; if (f) { setSelectedFile(f); submitFileImport(); } }} className="hidden" />
             <ActionsDropdown onImport={openImportModal} onExport={handleExport} exporting={exporting} label="Teachers" />
@@ -358,7 +357,7 @@ export function TeachersManage() {
             {isOrgAdmin ? (<div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">{schools[0]?.name || 'Your Organization'}</div>) : (<select value={filterSchool} onChange={e => { setFilterSchool(e.target.value); setHasFetched(false); }} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">{isSuperAdmin ? 'Select an Organization...' : 'Select Organization...'}</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>)}
             <input className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" placeholder="Search by name, email, or ID..." value={search} onChange={e => { setSearch(e.target.value); setHasFetched(false); }} onKeyDown={e => { if (e.key === 'Enter') handleApplyFilters(); }} />
             <select className="flex-1 sm:flex-none sm:w-40 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setHasFetched(false); }}><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On Leave</option></select>
-            <button onClick={handleApplyFilters} className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors whitespace-nowrap">🔍 Apply Filters</button>
+            <button onClick={handleApplyFilters} className="inline-flex items-center gap-1.5 rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors whitespace-nowrap"><Search className="h-4 w-4" strokeWidth={2} />Apply Filters</button>
           </div>
         </div>
 

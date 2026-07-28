@@ -5,6 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { School, Pencil, Trash2 } from 'lucide-react';
 import api from '../../../lib/axios';
 
 // ---------------------------------------------------------------------------
@@ -427,7 +428,7 @@ export function ClassesManage() {
 
         {/* Header + Buttons — stay top-right of the title on every screen size */}
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0"><h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">🏫 Manage Classes</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{classes.length} total — {activeCount} active, {inactiveCount} inactive, {completedCount} completed</p></div>
+          <div className="min-w-0"><h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]"><School className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />Manage Classes</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{classes.length} total — {activeCount} active, {inactiveCount} inactive, {completedCount} completed</p></div>
           <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 flex-shrink-0">
             <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setSelectedFile(f); submitFileImport(); } }} className="hidden" />
             <ActionsDropdown onImport={openImportModal} onExport={handleExport} exporting={exporting} label="Classes" />
@@ -554,7 +555,7 @@ export function ClassesManage() {
                       <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm">{c.room}</td>
                       <td className="px-5 py-4 text-center"><ShiftBadge mode={c.shiftMode || 'Morning'} /></td>
                       <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><select value={c.status} onChange={e => handleStatusChange(c._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer text-[var(--color-text-primary)]"><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select></td>
-                      <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><button onClick={() => setEditingClass(c)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30" title="Edit">✏️</button><button onClick={() => handleDelete(c._id)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete">🗑️</button></div></td>
+                      <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><button onClick={() => setEditingClass(c)} className="rounded-lg p-1.5 text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30" title="Edit"><Pencil className="h-4 w-4" strokeWidth={1.75} /></button><button onClick={() => handleDelete(c._id)} className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete"><Trash2 className="h-4 w-4" strokeWidth={1.75} /></button></div></td>
                     </tr>
                   ))
                 )}

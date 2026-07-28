@@ -9,7 +9,9 @@
  *     teacher/student/parent roles, cannot change roles or organization.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { Users, MoreVertical, Pencil, Ban } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -57,6 +59,52 @@ const roleLabels: Record<string, { label: string; color: string }> = {
   student:    { label: 'Student',       color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
   parent:     { label: 'Parent',        color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
 };
+
+// ---------------------------------------------------------------------------
+// Row Actions — compact "⋮" dropdown replacing plain Edit/Deactivate text
+// links, matching the pattern established on Manage Teachers.
+// ---------------------------------------------------------------------------
+
+function RowActionsMenu({ onEdit, onDeactivate }: { onEdit: () => void; onDeactivate?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  return (<>
+    <button
+      ref={btnRef}
+      onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+      className="rounded-lg border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-1.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors"
+      title="More Actions"
+    >
+      <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
+    </button>
+    {open && btnRef.current && createPortal(
+      <div
+        ref={menuRef}
+        style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }}
+        className="w-44 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-elevated py-1"
+      >
+        <button onClick={() => { setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
+          <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
+        </button>
+        {onDeactivate && (
+          <button onClick={() => { setOpen(false); onDeactivate(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <Ban className="h-3.5 w-3.5" strokeWidth={1.75} /> Deactivate
+          </button>
+        )}
+      </div>,
+      document.body,
+    )}
+  </>);
+}
 
 // ---------------------------------------------------------------------------
 // User Modal (Create / Edit)
@@ -362,7 +410,7 @@ export function UsersManage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">👥 User Management</h1>
+            <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]"><Users className="h-8 w-8 text-primary-600" strokeWidth={1.75} />User Management</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
               {users.length} users
               {isOrgAdmin && ' — your organization'}
@@ -496,22 +544,10 @@ export function UsersManage() {
                         </span>
                       </td>
                       <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleEdit(u)}
-                            className="text-xs font-medium text-primary-600 hover:text-primary-700 transition-colors"
-                          >
-                            Edit
-                          </button>
-                          {u.isActive && u._id !== currentUser?.id && (
-                            <button
-                              onClick={() => handleDelete(u._id)}
-                              className="text-xs font-medium text-red-600 hover:text-red-700 transition-colors"
-                            >
-                              Deactivate
-                            </button>
-                          )}
-                        </div>
+                        <RowActionsMenu
+                          onEdit={() => handleEdit(u)}
+                          onDeactivate={u.isActive && u._id !== currentUser?.id ? () => handleDelete(u._id) : undefined}
+                        />
                       </td>
                     </tr>
                   ))}

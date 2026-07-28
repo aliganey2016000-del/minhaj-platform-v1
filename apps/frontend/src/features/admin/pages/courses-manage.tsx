@@ -6,6 +6,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
+import {
+  Scale, Landmark, ScrollText, Languages, Mic, BookMarked, Gem, BookOpen,
+  Building2, Layers, User, Clock, DollarSign,
+  type LucideIcon,
+} from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { VideoGatedSettingsModal, type VideoGatingSettings } from '../components/video-gated-settings-modal';
@@ -92,15 +97,15 @@ const categoryColors: Record<string, string> = {
   akhlaq: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300',
 };
 
-const thumbnailFallbacks: Record<string, string> = {
-  quran: '📖',
-  fiqh: '⚖️',
-  aqeedah: '🕌',
-  seerah: '📜',
-  arabic: '🔤',
-  tajweed: '🎙️',
-  hadith: '📚',
-  akhlaq: '💎',
+const thumbnailFallbacks: Record<string, LucideIcon> = {
+  quran: BookOpen,
+  fiqh: Scale,
+  aqeedah: Landmark,
+  seerah: ScrollText,
+  arabic: Languages,
+  tajweed: Mic,
+  hadith: BookMarked,
+  akhlaq: Gem,
 };
 
 // ---------------------------------------------------------------------------
@@ -474,7 +479,14 @@ function CourseCard({
         {course.thumbnail ? (
           <img src={course.thumbnail} alt={course.title.en} className="w-full h-full object-cover" />
         ) : (
-          <span className="text-5xl opacity-40 select-none">{thumbnailFallbacks[course.category] || '📚'}</span>
+          (() => {
+            const FallbackIcon = thumbnailFallbacks[course.category] || BookOpen;
+            return (
+              <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${categoryColors[course.category] || 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                <FallbackIcon className="h-7 w-7" strokeWidth={1.5} />
+              </div>
+            );
+          })()
         )}
         {/* Status badge overlay */}
         <span className={`absolute top-3 right-3 rounded-full px-2.5 py-0.5 text-xs font-semibold shadow-sm ${statusColors[course.status] || 'bg-gray-100 text-gray-600'}`}>
@@ -643,11 +655,11 @@ function CourseCard({
 
         {/* Info rows */}
         <div className="space-y-1.5 text-sm flex-1">
-          <InfoRow icon="🏛️" label="Organization" value={schoolName} />
-          <InfoRow icon="🏛️" label="Class" value={className} />
-          <InfoRow icon="👨‍🏫" label="Teacher" value={teacherName} />
-          <InfoRow icon="⏱️" label="Duration" value={`${course.duration} weeks`} />
-          <InfoRow icon="💰" label="Price" value={course.fee > 0 ? `$${course.fee}` : 'Free'} highlight={course.fee === 0} />
+          <InfoRow icon={Building2} label="Organization" value={schoolName} />
+          <InfoRow icon={Layers} label="Class" value={className} />
+          <InfoRow icon={User} label="Teacher" value={teacherName} />
+          <InfoRow icon={Clock} label="Duration" value={`${course.duration} weeks`} />
+          <InfoRow icon={DollarSign} label="Price" value={course.fee > 0 ? `$${course.fee}` : 'Free'} highlight={course.fee === 0} />
         </div>
 
         {/* Students progress */}
@@ -668,10 +680,10 @@ function CourseCard({
   );
 }
 
-function InfoRow({ icon, label, value, highlight }: { icon: string; label: string; value: string; highlight?: boolean }) {
+function InfoRow({ icon: Icon, label, value, highlight }: { icon: LucideIcon; label: string; value: string; highlight?: boolean }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs w-4 text-center flex-shrink-0">{icon}</span>
+      <Icon className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" strokeWidth={1.75} />
       <span className="text-xs text-[var(--color-text-tertiary)] w-16 flex-shrink-0">{label}</span>
       <span className={`text-xs font-medium truncate ${highlight ? 'text-green-600 dark:text-green-400' : 'text-[var(--color-text-primary)]'}`}>
         {value}

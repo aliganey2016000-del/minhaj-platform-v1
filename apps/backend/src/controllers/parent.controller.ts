@@ -44,7 +44,8 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     Parent.find(scopedFilter)
       .populate('user', 'email phone isVerified isActive')
       .populate('profile', 'firstName lastName gender')
-      .populate('children', 'studentId')
+      .populate('school', 'name')
+      .populate({ path: 'children', select: 'studentId school', populate: { path: 'school', select: 'name' } })
       .sort({ createdAt: -1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
@@ -52,10 +53,18 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     Parent.countDocuments(scopedFilter),
   ]);
 
-  let result = parents;
+  // The parent's own `school` is the authoritative organization (set at
+  // creation/import), but a handful of legacy records predate that field
+  // being populated here at all — for those, fall back to the distinct set
+  // of organizations among their linked children rather than showing blank.
+  let result = parents.map((p: any) => {
+    if (p.school?.name) return { ...p, organizationNames: [p.school.name] };
+    const childOrgNames = [...new Set((p.children || []).map((c: any) => c.school?.name).filter(Boolean))];
+    return { ...p, organizationNames: childOrgNames };
+  });
   if (search) {
     const s = (search as string).toLowerCase();
-    result = parents.filter((p: any) => {
+    result = result.filter((p: any) => {
       const fullName = `${p.profile?.firstName || ''} ${p.profile?.lastName || ''}`.toLowerCase();
       const email = (p.user?.email || '').toLowerCase();
       const pid = (p.parentId || '').toLowerCase();

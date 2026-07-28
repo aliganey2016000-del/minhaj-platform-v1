@@ -8,7 +8,7 @@
 import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { GraduationCap, Users, Building, BookOpen, School, Pencil, Trash2, type LucideIcon } from 'lucide-react';
+import { GraduationCap, Users, Building2, BookOpen, School, Pencil, Trash2, Layers, CheckCircle2, Clock, XCircle, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -80,11 +80,11 @@ const emptyForm: StudentForm = {
 
 type TabKey = 'all' | 'approved' | 'pending' | 'rejected';
 
-const tabs: { key: TabKey; label: string; icon: string }[] = [
-  { key: 'all', label: 'All', icon: '👥' },
-  { key: 'approved', label: 'Approved', icon: '✅' },
-  { key: 'pending', label: 'Pending', icon: '⏳' },
-  { key: 'rejected', label: 'Rejected', icon: '❌' },
+const tabs: { key: TabKey; label: string; icon: LucideIcon }[] = [
+  { key: 'all', label: 'All', icon: Layers },
+  { key: 'approved', label: 'Approved', icon: CheckCircle2 },
+  { key: 'pending', label: 'Pending', icon: Clock },
+  { key: 'rejected', label: 'Rejected', icon: XCircle },
 ];
 
 // ---------------------------------------------------------------------------
@@ -408,7 +408,7 @@ function StatsSection({ stats, loading }: { stats: StudentStats | null; loading:
       {/* Breakdown charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <BarList title="By Gender" icon={Users} items={genderRows} />
-        <BarList title="By Department" icon={Building} items={deptRows} colorOffset={2} emptyLabel="No department data" />
+        <BarList title="By Department" icon={Building2} items={deptRows} colorOffset={2} emptyLabel="No department data" />
         <BarList title="By Class" icon={BookOpen} items={classRows} colorOffset={4} emptyLabel="No class data" />
         <BarList title="By Organization" icon={School} items={orgRows} colorOffset={6} emptyLabel="No organization data" />
       </div>
@@ -577,7 +577,7 @@ export function StudentsManage() {
            ═══════════════════════════════════════════════════════════════ */}
 
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {tabs.map(t => (<button key={t.key} onClick={() => { setActiveTab(t.key); setHasFetched(false); }} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === t.key ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-primary)] border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}><span>{t.icon}</span> {t.label}</button>))}
+          {tabs.map(t => (<button key={t.key} onClick={() => { setActiveTab(t.key); setHasFetched(false); }} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === t.key ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-primary)] border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}><t.icon className="h-4 w-4" strokeWidth={1.75} /> {t.label}</button>))}
         </div>
 
         <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card space-y-3">
