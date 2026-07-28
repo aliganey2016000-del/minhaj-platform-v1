@@ -4,6 +4,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { BookOpen } from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface TeacherBrief { _id: string; teacherId: string; profile?: { firstName: string; lastName: string }; }
@@ -45,6 +46,10 @@ export function StudentAvailable() {
   const [message, setMessage] = useState('');
   const [enrollingId, setEnrollingId] = useState<string | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  // Thumbnail URLs that failed to load — those cards fall back to the
+  // gradient placeholder instead of the browser's broken-image icon.
+  const [brokenThumbnails, setBrokenThumbnails] = useState<Set<string>>(new Set());
+  const markThumbnailBroken = (id: string) => setBrokenThumbnails((prev) => new Set(prev).add(id));
   const limit = 12;
 
   const fetchCourses = useCallback(async () => {
@@ -149,16 +154,17 @@ export function StudentAvailable() {
               >
                 {/* Thumbnail — fixed 16:9 aspect ratio */}
                 <div className="relative w-full aspect-video overflow-hidden bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-900/40 dark:to-primary-800/30">
-                  {c.thumbnail ? (
+                  {c.thumbnail && !brokenThumbnails.has(c._id) ? (
                     <img
                       src={c.thumbnail}
                       alt={c.title.en}
                       loading="lazy"
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      onError={() => markThumbnailBroken(c._id)}
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <span className="text-5xl opacity-30 select-none">📚</span>
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-500/10 to-teal-500/10">
+                      <BookOpen className="h-12 w-12 text-emerald-600/40" strokeWidth={1.5} />
                     </div>
                   )}
                   {/* Category badge */}

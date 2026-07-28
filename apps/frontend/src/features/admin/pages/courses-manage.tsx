@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Scale, Landmark, ScrollText, Languages, Mic, BookMarked, Gem, BookOpen,
-  Building2, Layers, User, Clock, DollarSign,
+  Building2, Layers, User, Clock, DollarSign, MoreVertical,
   type LucideIcon,
 } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -427,6 +427,7 @@ function CourseCard({
   onTeacherPermission,
 }: CourseCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [thumbnailBroken, setThumbnailBroken] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [menuCoords, setMenuCoords] = useState({ top: 0, left: 0 });
@@ -476,8 +477,13 @@ function CourseCard({
     <div className="group rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
       {/* Thumbnail */}
       <div className="relative h-40 bg-gradient-to-br from-primary-100 via-primary-50 to-sky-100 dark:from-primary-900/40 dark:via-sky-900/30 dark:to-primary-950/50 flex items-center justify-center">
-        {course.thumbnail ? (
-          <img src={course.thumbnail} alt={course.title.en} className="w-full h-full object-cover" />
+        {course.thumbnail && !thumbnailBroken ? (
+          <img
+            src={course.thumbnail}
+            alt={course.title.en}
+            className="w-full h-full object-cover"
+            onError={() => setThumbnailBroken(true)}
+          />
         ) : (
           (() => {
             const FallbackIcon = thumbnailFallbacks[course.category] || BookOpen;
@@ -964,8 +970,8 @@ function CourseActionsMenu({ onImport, onExport, exporting }: { onImport: () => 
   const toggle = (e: React.MouseEvent) => { e.stopPropagation(); setOpen(!open); };
 
   return (<>
-    <button ref={btnRef} onClick={toggle} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors" title="More Actions">
-      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" /></svg>
+    <button ref={btnRef} onClick={toggle} className="rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] px-3 py-2.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors" title="More Actions">
+      <MoreVertical className="h-5 w-5" strokeWidth={1.75} />
     </button>
     {open && btnRef.current && createPortal(
       <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
@@ -1190,7 +1196,7 @@ export function CoursesManage() {
         {/* Header — buttons stay top-right of the title on every screen size */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">📚 Manage Courses</h1>
+            <h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]"><BookOpen className="h-6 w-6 sm:h-7 sm:w-7 text-primary-600" strokeWidth={1.75} />Manage Courses</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
               {courses.length} total — {publishedCount} published, {draftCount} draft, {archivedCount} archived
             </p>

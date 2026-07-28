@@ -80,6 +80,11 @@ export function StudentCourses() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  // Thumbnail URLs that failed to load (broken link) — tracked so those
+  // cards fall back to the gradient placeholder instead of showing the
+  // browser's broken-image icon.
+  const [brokenThumbnails, setBrokenThumbnails] = useState<Set<string>>(new Set());
+  const markThumbnailBroken = (id: string) => setBrokenThumbnails((prev) => new Set(prev).add(id));
 
   // -----------------------------------------------------------------------
   // Fetch enrolled courses
@@ -345,12 +350,13 @@ export function StudentCourses() {
                 >
                   {/* Thumbnail */}
                   <div className="relative w-full aspect-video overflow-hidden bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-900/40 dark:to-primary-800/30">
-                    {c.thumbnail ? (
+                    {c.thumbnail && !brokenThumbnails.has(c._id) ? (
                       <img
                         src={c.thumbnail}
                         alt={c.title.en}
                         loading="lazy"
                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        onError={() => markThumbnailBroken(c._id)}
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-500/10 to-teal-500/10">
