@@ -170,12 +170,12 @@ export function AdminDashboard() {
 
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Enrollment Overview — radial gauge */}
-          <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-6">
+          <div className="flex h-[360px] flex-col rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-6">
             <h2 className="text-base font-bold text-[var(--color-text-primary)] mb-1">Enrollment Overview</h2>
             <p className="text-xs text-[var(--color-text-tertiary)] mb-2">
               {stats!.enrollment.totalEnrolled} enrolled of {stats!.enrollment.totalCapacity} capacity
             </p>
-            <div className="relative h-48">
+            <div className="relative flex-1">
               <ResponsiveContainer width="100%" height="100%">
                 <RadialBarChart
                   innerRadius="70%"
@@ -196,12 +196,12 @@ export function AdminDashboard() {
           </div>
 
           {/* Course Distribution — donut + legend */}
-          <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-6">
+          <div className="flex h-[360px] flex-col rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-6">
             <h2 className="text-base font-bold text-[var(--color-text-primary)] mb-4">Course Distribution</h2>
             {distribution.length === 0 ? (
               <p className="text-sm text-[var(--color-text-tertiary)] py-12 text-center">No courses yet</p>
             ) : (
-              <div className="flex items-center gap-4">
+              <div className="flex flex-1 items-center gap-4 min-h-0">
                 <div className="h-40 w-40 flex-shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -223,7 +223,7 @@ export function AdminDashboard() {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <ul className="flex-1 space-y-1.5 min-w-0">
+                <ul className="flex-1 space-y-1.5 min-w-0 max-h-full overflow-y-auto">
                   {distribution.map((d) => (
                     <li key={d.category} className="flex items-center gap-2 text-xs">
                       <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: categoryColors[d.category] }} />
@@ -237,9 +237,9 @@ export function AdminDashboard() {
           </div>
 
           {/* Monthly Registrations — bar chart */}
-          <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-6">
+          <div className="flex h-[360px] flex-col rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-6">
             <h2 className="text-base font-bold text-[var(--color-text-primary)] mb-4">Monthly Registrations</h2>
-            <div className="h-48">
+            <div className="flex-1">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlyData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                   <CartesianGrid vertical={false} stroke={gridColor} />

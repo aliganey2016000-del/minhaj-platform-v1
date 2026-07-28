@@ -229,7 +229,6 @@ export function DashboardHeader({ hidden }: DashboardHeaderProps) {
               </p>
               <h1 className="text-2xl lg:text-3xl font-bold text-[var(--color-text-primary)]">
                 Welcome back, <span className="text-primary-600 dark:text-primary-400">{data.firstName}</span>
-                <span className="ml-1">👋</span>
               </h1>
               <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
                 {fullName}{' '}

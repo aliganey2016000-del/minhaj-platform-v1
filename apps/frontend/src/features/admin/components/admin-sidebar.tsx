@@ -261,7 +261,8 @@ export function AdminSidebar() {
                             <button
                               type="button"
                               onClick={() => toggleGroup(item.label)}
-                              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200
+                              title={item.label}
+                              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all duration-200
                                 ${active
                                   ? 'text-primary-700 dark:text-primary-300'
                                   : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
@@ -288,7 +289,8 @@ export function AdminSidebar() {
                                       <Link
                                         to={child.path}
                                         onClick={() => setIsMobileOpen(false)}
-                                        className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-all duration-200
+                                        title={child.label}
+                                        className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] transition-all duration-200
                                           ${isActive(child.path)
                                             ? 'bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 font-semibold'
                                             : 'font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
@@ -314,7 +316,8 @@ export function AdminSidebar() {
                           <Link
                             to={item.path}
                             onClick={() => setIsMobileOpen(false)}
-                            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-200
+                            title={item.label}
+                            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] transition-all duration-200
                               ${isActive(item.path)
                                 ? 'bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 font-semibold'
                                 : 'font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
@@ -364,7 +367,7 @@ export function AdminSidebar() {
       </button>
 
       {/* ── Desktop Sidebar (fixed) ── */}
-      <div className="hidden lg:block fixed top-0 left-0 bottom-0 w-64 z-40">
+      <div className="hidden lg:block fixed top-0 left-0 bottom-0 w-72 z-40">
         {sidebarContent}
       </div>
 
