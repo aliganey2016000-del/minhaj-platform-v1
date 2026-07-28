@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { CalendarDays, User } from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface Schedule {
@@ -39,8 +40,11 @@ export function StudentSchedule() {
     })();
   }, []);
 
-  const teacherLabel = (t?: any) =>
-    t?.profile ? `${t.profile.firstName} ${t.profile.lastName}` : t?.name || '—';
+  const teacherLabel = (t?: any): string => {
+    if (!t) return '—';
+    const fullName = t.profile ? `${t.profile.firstName || ''} ${t.profile.lastName || ''}`.trim() : '';
+    return fullName || t.name || '—';
+  };
 
   // Group schedules by day
   const grouped: Record<number, Schedule[]> = {};
@@ -51,13 +55,14 @@ export function StudentSchedule() {
   // Sort each day's schedules by start time
   Object.values(grouped).forEach((arr) => arr.sort((a, b) => a.startTime.localeCompare(b.startTime)));
 
-  const daysWithSchedules = Object.keys(grouped).map(Number).sort((a, b) => a - b);
-
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-3xl space-y-6">
+      <div className="mx-auto max-w-5xl w-full px-0 sm:px-4 space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🕐 My Schedule</h1>
+          <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]">
+            <CalendarDays className="h-8 w-8 text-primary-600" strokeWidth={1.75} />
+            My Schedule
+          </h1>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Your weekly class timetable</p>
         </div>
 
@@ -78,32 +83,37 @@ export function StudentSchedule() {
           </div>
         )}
 
-        {!loading && daysWithSchedules.length > 0 && (
+        {!loading && schedules.length > 0 && (
           <div className="space-y-4">
-            {daysWithSchedules.map((day) => (
+            {DAYS.map((dayName, day) => (
               <div key={day} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
                 <div className="px-5 py-3 bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-subtle)]">
-                  <h3 className="text-sm font-bold text-[var(--color-text-primary)]">{DAYS[day]}</h3>
+                  <h3 className="text-sm font-bold text-[var(--color-text-primary)]">{dayName}</h3>
                 </div>
-                <div className="divide-y divide-[var(--color-border-subtle)]">
-                  {grouped[day].map((s) => (
-                    <div key={s._id} className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--color-surface-secondary)] transition-colors">
-                      <div className="flex-shrink-0 w-24 text-center">
-                        <span className="inline-block rounded-lg bg-primary-50 dark:bg-primary-950/30 px-3 py-1.5 text-sm font-semibold text-primary-700 dark:text-primary-300">
-                          {s.startTime} – {s.endTime}
-                        </span>
+                {grouped[day] ? (
+                  <div className="divide-y divide-[var(--color-border-subtle)]">
+                    {grouped[day].map((s) => (
+                      <div key={s._id} className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--color-surface-secondary)] transition-colors">
+                        <div className="flex-shrink-0 w-24 text-center">
+                          <span className="inline-block rounded-lg bg-primary-50 dark:bg-primary-950/30 px-3 py-1.5 text-sm font-semibold text-primary-700 dark:text-primary-300">
+                            {s.startTime} – {s.endTime}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
+                            {s.course?.title?.en || 'Untitled Course'}
+                          </p>
+                          <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                            <User className="h-3.5 w-3.5 text-slate-400" strokeWidth={1.75} />
+                            {teacherLabel(s.teacher)}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
-                          {s.course?.title?.en || 'Untitled Course'}
-                        </p>
-                        <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-                          👨‍🏫 {teacherLabel(s.teacher)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="px-5 py-4 text-xs text-[var(--color-text-tertiary)]">No classes scheduled.</p>
+                )}
               </div>
             ))}
           </div>
