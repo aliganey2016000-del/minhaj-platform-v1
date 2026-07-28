@@ -7,7 +7,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Scale, Landmark, ScrollText, Languages, Mic, BookMarked, Gem, BookOpen,
+  Scale, Landmark, ScrollText, Languages, Mic, BookMarked, Gem, BookOpen, Globe,
   Building2, Layers, User, Clock, DollarSign, MoreVertical,
   type LucideIcon,
 } from 'lucide-react';
@@ -72,6 +72,8 @@ const categoryLabels: Record<string, string> = {
   tajweed: 'Tajweed',
   hadith: 'Hadith',
   akhlaq: 'Akhlaq',
+  english: 'English',
+  language: 'Language',
 };
 
 const levelColors: Record<string, string> = {
@@ -95,6 +97,8 @@ const categoryColors: Record<string, string> = {
   tajweed: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   hadith: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
   akhlaq: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300',
+  english: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+  language: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
 };
 
 const thumbnailFallbacks: Record<string, LucideIcon> = {
@@ -106,7 +110,37 @@ const thumbnailFallbacks: Record<string, LucideIcon> = {
   tajweed: Mic,
   hadith: BookMarked,
   akhlaq: Gem,
+  english: Globe,
+  language: Globe,
 };
+
+/**
+ * The 8 built-in categories above always resolve directly. Anything else —
+ * a category that doesn't exist yet as a fixed key, e.g. a future "English"/
+ * general-language course — is matched by keyword instead of silently
+ * falling back to a generic book icon, so a language course reads as a
+ * language course rather than looking miscategorized.
+ */
+function inferCategoryIcon(category: string): LucideIcon {
+  if (thumbnailFallbacks[category]) return thumbnailFallbacks[category];
+  const key = category.toLowerCase();
+  if (/english|language|lugha|linguist|esl/.test(key)) return Globe;
+  if (/arab/.test(key)) return Languages;
+  if (/fiqh|law|jurisprudence/.test(key)) return Scale;
+  if (/aqeedah|creed|belief/.test(key)) return Landmark;
+  if (/seerah|history|biography/.test(key)) return ScrollText;
+  if (/tajweed|recit/.test(key)) return Mic;
+  if (/hadith|narrat/.test(key)) return BookMarked;
+  if (/akhlaq|ethic|character/.test(key)) return Gem;
+  return BookOpen;
+}
+
+function inferCategoryColor(category: string): string {
+  if (categoryColors[category]) return categoryColors[category];
+  const key = category.toLowerCase();
+  if (/english|language|lugha|linguist|esl/.test(key)) return categoryColors.english;
+  return 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400';
+}
 
 // ---------------------------------------------------------------------------
 // Create / Edit Modal
@@ -486,9 +520,9 @@ function CourseCard({
           />
         ) : (
           (() => {
-            const FallbackIcon = thumbnailFallbacks[course.category] || BookOpen;
+            const FallbackIcon = inferCategoryIcon(course.category);
             return (
-              <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${categoryColors[course.category] || 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+              <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${inferCategoryColor(course.category)}`}>
                 <FallbackIcon className="h-7 w-7" strokeWidth={1.5} />
               </div>
             );
@@ -651,7 +685,7 @@ function CourseCard({
 
         {/* Meta Pills */}
         <div className="flex flex-wrap gap-1.5">
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${categoryColors[course.category] || 'bg-gray-100 text-gray-600'}`}>
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${inferCategoryColor(course.category)}`}>
             {categoryLabels[course.category] || course.category}
           </span>
           <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${levelColors[course.level] || 'bg-gray-100 text-gray-600'}`}>
