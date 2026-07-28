@@ -18,8 +18,53 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+
+// ---------------------------------------------------------------------------
+// Row Actions — single "⋮" dropdown replacing individual Edit/Delete links.
+// ---------------------------------------------------------------------------
+
+function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  return (<>
+    <button
+      ref={btnRef}
+      onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+      className="rounded-lg border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-1.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors"
+      title="More Actions"
+    >
+      <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
+    </button>
+    {open && btnRef.current && createPortal(
+      <div
+        ref={menuRef}
+        style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }}
+        className="w-40 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-md py-1"
+      >
+        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
+          <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
+          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
+        </button>
+      </div>,
+      document.body,
+    )}
+  </>);
+}
 
 interface SchoolBrief { _id: string; name: string; }
 interface ClassBrief { _id: string; title: string; section: string; school?: string | { _id: string }; }
@@ -318,10 +363,11 @@ export function SchedulesManage() {
     }
   };
 
-  const teacherLabel = (t: TeacherBrief) =>
-    t.profile
-      ? `${t.profile.firstName} ${t.profile.lastName}`
-      : (t as any).name || t._id;
+  const teacherLabel = (t?: TeacherBrief | null): string => {
+    if (!t) return 'Not Assigned';
+    const fullName = t.profile ? `${t.profile.firstName || ''} ${t.profile.lastName || ''}`.trim() : '';
+    return fullName || (t as any).name || 'Not Assigned';
+  };
 
   // ── Derived: is the currently-selected course's teacher pre-assigned? ──
   const selectedCourseForTeacher = courses.find((c) => c._id === formCourse);
@@ -1051,8 +1097,9 @@ export function SchedulesManage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button onClick={() => handleEdit(s)} className="text-primary-600 hover:underline text-xs font-medium mr-3">Edit</button>
-                          <button onClick={() => handleDelete(s._id)} className="text-red-500 hover:underline text-xs font-medium">Delete</button>
+                          <div className="flex justify-end">
+                            <RowActionsMenu onEdit={() => handleEdit(s)} onDelete={() => handleDelete(s._id)} />
+                          </div>
                         </td>
                       </tr>
                     );
