@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import { CheckSquare, FileText, BarChart3, Inbox } from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface Course { _id: string; title: { en: string }; enrolledStudents: number; }
@@ -177,33 +178,38 @@ export function AttendanceManage() {
           </div>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex gap-2 border-b border-[var(--color-border-subtle)] pb-0">
-          {(['take', 'view', 'report'] as const).map((t) => (
+        {/* Tab Switcher — segmented control */}
+        <div className="flex bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-xl max-w-md gap-1">
+          {([
+            { key: 'take' as const, label: 'Take Attendance', icon: CheckSquare },
+            { key: 'view' as const, label: 'View Records', icon: FileText },
+            { key: 'report' as const, label: 'Report', icon: BarChart3 },
+          ]).map(({ key, label, icon: Icon }) => (
             <button
-              key={t}
+              key={key}
               onClick={() => {
-                setTab(t);
-                if (t === 'report') loadReport();
-                if (t === 'view' && selectedCourse) loadStudents();
+                setTab(key);
+                if (key === 'report') loadReport();
+                if (key === 'view' && selectedCourse) loadStudents();
               }}
-              className={`rounded-t-xl px-6 py-3 text-sm font-semibold transition-colors border-b-2 ${
-                tab === t
-                  ? 'bg-[var(--color-surface-primary)] text-primary-600 border-primary-600'
-                  : 'text-[var(--color-text-tertiary)] border-transparent hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]'
+              className={`flex-1 inline-flex items-center justify-center gap-1.5 text-sm transition-all ${
+                tab === key
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm rounded-lg font-semibold px-4 py-2'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 px-4 py-2'
               }`}
             >
-              {t === 'take' ? '📝 Take Attendance' : t === 'view' ? '👁️ View Records' : '📊 Report'}
+              <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
+              <span className="hidden sm:inline">{label}</span>
             </button>
           ))}
         </div>
 
         {/* Course + Date Selector */}
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col sm:flex-row gap-4 items-center mt-6">
           <select
             value={selectedCourse}
             onChange={(e) => setSelectedCourse(e.target.value)}
-            className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+            className="w-full sm:flex-1 h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
           >
             <option value="">Select a course...</option>
             {courses.map((c) => (
@@ -216,7 +222,7 @@ export function AttendanceManage() {
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+            className="w-full sm:w-auto h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
           />
         </div>
 
@@ -264,26 +270,26 @@ export function AttendanceManage() {
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
+                <thead className="bg-slate-50/70 dark:bg-slate-800/40">
                   <tr>
-                    <th className="text-left px-5 py-3 font-semibold">#</th>
-                    <th className="text-left px-5 py-3 font-semibold">Student</th>
-                    <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">ID</th>
-                    <th className="text-center px-5 py-3 font-semibold">Status</th>
-                    <th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Notes</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">#</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Student</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase hidden sm:table-cell">ID</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Status</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase hidden md:table-cell">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {students.map((s, i) => (
-                    <tr key={s._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
-                      <td className="px-5 py-3 text-center text-xs text-[var(--color-text-tertiary)] w-10">{i + 1}</td>
-                      <td className="px-5 py-3">
+                    <tr key={s._id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3.5 px-4 text-center text-xs text-[var(--color-text-tertiary)] w-10">{i + 1}</td>
+                      <td className="py-3.5 px-4">
                         <p className="font-medium">{s.profile?.firstName} {s.profile?.lastName}</p>
                       </td>
-                      <td className="px-5 py-3 text-center hidden sm:table-cell">
+                      <td className="py-3.5 px-4 text-center hidden sm:table-cell">
                         <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{s.studentId}</code>
                       </td>
-                      <td className="px-5 py-3 text-center">
+                      <td className="py-3.5 px-4 text-center">
                         <select
                           value={records[s._id]?.status || 'present'}
                           onChange={(e) => handleStatusChange(s._id, e.target.value)}
@@ -295,7 +301,7 @@ export function AttendanceManage() {
                           <option value="excused">📝 Excused</option>
                         </select>
                       </td>
-                      <td className="px-5 py-3 text-center hidden md:table-cell">
+                      <td className="py-3.5 px-4 text-center hidden md:table-cell">
                         <input
                           type="text"
                           value={records[s._id]?.notes || ''}
@@ -333,23 +339,23 @@ export function AttendanceManage() {
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
+                <thead className="bg-slate-50/70 dark:bg-slate-800/40">
                   <tr>
-                    <th className="text-left px-5 py-3 font-semibold">Student</th>
-                    <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">ID</th>
-                    <th className="text-center px-5 py-3 font-semibold">Status</th>
-                    <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Notes</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Student</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase hidden sm:table-cell">ID</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Status</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase hidden md:table-cell">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {existingRecords.map((r) => (
-                    <tr key={r._id || r.student?._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
-                      <td className="px-5 py-4 font-medium">{r.student?.profile?.firstName} {r.student?.profile?.lastName}</td>
-                      <td className="px-5 py-4 text-center hidden sm:table-cell">
+                    <tr key={r._id || r.student?._id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3.5 px-4 font-medium">{r.student?.profile?.firstName} {r.student?.profile?.lastName}</td>
+                      <td className="py-3.5 px-4 text-center hidden sm:table-cell">
                         <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{r.student?.studentId}</code>
                       </td>
-                      <td className="px-5 py-4 text-center">{StatusBadge({ status: r.status })}</td>
-                      <td className="px-5 py-4 hidden md:table-cell text-xs text-[var(--color-text-tertiary)]">{r.notes || '—'}</td>
+                      <td className="py-3.5 px-4 text-center">{StatusBadge({ status: r.status })}</td>
+                      <td className="py-3.5 px-4 hidden md:table-cell text-xs text-[var(--color-text-tertiary)]">{r.notes || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -359,9 +365,10 @@ export function AttendanceManage() {
         )}
 
         {tab === 'view' && selectedCourse && existingRecords.length === 0 && !loading && (
-          <div className="text-center py-16 text-[var(--color-text-tertiary)]">
-            <p className="text-lg">No attendance records for this date.</p>
-            <p className="text-sm mt-1">Switch to "Take Attendance" to mark attendance.</p>
+          <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/20 rounded-2xl p-12 text-center">
+            <Inbox className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" strokeWidth={1.5} />
+            <p className="text-lg text-[var(--color-text-secondary)]">No attendance records for this date.</p>
+            <p className="text-sm mt-1 text-[var(--color-text-tertiary)]">Switch to "Take Attendance" to mark attendance.</p>
           </div>
         )}
 
@@ -370,30 +377,30 @@ export function AttendanceManage() {
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
+                <thead className="bg-slate-50/70 dark:bg-slate-800/40">
                   <tr>
-                    <th className="text-left px-5 py-3 font-semibold">Student</th>
-                    <th className="text-center px-5 py-3 font-semibold">Present</th>
-                    <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Late</th>
-                    <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Absent</th>
-                    <th className="text-center px-5 py-3 font-semibold">Total</th>
-                    <th className="text-center px-5 py-3 font-semibold">Rate</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Student</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Present</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase hidden sm:table-cell">Late</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase hidden sm:table-cell">Absent</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Total</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Rate</th>
                   </tr>
                 </thead>
                 <tbody>
                   {report.map((r) => (
-                    <tr key={r.studentId} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
-                      <td className="px-5 py-4 font-medium">{r.name}</td>
-                      <td className="px-5 py-4 text-center text-green-600 font-medium">{r.present}</td>
-                      <td className="px-5 py-4 text-center hidden sm:table-cell text-amber-600 font-medium">{r.late}</td>
-                      <td className="px-5 py-4 text-center hidden sm:table-cell text-red-600 font-medium">{r.absent}</td>
-                      <td className="px-5 py-4 text-center">{r.total}</td>
-                      <td className="px-5 py-4 text-center">
+                    <tr key={r.studentId} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3.5 px-4 font-medium">{r.name}</td>
+                      <td className="py-3.5 px-4 text-center text-green-600 font-medium">{r.present}</td>
+                      <td className="py-3.5 px-4 text-center hidden sm:table-cell text-amber-600 font-medium">{r.late}</td>
+                      <td className="py-3.5 px-4 text-center hidden sm:table-cell text-red-600 font-medium">{r.absent}</td>
+                      <td className="py-3.5 px-4 text-center">{r.total}</td>
+                      <td className="py-3.5 px-4 text-center">
                         <span
-                          className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                          className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${
                             r.percentage >= 75
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                              : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                              ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300'
+                              : 'bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300'
                           }`}
                         >
                           {r.percentage}%
