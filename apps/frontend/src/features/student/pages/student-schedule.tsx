@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CalendarDays, User } from 'lucide-react';
+import { CalendarDays, User, Clock } from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface Schedule {
@@ -20,6 +20,37 @@ interface Schedule {
 }
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** "09:30" -> 570 (minutes since midnight), for comparing two HH:MM times. */
+function toMinutes(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+}
+
+/** 30 -> "30-min Break"; 60 -> "1-hour Break"; 90 -> "1h 30m Break". */
+function formatBreakLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes}-min Break`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (rest === 0) return `${hours}-hour Break`;
+  return `${hours}h ${rest}m Break`;
+}
+
+type DayRow = { kind: 'class'; schedule: Schedule } | { kind: 'break'; minutes: number };
+
+/** Interleaves a "Free Slot" placeholder between two consecutive classes whenever the gap between them is 30+ minutes. */
+function withBreaks(daySchedules: Schedule[]): DayRow[] {
+  const rows: DayRow[] = [];
+  daySchedules.forEach((s, i) => {
+    rows.push({ kind: 'class', schedule: s });
+    const next = daySchedules[i + 1];
+    if (next) {
+      const gap = toMinutes(next.startTime) - toMinutes(s.endTime);
+      if (gap >= 30) rows.push({ kind: 'break', minutes: gap });
+    }
+  });
+  return rows;
+}
 
 export function StudentSchedule() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -92,24 +123,36 @@ export function StudentSchedule() {
                 </div>
                 {grouped[day] ? (
                   <div className="divide-y divide-[var(--color-border-subtle)]">
-                    {grouped[day].map((s) => (
-                      <div key={s._id} className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--color-surface-secondary)] transition-colors">
-                        <div className="flex-shrink-0 w-24 text-center">
-                          <span className="inline-block rounded-lg bg-primary-50 dark:bg-primary-950/30 px-3 py-1.5 text-sm font-semibold text-primary-700 dark:text-primary-300">
-                            {s.startTime} – {s.endTime}
-                          </span>
+                    {withBreaks(grouped[day]).map((row, i) =>
+                      row.kind === 'break' ? (
+                        <div key={`break-${i}`} className="flex items-center gap-4 px-5 py-2.5 bg-slate-50/50 dark:bg-slate-900/20 border-y border-dashed border-slate-200 dark:border-slate-800">
+                          <div className="flex-shrink-0 w-24 text-center">
+                            <span className="inline-flex items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-400">
+                              <Clock className="h-3 w-3" strokeWidth={1.75} />
+                              {formatBreakLabel(row.minutes)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 italic">Free Slot</p>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
-                            {s.course?.title?.en || 'Untitled Course'}
-                          </p>
-                          <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] mt-0.5">
-                            <User className="h-3.5 w-3.5 text-slate-400" strokeWidth={1.75} />
-                            {teacherLabel(s.teacher)}
-                          </p>
+                      ) : (
+                        <div key={row.schedule._id} className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--color-surface-secondary)] transition-colors">
+                          <div className="flex-shrink-0 w-24 text-center">
+                            <span className="inline-block rounded-lg bg-primary-50 dark:bg-primary-950/30 px-3 py-1.5 text-sm font-semibold text-primary-700 dark:text-primary-300">
+                              {row.schedule.startTime} – {row.schedule.endTime}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
+                              {row.schedule.course?.title?.en || 'Untitled Course'}
+                            </p>
+                            <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                              <User className="h-3.5 w-3.5 text-slate-400" strokeWidth={1.75} />
+                              {teacherLabel(row.schedule.teacher)}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    )}
                   </div>
                 ) : (
                   <p className="px-5 py-4 text-xs text-[var(--color-text-tertiary)]">No classes scheduled.</p>
