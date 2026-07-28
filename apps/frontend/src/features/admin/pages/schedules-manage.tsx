@@ -520,13 +520,14 @@ export function SchedulesManage() {
       return;
     }
 
-    // First row should be header; validate expected column count. Section
-    // and Status are optional on the backend, so this only checks the
-    // minimum — School (non-org-admin only), Department, Class, Course,
-    // Teacher Email, Day, Start Time, End Time.
-    const minCols = isOrgAdmin ? 7 : 8;
-    if (rows[0].length < minCols) {
-      setPasteError(`Expected at least ${minCols} columns (${isOrgAdmin ? 'Department, Class, Course, Teacher Email, Day, Start Time, End Time' : 'School, Department, Class, Course, Teacher Email, Day, Start Time, End Time'}). Found ${rows[0].length}.`);
+    // First row should be header. Column count isn't validated client-side
+    // beyond "more than one" — the backend accepts several equivalent
+    // shapes (e.g. a single combined "Time" column instead of separate
+    // Start/End Time), so a strict count here could reject a valid paste
+    // the backend would otherwise accept. Let the backend's per-row errors
+    // (shown after submit) be the source of truth.
+    if (rows[0].length < 2) {
+      setPasteError('That doesn\'t look like tabular data — make sure each row has more than one tab-separated column.');
       return;
     }
 

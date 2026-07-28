@@ -350,6 +350,27 @@ function parseTime(value: unknown): string | null {
   return null;
 }
 
+/**
+ * Real pasted data often has one combined "Time" cell — "10:00 AM - 12:30
+ * PM" — instead of separate Start Time / End Time columns, since that's how
+ * a schedule reads naturally. Dedicated Start/End columns win when present;
+ * only when BOTH are missing do we look for a single range cell and split
+ * it on a dash/en-dash/"to" between the two halves.
+ */
+function resolveTimeRange(row: Record<string, any>): { startRaw: unknown; endRaw: unknown } {
+  const startRaw = getField(row, 'Start Time', 'Start');
+  const endRaw = getField(row, 'End Time', 'End');
+  if (String(startRaw ?? '').trim() && String(endRaw ?? '').trim()) return { startRaw, endRaw };
+
+  const rangeRaw = getField(row, 'Time', 'Time Range', 'Schedule Time', 'Period');
+  const range = String(rangeRaw ?? '').trim();
+  if (!range) return { startRaw, endRaw };
+
+  const parts = range.split(/\s*(?:-|–|—|\bto\b)\s*/i);
+  if (parts.length === 2 && parts[0] && parts[1]) return { startRaw: parts[0], endRaw: parts[1] };
+  return { startRaw, endRaw };
+}
+
 function getField(row: Record<string, any>, ...names: string[]): unknown {
   const keys = Object.keys(row);
   for (const name of names) {
@@ -434,8 +455,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const courseTitle = String(getField(row, 'Course') ?? '').trim();
       const teacherEmail = String(getField(row, 'Teacher Email', 'Teacher') ?? '').trim();
       const dayRaw = getField(row, 'Day', 'Day of Week');
-      const startRaw = getField(row, 'Start Time', 'Start');
-      const endRaw = getField(row, 'End Time', 'End');
+      const { startRaw, endRaw } = resolveTimeRange(row);
       const activeRaw = getField(row, 'Status', 'Active');
 
       if (!departmentName) throw new Error('Department is required');
@@ -627,8 +647,7 @@ export const bulkImportTransactional = async (req: Request, res: Response): Prom
       const courseTitle = String(getField(row, 'Course') ?? '').trim();
       const teacherEmail = String(getField(row, 'Teacher Email', 'Teacher') ?? '').trim();
       const dayRaw = getField(row, 'Day', 'Day of Week');
-      const startRaw = getField(row, 'Start Time', 'Start');
-      const endRaw = getField(row, 'End Time', 'End');
+      const { startRaw, endRaw } = resolveTimeRange(row);
       const activeRaw = getField(row, 'Status', 'Active');
 
       if (!departmentName) throw new Error('Department is required');
