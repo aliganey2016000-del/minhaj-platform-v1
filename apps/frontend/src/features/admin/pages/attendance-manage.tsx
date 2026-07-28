@@ -8,6 +8,10 @@ import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, 
 import api from '../../../lib/axios';
 import { categoryLabels, inferCategoryIcon, inferCategoryColor, levelColors, statusColors } from '../../../lib/course-category-visuals';
 
+interface SchoolBrief { _id: string; name: string; }
+interface DepartmentBrief { _id: string; name: string; }
+interface ClassBrief { _id: string; title: string; section: string; }
+
 interface Course {
   _id: string;
   title: { en: string };
@@ -81,7 +85,21 @@ export function AttendanceManage() {
   const [tab, setTab] = useState<'take' | 'view' | 'report'>('take');
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
+  const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const date = dateFrom; // Take Attendance always marks a single day
+
+  // Cascading Organization → Department → Class filters that narrow the
+  // Course dropdown, mirroring the pattern in schedules-manage.tsx.
+  const [schools, setSchools] = useState<SchoolBrief[]>([]);
+  const [filterSchool, setFilterSchool] = useState('');
+  const [departments, setDepartments] = useState<DepartmentBrief[]>([]);
+  const [filterDepartment, setFilterDepartment] = useState('');
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [classes, setClasses] = useState<ClassBrief[]>([]);
+  const [filterClass, setFilterClass] = useState('');
+  const [classesLoading, setClassesLoading] = useState(false);
+
   const [students, setStudents] = useState<Student[]>([]);
   const [records, setRecords] = useState<Record<string, { status: string; notes: string }>>({});
   const [existingRecords, setExistingRecords] = useState<AttendanceRecord[]>([]);
@@ -96,18 +114,84 @@ export function AttendanceManage() {
   const [brokenThumbnails, setBrokenThumbnails] = useState<Set<string>>(new Set());
   const markThumbnailBroken = (id: string) => setBrokenThumbnails((prev) => new Set(prev).add(id));
 
-  useEffect(() => { fetchCourses(); }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get('/schools');
+        setSchools(data.data || []);
+      } catch {}
+    })();
+  }, []);
+
+  // Organization → Departments
+  useEffect(() => {
+    if (!filterSchool) { setDepartments([]); setFilterDepartment(''); return; }
+    setDepartmentsLoading(true);
+    (async () => {
+      try {
+        const { data } = await api.get(`/departments?school=${filterSchool}`);
+        setDepartments(data.data || []);
+      } catch {
+        setDepartments([]);
+      } finally {
+        setDepartmentsLoading(false);
+      }
+    })();
+    setFilterDepartment('');
+    setFilterClass('');
+    setSelectedCourse('');
+  }, [filterSchool]);
+
+  // Department → Classes
+  useEffect(() => {
+    if (!filterDepartment) { setClasses([]); setFilterClass(''); return; }
+    setClassesLoading(true);
+    (async () => {
+      try {
+        const { data } = await api.get(`/classes?department=${filterDepartment}`);
+        setClasses(data.data || []);
+      } catch {
+        setClasses([]);
+      } finally {
+        setClassesLoading(false);
+      }
+    })();
+    setFilterClass('');
+    setSelectedCourse('');
+  }, [filterDepartment]);
+
+  // Class change resets the Course selection downstream
+  useEffect(() => {
+    setSelectedCourse('');
+  }, [filterClass]);
+
+  // Course list — re-fetched whenever the Organization/Class narrows it, so
+  // the Course dropdown only ever shows courses matching the cascade above.
+  const fetchCourses = useCallback(async () => {
+    try {
+      const params: Record<string, string> = {};
+      if (filterSchool) params.school = filterSchool;
+      if (filterClass) params.classId = filterClass;
+      const { data } = await api.get('/courses/admin', { params });
+      setCourses(data.data || []);
+    } catch {}
+  }, [filterSchool, filterClass]);
+
+  useEffect(() => { fetchCourses(); }, [fetchCourses]);
 
   // Today's timetable — powers the quick-pick grid shown in place of the
   // bare "select a course" prompt, so the admin can jump straight into
   // whatever's actually scheduled for today instead of hunting through the
-  // full course dropdown.
+  // full course dropdown. Scoped by the same Organization/Class cascade.
   useEffect(() => {
     const loadTodaysSchedules = async () => {
       setTodaysSchedulesLoading(true);
       try {
         const todayDow = new Date().getDay();
-        const { data } = await api.get('/class-schedules', { params: { day: todayDow, limit: '50' } });
+        const params: Record<string, string> = { day: String(todayDow), limit: '50' };
+        if (filterSchool) params.school = filterSchool;
+        if (filterClass) params.class = filterClass;
+        const { data } = await api.get('/class-schedules', { params });
         setTodaysSchedules((data.data || []).filter((s: TodaySchedule) => s.course?._id));
       } catch {
         setTodaysSchedules([]);
@@ -116,19 +200,14 @@ export function AttendanceManage() {
       }
     };
     loadTodaysSchedules();
-  }, []);
+  }, [filterSchool, filterClass]);
 
   const pickTodaysCourse = (courseId: string) => {
-    setDate(new Date().toISOString().split('T')[0]);
+    const today = new Date().toISOString().split('T')[0];
+    setDateFrom(today);
+    setDateTo(today);
     setTab('take');
     setSelectedCourse(courseId);
-  };
-
-  const fetchCourses = async () => {
-    try {
-      const { data } = await api.get('/courses/admin');
-      setCourses(data.data || []);
-    } catch {}
   };
 
   const loadStudents = useCallback(async () => {
@@ -140,9 +219,13 @@ export function AttendanceManage() {
       const { data: studentData } = await api.get(`/courses/${selectedCourse}/students`);
       const enrolled: Student[] = studentData.data || [];
 
-      // Get existing attendance for this date
+      // Get existing attendance — a single day for Take Attendance, or the
+      // full From/To range for View Records.
       try {
-        const { data: attData } = await api.get(`/attendance/course?courseId=${selectedCourse}&date=${date}`);
+        const params = tab === 'view'
+          ? { courseId: selectedCourse, dateFrom, dateTo }
+          : { courseId: selectedCourse, date: dateFrom };
+        const { data: attData } = await api.get('/attendance/course', { params });
         setExistingRecords(attData.data || []);
         const recMap: Record<string, { status: string; notes: string }> = {};
         (attData.data || []).forEach((r: AttendanceRecord) => {
@@ -160,7 +243,7 @@ export function AttendanceManage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCourse, date]);
+  }, [selectedCourse, dateFrom, dateTo, tab]);
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
 
@@ -197,19 +280,21 @@ export function AttendanceManage() {
     }
   };
 
-  const loadReport = async () => {
+  const loadReport = useCallback(async () => {
     if (!selectedCourse) return;
     setLoading(true);
     setError('');
     try {
-      const { data } = await api.get(`/attendance/report?courseId=${selectedCourse}`);
+      const { data } = await api.get('/attendance/report', { params: { courseId: selectedCourse, dateFrom, dateTo } });
       setReport(data.data || []);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load report');
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedCourse, dateFrom, dateTo]);
+
+  useEffect(() => { if (tab === 'report' && selectedCourse) loadReport(); }, [tab, dateFrom, dateTo, selectedCourse, loadReport]);
 
   const selectedCourseObj = courses.find((c) => c._id === selectedCourse);
 
@@ -243,7 +328,6 @@ export function AttendanceManage() {
               key={key}
               onClick={() => {
                 setTab(key);
-                if (key === 'report') loadReport();
                 if (key === 'view' && selectedCourse) loadStudents();
               }}
               className={`flex-1 inline-flex items-center justify-center gap-1.5 text-sm transition-all ${
@@ -258,26 +342,99 @@ export function AttendanceManage() {
           ))}
         </div>
 
-        {/* Course + Date Selector */}
-        <div className="flex flex-col sm:flex-row gap-4 items-center mt-6 max-w-3xl">
-          <select
-            value={selectedCourse}
-            onChange={(e) => setSelectedCourse(e.target.value)}
-            className="w-full sm:flex-1 h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-          >
-            <option value="">Select a course...</option>
-            {courses.map((c) => (
-              <option key={c._id} value={c._id}>
-                {c.title.en} ({c.enrolledStudents} enrolled)
-              </option>
-            ))}
-          </select>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-full sm:w-auto h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-          />
+        {/* Filters — Organization → Department → Class → Course cascade + Date Period */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100/80 dark:border-slate-800 shadow-sm mt-6">
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">🏢 Organization</label>
+            <select
+              value={filterSchool}
+              onChange={(e) => setFilterSchool(e.target.value)}
+              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
+            >
+              <option value="">All Organizations</option>
+              {schools.map((s) => (
+                <option key={s._id} value={s._id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">🏫 Department</label>
+            <select
+              value={filterDepartment}
+              onChange={(e) => setFilterDepartment(e.target.value)}
+              disabled={!filterSchool || departmentsLoading}
+              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="">{!filterSchool ? 'Select organization first' : 'All Departments'}</option>
+              {departments.map((d) => (
+                <option key={d._id} value={d._id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">👥 Class</label>
+            <select
+              value={filterClass}
+              onChange={(e) => setFilterClass(e.target.value)}
+              disabled={!filterDepartment || classesLoading}
+              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="">{!filterDepartment ? 'Select department first' : 'All Classes'}</option>
+              {classes.map((c) => (
+                <option key={c._id} value={c._id}>{c.title} ({c.section})</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">📖 Course</label>
+            <select
+              value={selectedCourse}
+              onChange={(e) => setSelectedCourse(e.target.value)}
+              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
+            >
+              <option value="">Select a course...</option>
+              {courses.map((c) => (
+                <option key={c._id} value={c._id}>
+                  {c.title.en} ({c.enrolledStudents} enrolled)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="sm:col-span-2 lg:col-span-4">
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">📅 Date Period</label>
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center bg-slate-50/60 dark:bg-slate-800/40 rounded-xl p-3">
+              <div className="flex-1">
+                <span className="block text-[11px] text-slate-400 mb-1">Date From</span>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => {
+                    setDateFrom(e.target.value);
+                    if (e.target.value > dateTo) setDateTo(e.target.value);
+                  }}
+                  className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
+                />
+              </div>
+              <div className="flex-1">
+                <span className="block text-[11px] text-slate-400 mb-1">Date To</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  min={dateFrom}
+                  disabled={tab === 'take'}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+              </div>
+            </div>
+            {tab === 'take' && (
+              <p className="text-[11px] text-slate-400 mt-1">Take Attendance always marks a single day (Date From).</p>
+            )}
+          </div>
         </div>
 
         {/* Messages */}

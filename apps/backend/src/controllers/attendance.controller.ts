@@ -48,15 +48,28 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
 // ---------------------------------------------------------------------------
 
 export const getByCourseAndDate = async (req: Request, res: Response): Promise<Response> => {
-  const { courseId, date } = req.query;
-  if (!courseId || !date) throw new BadRequestError('courseId and date query params required');
+  const { courseId, date, dateFrom, dateTo } = req.query;
+  if (!courseId || (!date && !dateFrom)) {
+    throw new BadRequestError('courseId and date (or dateFrom) query params required');
+  }
 
-  const attendanceDate = new Date(date as string);
-  attendanceDate.setHours(0, 0, 0, 0);
+  let dateFilter: unknown;
+  if (dateFrom) {
+    const from = new Date(dateFrom as string);
+    from.setHours(0, 0, 0, 0);
+    const to = dateTo ? new Date(dateTo as string) : from;
+    to.setHours(23, 59, 59, 999);
+    dateFilter = { $gte: from, $lte: to };
+  } else {
+    const attendanceDate = new Date(date as string);
+    attendanceDate.setHours(0, 0, 0, 0);
+    dateFilter = attendanceDate;
+  }
 
-  const records = await Attendance.find({ course: courseId, date: attendanceDate })
+  const records = await Attendance.find({ course: courseId, date: dateFilter })
     .populate('student', 'studentId user profile enrolledCourses')
     .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' } })
+    .sort({ date: -1 })
     .lean();
 
   return ApiResponse.success(res, records);
@@ -130,6 +143,7 @@ export const getMyAttendance = async (req: Request, res: Response): Promise<Resp
 
 export const getCourseReport = async (req: Request, res: Response): Promise<Response> => {
   const courseId = req.query.courseId as string;
+  const { dateFrom, dateTo } = req.query;
   if (!courseId) throw new BadRequestError('courseId query param required');
 
   // Get all students enrolled in this course
@@ -143,8 +157,20 @@ export const getCourseReport = async (req: Request, res: Response): Promise<Resp
 
   const studentIds = students.map(s => s._id);
 
+  const matchStage: Record<string, unknown> = {
+    course: new (require('mongoose').Types.ObjectId)(courseId),
+    student: { $in: studentIds },
+  };
+  if (dateFrom) {
+    const from = new Date(dateFrom as string);
+    from.setHours(0, 0, 0, 0);
+    const to = dateTo ? new Date(dateTo as string) : new Date();
+    to.setHours(23, 59, 59, 999);
+    matchStage.date = { $gte: from, $lte: to };
+  }
+
   const stats = await Attendance.aggregate([
-    { $match: { course: new (require('mongoose').Types.ObjectId)(courseId), student: { $in: studentIds } } },
+    { $match: matchStage },
     { $group: { _id: '$student', total: { $sum: 1 }, present: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } }, late: { $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] } } } },
   ]);
 

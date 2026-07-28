@@ -93,6 +93,8 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
   if (category) filter.category = category;
   const classId = req.query.classId as string | undefined;
   if (classId) (filter as any).class = classId;
+  const school = req.query.school as string | undefined;
+  if (school) (filter as any).school = school;
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
 

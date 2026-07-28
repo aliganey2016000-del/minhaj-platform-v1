@@ -55,11 +55,13 @@ const CLASS_POPULATE = {
 // ---------------------------------------------------------------------------
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
-
-  const { course, teacher, class: classId, day, search } = req.query;
+  const { course, teacher, class: classId, day, search, school } = req.query;
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
+
+  const baseFilter: Record<string, unknown> = {};
+  if (school) baseFilter.school = school;
+  const filter: Record<string, unknown> = applyOrgFilter(req, baseFilter, 'school');
 
   if (course) filter.course = course;
   if (teacher) filter.teacher = teacher;
