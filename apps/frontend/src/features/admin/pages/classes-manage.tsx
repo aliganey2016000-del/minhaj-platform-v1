@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { School, Pencil, Trash2 } from 'lucide-react';
+import { School, Pencil, Trash2, MoreVertical } from 'lucide-react';
 import api from '../../../lib/axios';
 
 // ---------------------------------------------------------------------------
@@ -269,6 +269,49 @@ function ActionsDropdown({ onImport, onExport, exporting, label }: { onImport: (
       <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
         <button onClick={() => { setOpen(false); onImport(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">{'\u2191 Import ' + label + ' via Excel'}</button>
         <button onClick={() => { setOpen(false); onExport(); }} disabled={exporting} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50 flex items-center gap-2 transition-colors">{exporting ? <div className="h-3 w-3 animate-spin rounded-full border border-[var(--color-border-default)] border-t-primary-600" /> : '\u2193 Export ' + label + ' to Excel'}</button>
+      </div>,
+      document.body,
+    )}
+  </>);
+}
+
+// ---------------------------------------------------------------------------
+// Row Actions — single "⋮" dropdown replacing individual Edit/Delete icons.
+// ---------------------------------------------------------------------------
+
+function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  return (<>
+    <button
+      ref={btnRef}
+      onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+      className="rounded-lg border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-1.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors"
+      title="More Actions"
+    >
+      <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
+    </button>
+    {open && btnRef.current && createPortal(
+      <div
+        ref={menuRef}
+        style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }}
+        className="w-40 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-md py-1"
+      >
+        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
+          <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
+          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
+        </button>
       </div>,
       document.body,
     )}
@@ -555,7 +598,7 @@ export function ClassesManage() {
                       <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm">{c.room}</td>
                       <td className="px-5 py-4 text-center"><ShiftBadge mode={c.shiftMode || 'Morning'} /></td>
                       <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><select value={c.status} onChange={e => handleStatusChange(c._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer text-[var(--color-text-primary)]"><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select></td>
-                      <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><button onClick={() => setEditingClass(c)} className="rounded-lg p-1.5 text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30" title="Edit"><Pencil className="h-4 w-4" strokeWidth={1.75} /></button><button onClick={() => handleDelete(c._id)} className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete"><Trash2 className="h-4 w-4" strokeWidth={1.75} /></button></div></td>
+                      <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingClass(c)} onDelete={() => handleDelete(c._id)} /></div></td>
                     </tr>
                   ))
                 )}
