@@ -19,7 +19,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { MoreVertical, Pencil, Trash2, CalendarDays, Search, CheckCircle2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { MoreVertical, Pencil, Trash2, CalendarDays, Search, CheckCircle2, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -623,10 +624,10 @@ export function SchedulesManage() {
               )}
             </button>
             <button
-              onClick={() => { resetForm(); setShowForm(!showForm); }}
+              onClick={() => { resetForm(); setShowForm(true); }}
               className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors"
             >
-              {showForm ? 'Cancel' : '+ New Schedule'}
+              + New Schedule
             </button>
           </div>
         </div>
@@ -901,10 +902,38 @@ export function SchedulesManage() {
         )}
 
         {/* ═══════════════════════════════════════════════════════════════
-            Schedule Create / Edit Form
+            Schedule Create / Edit Modal
            ═══════════════════════════════════════════════════════════════ */}
-        {showForm && (
-          <form onSubmit={handleSubmit} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-card space-y-4">
+        <AnimatePresence>
+          {showForm && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
+              onClick={resetForm}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.2 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl"
+              >
+                <div className="flex items-center justify-between px-6 pt-6 pb-2">
+                  <h2 className="text-lg font-bold text-[var(--color-text-primary)]">{editId ? 'Edit Schedule' : 'New Schedule'}</h2>
+                  <button
+                    type="button"
+                    onClick={resetForm}
+                    className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                    aria-label="Close"
+                  >
+                    <X className="h-5 w-5" strokeWidth={1.75} />
+                  </button>
+                </div>
+          <form onSubmit={handleSubmit} className="p-6 pt-4 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">
@@ -1023,7 +1052,10 @@ export function SchedulesManage() {
               <button type="button" onClick={resetForm} className="rounded-xl border border-[var(--color-border-default)] px-5 py-2.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">Cancel</button>
             </div>
           </form>
-        )}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ── Filter Bar ── */}
         <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card space-y-3">
