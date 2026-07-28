@@ -1,23 +1,27 @@
 /**
- * Shared Dashboard Header — Org Banner + Welcome Card
+ * Shared Dashboard Header — Clean Header + Welcome Card
  *
  * Reusable across all role portals (admin, org_admin, teacher, parent, student).
  *
  * Renders:
- *   1. A dark green gradient banner with the user's organization name
- *      and an "Active" status pill.
- *   2. A welcome card with "Welcome back, [firstName] 👋", today's date,
- *      and the user's email + role badge.
+ *   1. A clean white top bar with the organization name, search,
+ *      notifications, theme toggle, and (admin/org_admin only) a Quick
+ *      Actions launcher.
+ *   2. A minimalist welcome card with "Welcome back, [firstName] 👋", today's
+ *      date, and the user's email + role badge.
  *
  * Data is fetched from /auth/me (which includes populated organizationId and
  * profile). Falls back to auth-context data while loading.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, UserPlus, BookPlus, Mail, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
 import api from '../../../lib/axios';
 import { GlobalSearchBar } from './global-search-bar';
 import { NotificationBell } from './notification-bell';
+import { ThemeToggle } from '../../../components/shared/theme-toggle';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,6 +52,63 @@ const roleBadge: Record<string, { label: string; color: string }> = {
   student:   { label: 'Student',      color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
   parent:    { label: 'Parent',       color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
 };
+
+// ---------------------------------------------------------------------------
+// Quick Actions — admin/org_admin only, jumps straight into a management
+// page's own "create" modal via router state (see students-manage.tsx,
+// courses-manage.tsx, teachers-manage.tsx) instead of just landing on the
+// list and making the admin find the button themselves.
+// ---------------------------------------------------------------------------
+
+function QuickActions() {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  const actions = [
+    { label: 'Add New Student', icon: UserPlus, go: () => navigate('/admin/students', { state: { openCreate: true } }) },
+    { label: 'Create Course', icon: BookPlus, go: () => navigate('/admin/courses', { state: { openCreate: true } }) },
+    { label: 'Invite Teacher', icon: Mail, go: () => navigate('/admin/teachers', { state: { openCreate: true } }) },
+  ];
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 transition-colors"
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
+        <Plus className="h-4 w-4" strokeWidth={2.25} />
+        <span className="hidden sm:inline">Quick Action</span>
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} strokeWidth={2.25} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 rtl:right-auto rtl:left-0 top-full mt-2 w-56 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-lg py-1.5 z-50">
+          {actions.map((a) => (
+            <button
+              key={a.label}
+              onClick={() => { a.go(); setOpen(false); }}
+              className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+            >
+              <a.icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -113,6 +174,7 @@ export function DashboardHeader({ hidden }: DashboardHeaderProps) {
     data?.firstName && data?.lastName
       ? `${data.firstName} ${data.lastName}`
       : data?.email || '';
+  const canQuickAct = data?.role === 'admin' || data?.role === 'org_admin';
 
   if (hidden) return null;
 
@@ -120,9 +182,9 @@ export function DashboardHeader({ hidden }: DashboardHeaderProps) {
   if (loading) {
     return (
       <div className="animate-pulse">
-        <div className="h-24 bg-gradient-to-r from-slate-800 to-emerald-900" />
-        <div className="mx-auto max-w-6xl px-6 -mt-6 pb-6">
-          <div className="h-28 rounded-2xl bg-[var(--color-surface-primary)] border border-[var(--color-border-default)]" />
+        <div className="h-16 bg-[var(--color-surface-primary)] border-b border-slate-100 dark:border-slate-800" />
+        <div className="mx-auto max-w-6xl px-6 pt-6 pb-6">
+          <div className="h-28 rounded-2xl bg-[var(--color-surface-primary)] border border-slate-100 dark:border-slate-800" />
         </div>
       </div>
     );
@@ -132,58 +194,41 @@ export function DashboardHeader({ hidden }: DashboardHeaderProps) {
 
   return (
     <>
-      {/* ── Organization Header Banner ── */}
-      <div className="relative bg-gradient-to-r from-slate-900 via-emerald-900 to-slate-900">
-        {/* Abstract background pattern — clipped to its own layer so it
-            doesn't cut off the search/notification dropdowns, which are
-            descendants of this banner and need to overflow below it. */}
-        <div className="absolute inset-0 overflow-hidden opacity-10">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500 rounded-full blur-3xl translate-x-1/3 -translate-y-1/3" />
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-amber-500 rounded-full blur-3xl -translate-x-1/3 translate-y-1/3" />
-          <div className="absolute top-1/2 left-1/2 w-48 h-48 bg-blue-500 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
-        </div>
-
-        <div className="relative mx-auto max-w-6xl px-6 py-8 lg:py-12 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            {/* Organization Logo/Avatar */}
-            <div className="flex-shrink-0 flex h-14 w-14 lg:h-16 lg:w-16 items-center justify-center rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 shadow-xl">
-              <span className="text-xl lg:text-2xl font-bold text-emerald-300">
+      {/* ── Top Bar ── */}
+      <div className="relative bg-[var(--color-surface-primary)] border-b border-slate-100 dark:border-slate-800 shadow-sm">
+        <div className="relative mx-auto max-w-6xl px-6 py-3.5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {/* Organization Avatar */}
+            <div className="flex-shrink-0 flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 dark:bg-primary-950/40 border border-primary-100 dark:border-primary-900">
+              <span className="text-sm font-bold text-primary-600 dark:text-primary-400">
                 {data.orgInitial}
               </span>
             </div>
             <div>
-              <h2 className="text-lg lg:text-xl font-bold text-white tracking-tight">
+              <h2 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight">
                 {data.orgName}
               </h2>
             </div>
           </div>
-          <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="flex items-center gap-2.5 w-full sm:w-auto">
             <GlobalSearchBar />
             <NotificationBell />
-            <div className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/15 flex-shrink-0">
-              <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs font-medium text-emerald-300 uppercase tracking-wider">
-                Active
-              </span>
-            </div>
+            <ThemeToggle />
+            {canQuickAct && <QuickActions />}
           </div>
         </div>
       </div>
 
-      {/* ── Welcome Hero Card ── */}
-      <div className="mx-auto max-w-6xl px-6 -mt-6 pb-6">
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[var(--color-surface-primary)] to-emerald-50 dark:to-emerald-950/30 border border-[var(--color-border-default)] shadow-card p-6 lg:p-8">
-          <div className="absolute top-0 right-0 w-40 h-40 bg-emerald-100 dark:bg-emerald-900/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 opacity-60" />
-          <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* ── Welcome Card ── */}
+      <div className="mx-auto max-w-6xl px-6 pt-6 pb-6">
+        <div className="rounded-2xl bg-[var(--color-surface-primary)] border border-slate-100 dark:border-slate-800 p-6 lg:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600 dark:text-emerald-400 mb-2">
+              <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-text-tertiary)] mb-2">
                 {dateStr}
               </p>
               <h1 className="text-2xl lg:text-3xl font-bold text-[var(--color-text-primary)]">
-                Welcome back,{' '}
-                <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">
-                  {data.firstName}
-                </span>
+                Welcome back, <span className="text-primary-600 dark:text-primary-400">{data.firstName}</span>
                 <span className="ml-1">👋</span>
               </h1>
               <p className="text-sm text-[var(--color-text-tertiary)] mt-1">

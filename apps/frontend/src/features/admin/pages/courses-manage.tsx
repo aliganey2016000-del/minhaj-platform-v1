@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { VideoGatedSettingsModal, type VideoGatingSettings } from '../components/video-gated-settings-modal';
@@ -971,10 +971,20 @@ function CourseActionsMenu({ onImport, onExport, exporting }: { onImport: () => 
 
 export function CoursesManage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  useEffect(() => {
+    // Lets the Quick Actions header button jump straight into "Add Course"
+    // instead of just landing on the list — see dashboard-header.tsx.
+    if ((location.state as any)?.openCreate) {
+      setShowCreate(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [editingCourse, setEditingCourse] = useState<Course | undefined>(undefined);
   const [accessModeCourse, setAccessModeCourse] = useState<Course | undefined>(undefined);
   const [videoGatedCourse, setVideoGatedCourse] = useState<Course | undefined>(undefined);

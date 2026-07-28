@@ -7,6 +7,7 @@
 
 import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -433,6 +434,17 @@ export function StudentsManage() {
   const [activeTab, setActiveTab] = useState<TabKey>('all');
   const [hasFetched, setHasFetched] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    // Lets the Quick Actions header button jump straight into "Add Student"
+    // instead of just landing on the list — see dashboard-header.tsx.
+    if ((location.state as any)?.openCreate) {
+      setShowCreate(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [editingStudent, setEditingStudent] = useState<Student | undefined>(undefined);
   const [viewingStudent, setViewingStudent] = useState<Student | undefined>(undefined);
   const [approvingStudent, setApprovingStudent] = useState<Student | undefined>(undefined);

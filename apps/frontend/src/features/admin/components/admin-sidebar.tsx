@@ -15,14 +15,24 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../store/auth-context';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/axios';
+import type { LucideIcon } from 'lucide-react';
+import {
+  LayoutDashboard, GraduationCap, Activity, Users, UserCog, Presentation, BookOpen,
+  Building2, School, CalendarClock, CalendarCheck, ClipboardList, NotebookPen,
+  CalendarRange, Building, CheckCircle2, FileCheck2, BarChart3, AlertTriangle, Wallet,
+  PieChart, CreditCard, History, AlertCircle, Award, MessagesSquare, Megaphone,
+  Newspaper, PartyPopper, Image, ShieldCheck, Settings, Compass, TrendingUp,
+  ScrollText, User, KeyRound, LogOut,
+} from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Navigation Items — grouped by section; items may nest a `children` list
-// to render as a collapsible sub-menu instead of a direct link.
+// to render as a collapsible sub-menu instead of a direct link. Icons are
+// lucide-react components (uniform stroke width/size), not emoji.
 // ---------------------------------------------------------------------------
 
-interface NavLeaf { path: string; label: string; icon: string; key?: string; }
-interface NavGroup { label: string; icon: string; key?: string; children: NavLeaf[]; }
+interface NavLeaf { path: string; label: string; icon: LucideIcon; key?: string; }
+interface NavGroup { label: string; icon: LucideIcon; key?: string; children: NavLeaf[]; }
 type NavEntry = NavLeaf | NavGroup;
 
 function isGroup(entry: NavEntry): entry is NavGroup {
@@ -38,70 +48,70 @@ const navSections: { title: string; items: NavEntry[] }[] = [
   {
     title: 'Main',
     items: [
-      { path: '/admin',              label: 'Dashboard',          icon: '🏠' },
-      { path: '/admin/students',     label: 'Manage Students',    icon: '🎓' },
-      { path: '/admin/activity',     label: 'Student Activity',   icon: '📊' },
-      { path: '/admin/parents',      label: 'Manage Parents',     icon: '👨‍👩‍👧‍👦' },
-      { path: '/admin/teachers',     label: 'Manage Teachers',    icon: '👨‍🏫' },
-      { path: '/admin/courses',      label: 'Manage Courses',     icon: '📚' },
-      { path: '/admin/schools',      label: 'Organization Management',  icon: '🏛️' },
-      { path: '/admin/users',        label: 'User Management',    icon: '👥' },
-      { path: '/admin/classes',      label: 'Manage Classes',     icon: '🏫' },
+      { path: '/admin',              label: 'Dashboard',          icon: LayoutDashboard },
+      { path: '/admin/students',     label: 'Manage Students',    icon: GraduationCap },
+      { path: '/admin/activity',     label: 'Student Activity',   icon: Activity },
+      { path: '/admin/parents',      label: 'Manage Parents',     icon: Users },
+      { path: '/admin/teachers',     label: 'Manage Teachers',    icon: Presentation },
+      { path: '/admin/courses',      label: 'Manage Courses',     icon: BookOpen },
+      { path: '/admin/schools',      label: 'Organization Management',  icon: Building2 },
+      { path: '/admin/users',        label: 'User Management',    icon: UserCog },
+      { path: '/admin/classes',      label: 'Manage Classes',     icon: School },
     ],
   },
   {
     title: 'Academic',
     items: [
-      { path: '/admin/schedules',    label: 'Class Schedules',    icon: '🕐' },
-      { path: '/admin/attendance',   label: 'Attendance',         icon: '📅' },
-      { path: '/admin/assignments',  label: 'Manage Assignments', icon: '📝' },
+      { path: '/admin/schedules',    label: 'Class Schedules',    icon: CalendarClock },
+      { path: '/admin/attendance',   label: 'Attendance',         icon: CalendarCheck },
+      { path: '/admin/assignments',  label: 'Manage Assignments', icon: ClipboardList },
       {
-        key: 'group:exam-management', label: 'Exam Management', icon: '📝',
+        key: 'group:exam-management', label: 'Exam Management', icon: NotebookPen,
         children: [
-          { path: '/admin/exams',             label: 'Exam Scheduling',      icon: '🗓️' },
-          { path: '/admin/exams/rooms',        label: 'Room Allocation',      icon: '🏛️' },
-          { path: '/admin/exams/attendance',   label: 'Exam Attendance',      icon: '✅' },
-          { path: '/admin/exams/papers',       label: 'Papers & Approval',    icon: '📄' },
-          { path: '/admin/results',           label: 'Results Management',   icon: '📊' },
-          { path: '/admin/exams/compliance',   label: 'Compliances & Issues', icon: '⚠️' },
+          { path: '/admin/exams',             label: 'Exam Scheduling',      icon: CalendarRange },
+          { path: '/admin/exams/rooms',        label: 'Room Allocation',      icon: Building },
+          { path: '/admin/exams/attendance',   label: 'Exam Attendance',      icon: CheckCircle2 },
+          { path: '/admin/exams/papers',       label: 'Papers & Approval',    icon: FileCheck2 },
+          { path: '/admin/results',           label: 'Results Management',   icon: BarChart3 },
+          { path: '/admin/exams/compliance',   label: 'Compliances & Issues', icon: AlertTriangle },
         ],
       },
       {
-        key: 'group:payments', label: 'Payments', icon: '💰',
+        key: 'group:payments', label: 'Payments', icon: Wallet,
         children: [
-          { path: '/admin/payments',             label: 'Overview',         icon: '📊' },
-          { path: '/admin/payments/record',       label: 'Payment Center',   icon: '💳' },
-          { path: '/admin/payments/history',      label: 'Payment History',  icon: '📋' },
-          { path: '/admin/payments/outstanding',  label: 'Outstanding Dues', icon: '⚠️' },
+          { path: '/admin/payments',             label: 'Overview',         icon: PieChart },
+          { path: '/admin/payments/record',       label: 'Payment Center',   icon: CreditCard },
+          { path: '/admin/payments/history',      label: 'Payment History',  icon: History },
+          { path: '/admin/payments/outstanding',  label: 'Outstanding Dues', icon: AlertCircle },
         ],
       },
-      { path: '/admin/certificates', label: 'Certificates',       icon: '🏆' },
+      { path: '/admin/certificates', label: 'Certificates',       icon: Award },
     ],
   },
   {
     title: 'Communication',
     items: [
-      { path: '/admin/forum',        label: 'Forum',              icon: '💬' },
+      { path: '/admin/forum',        label: 'Forum',              icon: MessagesSquare },
     ],
   },
   {
     title: 'Content',
     items: [
-      { path: '/admin/announcements',label: 'Announcements',      icon: '📢' },
-      { path: '/admin/news',         label: 'News',               icon: '📰' },
-      { path: '/admin/events',       label: 'Events',             icon: '🎉' },
-      { path: '/admin/gallery',      label: 'Gallery',            icon: '🖼️' },
+      { path: '/admin/announcements',label: 'Announcements',      icon: Megaphone },
+      { path: '/admin/news',         label: 'News',               icon: Newspaper },
+      { path: '/admin/events',       label: 'Events',             icon: PartyPopper },
+      { path: '/admin/gallery',      label: 'Gallery',            icon: Image },
     ],
   },
   {
     title: 'System',
     items: [
-      { path: '/admin/roles',        label: 'Roles & Permissions',icon: '🔐' },
-      { path: '/admin/settings',     label: 'Settings',           icon: '⚙️' },
-      { path: '/admin/settings/sidebar', label: 'Tenant Sidebar Config', icon: '🧭' },
-      { path: '/admin/analytics',    label: 'Analytics',          icon: '📈' },
-      { path: '/admin/logs',         label: 'Activity Logs',      icon: '📋' },
-      { path: '/admin/profile',      label: 'Profile',            icon: '👤' },
+      { path: '/admin/roles',        label: 'Roles & Permissions',icon: ShieldCheck },
+      { path: '/admin/settings',     label: 'Settings',           icon: Settings },
+      { path: '/admin/settings/sidebar', label: 'Tenant Sidebar Config', icon: Compass },
+      { path: '/admin/analytics',    label: 'Analytics',          icon: TrendingUp },
+      { path: '/admin/logs',         label: 'Activity Logs',      icon: ScrollText },
+      { path: '/admin/profile',      label: 'Profile',            icon: User },
     ],
   },
 ];
@@ -146,7 +156,7 @@ export function AdminSidebar() {
       ...section,
       items: [
         ...section.items,
-        { path: '/admin/settings/org-sidebar', label: 'Org Admin Sidebar Manager', icon: '🗝️' } as NavLeaf,
+        { path: '/admin/settings/org-sidebar', label: 'Org Admin Sidebar Manager', icon: KeyRound } as NavLeaf,
       ],
     };
   });
@@ -258,7 +268,7 @@ export function AdminSidebar() {
                                 }`}
                               aria-expanded={open}
                             >
-                              <span className="text-lg flex-shrink-0 w-7 text-center">{item.icon}</span>
+                              <item.icon className="h-[18px] w-[18px] flex-shrink-0" strokeWidth={1.75} />
                               <span className="truncate flex-1 text-left">{item.label}</span>
                               <svg className={`h-4 w-4 flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -278,13 +288,13 @@ export function AdminSidebar() {
                                       <Link
                                         to={child.path}
                                         onClick={() => setIsMobileOpen(false)}
-                                        className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200
+                                        className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-all duration-200
                                           ${isActive(child.path)
-                                            ? 'bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 shadow-sm'
-                                            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
+                                            ? 'bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 font-semibold'
+                                            : 'font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
                                           }`}
                                       >
-                                        <span className="text-base flex-shrink-0 w-6 text-center">{child.icon}</span>
+                                        <child.icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
                                         <span className="truncate">{child.label}</span>
                                         {isActive(child.path) && (
                                           <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary-500 flex-shrink-0" />
@@ -304,13 +314,13 @@ export function AdminSidebar() {
                           <Link
                             to={item.path}
                             onClick={() => setIsMobileOpen(false)}
-                            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200
+                            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-200
                               ${isActive(item.path)
-                                ? 'bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 shadow-sm'
-                                : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
+                                ? 'bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 font-semibold'
+                                : 'font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
                               }`}
                           >
-                            <span className="text-lg flex-shrink-0 w-7 text-center">{item.icon}</span>
+                            <item.icon className="h-[18px] w-[18px] flex-shrink-0" strokeWidth={1.75} />
                             <span className="truncate">{item.label}</span>
                             {isActive(item.path) && (
                               <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary-500 flex-shrink-0" />
@@ -333,7 +343,7 @@ export function AdminSidebar() {
           onClick={logout}
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
         >
-          <span className="text-lg flex-shrink-0 w-7 text-center">🚪</span>
+          <LogOut className="h-[18px] w-[18px] flex-shrink-0" strokeWidth={1.75} />
           <span>Logout</span>
         </button>
       </div>

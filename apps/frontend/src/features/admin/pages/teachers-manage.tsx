@@ -5,6 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -216,6 +217,17 @@ export function TeachersManage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    // Lets the Quick Actions header button jump straight into "Invite
+    // Teacher" instead of just landing on the list — see dashboard-header.tsx.
+    if ((location.state as any)?.openCreate) {
+      setShowCreate(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | undefined>(undefined);
   const [viewingTeacher, setViewingTeacher] = useState<Teacher | undefined>(undefined);
   const [search, setSearch] = useState('');

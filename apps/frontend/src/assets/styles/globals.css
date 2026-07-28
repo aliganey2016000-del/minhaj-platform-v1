@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Amiri:ital,wght@0,400;0,700;1,400&family=Scheherazade+New:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Amiri:ital,wght@0,400;0,700;1,400&family=Scheherazade+New:wght@400;700&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -15,6 +15,10 @@
     --color-surface-secondary: #fdf9f2;
     --color-surface-tertiary: #faf3e4;
     --color-surface-elevated: #ffffff;
+    /* Body/page canvas only — a hair off pure white so white cards (which
+       stay on --color-surface-primary) actually separate from the page
+       instead of relying on border alone. */
+    --color-page-background: #f8fafc;
 
     /* Text */
     --color-text-primary: #0f172a;
@@ -59,6 +63,7 @@
     --color-surface-secondary: #060a10;
     --color-surface-tertiary: #0f172a;
     --color-surface-elevated: #1e293b;
+    --color-page-background: #060a10;
 
     --color-text-primary: #f1f5f9;
     --color-text-secondary: #cbd5e1;
@@ -107,11 +112,11 @@
 
   /* Arabic font via lang attribute */
   html[lang='ar'] body {
-    font-family: 'Cairo', 'Tajawal', system-ui, sans-serif;
+    font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif;
   }
 
   body {
-    @apply bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] transition-colors duration-300;
+    @apply bg-[var(--color-page-background)] text-[var(--color-text-primary)] transition-colors duration-300;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 
