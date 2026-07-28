@@ -377,6 +377,36 @@ function splitClassAndSection(className: string, section: string): { name: strin
   return { name: className, section: '' };
 }
 
+/**
+ * The Teacher column is documented (and validated) as an email — the one
+ * value guaranteed unique — but real pasted data very often has the
+ * teacher's display name instead (that's all the admin sees anywhere else
+ * in the app, e.g. Manage Teachers). Only fall back to a name match when
+ * the cell plainly isn't an email (no "@"); require it to resolve to
+ * exactly one teacher at this school, since names alone aren't unique.
+ */
+async function resolveTeacherId(teacherIdentifier: string, schoolId: string): Promise<mongoose.Types.ObjectId> {
+  if (teacherIdentifier.includes('@')) {
+    const teacherUser = await User.findOne({ email: teacherIdentifier.toLowerCase(), role: 'teacher' }).lean();
+    if (!teacherUser) throw new Error(`Teacher with email "${teacherIdentifier}" not found`);
+    const teacherDoc = await Teacher.findOne({ user: teacherUser._id }).lean();
+    if (!teacherDoc) throw new Error(`No teacher profile linked to "${teacherIdentifier}"`);
+    return teacherDoc._id;
+  }
+
+  const candidates = await Teacher.find({ school: schoolId })
+    .populate('profile', 'firstName lastName')
+    .lean();
+  const normalized = teacherIdentifier.trim().toLowerCase().replace(/\s+/g, ' ');
+  const matches = candidates.filter((t: any) => {
+    const full = `${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`.trim().toLowerCase().replace(/\s+/g, ' ');
+    return full === normalized;
+  });
+  if (matches.length === 0) throw new Error(`Teacher "${teacherIdentifier}" not found at this organization — use their email to disambiguate`);
+  if (matches.length > 1) throw new Error(`Multiple teachers named "${teacherIdentifier}" — use their email instead`);
+  return (matches[0] as any)._id;
+}
+
 export const bulkImport = async (req: Request, res: Response): Promise<Response> => {
   if (!req.file) throw new BadRequestError('An Excel/CSV file is required (field name "file")');
 
@@ -444,10 +474,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       }).lean();
       if (!courseDoc) throw new Error(`Course "${courseTitle}" not found`);
 
-      const teacherUser = await User.findOne({ email: teacherEmail.toLowerCase(), role: 'teacher' }).lean();
-      if (!teacherUser) throw new Error(`Teacher with email "${teacherEmail}" not found`);
-      const teacherDoc = await Teacher.findOne({ user: teacherUser._id }).lean();
-      if (!teacherDoc) throw new Error(`No teacher profile linked to "${teacherEmail}"`);
+      const teacherId = await resolveTeacherId(teacherEmail, schoolId);
 
       const dayOfWeek = parseDay(dayRaw);
       if (dayOfWeek === null) throw new Error(`Invalid day of week "${dayRaw}"`);
@@ -466,7 +493,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         school: schoolId,
         class: classDoc._id,
         course: courseDoc._id,
-        teacher: teacherDoc._id,
+        teacher: teacherId,
         dayOfWeek,
         startTime,
         endTime,
@@ -640,10 +667,7 @@ export const bulkImportTransactional = async (req: Request, res: Response): Prom
       }).lean();
       if (!courseDoc) throw new Error(`Course "${courseTitle}" not found`);
 
-      const teacherUser = await User.findOne({ email: teacherEmail.toLowerCase(), role: 'teacher' }).lean();
-      if (!teacherUser) throw new Error(`Teacher with email "${teacherEmail}" not found`);
-      const teacherDoc = await Teacher.findOne({ user: teacherUser._id }).lean();
-      if (!teacherDoc) throw new Error(`No teacher profile linked to "${teacherEmail}"`);
+      const teacherId = await resolveTeacherId(teacherEmail, schoolId);
 
       const dayOfWeek = parseDay(dayRaw);
       if (dayOfWeek === null) throw new Error(`Invalid day of week "${dayRaw}"`);
@@ -662,7 +686,7 @@ export const bulkImportTransactional = async (req: Request, res: Response): Prom
         school: new mongoose.Types.ObjectId(schoolId),
         class: classDoc._id,
         course: courseDoc._id,
-        teacher: teacherDoc._id,
+        teacher: teacherId,
         dayOfWeek,
         startTime,
         endTime,
