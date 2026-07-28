@@ -689,7 +689,7 @@ export function SchoolsManage() {
 
   // ── Render ──
   return (
-    <div className="min-h-screen bg-[var(--color-surface-secondary)] pt-20 px-4 lg:pl-72">
+    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-7xl">
         {/* ── Toast ── */}
         {toast.type && (
