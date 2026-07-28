@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { GraduationCap, Users, Building, BookOpen, School, Pencil, Trash2, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -344,13 +345,16 @@ function StatTile({ label, value, colorVar }: { label: string; value: number; co
   );
 }
 
-function BarList({ title, icon, items, colorOffset = 0, emptyLabel }: {
-  title: string; icon: string; items: { label: string; count: number }[]; colorOffset?: number; emptyLabel?: string;
+function BarList({ title, icon: Icon, items, colorOffset = 0, emptyLabel }: {
+  title: string; icon: LucideIcon; items: { label: string; count: number }[]; colorOffset?: number; emptyLabel?: string;
 }) {
   const max = Math.max(1, ...items.map(i => i.count));
   return (
     <div className="viz-root rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
-      <h3 className="text-sm font-bold text-[var(--color-text-primary)] mb-4">{icon} {title}</h3>
+      <h3 className="flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)] mb-4">
+        <Icon className="h-[18px] w-[18px] text-[var(--color-text-tertiary)]" strokeWidth={1.75} />
+        {title}
+      </h3>
       {items.length === 0 ? (
         <p className="text-xs text-[var(--color-text-tertiary)]">{emptyLabel || 'No data yet'}</p>
       ) : (
@@ -403,10 +407,10 @@ function StatsSection({ stats, loading }: { stats: StudentStats | null; loading:
 
       {/* Breakdown charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <BarList title="By Gender" icon="⚧" items={genderRows} />
-        <BarList title="By Department" icon="🏛️" items={deptRows} colorOffset={2} emptyLabel="No department data" />
-        <BarList title="By Class" icon="📚" items={classRows} colorOffset={4} emptyLabel="No class data" />
-        <BarList title="By Organization" icon="🏫" items={orgRows} colorOffset={6} emptyLabel="No organization data" />
+        <BarList title="By Gender" icon={Users} items={genderRows} />
+        <BarList title="By Department" icon={Building} items={deptRows} colorOffset={2} emptyLabel="No department data" />
+        <BarList title="By Class" icon={BookOpen} items={classRows} colorOffset={4} emptyLabel="No class data" />
+        <BarList title="By Organization" icon={School} items={orgRows} colorOffset={6} emptyLabel="No organization data" />
       </div>
     </div>
   );
@@ -522,7 +526,10 @@ export function StudentsManage() {
             included — not stacked below it as a separate row. */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">🎓 Manage Students</h1>
+            <h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">
+              <GraduationCap className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />
+              Manage Students
+            </h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{hasFetched ? `${total} total students` : 'Apply a filter to view students'}</p>
           </div>
           <div className="flex gap-2 sm:gap-3 items-center flex-shrink-0">
@@ -590,7 +597,7 @@ export function StudentsManage() {
         {!loading && hasFetched && students.length > 0 && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr><th className="text-left px-5 py-3 font-semibold">Student</th><th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Class</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Department</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Shift</th><th className="text-center px-5 py-3 font-semibold">Approval</th><th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Status</th><th className="text-center px-5 py-3 font-semibold">Actions</th></tr></thead>
-              <tbody>{students.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-5 py-4 hidden lg:table-cell">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-5 py-4 text-center"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-5 py-4 text-center hidden md:table-cell" onClick={e => e.stopPropagation()}><select value={st.status} onChange={e => handleStatusChange(st._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30"><option value="active">Active</option><option value="inactive">Inactive</option><option value="graduated">Graduated</option><option value="suspended">Suspended</option></select></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1">{st.approvalStatus === 'pending' ? (<><button onClick={() => setApprovingStudent(st)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30 transition-colors" title="Approve">✅</button><button onClick={() => handleReject(st._id)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors" title="Reject">❌</button></>) : (<><button onClick={() => setEditingStudent(st)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors" title="Edit">✏️</button><button onClick={() => handleDelete(st._id)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors" title="Deactivate">🗑️</button></>)}</div></td></tr>))}</tbody></table></div>
+              <tbody>{students.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-5 py-4 hidden lg:table-cell">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-5 py-4 text-center"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-5 py-4 text-center hidden md:table-cell" onClick={e => e.stopPropagation()}><select value={st.status} onChange={e => handleStatusChange(st._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30"><option value="active">Active</option><option value="inactive">Inactive</option><option value="graduated">Graduated</option><option value="suspended">Suspended</option></select></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1">{st.approvalStatus === 'pending' ? (<><button onClick={() => setApprovingStudent(st)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30 transition-colors" title="Approve">✅</button><button onClick={() => handleReject(st._id)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors" title="Reject">❌</button></>) : (<><button onClick={() => setEditingStudent(st)} className="rounded-lg p-1.5 text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors" title="Edit"><Pencil className="h-4 w-4" strokeWidth={1.75} /></button><button onClick={() => handleDelete(st._id)} className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors" title="Deactivate"><Trash2 className="h-4 w-4" strokeWidth={1.75} /></button></>)}</div></td></tr>))}</tbody></table></div>
           </div>
         )}
 
