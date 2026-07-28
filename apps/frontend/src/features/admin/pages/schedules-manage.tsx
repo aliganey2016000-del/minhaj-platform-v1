@@ -19,7 +19,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { MoreVertical, Pencil, Trash2, CalendarDays, Search, CheckCircle2 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -558,12 +558,12 @@ export function SchedulesManage() {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto w-full max-w-7xl px-0 sm:px-2 space-y-6">
 
         {/* ── Action Bar ── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🕐 Class Schedules</h1>
+            <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]"><CalendarDays className="h-8 w-8 text-primary-600" strokeWidth={1.75} />Class Schedules</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
               {hasFetched ? `${total} total schedules` : 'Apply a filter to view schedules'}
             </p>
@@ -595,7 +595,12 @@ export function SchedulesManage() {
           </div>
         </div>
 
-        {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
+        {message && (
+          <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 p-4 text-sm text-emerald-700 dark:text-emerald-300">
+            <CheckCircle2 className="h-5 w-5 flex-shrink-0" strokeWidth={1.75} />
+            {message}
+          </div>
+        )}
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
 
         {/* ═══════════════════════════════════════════════════════════════
@@ -1017,9 +1022,10 @@ export function SchedulesManage() {
             />
             <button
               onClick={handleApplyFilters}
-              className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors whitespace-nowrap"
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors whitespace-nowrap"
             >
-              🔍 Apply Filters
+              <Search className="h-4 w-4" strokeWidth={2} />
+              Apply Filters
             </button>
           </div>
         </div>

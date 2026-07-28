@@ -26,6 +26,19 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, resolveOrgIdForCreate } from '../utils/tenant-scope';
 
+// A bare `.populate('teacher', 'user profile')` only resolves the Teacher
+// document itself — `profile` on it is still just an ObjectId, since
+// Mongoose won't follow a second hop without its own nested `populate`
+// option. That mismatch (Teacher doc present, name unresolved) is what
+// made the schedules table show "Not Assigned"/"undefined undefined" for a
+// teacher the Course Builder's own auto-fill (populated properly
+// elsewhere) displayed correctly.
+const TEACHER_POPULATE = {
+  path: 'teacher',
+  select: 'user profile',
+  populate: { path: 'profile', select: 'firstName lastName' },
+};
+
 // ---------------------------------------------------------------------------
 // GET /class-schedules — List schedules (paginated, filterable)
 // ---------------------------------------------------------------------------
@@ -56,7 +69,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
       .populate('school', 'name')
       .populate('class', 'title section')
       .populate('course', 'title')
-      .populate('teacher', 'user profile')
+      .populate(TEACHER_POPULATE)
       .sort({ dayOfWeek: 1, startTime: 1 })
       .lean(),
     ClassSchedule.countDocuments(filter),
@@ -101,7 +114,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
     .populate('school', 'name')
     .populate('class', 'title section')
     .populate('course', 'title')
-    .populate('teacher')
+    .populate({ path: 'teacher', populate: { path: 'profile', select: 'firstName lastName' } })
     .lean();
 
   if (!schedule) throw new NotFoundError('Schedule not found');
@@ -149,7 +162,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     .populate('school', 'name')
     .populate('class', 'title section')
     .populate('course', 'title')
-    .populate('teacher', 'user profile')
+    .populate(TEACHER_POPULATE)
     .lean();
 
   return ApiResponse.created(res, schedule, 'Schedule created');
@@ -195,7 +208,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     .populate('school', 'name')
     .populate('class', 'title section')
     .populate('course', 'title')
-    .populate('teacher', 'user profile')
+    .populate(TEACHER_POPULATE)
     .lean();
 
   return ApiResponse.success(res, schedule, 'Schedule updated');
@@ -242,7 +255,7 @@ export const getMySchedules = async (req: Request, res: Response): Promise<Respo
     isActive: true,
   })
     .populate('course', 'title')
-    .populate('teacher')
+    .populate({ path: 'teacher', populate: { path: 'profile', select: 'firstName lastName' } })
     .sort({ dayOfWeek: 1, startTime: 1 })
     .lean();
 
