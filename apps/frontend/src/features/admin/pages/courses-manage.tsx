@@ -7,13 +7,14 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Scale, Landmark, ScrollText, Languages, Mic, BookMarked, Gem, BookOpen, Globe,
+  BookOpen,
   Building2, Layers, User, Clock, DollarSign, MoreVertical, Settings, Plus, Pencil, Trash2, X, Check,
   type LucideIcon,
 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { VideoGatedSettingsModal, type VideoGatingSettings } from '../components/video-gated-settings-modal';
+import { categoryLabels, inferCategoryIcon, inferCategoryColor } from '../../../lib/course-category-visuals';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,19 +64,6 @@ interface Course {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const categoryLabels: Record<string, string> = {
-  quran: 'Quran',
-  fiqh: 'Fiqh',
-  aqeedah: 'Aqeedah',
-  seerah: 'Seerah',
-  arabic: 'Arabic',
-  tajweed: 'Tajweed',
-  hadith: 'Hadith',
-  akhlaq: 'Akhlaq',
-  english: 'English',
-  language: 'Language',
-};
-
 const levelColors: Record<string, string> = {
   beginner: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
   intermediate: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
@@ -87,60 +75,6 @@ const statusColors: Record<string, string> = {
   draft: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   archived: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
 };
-
-const categoryColors: Record<string, string> = {
-  quran: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
-  fiqh: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
-  aqeedah: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
-  seerah: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
-  arabic: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
-  tajweed: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-  hadith: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300',
-  akhlaq: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300',
-  english: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
-  language: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
-};
-
-const thumbnailFallbacks: Record<string, LucideIcon> = {
-  quran: BookOpen,
-  fiqh: Scale,
-  aqeedah: Landmark,
-  seerah: ScrollText,
-  arabic: Languages,
-  tajweed: Mic,
-  hadith: BookMarked,
-  akhlaq: Gem,
-  english: Globe,
-  language: Globe,
-};
-
-/**
- * The 8 built-in categories above always resolve directly. Anything else —
- * a category that doesn't exist yet as a fixed key, e.g. a future "English"/
- * general-language course — is matched by keyword instead of silently
- * falling back to a generic book icon, so a language course reads as a
- * language course rather than looking miscategorized.
- */
-function inferCategoryIcon(category: string): LucideIcon {
-  if (thumbnailFallbacks[category]) return thumbnailFallbacks[category];
-  const key = category.toLowerCase();
-  if (/english|language|lugha|linguist|esl/.test(key)) return Globe;
-  if (/arab/.test(key)) return Languages;
-  if (/fiqh|law|jurisprudence/.test(key)) return Scale;
-  if (/aqeedah|creed|belief/.test(key)) return Landmark;
-  if (/seerah|history|biography/.test(key)) return ScrollText;
-  if (/tajweed|recit/.test(key)) return Mic;
-  if (/hadith|narrat/.test(key)) return BookMarked;
-  if (/akhlaq|ethic|character/.test(key)) return Gem;
-  return BookOpen;
-}
-
-function inferCategoryColor(category: string): string {
-  if (categoryColors[category]) return categoryColors[category];
-  const key = category.toLowerCase();
-  if (/english|language|lugha|linguist|esl/.test(key)) return categoryColors.english;
-  return 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400';
-}
 
 // ---------------------------------------------------------------------------
 // Category Manager — inline CRUD for a school's course categories, opened
