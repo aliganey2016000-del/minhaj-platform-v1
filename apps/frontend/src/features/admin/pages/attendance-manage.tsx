@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { CheckSquare, FileText, BarChart3, Inbox } from 'lucide-react';
+import { CheckSquare, FileText, BarChart3, Inbox, CalendarX } from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface Course { _id: string; title: { en: string }; enrolledStudents: number; }
@@ -205,7 +205,7 @@ export function AttendanceManage() {
         </div>
 
         {/* Course + Date Selector */}
-        <div className="flex flex-col sm:flex-row gap-4 items-center mt-6">
+        <div className="flex flex-col sm:flex-row gap-4 items-center mt-6 max-w-3xl">
           <select
             value={selectedCourse}
             onChange={(e) => setSelectedCourse(e.target.value)}
@@ -422,8 +422,9 @@ export function AttendanceManage() {
         )}
 
         {!selectedCourse && (
-          <div className="text-center py-16 text-[var(--color-text-tertiary)]">
-            <p className="text-lg">👆 Select a course above to get started</p>
+          <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/20 rounded-2xl p-12 text-center">
+            <CalendarX className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" strokeWidth={1.5} />
+            <p className="text-lg text-[var(--color-text-secondary)]">Select a course above to get started</p>
           </div>
         )}
       </div>
