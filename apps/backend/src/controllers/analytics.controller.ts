@@ -31,9 +31,10 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<R
     ]).then((r) => (r[0]?.total || 0)),
   ]);
 
-  // Course distribution by category
+  // Course distribution by category — every course regardless of status
+  // (published or draft), so the slices always sum to `totalCourses`
+  // above instead of silently under-counting against it.
   const courseDistribution = await Course.aggregate([
-    { $match: { status: 'published' } },
     { $group: { _id: '$category', count: { $sum: 1 } } },
     { $sort: { count: -1 } },
   ]);
@@ -64,7 +65,7 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<R
     parents: totalParents,
     recentRegistrations,
     totalRevenue,
-    courseDistribution: courseDistribution.map((c) => ({ category: c._id, count: c.count })),
+    courseDistribution: courseDistribution.map((c) => ({ category: c._id || '', count: c.count })),
     monthlyRegistrations: monthlyRegistrations.map((m) => ({ month: m._id, count: m.count })),
     enrollment: {
       totalEnrolled: enrollmentStats[0]?.totalEnrolled || 0,

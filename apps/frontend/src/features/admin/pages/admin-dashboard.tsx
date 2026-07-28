@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useTheme } from '../../../store/theme-context';
+import { toTitleCase } from '../../../lib/format';
 
 interface DashboardStats {
   students: { total: number; active: number };
@@ -28,23 +29,60 @@ interface DashboardStats {
 }
 
 // ---------------------------------------------------------------------------
-// Categorical palette (dataviz skill reference instance) — fixed order per
-// category so identity never repaints when data changes, CVD-validated for
-// 8 adjacent categorical slots in both light and dark mode.
+// Categorical palette (dataviz skill reference instance), CVD-validated for
+// 8 adjacent categorical slots in both light and dark mode. Categories are
+// per-organization now (see course-category.model.ts) — an unbounded,
+// admin-editable list, not a fixed 8-value enum — so slots are assigned by
+// position in a stably-sorted list of whatever categories actually appear
+// in the data, not by a hardcoded slug lookup that would silently drop
+// anything outside the original 8.
 // ---------------------------------------------------------------------------
-const CATEGORY_ORDER = ['quran', 'fiqh', 'aqeedah', 'seerah', 'arabic', 'tajweed', 'hadith', 'akhlaq'] as const;
-const CATEGORY_COLORS_LIGHT: Record<string, string> = {
-  quran: '#2a78d6', fiqh: '#eb6834', aqeedah: '#1baf7a', seerah: '#eda100',
-  arabic: '#e87ba4', tajweed: '#008300', hadith: '#4a3aa7', akhlaq: '#e34948',
-};
-const CATEGORY_COLORS_DARK: Record<string, string> = {
-  quran: '#3987e5', fiqh: '#d95926', aqeedah: '#199e70', seerah: '#c98500',
-  arabic: '#d55181', tajweed: '#008300', hadith: '#9085e9', akhlaq: '#e66767',
-};
+const PALETTE_LIGHT = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
+const PALETTE_DARK = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
+// Neutral, non-palette color reserved for "Uncategorized"/"Other" — never
+// assigned to a real category, so it can't be mistaken for one.
+const FALLBACK_COLOR_LIGHT = '#94a3b8';
+const FALLBACK_COLOR_DARK = '#64748b';
 const catLabels: Record<string, string> = {
   quran: 'Quran', fiqh: 'Fiqh', aqeedah: 'Aqeedah', seerah: 'Seerah',
   arabic: 'Arabic', tajweed: 'Tajweed', hadith: 'Hadith', akhlaq: 'Akhlaq',
+  english: 'English', language: 'Language',
 };
+const MAX_DISTRIBUTION_SLICES = 8;
+
+interface DistributionSlice { key: string; label: string; count: number; isFallback: boolean; }
+
+/**
+ * Builds the donut's slices from whatever categories are actually present —
+ * no fixed whitelist, so a renamed or brand-new category still shows up.
+ * Sorted by slug (stable across renders, independent of count) so a
+ * category's color/position doesn't shuffle just because another
+ * category's count changed. Anything past the 8th distinct category folds
+ * into "Other" rather than cycling the palette (an indefinitely repeating
+ * hue stops being a reliable identity cue) — same treatment as a genuinely
+ * uncategorized course.
+ */
+function buildDistribution(raw: { category: string; count: number }[]): DistributionSlice[] {
+  const real = raw
+    .filter((c) => c.count > 0 && c.category)
+    .map((c) => ({ key: c.category, label: catLabels[c.category] || toTitleCase(c.category), count: c.count }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+
+  const uncategorizedCount = raw.filter((c) => c.count > 0 && !c.category).reduce((sum, c) => sum + c.count, 0);
+
+  let head = real;
+  let overflowCount = 0;
+  if (real.length > MAX_DISTRIBUTION_SLICES) {
+    head = real.slice(0, MAX_DISTRIBUTION_SLICES);
+    overflowCount = real.slice(MAX_DISTRIBUTION_SLICES).reduce((sum, c) => sum + c.count, 0);
+  }
+
+  const slices: DistributionSlice[] = head.map((c) => ({ ...c, isFallback: false }));
+  const otherCount = overflowCount + uncategorizedCount;
+  if (otherCount > 0) slices.push({ key: '__other__', label: 'Other / Uncategorized', count: otherCount, isFallback: true });
+
+  return slices;
+}
 
 // ---------------------------------------------------------------------------
 // Stat Card — white surface, thin border; color lives only on the icon's
@@ -137,15 +175,13 @@ export function AdminDashboard() {
     );
   }
 
-  const categoryColors = isDark ? CATEGORY_COLORS_DARK : CATEGORY_COLORS_LIGHT;
+  const palette = isDark ? PALETTE_DARK : PALETTE_LIGHT;
+  const fallbackColor = isDark ? FALLBACK_COLOR_DARK : FALLBACK_COLOR_LIGHT;
   const gridColor = isDark ? '#1e293b' : '#e2e8f0';
   const axisColor = isDark ? '#64748b' : '#94a3b8';
 
-  // Fixed category order (never re-sorted by value) with a color assigned
-  // per identity, not per rank.
-  const distribution = CATEGORY_ORDER
-    .map((cat) => stats!.courseDistribution.find((c) => c.category === cat))
-    .filter((c): c is { category: string; count: number } => !!c && c.count > 0);
+  const distribution = buildDistribution(stats!.courseDistribution);
+  const colorFor = (slice: DistributionSlice, i: number) => (slice.isFallback ? fallbackColor : palette[i % palette.length]);
 
   const monthlyData = stats!.monthlyRegistrations.map((m) => ({ month: m.month.slice(5), count: m.count }));
   const occupancyRate = stats!.enrollment.occupancyRate;
@@ -208,15 +244,15 @@ export function AdminDashboard() {
                       <Pie
                         data={distribution}
                         dataKey="count"
-                        nameKey="category"
+                        nameKey="label"
                         innerRadius="60%"
                         outerRadius="100%"
                         paddingAngle={2}
                         stroke={isDark ? '#0a0f1a' : '#ffffff'}
                         strokeWidth={2}
                       >
-                        {distribution.map((d) => (
-                          <Cell key={d.category} fill={categoryColors[d.category]} />
+                        {distribution.map((d, i) => (
+                          <Cell key={d.key} fill={colorFor(d, i)} />
                         ))}
                       </Pie>
                       <Tooltip content={<ChartTooltip />} />
@@ -224,10 +260,10 @@ export function AdminDashboard() {
                   </ResponsiveContainer>
                 </div>
                 <ul className="flex-1 space-y-1.5 min-w-0 max-h-full overflow-y-auto">
-                  {distribution.map((d) => (
-                    <li key={d.category} className="flex items-center gap-2 text-xs">
-                      <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: categoryColors[d.category] }} />
-                      <span className="flex-1 text-[var(--color-text-secondary)] truncate">{catLabels[d.category] || d.category}</span>
+                  {distribution.map((d, i) => (
+                    <li key={d.key} className="flex items-center gap-2 text-xs">
+                      <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: colorFor(d, i) }} />
+                      <span className="flex-1 text-[var(--color-text-secondary)] truncate">{d.label}</span>
                       <span className="font-semibold text-[var(--color-text-primary)]">{d.count}</span>
                     </li>
                   ))}
