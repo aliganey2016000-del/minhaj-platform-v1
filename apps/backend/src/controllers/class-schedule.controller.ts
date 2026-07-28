@@ -359,6 +359,24 @@ function getField(row: Record<string, any>, ...names: string[]): unknown {
   return undefined;
 }
 
+/**
+ * Real-world pasted/exported data very often writes a class as one combined
+ * string — "Grade 2 (B)" or "Grade 2 - B" — even when the template has a
+ * separate Section column, because that's how the class reads on-screen
+ * elsewhere in the app (see courses-manage.tsx's `{c.title} - {c.section}`).
+ * An explicit Section cell always wins; only when it's blank do we try to
+ * split a trailing "(X)" or "- X" off the class name so "Grade 2 (B)" still
+ * resolves instead of failing to match the stored "Grade 2" + "B".
+ */
+function splitClassAndSection(className: string, section: string): { name: string; section: string } {
+  if (section) return { name: className, section };
+  const parenMatch = className.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (parenMatch) return { name: parenMatch[1].trim(), section: parenMatch[2].trim() };
+  const dashMatch = className.match(/^(.*?)\s+[-–]\s+(\S+)\s*$/);
+  if (dashMatch) return { name: dashMatch[1].trim(), section: dashMatch[2].trim() };
+  return { name: className, section: '' };
+}
+
 export const bulkImport = async (req: Request, res: Response): Promise<Response> => {
   if (!req.file) throw new BadRequestError('An Excel/CSV file is required (field name "file")');
 
@@ -410,14 +428,15 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       }).lean();
       if (!departmentDoc) throw new Error(`Department "${departmentName}" not found`);
 
+      const { name: resolvedClassName, section: resolvedSection } = splitClassAndSection(className, section);
       const classFilter: Record<string, unknown> = {
         school: schoolId,
         department: departmentDoc._id,
-        title: new RegExp(`^${escapeRegex(className)}$`, 'i'),
+        title: new RegExp(`^${escapeRegex(resolvedClassName)}$`, 'i'),
       };
-      if (section) classFilter.section = new RegExp(`^${escapeRegex(section)}$`, 'i');
+      if (resolvedSection) classFilter.section = new RegExp(`^${escapeRegex(resolvedSection)}$`, 'i');
       const classDoc = await ClassModel.findOne(classFilter).lean();
-      if (!classDoc) throw new Error(`Class "${className}${section ? ' ' + section : ''}" not found in department "${departmentName}"`);
+      if (!classDoc) throw new Error(`Class "${resolvedClassName}${resolvedSection ? ' ' + resolvedSection : ''}" not found in department "${departmentName}"`);
 
       const courseDoc = await Course.findOne({
         school: schoolId,
@@ -605,14 +624,15 @@ export const bulkImportTransactional = async (req: Request, res: Response): Prom
       }).lean();
       if (!departmentDoc) throw new Error(`Department "${departmentName}" not found`);
 
+      const { name: resolvedClassName, section: resolvedSection } = splitClassAndSection(className, section);
       const classFilter: Record<string, unknown> = {
         school: schoolId,
         department: departmentDoc._id,
-        title: new RegExp(`^${escapeRegex(className)}$`, 'i'),
+        title: new RegExp(`^${escapeRegex(resolvedClassName)}$`, 'i'),
       };
-      if (section) classFilter.section = new RegExp(`^${escapeRegex(section)}$`, 'i');
+      if (resolvedSection) classFilter.section = new RegExp(`^${escapeRegex(resolvedSection)}$`, 'i');
       const classDoc = await ClassModel.findOne(classFilter).lean();
-      if (!classDoc) throw new Error(`Class "${className}${section ? ' ' + section : ''}" not found in department "${departmentName}"`);
+      if (!classDoc) throw new Error(`Class "${resolvedClassName}${resolvedSection ? ' ' + resolvedSection : ''}" not found in department "${departmentName}"`);
 
       const courseDoc = await Course.findOne({
         school: schoolId,
