@@ -33,6 +33,13 @@ const STATUS_BADGE_CLASSES: Record<string, string> = {
   excused: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300',
 };
 
+const STATUS_BORDER_CLASSES: Record<string, string> = {
+  present: 'border-l-green-500',
+  absent: 'border-l-red-500',
+  late: 'border-l-amber-500',
+  excused: 'border-l-blue-500',
+};
+
 function absentBadgeClasses(pct: number): string {
   if (pct === 0) return 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-300';
   if (pct <= 25) return 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300';
@@ -224,7 +231,7 @@ export function StudentAttendance() {
                               class time and who marked it, so the student can see exactly
                               why a day counted against them. */}
                           <div>
-                            <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase mb-2">Absence &amp; Late Records</p>
+                            <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase mb-2">Course Attendance History</p>
                             {historyLoading === c.courseId ? (
                               <div className="flex justify-center py-6">
                                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
@@ -234,9 +241,9 @@ export function StudentAttendance() {
                                 // Defensive de-dup: collapse same-day entries down to one,
                                 // preferring whichever has a class time attached — guards
                                 // against any stray legacy duplicate the backend missed.
-                                const issues = (historyByCourse[c.courseId] || []).filter((h) => h.status === 'absent' || h.status === 'late');
+                                const all = historyByCourse[c.courseId] || [];
                                 const byDate = new Map<string, HistoryEntry>();
-                                issues.forEach((h) => {
+                                all.forEach((h) => {
                                   const key = new Date(h.date).toDateString();
                                   const existing = byDate.get(key);
                                   if (!existing || (!existing.schedule && h.schedule)) byDate.set(key, h);
@@ -244,14 +251,17 @@ export function StudentAttendance() {
                                 const deduped = [...byDate.values()].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
                                 if (deduped.length === 0) {
-                                  return <p className="text-sm text-[var(--color-text-tertiary)] py-3">No absences or late arrivals recorded — great job!</p>;
+                                  return <p className="text-sm text-[var(--color-text-tertiary)] py-3">No attendance history recorded yet.</p>;
                                 }
                                 return (
                                   <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-[var(--color-border-default)] rounded-xl overflow-hidden">
                                     {deduped.map((h) => {
                                       const d = new Date(h.date);
                                       return (
-                                        <div key={h._id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3.5 py-2.5 bg-[var(--color-surface-primary)]">
+                                        <div
+                                          key={h._id}
+                                          className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3.5 py-2.5 bg-[var(--color-surface-primary)] border-l-4 ${STATUS_BORDER_CLASSES[h.status] || 'border-l-transparent'}`}
+                                        >
                                           <div>
                                             <p className="text-sm font-semibold text-[var(--color-text-primary)]">
                                               {d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
