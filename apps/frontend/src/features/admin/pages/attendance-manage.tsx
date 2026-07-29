@@ -1263,9 +1263,18 @@ export function AttendanceManage() {
                 {insights.topAttenders.length > 0 ? (
                   <ul className="mt-1 space-y-0.5">
                     {insights.topAttenders.map((s) => (
-                      <li key={s.studentId} className="text-sm text-[var(--color-text-primary)] flex items-center justify-between gap-2">
-                        <span className="truncate">{s.name}</span>
-                        <span className="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">{s.total} days</span>
+                      <li key={s.studentId}>
+                        <button
+                          type="button"
+                          onClick={() => setReportSearch((prev) => (prev === s.studentId ? '' : s.studentId))}
+                          title="Filter the table below to just this student"
+                          className={`w-full text-sm flex items-center justify-between gap-2 rounded-md px-1.5 py-0.5 -mx-1.5 transition-colors hover:bg-emerald-100/70 dark:hover:bg-emerald-900/30 ${
+                            reportSearch === s.studentId ? 'bg-emerald-100 dark:bg-emerald-900/40 font-semibold' : ''
+                          }`}
+                        >
+                          <span className="truncate text-[var(--color-text-primary)]">{s.name}</span>
+                          <span className="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">{s.total} days</span>
+                        </button>
                       </li>
                     ))}
                   </ul>
