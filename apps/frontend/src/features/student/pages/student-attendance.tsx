@@ -108,6 +108,7 @@ export function StudentAttendance() {
   const totalDays = courses.reduce((sum, c) => sum + c.days, 0);
   const totalPresent = courses.reduce((sum, c) => sum + c.present, 0);
   const totalAbsent = courses.reduce((sum, c) => sum + c.absent, 0);
+  const totalLate = courses.reduce((sum, c) => sum + c.late, 0);
   const overallRate = totalDays > 0 ? Math.round((totalPresent / totalDays) * 100) : 0;
 
   return (
@@ -128,6 +129,10 @@ export function StudentAttendance() {
               <div>
                 <p className="text-xs text-[var(--color-text-tertiary)]">Absent</p>
                 <p className="text-lg font-bold text-red-600">{totalAbsent}</p>
+              </div>
+              <div>
+                <p className="text-xs text-[var(--color-text-tertiary)]">Late</p>
+                <p className="text-lg font-bold text-amber-600">{totalLate}</p>
               </div>
             </div>
             <div className="flex-1 sm:max-w-xs">
@@ -199,7 +204,7 @@ export function StudentAttendance() {
                           <MetricBox label="Present" value={c.present} valueClass="text-green-600 dark:text-green-400" />
                           <MetricBox label="Absent" value={c.absent} valueClass="text-red-600 dark:text-red-400" />
                           <MetricBox label="Late" value={c.late} valueClass="text-amber-600 dark:text-amber-400" />
-                          <MetricBox label="Present %" value={`${c.presentPercentage}%`} />
+                          <MetricBox label="Attendance" value={`${c.presentPercentage}%`} />
                         </div>
                         <ChevronDown
                           className={`h-5 w-5 text-slate-400 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
