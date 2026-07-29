@@ -82,6 +82,8 @@ interface HistoryEntry {
   date: string;
   status: string;
   notes?: string;
+  schedule?: { startTime: string; endTime: string } | null;
+  markedBy?: { name: string; role: string } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +161,29 @@ export function AttendanceManage() {
   const [selectedCourse, setSelectedCourse] = useState('');
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [datePreset, setDatePreset] = useState<'today' | 'week' | 'month' | 'custom'>('today');
   const date = dateFrom; // Take Attendance always marks a single day
+
+  // Date Period quick presets — saves the admin from hand-picking From/To
+  // every time. Week starts Sunday, matching this school's weekly flow.
+  const applyDatePreset = (preset: 'today' | 'week' | 'month') => {
+    const now = new Date();
+    const toISO = (d: Date) => d.toISOString().split('T')[0];
+    if (preset === 'today') {
+      setDateFrom(toISO(now));
+      setDateTo(toISO(now));
+    } else if (preset === 'week') {
+      const start = new Date(now);
+      start.setDate(now.getDate() - now.getDay());
+      setDateFrom(toISO(start));
+      setDateTo(toISO(now));
+    } else {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      setDateFrom(toISO(start));
+      setDateTo(toISO(now));
+    }
+    setDatePreset(preset);
+  };
 
   // Cascading Organization → Department → Class filters that narrow the
   // Course dropdown, mirroring the pattern in schedules-manage.tsx.
@@ -185,6 +209,9 @@ export function AttendanceManage() {
   const [existingRecords, setExistingRecords] = useState<AttendanceRecord[]>([]);
   const [report, setReport] = useState<ReportRow[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [reportSearch, setReportSearch] = useState('');
+  const [viewSearch, setViewSearch] = useState('');
+  const [viewExporting, setViewExporting] = useState(false);
   const [historyStudent, setHistoryStudent] = useState<ReportRow | null>(null);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -342,7 +369,7 @@ export function AttendanceManage() {
   }, [selectedCourse, dateFrom, dateTo, tab, selectedSchedule]);
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
-  useEffect(() => { setStudentSearch(''); setStatusFilter(''); setEditingRecordId(null); }, [selectedCourse]);
+  useEffect(() => { setStudentSearch(''); setStatusFilter(''); setEditingRecordId(null); setViewSearch(''); setReportSearch(''); }, [selectedCourse]);
 
   const handleStatusChange = (studentId: string, status: string) => {
     setRecords((prev) => ({ ...prev, [studentId]: { ...prev[studentId], status } }));
@@ -477,6 +504,41 @@ export function AttendanceManage() {
     }
   };
 
+  const exportViewRecordsCsv = () => {
+    if (viewRecordsToShow.length === 0) return;
+    setViewExporting(true);
+    try {
+      const header = ['Student ID', 'Student Name', 'Class', 'Course', 'Date', 'Class Time', 'Marked By', 'Time Marked', 'Status', 'Notes'];
+      const rows = viewRecordsToShow.map((r) => [
+        r.student?.studentId || '',
+        `${r.student?.profile?.firstName || ''} ${r.student?.profile?.lastName || ''}`.trim(),
+        r.student?.class ? `${r.student.class.title} (${r.student.class.section})` : '',
+        r.course?.title?.en || '',
+        new Date(r.date).toLocaleDateString(),
+        r.schedule ? `${r.schedule.startTime} - ${r.schedule.endTime}` : '',
+        r.markedBy ? `${r.markedBy.name}${r.markedBy.role ? ` / ${r.markedBy.role}` : ''}` : '',
+        r.createdAt ? new Date(r.createdAt).toLocaleTimeString() : '',
+        r.status,
+        r.notes || '',
+      ]);
+      const csv = [header, ...rows]
+        .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const courseName = selectedCourseObj?.title.en.replace(/[^a-z0-9]+/gi, '-') || 'course';
+      a.download = `attendance-records-${courseName}-${dateFrom}_to_${dateTo}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setViewExporting(false);
+    }
+  };
+
   // Per-student drilldown — which exact dates was this student present/
   // late/absent/excused on, within this course.
   const openHistory = async (row: ReportRow) => {
@@ -524,9 +586,22 @@ export function AttendanceManage() {
     ? filteredStudents.filter((s) => effectiveStatus(s._id) === statusFilter)
     : filteredStudents;
 
-  const viewRecordsToShow = statusFilter
+  const viewRecordsToShow = (statusFilter
     ? existingRecords.filter((r) => r.status === statusFilter)
-    : existingRecords;
+    : existingRecords
+  ).filter((r) => {
+    if (!viewSearch.trim()) return true;
+    const q = viewSearch.trim().toLowerCase();
+    const name = `${r.student?.profile?.firstName || ''} ${r.student?.profile?.lastName || ''}`.toLowerCase();
+    return name.includes(q) || (r.student?.studentId || '').toLowerCase().includes(q);
+  });
+
+  const filteredReport = reportSearch.trim()
+    ? report.filter((r) => {
+        const q = reportSearch.trim().toLowerCase();
+        return r.name.toLowerCase().includes(q) || r.studentId.toLowerCase().includes(q);
+      })
+    : report;
 
   const showStickySaveBar = tab === 'take' && !!selectedCourse && students.length > 0 && !loading;
 
@@ -632,29 +707,59 @@ export function AttendanceManage() {
 
           <div className="sm:col-span-2 lg:col-span-4">
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">📅 Date Period</label>
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center bg-slate-50/60 dark:bg-slate-800/40 rounded-xl p-3">
-              <div className="flex-1">
-                <span className="block text-[11px] text-slate-400 mb-1">Date From</span>
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => {
-                    setDateFrom(e.target.value);
-                    if (e.target.value > dateTo) setDateTo(e.target.value);
-                  }}
-                  className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
-                />
+            <div className="flex flex-col gap-3 bg-slate-50/60 dark:bg-slate-800/40 rounded-xl p-3">
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  { key: 'today', label: 'Today' },
+                  { key: 'week', label: 'This Week' },
+                  { key: 'month', label: 'This Month' },
+                ] as const).map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => applyDatePreset(p.key)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                      datePreset === p.key
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${
+                    datePreset === 'custom' ? 'bg-indigo-600 text-white' : 'bg-transparent text-slate-400'
+                  }`}
+                >
+                  Custom
+                </span>
               </div>
-              <div className="flex-1">
-                <span className="block text-[11px] text-slate-400 mb-1">Date To</span>
-                <input
-                  type="date"
-                  value={dateTo}
-                  min={dateFrom}
-                  disabled={tab === 'take'}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full disabled:opacity-50 disabled:cursor-not-allowed"
-                />
+              <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                <div className="flex-1">
+                  <span className="block text-[11px] text-slate-400 mb-1">Date From</span>
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => {
+                      setDateFrom(e.target.value);
+                      if (e.target.value > dateTo) setDateTo(e.target.value);
+                      setDatePreset('custom');
+                    }}
+                    className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
+                  />
+                </div>
+                <div className="flex-1">
+                  <span className="block text-[11px] text-slate-400 mb-1">Date To</span>
+                  <input
+                    type="date"
+                    value={dateTo}
+                    min={dateFrom}
+                    disabled={tab === 'take'}
+                    onChange={(e) => { setDateTo(e.target.value); setDatePreset('custom'); }}
+                    className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                </div>
               </div>
             </div>
             {tab === 'take' && (
@@ -868,6 +973,26 @@ export function AttendanceManage() {
         {/* ── View Records ── */}
         {tab === 'view' && selectedCourse && existingRecords.length > 0 && !loading && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            <div className="p-4 border-b border-[var(--color-border-default)] flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div className="relative max-w-xs w-full">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" strokeWidth={1.75} />
+                <input
+                  type="text"
+                  value={viewSearch}
+                  onChange={(e) => setViewSearch(e.target.value)}
+                  placeholder="Search student name or ID..."
+                  className="w-full h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={exportViewRecordsCsv}
+                disabled={viewExporting}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-60 flex-shrink-0"
+              >
+                {viewExporting ? 'Exporting...' : '⬇️ Export to Excel'}
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/70 dark:bg-slate-800/40">
@@ -876,7 +1001,9 @@ export function AttendanceManage() {
                     <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Student Name</th>
                     <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Class</th>
                     <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Course</th>
-                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Date</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">
+                      <span className="inline-flex items-center gap-1" title="Sorted newest first">Date <span aria-hidden="true">↓</span></span>
+                    </th>
                     <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Class Time</th>
                     <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Marked By</th>
                     <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Time Marked</th>
@@ -990,12 +1117,22 @@ export function AttendanceManage() {
         {/* ── Report ── */}
         {tab === 'report' && report.length > 0 && !loading && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-            <div className="p-4 border-b border-[var(--color-border-default)] flex items-center justify-end">
+            <div className="p-4 border-b border-[var(--color-border-default)] flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div className="relative max-w-xs w-full">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" strokeWidth={1.75} />
+                <input
+                  type="text"
+                  value={reportSearch}
+                  onChange={(e) => setReportSearch(e.target.value)}
+                  placeholder="Search student name or ID..."
+                  className="w-full h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                />
+              </div>
               <button
                 type="button"
                 onClick={exportReportCsv}
                 disabled={exporting}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-60 flex-shrink-0"
               >
                 {exporting ? 'Exporting...' : '⬇️ Export to Excel'}
               </button>
@@ -1013,7 +1150,14 @@ export function AttendanceManage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {report.map((r, i) => (
+                  {filteredReport.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-sm text-[var(--color-text-tertiary)]">
+                        No students match "{reportSearch}".
+                      </td>
+                    </tr>
+                  )}
+                  {filteredReport.map((r, i) => (
                     <tr
                       key={r.studentId}
                       onClick={() => openHistory(r)}
@@ -1203,13 +1347,18 @@ export function AttendanceManage() {
               )}
               {!historyLoading && historyEntries.map((h) => (
                 <div key={h._id} className="flex items-center justify-between gap-3 px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
-                  <span className="text-sm text-[var(--color-text-secondary)]">
-                    {new Date(h.date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {h.notes && <span className="text-xs text-[var(--color-text-tertiary)] italic">{h.notes}</span>}
-                    <StatusBadge status={h.status} />
+                  <div>
+                    <p className="text-sm text-[var(--color-text-secondary)]">
+                      {new Date(h.date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                    </p>
+                    <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                      {h.schedule ? `${h.schedule.startTime} – ${h.schedule.endTime}` : ''}
+                      {h.schedule && h.markedBy ? ' · ' : ''}
+                      {h.markedBy ? `Marked by ${h.markedBy.name}` : ''}
+                    </p>
+                    {h.notes && <p className="text-xs text-[var(--color-text-tertiary)] italic mt-0.5">"{h.notes}"</p>}
                   </div>
+                  <StatusBadge status={h.status} />
                 </div>
               ))}
             </div>

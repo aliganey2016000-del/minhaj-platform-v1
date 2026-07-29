@@ -287,9 +287,31 @@ export const getStudentCourseHistory = async (req: Request, res: Response): Prom
   if (!courseId || !studentId) throw new BadRequestError('courseId and studentId query params required');
 
   const records = await Attendance.find({ course: courseId, student: studentId })
-    .select('date status notes')
+    .select('date status notes schedule markedBy')
+    .populate('schedule', 'startTime endTime')
     .sort({ date: -1 })
     .lean();
 
-  return ApiResponse.success(res, records);
+  // Same manual Profile lookup as getByCourseAndDate — Users don't carry a
+  // profile ref, so resolve "who marked this" by hand.
+  const markerIds = [...new Set(records.map((r: any) => r.markedBy?.toString()).filter(Boolean))];
+  const [markerUsers, markerProfiles] = await Promise.all([
+    User.find({ _id: { $in: markerIds } }).select('email role').lean(),
+    Profile.find({ user: { $in: markerIds } }).select('user firstName lastName').lean(),
+  ]);
+  const markerMap = new Map(
+    markerIds.map((id) => {
+      const u = markerUsers.find((mu) => mu._id.toString() === id);
+      const p = markerProfiles.find((mp) => mp.user.toString() === id);
+      const name = p ? `${p.firstName} ${p.lastName}` : u?.email || 'Unknown';
+      return [id, { name, role: u?.role || '' }];
+    })
+  );
+
+  const enriched = records.map((r: any) => ({
+    ...r,
+    markedBy: r.markedBy ? markerMap.get(r.markedBy.toString()) || null : null,
+  }));
+
+  return ApiResponse.success(res, enriched);
 };
