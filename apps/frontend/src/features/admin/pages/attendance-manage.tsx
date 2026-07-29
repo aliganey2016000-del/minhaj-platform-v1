@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, Search } from 'lucide-react';
+import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, Search, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { categoryLabels, inferCategoryIcon, inferCategoryColor, levelColors, statusColors } from '../../../lib/course-category-visuals';
 
@@ -553,7 +553,14 @@ export function AttendanceManage() {
         {statusFilter && (
           <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
             <span>Showing only <span className="font-semibold capitalize">{statusFilter}</span> students.</span>
-            <button type="button" onClick={() => setStatusFilter('')} className="text-primary-600 hover:underline font-medium">Clear filter</button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('')}
+              className="inline-flex items-center gap-1 rounded-full border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-2.5 py-1 text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+            >
+              <X className="h-3 w-3" strokeWidth={2.5} />
+              Clear filter
+            </button>
           </div>
         )}
 
@@ -608,8 +615,8 @@ export function AttendanceManage() {
                   {takeStudentsToShow.map((s, i) => (
                     <tr
                       key={s._id}
-                      className={`border-b border-slate-100 dark:border-slate-800 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20 transition-colors ${
-                        i % 2 === 1 ? 'bg-slate-50/50 dark:bg-slate-800/20' : ''
+                      className={`border-b border-slate-100 dark:border-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors ${
+                        i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-white dark:bg-slate-900'
                       }`}
                     >
                       <td className="py-3.5 px-4 text-center text-xs text-[var(--color-text-tertiary)] w-10">{i + 1}</td>
@@ -696,8 +703,8 @@ export function AttendanceManage() {
                   {viewRecordsToShow.map((r, i) => (
                     <tr
                       key={r._id || r.student?._id}
-                      className={`border-b border-slate-100 dark:border-slate-800 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20 transition-colors ${
-                        i % 2 === 1 ? 'bg-slate-50/50 dark:bg-slate-800/20' : ''
+                      className={`border-b border-slate-100 dark:border-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors ${
+                        i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-white dark:bg-slate-900'
                       }`}
                     >
                       <td className="py-3.5 px-4 font-medium">{r.student?.profile?.firstName} {r.student?.profile?.lastName}</td>
