@@ -505,19 +505,28 @@ export const getEnrolledStudents = async (req: Request, res: Response): Promise<
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 20;
 
-  const course = await Course.findById(req.params.id).select('school teacher');
+  const course = await Course.findById(req.params.id).select('school teacher class');
   if (!course) throw new NotFoundError('Course');
   assertOwnsOrg(req, course, 'school');
   await assertOwnsCourseIfTeacher(req, course);
 
-  const students = await Student.find({ enrolledCourses: req.params.id })
+  // Class-based organizations auto-roster every student in the course's
+  // Class for attendance, instead of requiring individual course enrollment.
+  const school = course.school ? await School.findById(course.school).select('attendanceType').lean() : null;
+  const isClassBased = school?.attendanceType === 'class_based' && !!course.class;
+
+  const studentFilter = isClassBased
+    ? { class: course.class }
+    : { enrolledCourses: req.params.id };
+
+  const students = await Student.find(studentFilter)
     .populate('user', 'email role isActive')
     .populate('profile', 'firstName lastName avatar')
     .skip((page - 1) * limit)
     .limit(limit)
     .lean();
 
-  const total = await Student.countDocuments({ enrolledCourses: req.params.id });
+  const total = await Student.countDocuments(studentFilter);
 
   return ApiResponse.paginated(res, students, { page, limit, total });
 };

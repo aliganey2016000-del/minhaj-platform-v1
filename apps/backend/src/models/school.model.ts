@@ -74,6 +74,7 @@ export interface ISchool extends Document {
   estimatedStudents?: '<50' | '50-200' | '200-1000' | '1000+';
   subscriptionPlan: 'free_trial' | 'basic' | 'premium';
   registrationNo?: string;
+  attendanceType: 'course_based' | 'class_based';
   status: 'active' | 'inactive';
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
@@ -207,6 +208,14 @@ const schoolSchema = new Schema<ISchool>(
       default: '',
       trim: true,
       maxlength: [100, 'Registration number cannot exceed 100 characters'],
+    },
+    // Determines how each organization's Attendance list is built:
+    // 'course_based' — only students individually enrolled in the course;
+    // 'class_based' — every student in the course's Class, auto-included.
+    attendanceType: {
+      type: String,
+      enum: ['course_based', 'class_based'],
+      default: 'course_based',
     },
     status: {
       type: String,

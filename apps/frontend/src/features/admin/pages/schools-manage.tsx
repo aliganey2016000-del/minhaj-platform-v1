@@ -21,6 +21,7 @@ import { useAuth } from '../../../store/auth-context';
 type OrganizationType = 'school' | 'university' | 'training_center' | 'private';
 type EstimatedStudents = '<50' | '50-200' | '200-1000' | '1000+';
 type SubscriptionPlan = 'free_trial' | 'basic' | 'premium';
+type AttendanceType = 'course_based' | 'class_based';
 
 interface School {
   _id: string;
@@ -39,6 +40,7 @@ interface School {
   estimatedStudents?: EstimatedStudents;
   subscriptionPlan: SubscriptionPlan;
   registrationNo?: string;
+  attendanceType?: AttendanceType;
   status: 'active' | 'inactive';
   createdBy?: { _id: string; email: string };
   createdAt: string;
@@ -62,6 +64,7 @@ interface SchoolFormData {
   estimatedStudents: EstimatedStudents | '';
   subscriptionPlan: SubscriptionPlan;
   registrationNo: string;
+  attendanceType: AttendanceType;
   status: 'active' | 'inactive';
 }
 
@@ -69,7 +72,7 @@ interface SchoolFormData {
 const STEP_FIELDS: Record<number, (keyof SchoolFormData)[]> = {
   1: ['name', 'organizationType', 'subdomain', 'country', 'city', 'address', 'orgId', 'establishedYear', 'website'],
   2: ['principalName', 'email', 'adminPassword', 'phone'],
-  3: ['estimatedStudents', 'subscriptionPlan', 'registrationNo'],
+  3: ['estimatedStudents', 'subscriptionPlan', 'registrationNo', 'attendanceType'],
 };
 
 const STEP_LABELS = ['Organization Details', 'Org Admin', 'Size & Plan'];
@@ -99,6 +102,7 @@ const INITIAL_FORM: SchoolFormData = {
   estimatedStudents: '',
   subscriptionPlan: 'free_trial',
   registrationNo: '',
+  attendanceType: 'course_based',
   status: 'active',
 };
 
@@ -588,6 +592,7 @@ export function SchoolsManage() {
       estimatedStudents: school.estimatedStudents || '',
       subscriptionPlan: school.subscriptionPlan || 'free_trial',
       registrationNo: school.registrationNo || '',
+      attendanceType: school.attendanceType || 'course_based',
       status: school.status,
     });
     setFormErrors({});
@@ -976,6 +981,17 @@ export function SchoolsManage() {
                       required
                     />
                   )}
+                  <FormSelect
+                    label="Attendance Type"
+                    name="attendanceType"
+                    value={form.attendanceType}
+                    error={formErrors.attendanceType}
+                    onChange={handleChange}
+                    options={[
+                      { value: 'course_based', label: 'Course-Based — only students enrolled in the course' },
+                      { value: 'class_based', label: 'Class-Based — every student in the course’s Class' },
+                    ]}
+                  />
                 </>
               )}
 

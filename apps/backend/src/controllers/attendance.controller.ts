@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 import Attendance from '../models/attendance.model';
 import Student from '../models/student.model';
 import Course from '../models/course.model';
+import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -146,11 +147,16 @@ export const getCourseReport = async (req: Request, res: Response): Promise<Resp
   const { dateFrom, dateTo } = req.query;
   if (!courseId) throw new BadRequestError('courseId query param required');
 
-  // Get all students enrolled in this course
+  // Get all students enrolled in this course — or, for class-based
+  // organizations, every student in the course's Class.
   const course = await Course.findById(courseId).lean();
   if (!course) throw new NotFoundError('Course');
 
-  const students = await Student.find({ enrolledCourses: courseId })
+  const school = course.school ? await School.findById(course.school).select('attendanceType').lean() : null;
+  const isClassBased = school?.attendanceType === 'class_based' && !!course.class;
+  const studentFilter = isClassBased ? { class: course.class } : { enrolledCourses: courseId };
+
+  const students = await Student.find(studentFilter)
     .populate('profile', 'firstName lastName')
     .select('studentId enrolledCourses')
     .lean();
