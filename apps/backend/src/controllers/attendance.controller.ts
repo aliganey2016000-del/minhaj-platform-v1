@@ -268,6 +268,36 @@ export const getMyAttendanceByCourse = async (req: Request, res: Response): Prom
 };
 
 // ---------------------------------------------------------------------------
+// Get MY Day-by-Day Record History for One Course (Student self-service)
+// ---------------------------------------------------------------------------
+
+export const getMyCourseHistory = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId } = req.query;
+  if (!courseId) throw new BadRequestError('courseId query param required');
+
+  const student = await ensureStudentRecord(req.user!.userId);
+
+  const records = await Attendance.find({ course: courseId, student: student._id })
+    .select('date status notes schedule markedBy')
+    .populate('schedule', 'startTime endTime')
+    .sort({ date: -1 })
+    .lean();
+
+  // Same manual Profile lookup used elsewhere — Users don't carry a
+  // profile ref the way Students do.
+  const markerIds = [...new Set(records.map((r: any) => r.markedBy?.toString()).filter(Boolean))];
+  const markerProfiles = await Profile.find({ user: { $in: markerIds } }).select('user firstName lastName').lean();
+  const markerMap = new Map(markerProfiles.map((p) => [p.user.toString(), `${p.firstName} ${p.lastName}`]));
+
+  const enriched = records.map((r: any) => ({
+    ...r,
+    markedBy: r.markedBy ? markerMap.get(r.markedBy.toString()) || null : null,
+  }));
+
+  return ApiResponse.success(res, enriched);
+};
+
+// ---------------------------------------------------------------------------
 // Get Attendance Report by Course (Admin — aggregated)
 // ---------------------------------------------------------------------------
 

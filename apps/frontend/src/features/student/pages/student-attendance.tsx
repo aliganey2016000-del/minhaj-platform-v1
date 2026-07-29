@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Clock, User } from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface CourseAttendance {
@@ -17,6 +17,22 @@ interface CourseAttendance {
   absentPercentage: number;
 }
 
+interface HistoryEntry {
+  _id: string;
+  date: string;
+  status: string;
+  notes?: string;
+  schedule?: { startTime: string; endTime: string } | null;
+  markedBy?: string | null;
+}
+
+const STATUS_BADGE_CLASSES: Record<string, string> = {
+  present: 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-300',
+  absent: 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300',
+  late: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
+  excused: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300',
+};
+
 function absentBadgeClasses(pct: number): string {
   if (pct === 0) return 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-300';
   if (pct <= 25) return 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300';
@@ -29,6 +45,8 @@ export function StudentAttendance() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [historyByCourse, setHistoryByCourse] = useState<Record<string, HistoryEntry[]>>({});
+  const [historyLoading, setHistoryLoading] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -42,6 +60,24 @@ export function StudentAttendance() {
       }
     })();
   }, [t]);
+
+  const toggleExpand = async (courseId: string) => {
+    if (expandedId === courseId) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(courseId);
+    if (historyByCourse[courseId]) return; // already fetched
+    setHistoryLoading(courseId);
+    try {
+      const { data } = await api.get('/attendance/my/course-history', { params: { courseId } });
+      setHistoryByCourse((prev) => ({ ...prev, [courseId]: data.data || [] }));
+    } catch {
+      setHistoryByCourse((prev) => ({ ...prev, [courseId]: [] }));
+    } finally {
+      setHistoryLoading(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -126,7 +162,7 @@ export function StudentAttendance() {
                   >
                     <button
                       type="button"
-                      onClick={() => setExpandedId(isExpanded ? null : c.courseId)}
+                      onClick={() => toggleExpand(c.courseId)}
                       className="w-full flex flex-col sm:flex-row sm:items-center gap-4 p-4 sm:p-5 text-left"
                     >
                       {/* Left: code + absence badge + title + section */}
@@ -160,11 +196,78 @@ export function StudentAttendance() {
 
                     {isExpanded && (
                       <div className="px-4 sm:px-5 pb-4 sm:pb-5 -mt-1">
-                        <div className="border-t border-[var(--color-border-default)] pt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                          <MetricBox label="Late" value={c.late} valueClass="text-amber-600 dark:text-amber-400" />
-                          <MetricBox label="Excused" value={c.excused} valueClass="text-blue-600 dark:text-blue-400" />
-                          <MetricBox label="Present %" value={`${c.presentPercentage}%`} valueClass="text-green-600 dark:text-green-400" />
-                          <MetricBox label="Absent %" value={`${c.absentPercentage}%`} valueClass="text-red-600 dark:text-red-400" />
+                        <div className="border-t border-[var(--color-border-default)] pt-4 space-y-4">
+                          {/* Attendance rate bar */}
+                          <div>
+                            <div className="flex items-center justify-between text-xs mb-1">
+                              <span className="text-[var(--color-text-tertiary)]">Attendance rate</span>
+                              <span className="font-semibold text-[var(--color-text-primary)]">{c.presentPercentage}% present</span>
+                            </div>
+                            <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]">
+                              <div
+                                className={`h-full rounded-full transition-all duration-700 ${c.presentPercentage >= 75 ? 'bg-green-500' : c.presentPercentage >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
+                                style={{ width: `${c.presentPercentage}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <MetricBox label="Late" value={c.late} valueClass="text-amber-600 dark:text-amber-400" />
+                            <MetricBox label="Excused" value={c.excused} valueClass="text-blue-600 dark:text-blue-400" />
+                            <MetricBox label="Present %" value={`${c.presentPercentage}%`} valueClass="text-green-600 dark:text-green-400" />
+                            <MetricBox label="Absent %" value={`${c.absentPercentage}%`} valueClass="text-red-600 dark:text-red-400" />
+                          </div>
+
+                          {/* Absence records */}
+                          <div>
+                            <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase mb-2">Absence Records</p>
+                            {historyLoading === c.courseId ? (
+                              <div className="flex justify-center py-6">
+                                <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
+                              </div>
+                            ) : (
+                              (() => {
+                                const absences = (historyByCourse[c.courseId] || []).filter((h) => h.status === 'absent');
+                                if (absences.length === 0) {
+                                  return <p className="text-sm text-[var(--color-text-tertiary)] py-3">No absences recorded — great job!</p>;
+                                }
+                                return (
+                                  <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-[var(--color-border-default)] rounded-xl overflow-hidden">
+                                    {absences.map((h) => {
+                                      const d = new Date(h.date);
+                                      return (
+                                        <div key={h._id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 bg-[var(--color-surface-primary)]">
+                                          <div>
+                                            <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+                                              {d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                            </p>
+                                            <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                                              {d.toLocaleDateString(undefined, { weekday: 'long' })}
+                                            </p>
+                                          </div>
+                                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold flex-shrink-0 ${STATUS_BADGE_CLASSES.absent}`}>
+                                            Absent
+                                          </span>
+                                          {h.schedule && (
+                                            <span className="inline-flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+                                              <Clock className="h-3.5 w-3.5" strokeWidth={1.75} />
+                                              {h.schedule.startTime} – {h.schedule.endTime}
+                                            </span>
+                                          )}
+                                          {h.markedBy && (
+                                            <span className="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 flex-shrink-0">
+                                              <User className="h-3.5 w-3.5" strokeWidth={1.75} />
+                                              {h.markedBy}
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })()
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}
