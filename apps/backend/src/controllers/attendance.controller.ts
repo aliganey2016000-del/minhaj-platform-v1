@@ -223,6 +223,25 @@ export const getMyAttendance = async (req: Request, res: Response): Promise<Resp
 export const getMyAttendanceByCourse = async (req: Request, res: Response): Promise<Response> => {
   const student = await ensureStudentRecord(req.user!.userId);
 
+  // The course list itself comes from the student's actual enrollment, not
+  // from which courses happen to already have an attendance record — a
+  // course with zero sessions taken so far must still show up (0/0), and
+  // for class-based organizations that list is every course tied to the
+  // student's Class, not just individually-enrolled ones.
+  const studentSchoolId = (student as any).school;
+  const studentClassId = (student as any).class;
+  const school = studentSchoolId ? await School.findById(studentSchoolId).select('attendanceType').lean() : null;
+  const isClassBased = school?.attendanceType === 'class_based' && !!studentClassId;
+
+  const courseFilter = isClassBased
+    ? { class: studentClassId }
+    : { _id: { $in: student.enrolledCourses } };
+
+  const courses = await Course.find(courseFilter)
+    .select('title slug category')
+    .populate('class', 'title section')
+    .lean();
+
   const stats = await Attendance.aggregate([
     { $match: { student: student._id } },
     {
@@ -235,34 +254,26 @@ export const getMyAttendanceByCourse = async (req: Request, res: Response): Prom
         excused: { $sum: { $cond: [{ $eq: ['$status', 'excused'] }, 1, 0] } },
       },
     },
-    { $sort: { total: -1 } },
   ]);
+  const statsMap = new Map(stats.map((s) => [s._id.toString(), s]));
 
-  const courseIds = stats.map((s) => s._id);
-  const courses = await Course.find({ _id: { $in: courseIds } })
-    .select('title slug category')
-    .populate('class', 'title section')
-    .lean();
-
-  const courseMap = new Map(courses.map((c) => [c._id.toString(), c]));
-
-  const result = stats.map((s) => {
-    const course = courseMap.get(s._id.toString());
-    const total = s.total;
+  const result = courses.map((course) => {
+    const s = statsMap.get(course._id.toString());
+    const total = s?.total || 0;
     return {
-      courseId: s._id,
-      code: course?.slug?.toUpperCase() || '',
-      title: course?.title?.en || 'Unknown Course',
-      section: (course as any)?.class ? `${(course as any).class.title} (${(course as any).class.section})` : (course as any)?.category || '',
+      courseId: course._id,
+      code: course.slug?.toUpperCase() || '',
+      title: course.title?.en || 'Unknown Course',
+      section: (course as any).class ? `${(course as any).class.title} (${(course as any).class.section})` : (course as any).category || '',
       days: total,
-      present: s.present,
-      absent: s.absent,
-      late: s.late,
-      excused: s.excused,
-      presentPercentage: total > 0 ? Math.round((s.present / total) * 100) : 0,
-      absentPercentage: total > 0 ? Math.round((s.absent / total) * 100) : 0,
+      present: s?.present || 0,
+      absent: s?.absent || 0,
+      late: s?.late || 0,
+      excused: s?.excused || 0,
+      presentPercentage: total > 0 ? Math.round(((s?.present || 0) / total) * 100) : 0,
+      absentPercentage: total > 0 ? Math.round(((s?.absent || 0) / total) * 100) : 0,
     };
-  });
+  }).sort((a, b) => b.days - a.days);
 
   return ApiResponse.success(res, result);
 };
