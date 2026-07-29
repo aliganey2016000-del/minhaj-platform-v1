@@ -15,6 +15,10 @@ export interface IAttendance extends Document {
   status: 'present' | 'absent' | 'late' | 'excused';
   notes?: string;
   markedBy: mongoose.Types.ObjectId;
+  // Once attendance for a session is submitted it locks — the submitter
+  // (org_admin/teacher) can no longer edit it; only a platform Admin can
+  // unlock it via PATCH /attendance/unlock before it can be resubmitted.
+  locked: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +32,7 @@ const attendanceSchema = new Schema<IAttendance>(
     status: { type: String, enum: ['present', 'absent', 'late', 'excused'], required: true, default: 'present' },
     notes: { type: String, default: '' },
     markedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    locked: { type: Boolean, default: false },
   },
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );

@@ -10,8 +10,12 @@ router.use(authMiddleware);
 
 router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendance));
 router.post('/', adminOnly, asyncHandler(attendanceController.markBulk));
+// Unlocking a locked session is a platform-Admin-only power — org_admin
+// (who is the one submitting/getting locked out) cannot self-unlock.
+router.patch('/unlock', roleMiddleware(['admin']), asyncHandler(attendanceController.unlockSession));
 router.get('/course', asyncHandler(attendanceController.getByCourseAndDate));
 router.get('/report', asyncHandler(attendanceController.getCourseReport));
+router.get('/history', asyncHandler(attendanceController.getStudentCourseHistory));
 router.get('/student/:studentId', asyncHandler(attendanceController.getStudentSummary));
 
 export default router;

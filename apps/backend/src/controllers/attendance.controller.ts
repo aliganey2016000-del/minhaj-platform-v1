@@ -10,7 +10,7 @@ import Student from '../models/student.model';
 import Course from '../models/course.model';
 import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
 
 // ---------------------------------------------------------------------------
@@ -37,10 +37,25 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
   // marks silently showing up as "already taken" on the other.
   const scheduleFilter = scheduleId ? new mongoose.Types.ObjectId(scheduleId) : null;
 
+  // Once submitted, a session locks — the submitter (org_admin/teacher)
+  // can't quietly re-edit it afterwards; only a platform Admin can unlock
+  // it first (PATCH /attendance/unlock) or submit straight over the lock.
+  if (req.user?.role !== 'admin') {
+    const alreadyLocked = await Attendance.exists({
+      course: courseId,
+      date: attendanceDate,
+      schedule: scheduleFilter,
+      locked: true,
+    });
+    if (alreadyLocked) {
+      throw new ForbiddenError('Attendance for this session is locked. Ask an Admin to unlock it before making changes.');
+    }
+  }
+
   const ops = records.map((r: any) => ({
     updateOne: {
       filter: { course: courseId, student: r.student, date: attendanceDate, schedule: scheduleFilter },
-      update: { $set: { status: r.status, notes: r.notes || '', markedBy: new mongoose.Types.ObjectId(req.user!.userId) } },
+      update: { $set: { status: r.status, notes: r.notes || '', markedBy: new mongoose.Types.ObjectId(req.user!.userId), locked: true } },
       upsert: true,
     },
   }));
@@ -48,6 +63,26 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
   await Attendance.bulkWrite(ops);
 
   return ApiResponse.success(res, { course: courseId, date: attendanceDate, count: records.length }, 'Attendance marked successfully');
+};
+
+// ---------------------------------------------------------------------------
+// Unlock a Session (Admin-only) — PATCH /attendance/unlock
+// ---------------------------------------------------------------------------
+
+export const unlockSession = async (req: Request, res: Response): Promise<Response> => {
+  const { course: courseId, schedule: scheduleId, date } = req.body;
+  if (!courseId || !date) throw new BadRequestError('course and date are required');
+
+  const attendanceDate = new Date(date);
+  attendanceDate.setHours(0, 0, 0, 0);
+  const scheduleFilter = scheduleId ? new mongoose.Types.ObjectId(scheduleId) : null;
+
+  const result = await Attendance.updateMany(
+    { course: courseId, date: attendanceDate, schedule: scheduleFilter },
+    { $set: { locked: false } }
+  );
+
+  return ApiResponse.success(res, { modified: result.modifiedCount }, 'Attendance session unlocked');
 };
 
 // ---------------------------------------------------------------------------
@@ -198,6 +233,7 @@ export const getCourseReport = async (req: Request, res: Response): Promise<Resp
     const p = st?.present || 0;
     const l = st?.late || 0;
     return {
+      _id: s._id,
       studentId: (s as any).studentId,
       name: `${(s as any).profile?.firstName} ${(s as any).profile?.lastName}`,
       total,
@@ -209,4 +245,20 @@ export const getCourseReport = async (req: Request, res: Response): Promise<Resp
   });
 
   return ApiResponse.success(res, report);
+};
+
+// ---------------------------------------------------------------------------
+// Get One Student's Day-by-Day History for a Course (Admin — Report drilldown)
+// ---------------------------------------------------------------------------
+
+export const getStudentCourseHistory = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId, studentId } = req.query;
+  if (!courseId || !studentId) throw new BadRequestError('courseId and studentId query params required');
+
+  const records = await Attendance.find({ course: courseId, student: studentId })
+    .select('date status notes')
+    .sort({ date: -1 })
+    .lean();
+
+  return ApiResponse.success(res, records);
 };

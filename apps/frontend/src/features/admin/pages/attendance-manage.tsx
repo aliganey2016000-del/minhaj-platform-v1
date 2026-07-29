@@ -4,8 +4,9 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, Search, X } from 'lucide-react';
+import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, Search, X, Lock, Unlock } from 'lucide-react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 import { categoryLabels, inferCategoryIcon, inferCategoryColor, levelColors, statusColors } from '../../../lib/course-category-visuals';
 
 interface SchoolBrief { _id: string; name: string; }
@@ -51,9 +52,11 @@ interface AttendanceRecord {
   student: { _id: string; studentId: string; profile?: { firstName: string; lastName: string } };
   status: string;
   notes?: string;
+  locked?: boolean;
 }
 
 interface ReportRow {
+  _id: string;
   studentId: string;
   name: string;
   total: number;
@@ -61,6 +64,13 @@ interface ReportRow {
   late: number;
   absent: number;
   percentage: number;
+}
+
+interface HistoryEntry {
+  _id: string;
+  date: string;
+  status: string;
+  notes?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +85,7 @@ const STATUS_OPTIONS: { value: string; letter: string; label: string; active: st
   { value: 'excused', letter: 'E', label: 'Excused', active: 'bg-blue-600 text-white border-blue-600', idle: 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/50 hover:bg-blue-50 dark:hover:bg-blue-950/30' },
 ];
 
-function StatusButtons({ value, onChange }: { value: string; onChange: (status: string) => void }) {
+function StatusButtons({ value, onChange, disabled }: { value: string; onChange: (status: string) => void; disabled?: boolean }) {
   return (
     <div className="inline-flex items-center gap-1" role="group">
       {STATUS_OPTIONS.map((opt) => (
@@ -85,7 +95,8 @@ function StatusButtons({ value, onChange }: { value: string; onChange: (status: 
           title={opt.label}
           aria-pressed={value === opt.value}
           onClick={() => onChange(opt.value)}
-          className={`h-7 w-7 rounded-lg border text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${
+          disabled={disabled}
+          className={`h-7 w-7 rounded-lg border text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-50 disabled:cursor-not-allowed ${
             value === opt.value ? opt.active : opt.idle
           }`}
         >
@@ -114,11 +125,24 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// Attendance-rate risk band — a flat "green if ≥75%" hid the difference
+// between a borderline 78% and a genuinely at-risk 17% (both just showed
+// green/red). Three bands surface who needs attention at a glance.
+function rateColorClass(pct: number): string {
+  if (pct >= 90) return 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300';
+  if (pct >= 75) return 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300';
+  return 'bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300';
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
 export function AttendanceManage() {
+  const { user } = useAuth();
+  const isPlatformAdmin = user?.role === 'admin';
+  const [unlocking, setUnlocking] = useState(false);
+
   const [tab, setTab] = useState<'take' | 'view' | 'report'>('take');
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState('');
@@ -149,6 +173,10 @@ export function AttendanceManage() {
   const [records, setRecords] = useState<Record<string, { status: string; notes: string }>>({});
   const [existingRecords, setExistingRecords] = useState<AttendanceRecord[]>([]);
   const [report, setReport] = useState<ReportRow[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [historyStudent, setHistoryStudent] = useState<ReportRow | null>(null);
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -320,7 +348,7 @@ export function AttendanceManage() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedCourse || students.length === 0) return;
+    if (!selectedCourse || students.length === 0 || isLocked) return;
     const payload = {
       course: selectedCourse,
       schedule: selectedSchedule || undefined,
@@ -347,6 +375,23 @@ export function AttendanceManage() {
     }
   };
 
+  // A submitted session locks for everyone except a platform Admin. Only
+  // that Admin can unlock it again before it can be resubmitted.
+  const unlockAttendance = async () => {
+    if (!selectedCourse) return;
+    setUnlocking(true);
+    setError('');
+    try {
+      await api.patch('/attendance/unlock', { course: selectedCourse, schedule: selectedSchedule || undefined, date });
+      setMessage('🔓 Attendance session unlocked.');
+      loadStudents();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to unlock attendance');
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
   const loadReport = useCallback(async () => {
     if (!selectedCourse) return;
     setLoading(true);
@@ -361,9 +406,56 @@ export function AttendanceManage() {
     }
   }, [selectedCourse, dateFrom, dateTo]);
 
+  // Export the currently loaded report as a CSV — opens directly in
+  // Excel/Sheets so an admin can print it or share it with parents.
+  const exportReportCsv = () => {
+    if (report.length === 0) return;
+    setExporting(true);
+    try {
+      const header = ['Student', 'Student ID', 'Present', 'Late', 'Absent', 'Total', 'Rate (%)'];
+      const rows = report.map((r) => [r.name, r.studentId, r.present, r.late, r.absent, r.total, r.percentage]);
+      const csv = [header, ...rows]
+        .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const courseName = selectedCourseObj?.title.en.replace(/[^a-z0-9]+/gi, '-') || 'course';
+      a.download = `attendance-report-${courseName}-${dateFrom}_to_${dateTo}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Per-student drilldown — which exact dates was this student present/
+  // late/absent/excused on, within this course.
+  const openHistory = async (row: ReportRow) => {
+    setHistoryStudent(row);
+    setHistoryLoading(true);
+    setHistoryEntries([]);
+    try {
+      const { data } = await api.get('/attendance/history', { params: { courseId: selectedCourse, studentId: row._id } });
+      setHistoryEntries(data.data || []);
+    } catch {
+      setHistoryEntries([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   useEffect(() => { if (tab === 'report' && selectedCourse) loadReport(); }, [tab, dateFrom, dateTo, selectedCourse, loadReport]);
 
   const selectedCourseObj = courses.find((c) => c._id === selectedCourse);
+
+  // Submitted attendance locks — anyone but a platform Admin sees a
+  // read-only view of it until an Admin unlocks the session.
+  const sessionLocked = existingRecords.length > 0 && existingRecords.some((r) => r.locked);
+  const isLocked = sessionLocked && !isPlatformAdmin;
 
   // Quick client-side name/ID search — the roster can run 20+ students, so
   // finding one late arrival shouldn't require scrolling the whole list.
@@ -536,6 +628,33 @@ export function AttendanceManage() {
           <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>
         )}
 
+        {/* Lock banner — shown once this session has been submitted */}
+        {tab === 'take' && sessionLocked && (
+          <div className={`rounded-xl border p-4 text-sm flex items-center justify-between gap-3 ${
+            isPlatformAdmin
+              ? 'border-amber-200 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300'
+              : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300'
+          }`}>
+            <span className="inline-flex items-center gap-2">
+              <Lock className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
+              {isPlatformAdmin
+                ? 'This session is locked. Unlock it to make changes.'
+                : 'This session has been submitted and is locked. Ask an Admin to unlock it before making changes.'}
+            </span>
+            {isPlatformAdmin && (
+              <button
+                type="button"
+                onClick={unlockAttendance}
+                disabled={unlocking}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60 transition-colors flex-shrink-0"
+              >
+                <Unlock className="h-3.5 w-3.5" strokeWidth={2} />
+                {unlocking ? 'Unlocking...' : 'Unlock'}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Quick Stats (Take/View) — clickable: each card filters the list
             below to just that status; clicking the active one again clears
             the filter. */}
@@ -599,7 +718,8 @@ export function AttendanceManage() {
               <button
                 type="button"
                 onClick={markAllPresent}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 px-3 py-2 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors flex-shrink-0"
+                disabled={isLocked}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 px-3 py-2 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 ✅ Mark All Present
               </button>
@@ -641,6 +761,7 @@ export function AttendanceManage() {
                         <StatusButtons
                           value={records[s._id]?.status || 'present'}
                           onChange={(status) => handleStatusChange(s._id, status)}
+                          disabled={isLocked}
                         />
                       </td>
                       <td className="py-3.5 px-4 text-center hidden md:table-cell">
@@ -648,7 +769,8 @@ export function AttendanceManage() {
                           type="text"
                           value={records[s._id]?.notes || ''}
                           onChange={(e) => handleNotesChange(s._id, e.target.value)}
-                          className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-32 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                          disabled={isLocked}
+                          className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-32 focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
                           placeholder="Optional note"
                         />
                       </td>
@@ -681,10 +803,11 @@ export function AttendanceManage() {
                 )}
                 <button
                   onClick={handleSubmit}
-                  disabled={loading}
+                  disabled={loading || isLocked}
+                  title={isLocked ? 'Locked — ask an Admin to unlock this session first' : undefined}
                   className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors shadow-sm"
                 >
-                  {loading ? 'Saving...' : '💾 Save Attendance'}
+                  {isLocked ? '🔒 Locked' : loading ? 'Saving...' : '💾 Save Attendance'}
                 </button>
               </div>
             </div>
@@ -743,6 +866,16 @@ export function AttendanceManage() {
         {/* ── Report ── */}
         {tab === 'report' && report.length > 0 && !loading && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            <div className="p-4 border-b border-[var(--color-border-default)] flex items-center justify-end">
+              <button
+                type="button"
+                onClick={exportReportCsv}
+                disabled={exporting}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-60"
+              >
+                {exporting ? 'Exporting...' : '⬇️ Export to Excel'}
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/70 dark:bg-slate-800/40">
@@ -756,21 +889,21 @@ export function AttendanceManage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {report.map((r) => (
-                    <tr key={r.studentId} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-800/30 transition-colors">
-                      <td className="py-3.5 px-4 font-medium">{r.name}</td>
+                  {report.map((r, i) => (
+                    <tr
+                      key={r.studentId}
+                      onClick={() => openHistory(r)}
+                      className={`border-b border-slate-100 dark:border-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors cursor-pointer ${
+                        i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-white dark:bg-slate-900'
+                      }`}
+                    >
+                      <td className="py-3.5 px-4 font-medium text-primary-700 dark:text-primary-400 hover:underline">{r.name}</td>
                       <td className="py-3.5 px-4 text-center text-green-600 font-medium">{r.present}</td>
                       <td className="py-3.5 px-4 text-center hidden sm:table-cell text-amber-600 font-medium">{r.late}</td>
                       <td className="py-3.5 px-4 text-center hidden sm:table-cell text-red-600 font-medium">{r.absent}</td>
                       <td className="py-3.5 px-4 text-center">{r.total}</td>
                       <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${
-                            r.percentage >= 75
-                              ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300'
-                              : 'bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300'
-                          }`}
-                        >
+                        <span className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${rateColorClass(r.percentage)}`}>
                           {r.percentage}%
                         </span>
                       </td>
@@ -911,6 +1044,54 @@ export function AttendanceManage() {
           </>
         )}
       </div>
+
+      {/* Student History Modal — per-date drilldown from a Report row click */}
+      {historyStudent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setHistoryStudent(null)}
+        >
+          <div
+            className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-[var(--color-surface-primary)] shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-[var(--color-border-default)] flex items-center justify-between sticky top-0 bg-[var(--color-surface-primary)]">
+              <div>
+                <p className="font-semibold text-[var(--color-text-primary)]">{historyStudent.name}</p>
+                <p className="text-xs text-[var(--color-text-tertiary)]">{historyStudent.studentId} &middot; {historyStudent.percentage}% attendance rate</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryStudent(null)}
+                className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+              >
+                <X className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </div>
+            <div className="p-2">
+              {historyLoading && (
+                <div className="flex justify-center py-10">
+                  <div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
+                </div>
+              )}
+              {!historyLoading && historyEntries.length === 0 && (
+                <p className="text-center text-sm text-[var(--color-text-tertiary)] py-10">No attendance history found.</p>
+              )}
+              {!historyLoading && historyEntries.map((h) => (
+                <div key={h._id} className="flex items-center justify-between gap-3 px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+                  <span className="text-sm text-[var(--color-text-secondary)]">
+                    {new Date(h.date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {h.notes && <span className="text-xs text-[var(--color-text-tertiary)] italic">{h.notes}</span>}
+                    <StatusBadge status={h.status} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
