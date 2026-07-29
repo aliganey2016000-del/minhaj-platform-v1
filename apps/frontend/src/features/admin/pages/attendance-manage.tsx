@@ -139,6 +139,7 @@ export function AttendanceManage() {
 
   const [students, setStudents] = useState<Student[]>([]);
   const [studentSearch, setStudentSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [records, setRecords] = useState<Record<string, { status: string; notes: string }>>({});
   const [existingRecords, setExistingRecords] = useState<AttendanceRecord[]>([]);
   const [report, setReport] = useState<ReportRow[]>([]);
@@ -285,10 +286,23 @@ export function AttendanceManage() {
   }, [selectedCourse, dateFrom, dateTo, tab]);
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
-  useEffect(() => { setStudentSearch(''); }, [selectedCourse]);
+  useEffect(() => { setStudentSearch(''); setStatusFilter(''); }, [selectedCourse]);
 
   const handleStatusChange = (studentId: string, status: string) => {
     setRecords((prev) => ({ ...prev, [studentId]: { ...prev[studentId], status } }));
+  };
+
+  // Bulk-mark everyone Present in one click — the common case is nearly
+  // everyone showing up, so this turns "24 clicks" into "1 click + a
+  // couple of corrections" for the few who are actually absent/late.
+  const markAllPresent = () => {
+    setRecords((prev) => {
+      const next = { ...prev };
+      students.forEach((s) => {
+        next[s._id] = { status: 'present', notes: prev[s._id]?.notes || '' };
+      });
+      return next;
+    });
   };
 
   const handleNotesChange = (studentId: string, notes: string) => {
@@ -350,11 +364,21 @@ export function AttendanceManage() {
       })
     : students;
 
-  // Count statuses for current batch
-  const presentCount = Object.values(records).filter((r) => r.status === 'present').length;
-  const absentCount = Object.values(records).filter((r) => r.status === 'absent').length;
-  const lateCount = Object.values(records).filter((r) => r.status === 'late').length;
-  const excusedCount = Object.values(records).filter((r) => r.status === 'excused').length;
+  // Count statuses for current batch — every student defaults to "present"
+  // until touched, matching what each row actually renders.
+  const effectiveStatus = (studentId: string) => records[studentId]?.status || 'present';
+  const presentCount = students.filter((s) => effectiveStatus(s._id) === 'present').length;
+  const absentCount = students.filter((s) => effectiveStatus(s._id) === 'absent').length;
+  const lateCount = students.filter((s) => effectiveStatus(s._id) === 'late').length;
+  const excusedCount = students.filter((s) => effectiveStatus(s._id) === 'excused').length;
+
+  const takeStudentsToShow = statusFilter
+    ? filteredStudents.filter((s) => effectiveStatus(s._id) === statusFilter)
+    : filteredStudents;
+
+  const viewRecordsToShow = statusFilter
+    ? existingRecords.filter((r) => r.status === statusFilter)
+    : existingRecords;
 
   const showStickySaveBar = tab === 'take' && !!selectedCourse && students.length > 0 && !loading;
 
@@ -501,25 +525,35 @@ export function AttendanceManage() {
           <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>
         )}
 
-        {/* Quick Stats (Take/View) */}
+        {/* Quick Stats (Take/View) — clickable: each card filters the list
+            below to just that status; clicking the active one again clears
+            the filter. */}
         {(tab === 'take' || tab === 'view') && selectedCourse && existingRecords.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
-              <p className="text-2xl font-bold text-green-700 dark:text-green-300">{tab === 'take' ? presentCount : existingRecords.filter((r) => r.status === 'present').length}</p>
-              <p className="text-xs text-green-600 dark:text-green-400">Present</p>
-            </div>
-            <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center">
-              <p className="text-2xl font-bold text-red-700 dark:text-red-300">{tab === 'take' ? absentCount : existingRecords.filter((r) => r.status === 'absent').length}</p>
-              <p className="text-xs text-red-600 dark:text-red-400">Absent</p>
-            </div>
-            <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-4 text-center">
-              <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{tab === 'take' ? lateCount : existingRecords.filter((r) => r.status === 'late').length}</p>
-              <p className="text-xs text-amber-600 dark:text-amber-400">Late</p>
-            </div>
-            <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 p-4 text-center">
-              <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{tab === 'take' ? excusedCount : existingRecords.filter((r) => r.status === 'excused').length}</p>
-              <p className="text-xs text-blue-600 dark:text-blue-400">Excused</p>
-            </div>
+            {([
+              { key: 'present', count: tab === 'take' ? presentCount : existingRecords.filter((r) => r.status === 'present').length, label: 'Present', ring: 'ring-green-500', border: 'border-green-200 dark:border-green-900/50', bg: 'bg-green-50 dark:bg-green-950/30', text: 'text-green-700 dark:text-green-300', sub: 'text-green-600 dark:text-green-400' },
+              { key: 'absent', count: tab === 'take' ? absentCount : existingRecords.filter((r) => r.status === 'absent').length, label: 'Absent', ring: 'ring-red-500', border: 'border-red-200 dark:border-red-900/50', bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-300', sub: 'text-red-600 dark:text-red-400' },
+              { key: 'late', count: tab === 'take' ? lateCount : existingRecords.filter((r) => r.status === 'late').length, label: 'Late', ring: 'ring-amber-500', border: 'border-amber-200 dark:border-amber-900/50', bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-300', sub: 'text-amber-600 dark:text-amber-400' },
+              { key: 'excused', count: tab === 'take' ? excusedCount : existingRecords.filter((r) => r.status === 'excused').length, label: 'Excused', ring: 'ring-blue-500', border: 'border-blue-200 dark:border-blue-900/50', bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-300', sub: 'text-blue-600 dark:text-blue-400' },
+            ] as const).map((stat) => (
+              <button
+                key={stat.key}
+                type="button"
+                onClick={() => setStatusFilter((prev) => (prev === stat.key ? '' : stat.key))}
+                className={`rounded-xl border ${stat.border} ${stat.bg} p-4 text-center transition-all hover:shadow-sm ${
+                  statusFilter === stat.key ? `ring-2 ${stat.ring} ring-offset-1` : ''
+                }`}
+              >
+                <p className={`text-2xl font-bold ${stat.text}`}>{stat.count}</p>
+                <p className={`text-xs ${stat.sub}`}>{stat.label}</p>
+              </button>
+            ))}
+          </div>
+        )}
+        {statusFilter && (
+          <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
+            <span>Showing only <span className="font-semibold capitalize">{statusFilter}</span> students.</span>
+            <button type="button" onClick={() => setStatusFilter('')} className="text-primary-600 hover:underline font-medium">Clear filter</button>
           </div>
         )}
 
@@ -533,8 +567,8 @@ export function AttendanceManage() {
         {/* ── Take Attendance ── */}
         {tab === 'take' && selectedCourse && students.length > 0 && !loading && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-            <div className="p-4 border-b border-[var(--color-border-default)]">
-              <div className="relative max-w-xs">
+            <div className="p-4 border-b border-[var(--color-border-default)] flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <div className="relative max-w-xs w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" strokeWidth={1.75} />
                 <input
                   type="text"
@@ -544,6 +578,13 @@ export function AttendanceManage() {
                   className="w-full h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
                 />
               </div>
+              <button
+                type="button"
+                onClick={markAllPresent}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 px-3 py-2 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors flex-shrink-0"
+              >
+                ✅ Mark All Present
+              </button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -557,15 +598,20 @@ export function AttendanceManage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredStudents.length === 0 && (
+                  {takeStudentsToShow.length === 0 && (
                     <tr>
                       <td colSpan={5} className="py-8 text-center text-sm text-[var(--color-text-tertiary)]">
-                        No students match "{studentSearch}".
+                        {studentSearch ? `No students match "${studentSearch}".` : 'No students match this filter.'}
                       </td>
                     </tr>
                   )}
-                  {filteredStudents.map((s, i) => (
-                    <tr key={s._id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-800/30 transition-colors">
+                  {takeStudentsToShow.map((s, i) => (
+                    <tr
+                      key={s._id}
+                      className={`border-b border-slate-100 dark:border-slate-800 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20 transition-colors ${
+                        i % 2 === 1 ? 'bg-slate-50/50 dark:bg-slate-800/20' : ''
+                      }`}
+                    >
                       <td className="py-3.5 px-4 text-center text-xs text-[var(--color-text-tertiary)] w-10">{i + 1}</td>
                       <td className="py-3.5 px-4">
                         <p className="font-medium">{s.profile?.firstName} {s.profile?.lastName}</p>
@@ -594,7 +640,9 @@ export function AttendanceManage() {
               </table>
             </div>
             <div className="p-4 border-t border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]">
-              <p className="text-xs text-[var(--color-text-tertiary)]">{students.length} students in list</p>
+              <p className="text-xs text-[var(--color-text-tertiary)]">
+                {takeStudentsToShow.length === students.length ? `${students.length} students in list` : `${takeStudentsToShow.length} of ${students.length} students shown`}
+              </p>
             </div>
           </div>
         )}
@@ -645,8 +693,13 @@ export function AttendanceManage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {existingRecords.map((r) => (
-                    <tr key={r._id || r.student?._id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-800/30 transition-colors">
+                  {viewRecordsToShow.map((r, i) => (
+                    <tr
+                      key={r._id || r.student?._id}
+                      className={`border-b border-slate-100 dark:border-slate-800 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20 transition-colors ${
+                        i % 2 === 1 ? 'bg-slate-50/50 dark:bg-slate-800/20' : ''
+                      }`}
+                    >
                       <td className="py-3.5 px-4 font-medium">{r.student?.profile?.firstName} {r.student?.profile?.lastName}</td>
                       <td className="py-3.5 px-4 text-center hidden sm:table-cell">
                         <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{r.student?.studentId}</code>
