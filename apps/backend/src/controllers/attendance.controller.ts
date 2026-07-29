@@ -18,7 +18,7 @@ import ensureStudentRecord from '../utils/ensure-student';
 // ---------------------------------------------------------------------------
 
 export const markBulk = async (req: Request, res: Response): Promise<Response> => {
-  const { course: courseId, date, records } = req.body;
+  const { course: courseId, schedule: scheduleId, date, records } = req.body;
   // records: [{ student: id, status: 'present'|'absent'|'late'|'excused', notes?: string }]
 
   if (!courseId || !date || !records || !Array.isArray(records) || records.length === 0) {
@@ -31,9 +31,15 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
   const attendanceDate = new Date(date);
   attendanceDate.setHours(0, 0, 0, 0);
 
+  // A course can meet more than once on the same day (e.g. a 07:30 and an
+  // 11:00 session) — scoping by the specific ClassSchedule session keeps
+  // those two sessions' attendance independent instead of one session's
+  // marks silently showing up as "already taken" on the other.
+  const scheduleFilter = scheduleId ? new mongoose.Types.ObjectId(scheduleId) : null;
+
   const ops = records.map((r: any) => ({
     updateOne: {
-      filter: { course: courseId, student: r.student, date: attendanceDate },
+      filter: { course: courseId, student: r.student, date: attendanceDate, schedule: scheduleFilter },
       update: { $set: { status: r.status, notes: r.notes || '', markedBy: new mongoose.Types.ObjectId(req.user!.userId) } },
       upsert: true,
     },
@@ -49,7 +55,7 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
 // ---------------------------------------------------------------------------
 
 export const getByCourseAndDate = async (req: Request, res: Response): Promise<Response> => {
-  const { courseId, date, dateFrom, dateTo } = req.query;
+  const { courseId, date, dateFrom, dateTo, schedule: scheduleId } = req.query;
   if (!courseId || (!date && !dateFrom)) {
     throw new BadRequestError('courseId and date (or dateFrom) query params required');
   }
@@ -67,7 +73,13 @@ export const getByCourseAndDate = async (req: Request, res: Response): Promise<R
     dateFilter = attendanceDate;
   }
 
-  const records = await Attendance.find({ course: courseId, date: dateFilter })
+  const filter: Record<string, unknown> = { course: courseId, date: dateFilter };
+  // Scope to one specific session when the caller knows which one it's
+  // taking attendance for (see markBulk) — omitted, this matches whatever
+  // was marked that day for the course regardless of session.
+  if (scheduleId) filter.schedule = new mongoose.Types.ObjectId(scheduleId as string);
+
+  const records = await Attendance.find(filter)
     .populate('student', 'studentId user profile enrolledCourses')
     .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' } })
     .sort({ date: -1 })

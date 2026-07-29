@@ -137,6 +137,12 @@ export function AttendanceManage() {
   const [filterClass, setFilterClass] = useState('');
   const [classesLoading, setClassesLoading] = useState(false);
 
+  // Which specific ClassSchedule session Take Attendance is for — set when
+  // jumping in from a Today's Schedule card, so a course that meets twice
+  // in one day (e.g. 07:30 and 11:00) keeps each session's attendance
+  // independent instead of the second session reading as pre-marked.
+  const [selectedSchedule, setSelectedSchedule] = useState('');
+
   const [students, setStudents] = useState<Student[]>([]);
   const [studentSearch, setStudentSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -179,7 +185,7 @@ export function AttendanceManage() {
     })();
     setFilterDepartment('');
     setFilterClass('');
-    setSelectedCourse('');
+    setSelectedCourse(''); setSelectedSchedule('');
   }, [filterSchool]);
 
   // Department → Classes
@@ -197,12 +203,12 @@ export function AttendanceManage() {
       }
     })();
     setFilterClass('');
-    setSelectedCourse('');
+    setSelectedCourse(''); setSelectedSchedule('');
   }, [filterDepartment]);
 
   // Class change resets the Course selection downstream
   useEffect(() => {
-    setSelectedCourse('');
+    setSelectedCourse(''); setSelectedSchedule('');
   }, [filterClass]);
 
   // Course list — re-fetched whenever the Organization/Class narrows it, so
@@ -242,12 +248,13 @@ export function AttendanceManage() {
     loadTodaysSchedules();
   }, [filterSchool, filterClass]);
 
-  const pickTodaysCourse = (courseId: string) => {
+  const pickTodaysCourse = (courseId: string, scheduleId: string) => {
     const today = new Date().toISOString().split('T')[0];
     setDateFrom(today);
     setDateTo(today);
     setTab('take');
     setSelectedCourse(courseId);
+    setSelectedSchedule(scheduleId);
   };
 
   const loadStudents = useCallback(async () => {
@@ -260,11 +267,14 @@ export function AttendanceManage() {
       const enrolled: Student[] = studentData.data || [];
 
       // Get existing attendance — a single day for Take Attendance, or the
-      // full From/To range for View Records.
+      // full From/To range for View Records. Take Attendance also scopes to
+      // the specific session (if one was picked via Today's Schedule) so a
+      // second same-day session doesn't read as already marked.
       try {
-        const params = tab === 'view'
+        const params: Record<string, string> = tab === 'view'
           ? { courseId: selectedCourse, dateFrom, dateTo }
           : { courseId: selectedCourse, date: dateFrom };
+        if (tab === 'take' && selectedSchedule) params.schedule = selectedSchedule;
         const { data: attData } = await api.get('/attendance/course', { params });
         setExistingRecords(attData.data || []);
         const recMap: Record<string, { status: string; notes: string }> = {};
@@ -283,7 +293,7 @@ export function AttendanceManage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCourse, dateFrom, dateTo, tab]);
+  }, [selectedCourse, dateFrom, dateTo, tab, selectedSchedule]);
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
   useEffect(() => { setStudentSearch(''); setStatusFilter(''); }, [selectedCourse]);
@@ -313,6 +323,7 @@ export function AttendanceManage() {
     if (!selectedCourse || students.length === 0) return;
     const payload = {
       course: selectedCourse,
+      schedule: selectedSchedule || undefined,
       date,
       records: students.map((s) => ({
         student: s._id,
@@ -470,7 +481,7 @@ export function AttendanceManage() {
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">📖 Course</label>
             <select
               value={selectedCourse}
-              onChange={(e) => setSelectedCourse(e.target.value)}
+              onChange={(e) => { setSelectedCourse(e.target.value); setSelectedSchedule(''); }}
               className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
             >
               <option value="">Select a course...</option>
@@ -799,7 +810,7 @@ export function AttendanceManage() {
                     return (
                       <div
                         key={s._id}
-                        onClick={() => s.course?._id && pickTodaysCourse(s.course._id)}
+                        onClick={() => s.course?._id && pickTodaysCourse(s.course._id, s._id)}
                         className="group bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl shadow-sm hover:border-indigo-500 hover:shadow-md transition-all cursor-pointer overflow-hidden flex flex-col justify-between h-full"
                       >
                         {/* Thumbnail — identical treatment to Manage Courses' course cards */}
