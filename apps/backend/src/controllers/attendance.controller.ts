@@ -9,6 +9,8 @@ import Attendance from '../models/attendance.model';
 import Student from '../models/student.model';
 import Course from '../models/course.model';
 import School from '../models/school.model';
+import User from '../models/user.model';
+import Profile from '../models/profile.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -114,13 +116,42 @@ export const getByCourseAndDate = async (req: Request, res: Response): Promise<R
   // was marked that day for the course regardless of session.
   if (scheduleId) filter.schedule = new mongoose.Types.ObjectId(scheduleId as string);
 
-  const records = await Attendance.find(filter)
-    .populate('student', 'studentId user profile enrolledCourses')
-    .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' } })
-    .sort({ date: -1 })
-    .lean();
+  const [records, course] = await Promise.all([
+    Attendance.find(filter)
+      .populate('student', 'studentId user profile class enrolledCourses')
+      .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' } })
+      .populate({ path: 'student', populate: { path: 'class', select: 'title section' } })
+      .populate('schedule', 'startTime endTime')
+      .sort({ date: -1 })
+      .lean(),
+    Course.findById(courseId).select('title').lean(),
+  ]);
 
-  return ApiResponse.success(res, records);
+  // "Marked By" is a User (org_admin/teacher/admin), not a Student — Users
+  // don't carry a `profile` ref the way Students do, so resolve display
+  // names via a separate Profile lookup keyed by user id instead of a
+  // direct populate.
+  const markerIds = [...new Set(records.map((r: any) => r.markedBy?.toString()).filter(Boolean))];
+  const [markerUsers, markerProfiles] = await Promise.all([
+    User.find({ _id: { $in: markerIds } }).select('email role').lean(),
+    Profile.find({ user: { $in: markerIds } }).select('user firstName lastName').lean(),
+  ]);
+  const markerMap = new Map(
+    markerIds.map((id) => {
+      const u = markerUsers.find((mu) => mu._id.toString() === id);
+      const p = markerProfiles.find((mp) => mp.user.toString() === id);
+      const name = p ? `${p.firstName} ${p.lastName}` : u?.email || 'Unknown';
+      return [id, { name, role: u?.role || '' }];
+    })
+  );
+
+  const enriched = records.map((r: any) => ({
+    ...r,
+    course: course ? { _id: course._id, title: course.title } : null,
+    markedBy: r.markedBy ? markerMap.get(r.markedBy.toString()) || null : null,
+  }));
+
+  return ApiResponse.success(res, enriched);
 };
 
 // ---------------------------------------------------------------------------

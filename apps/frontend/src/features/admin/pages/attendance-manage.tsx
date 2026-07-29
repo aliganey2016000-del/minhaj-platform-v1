@@ -49,10 +49,21 @@ interface Student {
 
 interface AttendanceRecord {
   _id?: string;
-  student: { _id: string; studentId: string; profile?: { firstName: string; lastName: string } };
+  student: {
+    _id: string;
+    studentId: string;
+    profile?: { firstName: string; lastName: string };
+    class?: { title: string; section: string } | null;
+  };
+  course?: { _id: string; title: { en: string } } | null;
+  schedule?: { _id: string; startTime: string; endTime: string } | null;
+  markedBy?: { name: string; role: string } | null;
+  date: string;
   status: string;
   notes?: string;
   locked?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface ReportRow {
@@ -177,6 +188,13 @@ export function AttendanceManage() {
   const [historyStudent, setHistoryStudent] = useState<ReportRow | null>(null);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Inline row edit on View Records — lets an admin fix a single mis-marked
+  // record without leaving the tab (still blocked server-side if that
+  // record is locked and the caller isn't a platform Admin).
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{ status: string; notes: string }>({ status: 'present', notes: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -324,7 +342,7 @@ export function AttendanceManage() {
   }, [selectedCourse, dateFrom, dateTo, tab, selectedSchedule]);
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
-  useEffect(() => { setStudentSearch(''); setStatusFilter(''); }, [selectedCourse]);
+  useEffect(() => { setStudentSearch(''); setStatusFilter(''); setEditingRecordId(null); }, [selectedCourse]);
 
   const handleStatusChange = (studentId: string, status: string) => {
     setRecords((prev) => ({ ...prev, [studentId]: { ...prev[studentId], status } }));
@@ -389,6 +407,33 @@ export function AttendanceManage() {
       setError(err.response?.data?.message || 'Failed to unlock attendance');
     } finally {
       setUnlocking(false);
+    }
+  };
+
+  const startEditRecord = (r: AttendanceRecord) => {
+    setEditingRecordId(r._id || r.student._id);
+    setEditDraft({ status: r.status, notes: r.notes || '' });
+  };
+
+  const cancelEditRecord = () => setEditingRecordId(null);
+
+  const saveEditRecord = async (r: AttendanceRecord) => {
+    setSavingEdit(true);
+    setError('');
+    try {
+      await api.post('/attendance', {
+        course: selectedCourse,
+        schedule: r.schedule?._id || undefined,
+        date: r.date,
+        records: [{ student: r.student._id, status: editDraft.status, notes: editDraft.notes }],
+      });
+      setMessage('✅ Record updated.');
+      setEditingRecordId(null);
+      loadStudents();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to update record');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -827,28 +872,107 @@ export function AttendanceManage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/70 dark:bg-slate-800/40">
                   <tr>
-                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Student</th>
-                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase hidden sm:table-cell">ID</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Student ID</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Student Name</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Class</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Course</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Date</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Class Time</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Marked By</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Time Marked</th>
                     <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Status</th>
-                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase hidden md:table-cell">Notes</th>
+                    <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Notes</th>
+                    <th className="text-center py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {viewRecordsToShow.map((r, i) => (
-                    <tr
-                      key={r._id || r.student?._id}
-                      className={`border-b border-slate-100 dark:border-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors ${
-                        i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-white dark:bg-slate-900'
-                      }`}
-                    >
-                      <td className="py-3.5 px-4 font-medium">{r.student?.profile?.firstName} {r.student?.profile?.lastName}</td>
-                      <td className="py-3.5 px-4 text-center hidden sm:table-cell">
-                        <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{r.student?.studentId}</code>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">{StatusBadge({ status: r.status })}</td>
-                      <td className="py-3.5 px-4 hidden md:table-cell text-xs text-[var(--color-text-tertiary)]">{r.notes || '—'}</td>
-                    </tr>
-                  ))}
+                  {viewRecordsToShow.map((r, i) => {
+                    const rowId = r._id || r.student?._id;
+                    const isEditing = editingRecordId === rowId;
+                    const rowLocked = !!r.locked && !isPlatformAdmin;
+                    return (
+                      <tr
+                        key={rowId}
+                        className={`border-b border-slate-100 dark:border-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors ${
+                          i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-white dark:bg-slate-900'
+                        }`}
+                      >
+                        <td className="py-3.5 px-4">
+                          <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{r.student?.studentId}</code>
+                        </td>
+                        <td className="py-3.5 px-4 font-medium whitespace-nowrap">{r.student?.profile?.firstName} {r.student?.profile?.lastName}</td>
+                        <td className="py-3.5 px-4 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                          {r.student?.class ? `${r.student.class.title} (${r.student.class.section})` : '—'}
+                        </td>
+                        <td className="py-3.5 px-4 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">{r.course?.title?.en || '—'}</td>
+                        <td className="py-3.5 px-4 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                          {new Date(r.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </td>
+                        <td className="py-3.5 px-4 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                          {r.schedule ? `${r.schedule.startTime} – ${r.schedule.endTime}` : '—'}
+                        </td>
+                        <td className="py-3.5 px-4 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                          {r.markedBy ? `${r.markedBy.name}${r.markedBy.role ? ` / ${r.markedBy.role}` : ''}` : '—'}
+                        </td>
+                        <td className="py-3.5 px-4 text-xs text-[var(--color-text-tertiary)] whitespace-nowrap">
+                          {r.createdAt ? new Date(r.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—'}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          {isEditing ? (
+                            <StatusButtons value={editDraft.status} onChange={(status) => setEditDraft((d) => ({ ...d, status }))} />
+                          ) : (
+                            <StatusBadge status={r.status} />
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-xs text-[var(--color-text-tertiary)] min-w-[8rem]">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={editDraft.notes}
+                              onChange={(e) => setEditDraft((d) => ({ ...d, notes: e.target.value }))}
+                              className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs w-full focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                              placeholder="Optional note"
+                            />
+                          ) : (
+                            r.notes || '—'
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          {isEditing ? (
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => saveEditRecord(r)}
+                                disabled={savingEdit}
+                                className="rounded-md bg-primary-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors"
+                              >
+                                {savingEdit ? '...' : 'Save'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditRecord}
+                                className="rounded-md border border-[var(--color-border-default)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : rowLocked ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-slate-400" title="Locked — ask an Admin to unlock this session">
+                              <Lock className="h-3.5 w-3.5" strokeWidth={1.75} />
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => startEditRecord(r)}
+                              className="rounded-md border border-[var(--color-border-default)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
