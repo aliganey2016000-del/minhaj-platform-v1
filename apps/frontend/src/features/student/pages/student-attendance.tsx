@@ -178,9 +178,15 @@ export function StudentAttendance() {
                           {c.code && (
                             <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400">{c.code}</span>
                           )}
-                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold tracking-tight ${absentBadgeClasses(c.absentPercentage)}`}>
-                            Absent {c.absentPercentage}%
-                          </span>
+                          {c.days === 0 ? (
+                            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold tracking-tight bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                              No Records
+                            </span>
+                          ) : (
+                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold tracking-tight ${absentBadgeClasses(c.absentPercentage)}`}>
+                              Absent {c.absentPercentage}%
+                            </span>
+                          )}
                         </div>
                         <p className="font-bold text-[var(--color-text-primary)] truncate">{c.title}</p>
                         {c.section && <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5 truncate">{c.section}</p>}
@@ -188,10 +194,11 @@ export function StudentAttendance() {
 
                       {/* Right: metric grid + expand arrow */}
                       <div className="flex items-center gap-3 flex-shrink-0">
-                        <div className="grid grid-cols-4 gap-2">
+                        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                           <MetricBox label="Days" value={c.days} />
                           <MetricBox label="Present" value={c.present} valueClass="text-green-600 dark:text-green-400" />
                           <MetricBox label="Absent" value={c.absent} valueClass="text-red-600 dark:text-red-400" />
+                          <MetricBox label="Late" value={c.late} valueClass="text-amber-600 dark:text-amber-400" />
                           <MetricBox label="Present %" value={`${c.presentPercentage}%`} />
                         </div>
                         <ChevronDown
@@ -220,10 +227,9 @@ export function StudentAttendance() {
                             </div>
                           </div>
 
-                          {/* Late/Excused only — Present%/Absent% are already shown in the
-                              collapsed grid and the badge above, no need to repeat them here. */}
-                          <div className="grid grid-cols-2 gap-3 max-w-xs">
-                            <MetricBox label="Late" value={c.late} valueClass="text-amber-600 dark:text-amber-400" />
+                          {/* Excused only — Days/Present/Absent/Late/Present% are already
+                              shown in the collapsed grid and the badge above. */}
+                          <div className="max-w-[6rem]">
                             <MetricBox label="Excused" value={c.excused} valueClass="text-blue-600 dark:text-blue-400" />
                           </div>
 
