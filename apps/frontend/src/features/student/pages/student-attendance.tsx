@@ -238,17 +238,15 @@ export function StudentAttendance() {
                               </div>
                             ) : (
                               (() => {
-                                // Defensive de-dup: collapse same-day entries down to one,
-                                // preferring whichever has a class time attached — guards
-                                // against any stray legacy duplicate the backend missed.
-                                const all = historyByCourse[c.courseId] || [];
-                                const byDate = new Map<string, HistoryEntry>();
-                                all.forEach((h) => {
-                                  const key = new Date(h.date).toDateString();
-                                  const existing = byDate.get(key);
-                                  if (!existing || (!existing.schedule && h.schedule)) byDate.set(key, h);
-                                });
-                                const deduped = [...byDate.values()].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                                // One row per (date, schedule) — a course meeting twice in a
+                                // day (e.g. 07:30 and 11:00) legitimately produces two separate
+                                // records for the same calendar date, and both must show up.
+                                // The backend's unique index guarantees no two records ever
+                                // share the exact same date+schedule, so no de-dup is needed
+                                // here beyond sorting newest first.
+                                const deduped = [...(historyByCourse[c.courseId] || [])].sort(
+                                  (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+                                );
 
                                 if (deduped.length === 0) {
                                   return <p className="text-sm text-[var(--color-text-tertiary)] py-3">No attendance history recorded yet.</p>;
