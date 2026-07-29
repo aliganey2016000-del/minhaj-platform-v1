@@ -503,7 +503,11 @@ export const unenrollStudent = async (req: Request, res: Response): Promise<Resp
 
 export const getEnrolledStudents = async (req: Request, res: Response): Promise<Response> => {
   const page = parseInt(req.query.page as string) || 1;
-  const limit = parseInt(req.query.limit as string) || 20;
+  // Callers (Take Attendance, exam results) need the FULL roster to mark
+  // every student, not a paginated slice — the old default of 20 silently
+  // cut off classes/courses with more students than that (e.g. a 26-student
+  // class-based roster only showing its first 20 in the attendance list).
+  const limit = parseInt(req.query.limit as string) || 1000;
 
   const course = await Course.findById(req.params.id).select('school teacher class');
   if (!course) throw new NotFoundError('Course');
