@@ -15,6 +15,7 @@ router.post('/', adminOnly, asyncHandler(attendanceController.markBulk));
 router.patch('/unlock', roleMiddleware(['admin']), asyncHandler(attendanceController.unlockSession));
 router.get('/course', asyncHandler(attendanceController.getByCourseAndDate));
 router.get('/report', asyncHandler(attendanceController.getCourseReport));
+router.get('/insights', asyncHandler(attendanceController.getReportInsights));
 router.get('/history', asyncHandler(attendanceController.getStudentCourseHistory));
 router.get('/student/:studentId', asyncHandler(attendanceController.getStudentSummary));
 

@@ -279,6 +279,82 @@ export const getCourseReport = async (req: Request, res: Response): Promise<Resp
 };
 
 // ---------------------------------------------------------------------------
+// Get Trends & Insights for a Course (Admin — Report tab)
+// ---------------------------------------------------------------------------
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+export const getReportInsights = async (req: Request, res: Response): Promise<Response> => {
+  const courseId = req.query.courseId as string;
+  const { dateFrom, dateTo } = req.query;
+  if (!courseId) throw new BadRequestError('courseId query param required');
+
+  const course = await Course.findById(courseId).lean();
+  if (!course) throw new NotFoundError('Course');
+
+  const school = course.school ? await School.findById(course.school).select('attendanceType').lean() : null;
+  const isClassBased = school?.attendanceType === 'class_based' && !!course.class;
+  const studentFilter = isClassBased ? { class: course.class } : { enrolledCourses: courseId };
+
+  const students = await Student.find(studentFilter)
+    .populate('profile', 'firstName lastName')
+    .select('studentId')
+    .lean();
+  const studentIds = students.map((s) => s._id);
+
+  const matchStage: Record<string, unknown> = {
+    course: new mongoose.Types.ObjectId(courseId),
+    student: { $in: studentIds },
+  };
+  if (dateFrom) {
+    const from = new Date(dateFrom as string);
+    from.setHours(0, 0, 0, 0);
+    const to = dateTo ? new Date(dateTo as string) : new Date();
+    to.setHours(23, 59, 59, 999);
+    matchStage.date = { $gte: from, $lte: to };
+  }
+
+  const [dayStats, perStudentStats] = await Promise.all([
+    Attendance.aggregate([
+      { $match: { ...matchStage, status: 'absent' } },
+      { $group: { _id: { $dayOfWeek: '$date' }, count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 1 },
+    ]),
+    Attendance.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: '$student',
+          total: { $sum: 1 },
+          absent: { $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] } },
+        },
+      },
+    ]),
+  ]);
+
+  // MongoDB's $dayOfWeek is 1 (Sunday) .. 7 (Saturday); shift to our 0-6 convention.
+  const mostAbsentDay = dayStats[0]
+    ? { day: DAY_NAMES[dayStats[0]._id - 1], count: dayStats[0].count }
+    : null;
+
+  const topAttenders = perStudentStats
+    .filter((s) => s.total > 0 && s.absent === 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5)
+    .map((s) => {
+      const student = students.find((st) => st._id.toString() === s._id.toString());
+      return {
+        studentId: (student as any)?.studentId || '',
+        name: student ? `${(student as any).profile?.firstName} ${(student as any).profile?.lastName}` : 'Unknown',
+        total: s.total,
+      };
+    });
+
+  return ApiResponse.success(res, { mostAbsentDay, topAttenders });
+};
+
+// ---------------------------------------------------------------------------
 // Get One Student's Day-by-Day History for a Course (Admin — Report drilldown)
 // ---------------------------------------------------------------------------
 

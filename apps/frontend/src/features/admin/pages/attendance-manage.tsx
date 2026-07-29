@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, Search, X, Lock, Unlock } from 'lucide-react';
+import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, Search, X, Lock, Unlock, CalendarDays, Award } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { categoryLabels, inferCategoryIcon, inferCategoryColor, levelColors, statusColors } from '../../../lib/course-category-visuals';
@@ -75,6 +75,17 @@ interface ReportRow {
   late: number;
   absent: number;
   percentage: number;
+}
+
+interface TopAttender {
+  studentId: string;
+  name: string;
+  total: number;
+}
+
+interface ReportInsights {
+  mostAbsentDay: { day: string; count: number } | null;
+  topAttenders: TopAttender[];
 }
 
 interface HistoryEntry {
@@ -208,10 +219,17 @@ export function AttendanceManage() {
   const [records, setRecords] = useState<Record<string, { status: string; notes: string }>>({});
   const [existingRecords, setExistingRecords] = useState<AttendanceRecord[]>([]);
   const [report, setReport] = useState<ReportRow[]>([]);
+  const [insights, setInsights] = useState<ReportInsights | null>(null);
   const [exporting, setExporting] = useState(false);
   const [reportSearch, setReportSearch] = useState('');
   const [viewSearch, setViewSearch] = useState('');
   const [viewExporting, setViewExporting] = useState(false);
+
+  // Bulk Actions — fixing a whole mismarked day (e.g. a holiday the system
+  // marked everyone Absent for) shouldn't cost one Edit click per student.
+  const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState('present');
+  const [bulkApplying, setBulkApplying] = useState(false);
   const [historyStudent, setHistoryStudent] = useState<ReportRow | null>(null);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -369,7 +387,7 @@ export function AttendanceManage() {
   }, [selectedCourse, dateFrom, dateTo, tab, selectedSchedule]);
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
-  useEffect(() => { setStudentSearch(''); setStatusFilter(''); setEditingRecordId(null); setViewSearch(''); setReportSearch(''); }, [selectedCourse]);
+  useEffect(() => { setStudentSearch(''); setStatusFilter(''); setEditingRecordId(null); setViewSearch(''); setReportSearch(''); setInsights(null); setSelectedRecordIds(new Set()); }, [selectedCourse]);
 
   const handleStatusChange = (studentId: string, status: string) => {
     setRecords((prev) => ({ ...prev, [studentId]: { ...prev[studentId], status } }));
@@ -464,13 +482,69 @@ export function AttendanceManage() {
     }
   };
 
+  const toggleRecordSelection = (id: string) => {
+    setSelectedRecordIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllRecords = (records: AttendanceRecord[]) => {
+    const selectable = records.filter((r) => !(r.locked && !isPlatformAdmin));
+    const ids = selectable.map((r) => r._id || r.student._id);
+    const allSelected = ids.length > 0 && ids.every((id) => selectedRecordIds.has(id));
+    setSelectedRecordIds(allSelected ? new Set() : new Set(ids));
+  };
+
+  // Apply one status to every selected record — grouped by (date, schedule)
+  // since a bulk selection could in principle span more than one session,
+  // and POST /attendance takes a single date/schedule per call. Keeps each
+  // record's own notes untouched; only status changes.
+  const applyBulkStatus = async () => {
+    if (selectedRecordIds.size === 0) return;
+    setBulkApplying(true);
+    setError('');
+    try {
+      const selected = existingRecords.filter((r) => selectedRecordIds.has(r._id || r.student._id));
+      const groups = new Map<string, AttendanceRecord[]>();
+      selected.forEach((r) => {
+        const key = `${r.date}|${r.schedule?._id || ''}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(r);
+      });
+
+      for (const [, groupRecords] of groups) {
+        await api.post('/attendance', {
+          course: selectedCourse,
+          schedule: groupRecords[0].schedule?._id || undefined,
+          date: groupRecords[0].date,
+          records: groupRecords.map((r) => ({ student: r.student._id, status: bulkStatus, notes: r.notes || '' })),
+        });
+      }
+
+      setMessage(`✅ Updated ${selected.length} record${selected.length === 1 ? '' : 's'} to ${bulkStatus}.`);
+      setSelectedRecordIds(new Set());
+      loadStudents();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Bulk update failed — some records may be locked.');
+    } finally {
+      setBulkApplying(false);
+    }
+  };
+
   const loadReport = useCallback(async () => {
     if (!selectedCourse) return;
     setLoading(true);
     setError('');
     try {
-      const { data } = await api.get('/attendance/report', { params: { courseId: selectedCourse, dateFrom, dateTo } });
-      setReport(data.data || []);
+      const [reportRes, insightsRes] = await Promise.all([
+        api.get('/attendance/report', { params: { courseId: selectedCourse, dateFrom, dateTo } }),
+        api.get('/attendance/insights', { params: { courseId: selectedCourse, dateFrom, dateTo } }),
+      ]);
+      setReport(reportRes.data.data || []);
+      setInsights(insightsRes.data.data || null);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load report');
     } finally {
@@ -993,10 +1067,48 @@ export function AttendanceManage() {
                 {viewExporting ? 'Exporting...' : '⬇️ Export to Excel'}
               </button>
             </div>
+
+            {/* Bulk Actions bar — fixes a whole mismarked day (e.g. a
+                holiday the system defaulted to Absent) in one action
+                instead of editing each student one by one. */}
+            {selectedRecordIds.size > 0 && (
+              <div className="p-3 border-b border-[var(--color-border-default)] bg-indigo-50/60 dark:bg-indigo-950/20 flex flex-wrap items-center gap-3">
+                <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">{selectedRecordIds.size} selected</span>
+                <span className="text-xs text-[var(--color-text-tertiary)]">Set to:</span>
+                <StatusButtons value={bulkStatus} onChange={setBulkStatus} />
+                <button
+                  type="button"
+                  onClick={applyBulkStatus}
+                  disabled={bulkApplying}
+                  className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors"
+                >
+                  {bulkApplying ? 'Applying...' : `Apply to ${selectedRecordIds.size}`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRecordIds(new Set())}
+                  className="text-xs font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                >
+                  Clear selection
+                </button>
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/70 dark:bg-slate-800/40">
                   <tr>
+                    <th className="py-3.5 px-4 w-10">
+                      <input
+                        type="checkbox"
+                        checked={(() => {
+                          const selectable = viewRecordsToShow.filter((r) => !(r.locked && !isPlatformAdmin));
+                          return selectable.length > 0 && selectable.every((r) => selectedRecordIds.has(r._id || r.student._id));
+                        })()}
+                        onChange={() => toggleSelectAllRecords(viewRecordsToShow)}
+                        className="rounded border-slate-300 text-primary-600 focus:ring-primary-500/30"
+                      />
+                    </th>
                     <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Student ID</th>
                     <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Student Name</th>
                     <th className="text-left py-3.5 px-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Class</th>
@@ -1024,6 +1136,15 @@ export function AttendanceManage() {
                           i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-white dark:bg-slate-900'
                         }`}
                       >
+                        <td className="py-3.5 px-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedRecordIds.has(rowId)}
+                            onChange={() => toggleRecordSelection(rowId)}
+                            disabled={rowLocked}
+                            className="rounded border-slate-300 text-primary-600 focus:ring-primary-500/30 disabled:opacity-40"
+                          />
+                        </td>
                         <td className="py-3.5 px-4">
                           <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{r.student?.studentId}</code>
                         </td>
@@ -1111,6 +1232,48 @@ export function AttendanceManage() {
             <Inbox className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" strokeWidth={1.5} />
             <p className="text-lg text-[var(--color-text-secondary)]">No attendance records for this date.</p>
             <p className="text-sm mt-1 text-[var(--color-text-tertiary)]">Switch to "Take Attendance" to mark attendance.</p>
+          </div>
+        )}
+
+        {/* ── Trends & Insights ── */}
+        {tab === 'report' && selectedCourse && insights && !loading && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30 p-4 flex items-start gap-3">
+              <div className="h-9 w-9 rounded-xl bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center flex-shrink-0">
+                <CalendarDays className="h-4.5 w-4.5 text-rose-600 dark:text-rose-400" strokeWidth={1.75} />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-rose-600 dark:text-rose-400 uppercase tracking-wide">Most Absent Day</p>
+                {insights.mostAbsentDay ? (
+                  <p className="text-sm text-[var(--color-text-primary)] mt-0.5">
+                    <span className="font-bold">{insights.mostAbsentDay.day}</span> — {insights.mostAbsentDay.count} absence{insights.mostAbsentDay.count === 1 ? '' : 's'} recorded
+                  </p>
+                ) : (
+                  <p className="text-sm text-[var(--color-text-tertiary)] mt-0.5">No absences recorded in this period.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 p-4 flex items-start gap-3">
+              <div className="h-9 w-9 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center flex-shrink-0">
+                <Award className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Top Attenders — 100%</p>
+                {insights.topAttenders.length > 0 ? (
+                  <ul className="mt-1 space-y-0.5">
+                    {insights.topAttenders.map((s) => (
+                      <li key={s.studentId} className="text-sm text-[var(--color-text-primary)] flex items-center justify-between gap-2">
+                        <span className="truncate">{s.name}</span>
+                        <span className="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">{s.total} days</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-[var(--color-text-tertiary)] mt-0.5">No student has a perfect record yet.</p>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
