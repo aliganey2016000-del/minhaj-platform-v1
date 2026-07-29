@@ -64,6 +64,39 @@ interface ReportRow {
 }
 
 // ---------------------------------------------------------------------------
+// Status Buttons — one-click P/A/L/E toggle, replacing the per-row dropdown
+// that used to cost a click-to-open + click-to-select for every student.
+// ---------------------------------------------------------------------------
+
+const STATUS_OPTIONS: { value: string; letter: string; label: string; active: string; idle: string }[] = [
+  { value: 'present', letter: 'P', label: 'Present', active: 'bg-green-600 text-white border-green-600', idle: 'bg-white dark:bg-slate-900 text-green-700 dark:text-green-400 border-green-200 dark:border-green-900/50 hover:bg-green-50 dark:hover:bg-green-950/30' },
+  { value: 'absent', letter: 'A', label: 'Absent', active: 'bg-red-600 text-white border-red-600', idle: 'bg-white dark:bg-slate-900 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/30' },
+  { value: 'late', letter: 'L', label: 'Late', active: 'bg-amber-500 text-white border-amber-500', idle: 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/50 hover:bg-amber-50 dark:hover:bg-amber-950/30' },
+  { value: 'excused', letter: 'E', label: 'Excused', active: 'bg-blue-600 text-white border-blue-600', idle: 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/50 hover:bg-blue-50 dark:hover:bg-blue-950/30' },
+];
+
+function StatusButtons({ value, onChange }: { value: string; onChange: (status: string) => void }) {
+  return (
+    <div className="inline-flex items-center gap-1" role="group">
+      {STATUS_OPTIONS.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          title={opt.label}
+          aria-pressed={value === opt.value}
+          onClick={() => onChange(opt.value)}
+          className={`h-7 w-7 rounded-lg border text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${
+            value === opt.value ? opt.active : opt.idle
+          }`}
+        >
+          {opt.letter}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Status Badge
 // ---------------------------------------------------------------------------
 
@@ -541,16 +574,10 @@ export function AttendanceManage() {
                         <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{s.studentId}</code>
                       </td>
                       <td className="py-3.5 px-4 text-center">
-                        <select
+                        <StatusButtons
                           value={records[s._id]?.status || 'present'}
-                          onChange={(e) => handleStatusChange(s._id, e.target.value)}
-                          className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1.5 text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-                        >
-                          <option value="present">✅ Present</option>
-                          <option value="absent">❌ Absent</option>
-                          <option value="late">⏰ Late</option>
-                          <option value="excused">📝 Excused</option>
-                        </select>
+                          onChange={(status) => handleStatusChange(s._id, status)}
+                        />
                       </td>
                       <td className="py-3.5 px-4 text-center hidden md:table-cell">
                         <input
