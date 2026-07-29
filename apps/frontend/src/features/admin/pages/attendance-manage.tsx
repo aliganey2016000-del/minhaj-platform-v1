@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User } from 'lucide-react';
+import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, Search } from 'lucide-react';
 import api from '../../../lib/axios';
 import { categoryLabels, inferCategoryIcon, inferCategoryColor, levelColors, statusColors } from '../../../lib/course-category-visuals';
 
@@ -16,6 +16,10 @@ interface Course {
   _id: string;
   title: { en: string };
   enrolledStudents: number;
+  // Class-based orgs roster attendance off the whole Class, not individual
+  // course enrollment — the backend computes the real roster size here so
+  // the dropdown label doesn't show a stale "1 enrolled" for a 26-student class.
+  effectiveEnrolled?: number;
   category?: string;
   thumbnail?: string;
   status?: string;
@@ -101,12 +105,14 @@ export function AttendanceManage() {
   const [classesLoading, setClassesLoading] = useState(false);
 
   const [students, setStudents] = useState<Student[]>([]);
+  const [studentSearch, setStudentSearch] = useState('');
   const [records, setRecords] = useState<Record<string, { status: string; notes: string }>>({});
   const [existingRecords, setExistingRecords] = useState<AttendanceRecord[]>([]);
   const [report, setReport] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [savedFlash, setSavedFlash] = useState(false);
   const [todaysSchedules, setTodaysSchedules] = useState<TodaySchedule[]>([]);
   const [todaysSchedulesLoading, setTodaysSchedulesLoading] = useState(false);
   // Thumbnail URLs that failed to load — those cards fall back to the
@@ -246,6 +252,7 @@ export function AttendanceManage() {
   }, [selectedCourse, dateFrom, dateTo, tab]);
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
+  useEffect(() => { setStudentSearch(''); }, [selectedCourse]);
 
   const handleStatusChange = (studentId: string, status: string) => {
     setRecords((prev) => ({ ...prev, [studentId]: { ...prev[studentId], status } }));
@@ -272,6 +279,8 @@ export function AttendanceManage() {
     try {
       await api.post('/attendance', payload);
       setMessage(`✅ Attendance marked for ${students.length} students!`);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2500);
       loadStudents();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to mark attendance');
@@ -298,21 +307,33 @@ export function AttendanceManage() {
 
   const selectedCourseObj = courses.find((c) => c._id === selectedCourse);
 
+  // Quick client-side name/ID search — the roster can run 20+ students, so
+  // finding one late arrival shouldn't require scrolling the whole list.
+  const filteredStudents = studentSearch.trim()
+    ? students.filter((s) => {
+        const q = studentSearch.trim().toLowerCase();
+        const name = `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.toLowerCase();
+        return name.includes(q) || s.studentId.toLowerCase().includes(q);
+      })
+    : students;
+
   // Count statuses for current batch
   const presentCount = Object.values(records).filter((r) => r.status === 'present').length;
   const absentCount = Object.values(records).filter((r) => r.status === 'absent').length;
   const lateCount = Object.values(records).filter((r) => r.status === 'late').length;
   const excusedCount = Object.values(records).filter((r) => r.status === 'excused').length;
 
+  const showStickySaveBar = tab === 'take' && !!selectedCourse && students.length > 0 && !loading;
+
   return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
+    <div className={`p-6 lg:p-10 pt-20 lg:pt-10 ${showStickySaveBar ? 'pb-28' : ''}`}>
       <div className="mx-auto max-w-6xl space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">📅 Attendance Management</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-              {selectedCourseObj ? `${selectedCourseObj.title.en} — ${selectedCourseObj.enrolledStudents} enrolled` : 'Select a course to get started'}
+              {selectedCourseObj ? `${selectedCourseObj.title.en} — ${selectedCourseObj.effectiveEnrolled ?? selectedCourseObj.enrolledStudents} enrolled` : 'Select a course to get started'}
             </p>
           </div>
         </div>
@@ -398,7 +419,7 @@ export function AttendanceManage() {
               <option value="">Select a course...</option>
               {courses.map((c) => (
                 <option key={c._id} value={c._id}>
-                  {c.title.en} ({c.enrolledStudents} enrolled)
+                  {c.title.en} ({c.effectiveEnrolled ?? c.enrolledStudents} enrolled)
                 </option>
               ))}
             </select>
@@ -479,6 +500,18 @@ export function AttendanceManage() {
         {/* ── Take Attendance ── */}
         {tab === 'take' && selectedCourse && students.length > 0 && !loading && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            <div className="p-4 border-b border-[var(--color-border-default)]">
+              <div className="relative max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" strokeWidth={1.75} />
+                <input
+                  type="text"
+                  value={studentSearch}
+                  onChange={(e) => setStudentSearch(e.target.value)}
+                  placeholder="Search student name or ID..."
+                  className="w-full h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                />
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/70 dark:bg-slate-800/40">
@@ -491,7 +524,14 @@ export function AttendanceManage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {students.map((s, i) => (
+                  {filteredStudents.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-sm text-[var(--color-text-tertiary)]">
+                        No students match "{studentSearch}".
+                      </td>
+                    </tr>
+                  )}
+                  {filteredStudents.map((s, i) => (
                     <tr key={s._id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-800/30 transition-colors">
                       <td className="py-3.5 px-4 text-center text-xs text-[var(--color-text-tertiary)] w-10">{i + 1}</td>
                       <td className="py-3.5 px-4">
@@ -526,15 +566,34 @@ export function AttendanceManage() {
                 </tbody>
               </table>
             </div>
-            <div className="p-4 border-t border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] flex items-center justify-between">
+            <div className="p-4 border-t border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]">
               <p className="text-xs text-[var(--color-text-tertiary)]">{students.length} students in list</p>
-              <button
-                onClick={handleSubmit}
-                disabled={loading}
-                className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors shadow-sm"
-              >
-                {loading ? 'Saving...' : '💾 Save Attendance'}
-              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Sticky Save bar — the roster can run well past the fold (e.g. a
+            26-student class), so the Save button stays reachable without
+            scrolling all the way down. Anchored past the sidebar on large
+            screens (matches admin-layout's lg:ml-72), full-width below that. */}
+        {showStickySaveBar && (
+          <div className="fixed bottom-0 left-0 right-0 lg:left-72 z-30 border-t border-[var(--color-border-default)] bg-[var(--color-surface-primary)]/95 backdrop-blur-sm shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
+            <div className="mx-auto max-w-6xl px-6 lg:px-10 py-3 flex items-center justify-between gap-4">
+              <p className="text-xs text-[var(--color-text-tertiary)] hidden sm:block">{students.length} students &middot; {presentCount} present / {absentCount} absent / {lateCount} late / {excusedCount} excused</p>
+              <div className="flex items-center gap-3 ml-auto">
+                {savedFlash && (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                    ✓ Saved
+                  </span>
+                )}
+                <button
+                  onClick={handleSubmit}
+                  disabled={loading}
+                  className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors shadow-sm"
+                >
+                  {loading ? 'Saving...' : '💾 Save Attendance'}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -649,7 +708,7 @@ export function AttendanceManage() {
                     const schoolName = courseInfo?.school?.name || '—';
                     const className = courseInfo?.class ? `${courseInfo.class.title} (${courseInfo.class.section})` : '—';
                     const maxStudents = courseInfo?.maxStudents || 0;
-                    const enrolled = courseInfo?.enrolledStudents || 0;
+                    const enrolled = courseInfo?.effectiveEnrolled ?? courseInfo?.enrolledStudents ?? 0;
                     return (
                       <div
                         key={s._id}

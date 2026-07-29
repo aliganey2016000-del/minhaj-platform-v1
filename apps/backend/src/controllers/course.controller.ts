@@ -113,7 +113,7 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
         select: 'teacherId profile',
         populate: { path: 'profile', select: 'firstName lastName' },
       })
-      .populate('school', 'name')
+      .populate('school', 'name attendanceType')
       .populate({ path: 'class', select: 'title section' })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -122,7 +122,38 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
     Course.countDocuments(scopedFilter),
   ]);
 
-  return ApiResponse.paginated(res, courses, { page, limit, total });
+  // For class-based organizations, the course's own `enrolledStudents`
+  // counter only tracks individual course enrollment — but attendance for
+  // these orgs is actually rostered off the whole Class (see
+  // getEnrolledStudents), so the dropdown/label shown to admins would say
+  // "1 enrolled" while Take Attendance lists 26 students. Compute the real
+  // roster size per class so callers can display a number that matches
+  // what Take Attendance will actually show.
+  const classBasedClassIds = [
+    ...new Set(
+      courses
+        .filter((c: any) => c.school?.attendanceType === 'class_based' && c.class?._id)
+        .map((c: any) => c.class._id.toString())
+    ),
+  ];
+  let classRosterCounts: Record<string, number> = {};
+  if (classBasedClassIds.length > 0) {
+    const counts = await Student.aggregate([
+      { $match: { class: { $in: classBasedClassIds.map((id) => new mongoose.Types.ObjectId(id)) } } },
+      { $group: { _id: '$class', count: { $sum: 1 } } },
+    ]);
+    classRosterCounts = Object.fromEntries(counts.map((c: any) => [c._id.toString(), c.count]));
+  }
+
+  const withEffectiveEnrolled = courses.map((c: any) => ({
+    ...c,
+    effectiveEnrolled:
+      c.school?.attendanceType === 'class_based' && c.class?._id
+        ? classRosterCounts[c.class._id.toString()] || 0
+        : c.enrolledStudents,
+  }));
+
+  return ApiResponse.paginated(res, withEffectiveEnrolled, { page, limit, total });
 };
 
 // ---------------------------------------------------------------------------
