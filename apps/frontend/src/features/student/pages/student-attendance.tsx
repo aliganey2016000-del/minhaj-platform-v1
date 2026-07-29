@@ -171,7 +171,7 @@ export function StudentAttendance() {
                           {c.code && (
                             <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400">{c.code}</span>
                           )}
-                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${absentBadgeClasses(c.absentPercentage)}`}>
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold tracking-tight ${absentBadgeClasses(c.absentPercentage)}`}>
                             Absent {c.absentPercentage}%
                           </span>
                         </div>
@@ -201,7 +201,9 @@ export function StudentAttendance() {
                           <div>
                             <div className="flex items-center justify-between text-xs mb-1">
                               <span className="text-[var(--color-text-tertiary)]">Attendance rate</span>
-                              <span className="font-semibold text-[var(--color-text-primary)]">{c.presentPercentage}% present</span>
+                              <span className={`font-bold ${c.presentPercentage >= 75 ? 'text-green-600 dark:text-green-400' : c.presentPercentage >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
+                                {c.presentPercentage}% present
+                              </span>
                             </div>
                             <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]">
                               <div
@@ -211,32 +213,45 @@ export function StudentAttendance() {
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {/* Late/Excused only — Present%/Absent% are already shown in the
+                              collapsed grid and the badge above, no need to repeat them here. */}
+                          <div className="grid grid-cols-2 gap-3 max-w-xs">
                             <MetricBox label="Late" value={c.late} valueClass="text-amber-600 dark:text-amber-400" />
                             <MetricBox label="Excused" value={c.excused} valueClass="text-blue-600 dark:text-blue-400" />
-                            <MetricBox label="Present %" value={`${c.presentPercentage}%`} valueClass="text-green-600 dark:text-green-400" />
-                            <MetricBox label="Absent %" value={`${c.absentPercentage}%`} valueClass="text-red-600 dark:text-red-400" />
                           </div>
 
-                          {/* Absence records */}
+                          {/* Attendance issues — absences and late arrivals, with the
+                              class time and who marked it, so the student can see exactly
+                              why a day counted against them. */}
                           <div>
-                            <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase mb-2">Absence Records</p>
+                            <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase mb-2">Absence &amp; Late Records</p>
                             {historyLoading === c.courseId ? (
                               <div className="flex justify-center py-6">
                                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
                               </div>
                             ) : (
                               (() => {
-                                const absences = (historyByCourse[c.courseId] || []).filter((h) => h.status === 'absent');
-                                if (absences.length === 0) {
-                                  return <p className="text-sm text-[var(--color-text-tertiary)] py-3">No absences recorded — great job!</p>;
+                                // Defensive de-dup: collapse same-day entries down to one,
+                                // preferring whichever has a class time attached — guards
+                                // against any stray legacy duplicate the backend missed.
+                                const issues = (historyByCourse[c.courseId] || []).filter((h) => h.status === 'absent' || h.status === 'late');
+                                const byDate = new Map<string, HistoryEntry>();
+                                issues.forEach((h) => {
+                                  const key = new Date(h.date).toDateString();
+                                  const existing = byDate.get(key);
+                                  if (!existing || (!existing.schedule && h.schedule)) byDate.set(key, h);
+                                });
+                                const deduped = [...byDate.values()].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                                if (deduped.length === 0) {
+                                  return <p className="text-sm text-[var(--color-text-tertiary)] py-3">No absences or late arrivals recorded — great job!</p>;
                                 }
                                 return (
                                   <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-[var(--color-border-default)] rounded-xl overflow-hidden">
-                                    {absences.map((h) => {
+                                    {deduped.map((h) => {
                                       const d = new Date(h.date);
                                       return (
-                                        <div key={h._id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 bg-[var(--color-surface-primary)]">
+                                        <div key={h._id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3.5 py-2.5 bg-[var(--color-surface-primary)]">
                                           <div>
                                             <p className="text-sm font-semibold text-[var(--color-text-primary)]">
                                               {d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -245,20 +260,25 @@ export function StudentAttendance() {
                                               {d.toLocaleDateString(undefined, { weekday: 'long' })}
                                             </p>
                                           </div>
-                                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold flex-shrink-0 ${STATUS_BADGE_CLASSES.absent}`}>
-                                            Absent
-                                          </span>
-                                          {h.schedule && (
-                                            <span className="inline-flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
-                                              <Clock className="h-3.5 w-3.5" strokeWidth={1.75} />
-                                              {h.schedule.startTime} – {h.schedule.endTime}
+                                          <div className="flex items-center gap-3">
+                                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold flex-shrink-0 capitalize ${STATUS_BADGE_CLASSES[h.status] || ''}`}>
+                                              {h.status}
                                             </span>
-                                          )}
-                                          {h.markedBy && (
-                                            <span className="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 flex-shrink-0">
-                                              <User className="h-3.5 w-3.5" strokeWidth={1.75} />
-                                              {h.markedBy}
-                                            </span>
+                                            {h.schedule && (
+                                              <span className="inline-flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+                                                <Clock className="h-3.5 w-3.5" strokeWidth={1.75} />
+                                                {h.schedule.startTime} – {h.schedule.endTime}
+                                              </span>
+                                            )}
+                                            {h.markedBy && (
+                                              <span className="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 flex-shrink-0">
+                                                <User className="h-3.5 w-3.5" strokeWidth={1.75} />
+                                                {h.markedBy}
+                                              </span>
+                                            )}
+                                          </div>
+                                          {h.notes && (
+                                            <p className="w-full text-xs text-[var(--color-text-tertiary)] italic">"{h.notes}"</p>
                                           )}
                                         </div>
                                       );
@@ -285,7 +305,7 @@ export function StudentAttendance() {
 function MetricBox({ label, value, valueClass }: { label: string; value: number | string; valueClass?: string }) {
   return (
     <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-center min-w-[4.5rem]">
-      <p className={`text-sm font-bold ${valueClass || 'text-[var(--color-text-primary)]'}`}>{value}</p>
+      <p className={`text-sm font-bold tracking-tight ${valueClass || 'text-[var(--color-text-primary)]'}`}>{value}</p>
       <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">{label}</p>
     </div>
   );

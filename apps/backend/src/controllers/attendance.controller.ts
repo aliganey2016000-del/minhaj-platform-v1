@@ -11,6 +11,7 @@ import Course from '../models/course.model';
 import School from '../models/school.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
+import ClassSchedule from '../models/class-schedule.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -37,7 +38,21 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
   // 11:00 session) — scoping by the specific ClassSchedule session keeps
   // those two sessions' attendance independent instead of one session's
   // marks silently showing up as "already taken" on the other.
-  const scheduleFilter = scheduleId ? new mongoose.Types.ObjectId(scheduleId) : null;
+  //
+  // If the caller didn't specify which session (e.g. attendance taken via
+  // the plain Course dropdown instead of a Today's Schedule card), try to
+  // resolve it ourselves: if this course meets exactly once on this day of
+  // the week, that's unambiguously the session — auto-fill it so the same
+  // real-world class always lands on the same (course, date, schedule)
+  // row instead of splitting into a null-schedule duplicate alongside a
+  // scheduled one.
+  let scheduleFilter: mongoose.Types.ObjectId | null = scheduleId ? new mongoose.Types.ObjectId(scheduleId) : null;
+  if (!scheduleFilter) {
+    const daySchedules = await ClassSchedule.find({ course: courseId, dayOfWeek: attendanceDate.getDay() }).select('_id').lean();
+    if (daySchedules.length === 1) {
+      scheduleFilter = daySchedules[0]._id;
+    }
+  }
 
   // Once submitted, a session locks — the submitter (org_admin/teacher)
   // can't quietly re-edit it afterwards; only a platform Admin can unlock
