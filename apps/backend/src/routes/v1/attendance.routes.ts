@@ -9,6 +9,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendance));
+router.get('/my/courses', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendanceByCourse));
 router.post('/', adminOnly, asyncHandler(attendanceController.markBulk));
 // Unlocking a locked session is a platform-Admin-only power — org_admin
 // (who is the one submitting/getting locked out) cannot self-unlock.

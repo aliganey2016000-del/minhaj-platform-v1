@@ -217,6 +217,57 @@ export const getMyAttendance = async (req: Request, res: Response): Promise<Resp
 };
 
 // ---------------------------------------------------------------------------
+// Get MY Attendance, Broken Down Per Course (Student self-service)
+// ---------------------------------------------------------------------------
+
+export const getMyAttendanceByCourse = async (req: Request, res: Response): Promise<Response> => {
+  const student = await ensureStudentRecord(req.user!.userId);
+
+  const stats = await Attendance.aggregate([
+    { $match: { student: student._id } },
+    {
+      $group: {
+        _id: '$course',
+        total: { $sum: 1 },
+        present: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
+        late: { $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] } },
+        absent: { $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] } },
+        excused: { $sum: { $cond: [{ $eq: ['$status', 'excused'] }, 1, 0] } },
+      },
+    },
+    { $sort: { total: -1 } },
+  ]);
+
+  const courseIds = stats.map((s) => s._id);
+  const courses = await Course.find({ _id: { $in: courseIds } })
+    .select('title slug category')
+    .populate('class', 'title section')
+    .lean();
+
+  const courseMap = new Map(courses.map((c) => [c._id.toString(), c]));
+
+  const result = stats.map((s) => {
+    const course = courseMap.get(s._id.toString());
+    const total = s.total;
+    return {
+      courseId: s._id,
+      code: course?.slug?.toUpperCase() || '',
+      title: course?.title?.en || 'Unknown Course',
+      section: (course as any)?.class ? `${(course as any).class.title} (${(course as any).class.section})` : (course as any)?.category || '',
+      days: total,
+      present: s.present,
+      absent: s.absent,
+      late: s.late,
+      excused: s.excused,
+      presentPercentage: total > 0 ? Math.round((s.present / total) * 100) : 0,
+      absentPercentage: total > 0 ? Math.round((s.absent / total) * 100) : 0,
+    };
+  });
+
+  return ApiResponse.success(res, result);
+};
+
+// ---------------------------------------------------------------------------
 // Get Attendance Report by Course (Admin — aggregated)
 // ---------------------------------------------------------------------------
 
