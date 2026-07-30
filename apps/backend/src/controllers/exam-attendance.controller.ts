@@ -10,6 +10,8 @@ import ExamAttendance from '../models/exam-attendance.model';
 import SeatAllocation from '../models/seat-allocation.model';
 import Student from '../models/student.model';
 import School from '../models/school.model';
+import User from '../models/user.model';
+import Profile from '../models/profile.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, assertOwnsExamIfTeacher } from '../utils/tenant-scope';
@@ -42,7 +44,8 @@ export const getForExam = async (req: Request, res: Response): Promise<Response>
   const [students, seats, records] = await Promise.all([
     Student.find(studentFilter)
       .populate('profile', 'firstName lastName')
-      .select('studentId profile')
+      .populate('class', 'title section')
+      .select('studentId profile class')
       .sort({ studentId: 1 })
       .lean(),
     SeatAllocation.find({ exam: exam._id }).populate('room', 'name building').lean(),
@@ -55,11 +58,38 @@ export const getForExam = async (req: Request, res: Response): Promise<Response>
   const recordByStudent: Record<string, any> = {};
   for (const r of records) recordByStudent[r.student.toString()] = r;
 
-  const roster = students.map((s: any) => ({
-    student: s,
-    seat: seatByStudent[s._id.toString()] || null,
-    attendance: recordByStudent[s._id.toString()] || null,
-  }));
+  // "Marked By" needs a human-readable name/role — Users don't carry a
+  // profile ref the way Students do, so resolve it by hand. A record
+  // marked by the student's own account (self-paced auto check-in) is
+  // labeled "Auto System" instead of a person's name.
+  const markerIds = [...new Set(records.map((r: any) => r.markedBy?.toString()).filter(Boolean))];
+  const [markerUsers, markerProfiles] = await Promise.all([
+    User.find({ _id: { $in: markerIds } }).select('email role').lean(),
+    Profile.find({ user: { $in: markerIds } }).select('user firstName lastName').lean(),
+  ]);
+  const markerMap = new Map(
+    markerIds.map((id) => {
+      const u = markerUsers.find((mu) => mu._id.toString() === id);
+      if (u?.role === 'student') return [id, { name: 'Auto System', role: 'system' }];
+      const p = markerProfiles.find((mp) => mp.user.toString() === id);
+      const name = p ? `${p.firstName} ${p.lastName}` : u?.email || 'Unknown';
+      return [id, { name, role: u?.role || '' }];
+    })
+  );
+
+  const roster = students.map((s: any) => {
+    const attendance = recordByStudent[s._id.toString()] || null;
+    return {
+      student: s,
+      seat: seatByStudent[s._id.toString()] || null,
+      attendance: attendance
+        ? {
+            ...attendance,
+            markedBy: attendance.markedBy ? markerMap.get(attendance.markedBy.toString()) || null : null,
+          }
+        : null,
+    };
+  });
 
   return ApiResponse.success(res, roster);
 };

@@ -30,11 +30,21 @@ interface ExamBrief {
     school?: { _id: string; name: string } | null;
   };
 }
-interface StudentBrief { _id: string; studentId: string; profile?: { firstName: string; lastName: string }; }
+interface StudentBrief {
+  _id: string;
+  studentId: string;
+  profile?: { firstName: string; lastName: string };
+  class?: { _id: string; title: string; section: string } | null;
+}
 interface RosterEntry {
   student: StudentBrief;
   seat: { room?: { name: string }; deskNumber: string } | null;
-  attendance: { status: string; notes?: string } | null;
+  attendance: {
+    status: string;
+    notes?: string;
+    markedAt?: string;
+    markedBy?: { name: string; role: string } | null;
+  } | null;
 }
 
 /**
@@ -142,6 +152,11 @@ export function ExamAttendanceManage() {
   // during a live exam, stored as a prefixed note.
   const [reportingStudentId, setReportingStudentId] = useState<string | null>(null);
   const [incidentReason, setIncidentReason] = useState('');
+
+  // View Records "Logs" action — there's no multi-entry audit trail (one
+  // ExamAttendance row per student, updated in place), so this shows the
+  // record's current marking metadata rather than a history list.
+  const [auditEntry, setAuditEntry] = useState<RosterEntry | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -729,16 +744,23 @@ export function ExamAttendanceManage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/70 dark:bg-slate-800/40">
                   <tr>
-                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Student</th>
-                    <th className="text-center px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden sm:table-cell">Seat</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Student ID</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Student Name</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Class</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Course</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Date / Day</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Exam Time</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Marked By</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Time Marked</th>
                     <th className="text-center px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Status</th>
-                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden md:table-cell">Notes</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Notes</th>
+                    <th className="text-center px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rosterToShow.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-sm text-[var(--color-text-tertiary)]">No students match this filter.</td>
+                      <td colSpan={11} className="py-8 text-center text-sm text-[var(--color-text-tertiary)]">No students match this filter.</td>
                     </tr>
                   )}
                   {rosterToShow.map((r, i) => (
@@ -749,14 +771,47 @@ export function ExamAttendanceManage() {
                       }`}
                     >
                       <td className="px-5 py-3">
-                        <p className="font-medium">{r.student.profile?.firstName} {r.student.profile?.lastName}</p>
-                        <p className="text-xs text-[var(--color-text-tertiary)]">{r.student.studentId}</p>
+                        <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{r.student.studentId}</code>
                       </td>
-                      <td className="px-5 py-3 text-center hidden sm:table-cell">
-                        {r.seat ? <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{r.seat.room?.name} · {r.seat.deskNumber}</code> : <span className="text-xs text-[var(--color-text-tertiary)]">Unassigned</span>}
+                      <td className="px-5 py-3 font-medium whitespace-nowrap">{r.student.profile?.firstName} {r.student.profile?.lastName}</td>
+                      <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                        {r.student.class ? `${r.student.class.title} (${r.student.class.section})` : '—'}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">{selectedExamObj?.course?.title?.en || '—'}</td>
+                      <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                        {selectedExamObj?.examDate
+                          ? `${new Date(selectedExamObj.examDate).toLocaleDateString(undefined, { weekday: 'long' })}, ${new Date(selectedExamObj.examDate).toLocaleDateString()}`
+                          : 'Self-Paced'}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                        {selectedExamObj?.startTime && selectedExamObj?.endTime ? `${selectedExamObj.startTime} – ${selectedExamObj.endTime}` : '—'}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">{r.attendance?.markedBy?.name || '—'}</td>
+                      <td className="px-5 py-3 text-xs text-[var(--color-text-tertiary)] whitespace-nowrap">
+                        {r.attendance?.markedAt ? new Date(r.attendance.markedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                       </td>
                       <td className="px-5 py-3 text-center"><StatusBadge status={r.attendance?.status || 'present'} /></td>
-                      <td className="px-5 py-3 hidden md:table-cell text-xs text-[var(--color-text-tertiary)]">{r.attendance?.notes || '—'}</td>
+                      <td className="px-5 py-3 text-xs text-[var(--color-text-tertiary)] min-w-[8rem]">{r.attendance?.notes || '—'}</td>
+                      <td className="px-5 py-3 text-center whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => { setTab('take'); setStudentSearch(r.student.studentId); }}
+                            title="Edit Status"
+                            className="rounded-md border border-[var(--color-border-default)] px-2 py-1 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAuditEntry(r)}
+                            title="View Audit Logs"
+                            className="rounded-md border border-[var(--color-border-default)] px-2 py-1 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                          >
+                            Logs
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1049,6 +1104,45 @@ export function ExamAttendanceManage() {
                   Report
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audit Logs Modal — the record's marking metadata (there's no
+          multi-entry history, one row per student per exam updated in place) */}
+      {auditEntry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setAuditEntry(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-[var(--color-border-default)] flex items-center justify-between">
+              <p className="font-semibold text-sm text-[var(--color-text-primary)]">Audit Log</p>
+              <button type="button" onClick={() => setAuditEntry(null)} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+                <X className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </div>
+            <div className="p-4 space-y-3 text-sm">
+              <div>
+                <p className="text-xs text-[var(--color-text-tertiary)]">Student</p>
+                <p className="font-medium text-[var(--color-text-primary)]">{auditEntry.student.profile?.firstName} {auditEntry.student.profile?.lastName} ({auditEntry.student.studentId})</p>
+              </div>
+              <div>
+                <p className="text-xs text-[var(--color-text-tertiary)]">Status</p>
+                <StatusBadge status={auditEntry.attendance?.status || 'present'} />
+              </div>
+              <div>
+                <p className="text-xs text-[var(--color-text-tertiary)]">Marked By</p>
+                <p className="text-[var(--color-text-primary)]">{auditEntry.attendance?.markedBy?.name || 'Not yet marked'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-[var(--color-text-tertiary)]">Time Marked</p>
+                <p className="text-[var(--color-text-primary)]">{auditEntry.attendance?.markedAt ? new Date(auditEntry.attendance.markedAt).toLocaleString() : '—'}</p>
+              </div>
+              {auditEntry.attendance?.notes && (
+                <div>
+                  <p className="text-xs text-[var(--color-text-tertiary)]">Notes</p>
+                  <p className="text-[var(--color-text-primary)]">{auditEntry.attendance.notes}</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
