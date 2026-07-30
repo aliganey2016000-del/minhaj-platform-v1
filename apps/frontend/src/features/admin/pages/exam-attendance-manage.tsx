@@ -4,7 +4,8 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { Search, Clock, CalendarX, ClipboardCheck, Zap } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Clock, CalendarX, ClipboardCheck, Zap, Info, Printer, CheckSquare, FileText, BarChart3 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -35,6 +36,27 @@ interface RosterEntry {
   attendance: { status: string; notes?: string } | null;
 }
 
+/**
+ * Display-only status derived from the exam's actual clock instead of the
+ * stored `status` field — that field is a manual label nobody reliably
+ * flips the moment an exam starts, so a fixed-schedule exam sitting right
+ * in its 11:54–14:57 window at 13:36 would otherwise still read
+ * "Scheduled". Self-paced exams have no single shared window (each
+ * student gets their own), so those fall back to the stored status as-is.
+ */
+function getEffectiveStatus(e: ExamBrief): string {
+  if (e.status === 'cancelled' || e.status === 'completed') return e.status;
+  if (e.autoSchedule || !e.examDate || !e.startTime || !e.endTime) return e.status;
+
+  const datePart = new Date(e.examDate).toISOString().split('T')[0];
+  const start = new Date(`${datePart}T${e.startTime}`);
+  const end = new Date(`${datePart}T${e.endTime}`);
+  const now = new Date();
+  if (now >= start && now <= end) return 'ongoing';
+  if (now > end) return 'completed';
+  return e.status;
+}
+
 const STATUS_OPTIONS: { value: string; letter: string; label: string; active: string; idle: string }[] = [
   { value: 'present', letter: 'P', label: 'Present', active: 'bg-green-600 text-white border-green-600', idle: 'bg-white dark:bg-slate-900 text-green-700 dark:text-green-400 border-green-200 dark:border-green-900/50 hover:bg-green-50 dark:hover:bg-green-950/30' },
   { value: 'absent', letter: 'A', label: 'Absent', active: 'bg-red-600 text-white border-red-600', idle: 'bg-white dark:bg-slate-900 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/30' },
@@ -63,9 +85,26 @@ function StatusButtons({ value, onChange }: { value: string; onChange: (status: 
   );
 }
 
+const STATUS_BADGE_CLASSES: Record<string, string> = {
+  present: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  absent: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  late: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  excused: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+};
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_BADGE_CLASSES[status] || 'bg-gray-100 text-gray-600'}`}>
+      {status}
+    </span>
+  );
+}
+
 export function ExamAttendanceManage() {
   const { user } = useAuth();
   const isOrgAdmin = user?.role === 'org_admin';
+  const navigate = useNavigate();
+  const [examSearch, setExamSearch] = useState('');
 
   // Cascading Organization → Department → Class filters that narrow the
   // Exam dropdown, mirroring the pattern in Course Attendance Management.
@@ -78,6 +117,7 @@ export function ExamAttendanceManage() {
   const [filterClass, setFilterClass] = useState('');
   const [classesLoading, setClassesLoading] = useState(false);
 
+  const [tab, setTab] = useState<'take' | 'view' | 'report'>('take');
   const [exams, setExams] = useState<ExamBrief[]>([]);
   const [selectedExam, setSelectedExam] = useState('');
   const [roster, setRoster] = useState<RosterEntry[]>([]);
@@ -171,10 +211,71 @@ export function ExamAttendanceManage() {
   // Today's Exams — surfaces same-day exams up front so the invigilator
   // doesn't have to hunt through the cascade/dropdown to find what's due.
   const todayStr = new Date().toDateString();
-  const examsToday = examsToShow.filter((e) => e.examDate && new Date(e.examDate).toDateString() === todayStr);
+  const examsTodayAll = examsToShow.filter((e) => e.examDate && new Date(e.examDate).toDateString() === todayStr);
+  const examsToday = examSearch.trim()
+    ? examsTodayAll.filter((e) => {
+        const q = examSearch.trim().toLowerCase();
+        return e.title.toLowerCase().includes(q) || (e.course?.title?.en || '').toLowerCase().includes(q);
+      })
+    : examsTodayAll;
+
+  // Opens a plain printable roster in a new tab — a fallback for an
+  // invigilator who wants a paper sign-in sheet before touching the
+  // digital Mark Attendance flow.
+  const printAttendanceSheet = async (exam: ExamBrief) => {
+    try {
+      const { data } = await api.get(`/exams/${exam._id}/attendance`);
+      const entries: RosterEntry[] = data.data || [];
+      const rows = entries
+        .map(
+          (r, i) => `<tr><td>${i + 1}</td><td>${r.student.profile?.firstName || ''} ${r.student.profile?.lastName || ''}</td><td>${r.student.studentId}</td><td>${r.seat ? `${r.seat.room?.name || ''} · ${r.seat.deskNumber}` : ''}</td><td></td></tr>`
+        )
+        .join('');
+      const html = `<!doctype html><html><head><title>${exam.title} — Attendance Sheet</title>
+        <style>
+          body { font-family: sans-serif; padding: 24px; }
+          h1 { font-size: 18px; margin-bottom: 4px; }
+          p { color: #555; margin-top: 0; }
+          table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; font-size: 13px; }
+          th { background: #f3f4f6; }
+        </style>
+      </head><body>
+        <h1>${exam.title} — ${exam.course?.title?.en || ''}</h1>
+        <p>${exam.examDate ? new Date(exam.examDate).toLocaleDateString() : 'Self-Paced'} ${exam.startTime ? `· ${exam.startTime} – ${exam.endTime}` : ''}</p>
+        <table><thead><tr><th>#</th><th>Student Name</th><th>Student ID</th><th>Seat</th><th>Signature</th></tr></thead><tbody>${rows}</tbody></table>
+        <script>window.onload = () => window.print();</script>
+      </body></html>`;
+      const win = window.open('', '_blank');
+      if (win) {
+        win.document.write(html);
+        win.document.close();
+      }
+    } catch {
+      setError('Failed to load roster for printing');
+    }
+  };
+
+  const exportReportCsv = (exam?: ExamBrief) => {
+    if (roster.length === 0) return;
+    const header = ['Student ID', 'Student Name', 'Status'];
+    const rows = roster.map((r) => [r.student.studentId, `${r.student.profile?.firstName || ''} ${r.student.profile?.lastName || ''}`.trim(), r.attendance?.status || 'present']);
+    const csv = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const examName = (exam?.title || 'exam').replace(/[^a-z0-9]+/gi, '-');
+    a.download = `exam-attendance-${examName}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const loadRoster = async (examId: string) => {
     setSelectedExam(examId);
+    setTab('take');
     setRoster([]);
     setMessage('');
     setStudentSearch('');
@@ -258,7 +359,7 @@ export function ExamAttendanceManage() {
   });
 
   const selectedExamObj = exams.find((e) => e._id === selectedExam);
-  const showStickySaveBar = !!selectedExam && roster.length > 0 && !rosterLoading;
+  const showStickySaveBar = !!selectedExam && roster.length > 0 && !rosterLoading && tab === 'take';
 
   return (
     <div className={`p-6 lg:p-10 pt-20 lg:pt-10 ${showStickySaveBar ? 'pb-28' : ''}`}>
@@ -333,6 +434,30 @@ export function ExamAttendanceManage() {
           </div>
         </div>
 
+        {/* Tab Switcher — segmented control, matching Course Attendance */}
+        {selectedExam && (
+          <div className="flex bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-xl max-w-md gap-1">
+            {([
+              { key: 'take' as const, label: 'Take Attendance', icon: CheckSquare },
+              { key: 'view' as const, label: 'View Records', icon: FileText },
+              { key: 'report' as const, label: 'Report', icon: BarChart3 },
+            ]).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`flex-1 inline-flex items-center justify-center gap-1.5 text-sm transition-all ${
+                  tab === key
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm rounded-lg font-semibold px-4 py-2'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 px-4 py-2'
+                }`}
+              >
+                <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
 
@@ -346,7 +471,7 @@ export function ExamAttendanceManage() {
         )}
 
         {/* Clickable stat cards */}
-        {selectedExam && roster.length > 0 && (
+        {selectedExam && roster.length > 0 && (tab === 'take' || tab === 'view') && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {([
               { key: 'present', count: presentCount, label: 'Present', border: 'border-green-200 dark:border-green-900/50', bg: 'bg-green-50 dark:bg-green-950/30', text: 'text-green-700 dark:text-green-300', sub: 'text-green-600 dark:text-green-400', ring: 'ring-green-500' },
@@ -375,7 +500,8 @@ export function ExamAttendanceManage() {
           <div className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg">No students enrolled in this exam's course.</p></div>
         )}
 
-        {!rosterLoading && roster.length > 0 && (
+        {/* ── Take Attendance ── */}
+        {!rosterLoading && roster.length > 0 && tab === 'take' && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="p-4 border-b border-[var(--color-border-default)] flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div className="relative max-w-xs w-full">
@@ -457,6 +583,115 @@ export function ExamAttendanceManage() {
           </div>
         )}
 
+        {/* ── View Records (read-only) ── */}
+        {!rosterLoading && roster.length > 0 && tab === 'view' && (
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            <div className="p-4 border-b border-[var(--color-border-default)]">
+              <div className="relative max-w-xs w-full">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" strokeWidth={1.75} />
+                <input
+                  type="text"
+                  value={studentSearch}
+                  onChange={(e) => setStudentSearch(e.target.value)}
+                  placeholder="Search student name or ID..."
+                  className="w-full h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                />
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50/70 dark:bg-slate-800/40">
+                  <tr>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Student</th>
+                    <th className="text-center px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden sm:table-cell">Seat</th>
+                    <th className="text-center px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Status</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden md:table-cell">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rosterToShow.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-sm text-[var(--color-text-tertiary)]">No students match this filter.</td>
+                    </tr>
+                  )}
+                  {rosterToShow.map((r, i) => (
+                    <tr
+                      key={r.student._id}
+                      className={`border-b border-slate-100 dark:border-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors ${
+                        i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-white dark:bg-slate-900'
+                      }`}
+                    >
+                      <td className="px-5 py-3">
+                        <p className="font-medium">{r.student.profile?.firstName} {r.student.profile?.lastName}</p>
+                        <p className="text-xs text-[var(--color-text-tertiary)]">{r.student.studentId}</p>
+                      </td>
+                      <td className="px-5 py-3 text-center hidden sm:table-cell">
+                        {r.seat ? <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{r.seat.room?.name} · {r.seat.deskNumber}</code> : <span className="text-xs text-[var(--color-text-tertiary)]">Unassigned</span>}
+                      </td>
+                      <td className="px-5 py-3 text-center"><StatusBadge status={r.attendance?.status || 'present'} /></td>
+                      <td className="px-5 py-3 hidden md:table-cell text-xs text-[var(--color-text-tertiary)]">{r.attendance?.notes || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 border-t border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]">
+              <p className="text-xs text-[var(--color-text-tertiary)]">
+                {rosterToShow.length === roster.length ? `${roster.length} students` : `${rosterToShow.length} of ${roster.length} students shown`}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Report ── */}
+        {!rosterLoading && roster.length > 0 && tab === 'report' && (
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            <div className="p-4 border-b border-[var(--color-border-default)] flex items-center justify-between">
+              <p className="text-sm font-semibold text-[var(--color-text-secondary)]">Attendance Summary</p>
+              <button
+                type="button"
+                onClick={() => exportReportCsv(selectedExamObj)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+              >
+                ⬇️ Export to Excel
+              </button>
+            </div>
+            <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {([
+                { label: 'Present', count: presentCount, pct: Math.round((presentCount / roster.length) * 100), color: 'text-green-600 dark:text-green-400' },
+                { label: 'Absent', count: absentCount, pct: Math.round((absentCount / roster.length) * 100), color: 'text-red-600 dark:text-red-400' },
+                { label: 'Late', count: lateCount, pct: Math.round((lateCount / roster.length) * 100), color: 'text-amber-600 dark:text-amber-400' },
+                { label: 'Excused', count: excusedCount, pct: Math.round((excusedCount / roster.length) * 100), color: 'text-blue-600 dark:text-blue-400' },
+              ]).map((s) => (
+                <div key={s.label} className="rounded-xl border border-[var(--color-border-default)] p-4 text-center">
+                  <p className={`text-2xl font-bold ${s.color}`}>{s.count}</p>
+                  <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">{s.label} ({s.pct}%)</p>
+                </div>
+              ))}
+            </div>
+            <div className="overflow-x-auto border-t border-[var(--color-border-default)]">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50/70 dark:bg-slate-800/40">
+                  <tr>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Student ID</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Student Name</th>
+                    <th className="text-center px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {roster.map((r, i) => (
+                    <tr key={r.student._id} className={`border-b border-slate-100 dark:border-slate-800 ${i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-white dark:bg-slate-900'}`}>
+                      <td className="px-5 py-3"><code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{r.student.studentId}</code></td>
+                      <td className="px-5 py-3 font-medium">{r.student.profile?.firstName} {r.student.profile?.lastName}</td>
+                      <td className="px-5 py-3 text-center"><StatusBadge status={r.attendance?.status || 'present'} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Sticky Save bar */}
         {showStickySaveBar && (
           <div className="fixed bottom-0 left-0 right-0 lg:left-72 z-30 border-t border-[var(--color-border-default)] bg-[var(--color-surface-primary)]/95 backdrop-blur-sm shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
@@ -492,8 +727,8 @@ export function ExamAttendanceManage() {
                 </div>
                 <div className="rounded-xl border border-green-100 dark:border-green-900/40 bg-green-50/60 dark:bg-green-950/20 p-4">
                   <p className="text-2xl font-bold text-green-700 dark:text-green-400 flex items-center gap-2">
-                    {examsToday.filter((e) => e.status === 'ongoing').length}
-                    {examsToday.some((e) => e.status === 'ongoing') && (
+                    {examsToday.filter((e) => getEffectiveStatus(e) === 'ongoing').length}
+                    {examsToday.some((e) => getEffectiveStatus(e) === 'ongoing') && (
                       <span className="relative flex h-2.5 w-2.5">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
                         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
@@ -515,18 +750,37 @@ export function ExamAttendanceManage() {
               </div>
             )}
 
+            {examsTodayAll.length > 0 && (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[var(--color-text-secondary)]">Today's Exams</p>
+                {examsTodayAll.length >= 6 && (
+                  <div className="relative max-w-xs w-full">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" strokeWidth={1.75} />
+                    <input
+                      type="text"
+                      value={examSearch}
+                      onChange={(e) => setExamSearch(e.target.value)}
+                      placeholder="Search by course name..."
+                      className="w-full h-9 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             {examsToday.length > 0 ? (
               <div>
-                <p className="text-sm font-semibold text-[var(--color-text-secondary)]">Today's Exams</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-3">
-                  {examsToday.map((e) => (
+                  {examsToday.map((e) => {
+                    const effectiveStatus = getEffectiveStatus(e);
+                    return (
                     <div
                       key={e._id}
                       className="group bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden p-4 flex flex-col gap-2"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <p className="font-bold text-sm text-[var(--color-text-primary)] truncate">{e.title}</p>
-                        {e.status === 'ongoing' ? (
+                        {effectiveStatus === 'ongoing' ? (
                           <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold flex-shrink-0 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
                             <span className="relative flex h-1.5 w-1.5">
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
@@ -536,7 +790,7 @@ export function ExamAttendanceManage() {
                           </span>
                         ) : (
                           <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold flex-shrink-0 capitalize bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                            {e.status}
+                            {effectiveStatus}
                           </span>
                         )}
                       </div>
@@ -562,16 +816,34 @@ export function ExamAttendanceManage() {
                         </div>
                       )}
 
+                      <div className="flex items-center gap-3 -mt-1">
+                        <button
+                          type="button"
+                          onClick={() => navigate('/admin/exams')}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                        >
+                          <Info className="h-3 w-3" strokeWidth={2} /> View Details
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => printAttendanceSheet(e)}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                        >
+                          <Printer className="h-3 w-3" strokeWidth={2} /> Print Sheet
+                        </button>
+                      </div>
+
                       <button
                         type="button"
                         onClick={() => loadRoster(e._id)}
-                        className="mt-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm"
+                        className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm"
                       >
                         <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={2} />
                         Mark Attendance
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : (
@@ -579,7 +851,9 @@ export function ExamAttendanceManage() {
                 <div className="h-16 w-16 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
                   <CalendarX className="h-8 w-8 text-slate-300 dark:text-slate-600" strokeWidth={1.5} />
                 </div>
-                <p className="text-lg text-[var(--color-text-secondary)]">No exams scheduled for today.</p>
+                <p className="text-lg text-[var(--color-text-secondary)]">
+                  {examSearch.trim() ? `No exams match "${examSearch}".` : 'No exams scheduled for today.'}
+                </p>
                 <p className="text-sm mt-1 text-[var(--color-text-tertiary)]">👆 Select an exam above to mark attendance.</p>
               </div>
             )}
