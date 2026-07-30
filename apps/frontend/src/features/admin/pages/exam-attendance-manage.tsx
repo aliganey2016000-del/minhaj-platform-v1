@@ -3,9 +3,10 @@
  * Mark exam-day attendance for the roster of an exam's course.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Clock, CalendarX, ClipboardCheck, Zap, Info, Printer, CheckSquare, FileText, BarChart3 } from 'lucide-react';
+import { Search, Clock, CalendarX, ClipboardCheck, Zap, Info, Printer, CheckSquare, FileText, BarChart3, QrCode, X, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -131,6 +132,17 @@ export function ExamAttendanceManage() {
   const [studentSearch, setStudentSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
+  // QR/Barcode camera check-in — scanning a student ID card marks them
+  // Present in one motion instead of hunting them in a long list.
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanMessage, setScanMessage] = useState('');
+  const qrRef = useRef<Html5Qrcode | null>(null);
+
+  // Incident / malpractice reporting — a quick flag on a student's record
+  // during a live exam, stored as a prefixed note.
+  const [reportingStudentId, setReportingStudentId] = useState<string | null>(null);
+  const [incidentReason, setIncidentReason] = useState('');
+
   useEffect(() => {
     (async () => {
       try {
@@ -222,7 +234,8 @@ export function ExamAttendanceManage() {
   // Opens a plain printable roster in a new tab — a fallback for an
   // invigilator who wants a paper sign-in sheet before touching the
   // digital Mark Attendance flow.
-  const printAttendanceSheet = async (exam: ExamBrief) => {
+  const printAttendanceSheet = async (exam?: ExamBrief) => {
+    if (!exam) return;
     try {
       const { data } = await api.get(`/exams/${exam._id}/attendance`);
       const entries: RosterEntry[] = data.data || [];
@@ -314,6 +327,72 @@ export function ExamAttendanceManage() {
       roster.forEach((r) => { next[r.student._id] = { status: 'present', notes: prev[r.student._id]?.notes || '' }; });
       return next;
     });
+  };
+
+  const markAllAbsent = () => {
+    setMarks((prev) => {
+      const next = { ...prev };
+      roster.forEach((r) => { next[r.student._id] = { status: 'absent', notes: prev[r.student._id]?.notes || '' }; });
+      return next;
+    });
+  };
+
+  // Clears back to each student's saved status (or Present as the default
+  // for anyone with no record yet) — undoes any unsaved in-progress edits.
+  const resetAllMarks = () => {
+    const m: Record<string, { status: string; notes: string }> = {};
+    roster.forEach((r) => {
+      m[r.student._id] = { status: r.attendance?.status || 'present', notes: r.attendance?.notes || '' };
+    });
+    setMarks(m);
+  };
+
+  // QR/Barcode scan handler — decoded text is expected to be the student's
+  // studentId (e.g. "STU-2026-0039"), same format printed on ID cards.
+  const handleScanSuccess = (decodedText: string) => {
+    const code = decodedText.trim();
+    const match = roster.find((r) => r.student.studentId.toLowerCase() === code.toLowerCase());
+    if (!match) {
+      setScanMessage(`⚠️ No student found for "${code}"`);
+      return;
+    }
+    setMarks((prev) => ({ ...prev, [match.student._id]: { status: 'present', notes: prev[match.student._id]?.notes || '' } }));
+    setScanMessage(`✅ ${match.student.profile?.firstName} ${match.student.profile?.lastName} marked Present`);
+  };
+
+  useEffect(() => {
+    if (!scannerOpen) return;
+    const qr = new Html5Qrcode('exam-qr-reader');
+    qrRef.current = qr;
+    qr.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: 250 },
+      (decodedText) => handleScanSuccess(decodedText),
+      () => {}
+    ).catch(() => setScanMessage('⚠️ Could not access camera. Check permissions.'));
+
+    return () => {
+      qr.stop().then(() => qr.clear()).catch(() => {});
+      qrRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scannerOpen]);
+
+  const startIncidentReport = (studentId: string) => {
+    setReportingStudentId(studentId);
+    setIncidentReason('');
+  };
+
+  const submitIncidentReport = () => {
+    if (!reportingStudentId || !incidentReason.trim()) return;
+    setMarks((prev) => {
+      const existingNotes = prev[reportingStudentId]?.notes || '';
+      const flag = `🚩 Malpractice reported: ${incidentReason.trim()}`;
+      const notes = existingNotes ? `${existingNotes} | ${flag}` : flag;
+      return { ...prev, [reportingStudentId]: { status: prev[reportingStudentId]?.status || 'present', notes } };
+    });
+    setReportingStudentId(null);
+    setIncidentReason('');
   };
 
   const handleSave = async () => {
@@ -511,16 +590,47 @@ export function ExamAttendanceManage() {
                   value={studentSearch}
                   onChange={(e) => setStudentSearch(e.target.value)}
                   placeholder="Search student name or ID..."
-                  className="w-full h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                  className="w-full h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-9 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
                 />
+                <button
+                  type="button"
+                  onClick={() => { setScanMessage(''); setScannerOpen(true); }}
+                  title="Scan student ID card"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors"
+                >
+                  <QrCode className="h-4 w-4" strokeWidth={1.75} />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={markAllPresent}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 px-3 py-2 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors flex-shrink-0"
-              >
-                ✅ Mark All Present
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => printAttendanceSheet(selectedExamObj)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors flex-shrink-0"
+                >
+                  🖨️ Print Sheet
+                </button>
+                <button
+                  type="button"
+                  onClick={resetAllMarks}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors flex-shrink-0"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} /> Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={markAllAbsent}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs font-semibold text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors flex-shrink-0"
+                >
+                  ❌ Mark All Absent
+                </button>
+                <button
+                  type="button"
+                  onClick={markAllPresent}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 px-3 py-2 text-xs font-semibold text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors flex-shrink-0"
+                >
+                  ✅ Mark All Present
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -561,14 +671,24 @@ export function ExamAttendanceManage() {
                           onChange={(status) => handleMarkChange(r.student._id, 'status', status)}
                         />
                       </td>
-                      <td className="px-5 py-3 text-center hidden md:table-cell">
-                        <input
-                          type="text"
-                          value={marks[r.student._id]?.notes || ''}
-                          onChange={(e) => handleMarkChange(r.student._id, 'notes', e.target.value)}
-                          className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-40 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-                          placeholder="Optional"
-                        />
+                      <td className="px-5 py-3 hidden md:table-cell">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={marks[r.student._id]?.notes || ''}
+                            onChange={(e) => handleMarkChange(r.student._id, 'notes', e.target.value)}
+                            className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-40 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                            placeholder="Optional"
+                          />
+                          <button
+                            type="button"
+                            title="Report malpractice"
+                            onClick={() => startIncidentReport(r.student._id)}
+                            className="h-7 w-7 flex-shrink-0 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -586,7 +706,7 @@ export function ExamAttendanceManage() {
         {/* ── View Records (read-only) ── */}
         {!rosterLoading && roster.length > 0 && tab === 'view' && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-            <div className="p-4 border-b border-[var(--color-border-default)]">
+            <div className="p-4 border-b border-[var(--color-border-default)] flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div className="relative max-w-xs w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" strokeWidth={1.75} />
                 <input
@@ -597,6 +717,13 @@ export function ExamAttendanceManage() {
                   className="w-full h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => printAttendanceSheet(selectedExamObj)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors flex-shrink-0"
+              >
+                🖨️ Print Sheet
+              </button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -648,13 +775,22 @@ export function ExamAttendanceManage() {
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="p-4 border-b border-[var(--color-border-default)] flex items-center justify-between">
               <p className="text-sm font-semibold text-[var(--color-text-secondary)]">Attendance Summary</p>
-              <button
-                type="button"
-                onClick={() => exportReportCsv(selectedExamObj)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
-              >
-                ⬇️ Export to Excel
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => printAttendanceSheet(selectedExamObj)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                >
+                  🖨️ Print Sheet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportReportCsv(selectedExamObj)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                >
+                  ⬇️ Export to Excel
+                </button>
+              </div>
             </div>
             <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
               {([
@@ -860,6 +996,63 @@ export function ExamAttendanceManage() {
           </>
         )}
       </div>
+
+      {/* QR/Barcode Scanner Modal */}
+      {scannerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setScannerOpen(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-[var(--color-border-default)] flex items-center justify-between">
+              <p className="font-semibold text-sm text-[var(--color-text-primary)]">📷 Scan Student ID Card</p>
+              <button type="button" onClick={() => setScannerOpen(false)} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+                <X className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </div>
+            <div id="exam-qr-reader" className="w-full" />
+            {scanMessage && (
+              <p className="p-3 text-center text-sm text-[var(--color-text-secondary)] border-t border-[var(--color-border-default)]">{scanMessage}</p>
+            )}
+            <p className="px-4 pb-4 text-xs text-[var(--color-text-tertiary)] text-center">Point the camera at the student's ID card barcode/QR code.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Incident / Malpractice Report Modal */}
+      {reportingStudentId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setReportingStudentId(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-[var(--color-border-default)] flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" strokeWidth={2} />
+              <p className="font-semibold text-sm text-[var(--color-text-primary)]">Report Malpractice</p>
+            </div>
+            <div className="p-4 space-y-3">
+              <textarea
+                value={incidentReason}
+                onChange={(e) => setIncidentReason(e.target.value)}
+                placeholder="Describe what happened (e.g. caught with notes, talking to another student)..."
+                rows={4}
+                className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/30"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReportingStudentId(null)}
+                  className="rounded-lg border border-[var(--color-border-default)] px-4 py-2 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={submitIncidentReport}
+                  disabled={!incidentReason.trim()}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+                >
+                  Report
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
