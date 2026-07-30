@@ -698,30 +698,34 @@ export function AttendanceManage() {
           </div>
         </div>
 
-        {/* Tab Switcher — segmented control */}
-        <div className="flex bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-xl max-w-md gap-1">
-          {([
-            { key: 'take' as const, label: 'Take Attendance', icon: CheckSquare },
-            { key: 'view' as const, label: 'View Records', icon: FileText },
-            { key: 'report' as const, label: 'Report', icon: BarChart3 },
-          ]).map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => {
-                setTab(key);
-                if (key === 'view' && selectedCourse) loadStudents();
-              }}
-              className={`flex-1 inline-flex items-center justify-center gap-1.5 text-sm transition-all ${
-                tab === key
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm rounded-lg font-semibold px-4 py-2'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 px-4 py-2'
-              }`}
-            >
-              <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
-              <span className="hidden sm:inline">{label}</span>
-            </button>
-          ))}
-        </div>
+        {/* Tab Switcher — segmented control, only once a course is selected
+            (matching Exam Attendance's pattern instead of showing inert
+            tabs above an empty "select a course" state). */}
+        {selectedCourse && (
+          <div className="flex bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-xl max-w-md gap-1">
+            {([
+              { key: 'take' as const, label: 'Take Attendance', icon: CheckSquare },
+              { key: 'view' as const, label: 'View Records', icon: FileText },
+              { key: 'report' as const, label: 'Report', icon: BarChart3 },
+            ]).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => {
+                  setTab(key);
+                  if (key === 'view' && selectedCourse) loadStudents();
+                }}
+                className={`flex-1 inline-flex items-center justify-center gap-1.5 text-sm transition-all ${
+                  tab === key
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm rounded-lg font-semibold px-4 py-2'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 px-4 py-2'
+                }`}
+              >
+                <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Filters — Organization → Department → Class → Course cascade + Date Period */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100/80 dark:border-slate-800 shadow-sm mt-6">
@@ -781,7 +785,7 @@ export function AttendanceManage() {
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">📖 Course</label>
             <select
               value={selectedCourse}
-              onChange={(e) => { setSelectedCourse(e.target.value); setSelectedSchedule(''); }}
+              onChange={(e) => { setSelectedCourse(e.target.value); setSelectedSchedule(''); setTab('take'); }}
               className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
             >
               <option value="">Select a course...</option>
