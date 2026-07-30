@@ -750,23 +750,19 @@ export function ExamAttendanceManage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/70 dark:bg-slate-800/40">
                   <tr>
-                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Student ID</th>
-                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Student Name</th>
-                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Class</th>
-                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Course</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Student Name / ID</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Course / Class</th>
                     <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Date / Day</th>
                     <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Exam Time</th>
-                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Marked By</th>
-                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Time Marked</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Marked By / Time</th>
                     <th className="text-center px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Status</th>
-                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Notes</th>
-                    <th className="text-center px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Actions</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Notes &amp; Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rosterToShow.length === 0 && (
                     <tr>
-                      <td colSpan={11} className="py-8 text-center text-sm text-[var(--color-text-tertiary)]">No students match this filter.</td>
+                      <td colSpan={7} className="py-8 text-center text-sm text-[var(--color-text-tertiary)]">No students match this filter.</td>
                     </tr>
                   )}
                   {rosterToShow.map((r, i) => (
@@ -776,29 +772,46 @@ export function ExamAttendanceManage() {
                         i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-white dark:bg-slate-900'
                       }`}
                     >
-                      <td className="px-5 py-3">
-                        <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{r.student.studentId}</code>
+                      {/* Student Name / ID */}
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        <p className="font-medium text-[var(--color-text-primary)]">{r.student.profile?.firstName} {r.student.profile?.lastName}</p>
+                        <code className="text-[11px] text-[var(--color-text-tertiary)]">{r.student.studentId}</code>
                       </td>
-                      <td className="px-5 py-3 font-medium whitespace-nowrap">{r.student.profile?.firstName} {r.student.profile?.lastName}</td>
-                      <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                        {r.student.class ? `${r.student.class.title} (${r.student.class.section})` : '—'}
+
+                      {/* Course / Class */}
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        <p className="text-xs text-[var(--color-text-secondary)]">{examDetails?.course?.title?.en || '—'}</p>
+                        <span className="inline-block mt-0.5 rounded-full bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                          {r.student.class ? `${r.student.class.title} (${r.student.class.section})` : '—'}
+                        </span>
                       </td>
-                      <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">{examDetails?.course?.title?.en || '—'}</td>
+
+                      {/* Date / Day */}
                       <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
                         {examDetails?.examDate
                           ? `${new Date(examDetails.examDate).toLocaleDateString(undefined, { weekday: 'long' })}, ${new Date(examDetails.examDate).toLocaleDateString()}`
                           : 'Self-Paced'}
                       </td>
+
+                      {/* Exam Time */}
                       <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
                         {examDetails?.startTime && examDetails?.endTime ? `${examDetails.startTime} – ${examDetails.endTime}` : '—'}
                       </td>
-                      <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">{r.attendance?.markedBy?.name || '—'}</td>
-                      <td className="px-5 py-3 text-xs text-[var(--color-text-tertiary)] whitespace-nowrap">
-                        {r.attendance?.markedAt ? new Date(r.attendance.markedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+
+                      {/* Marked By / Time Marked */}
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        <p className="text-xs text-[var(--color-text-secondary)]">{r.attendance?.markedBy?.name || '—'}</p>
+                        <p className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
+                          {r.attendance?.markedAt ? new Date(r.attendance.markedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                        </p>
                       </td>
+
+                      {/* Status */}
                       <td className="px-5 py-3 text-center"><StatusBadge status={r.attendance?.status || 'present'} /></td>
-                      <td className="px-5 py-3 text-xs text-[var(--color-text-tertiary)] min-w-[8rem]">{r.attendance?.notes || '—'}</td>
-                      <td className="px-5 py-3 text-center whitespace-nowrap">
+
+                      {/* Notes & Actions */}
+                      <td className="px-5 py-3 min-w-[10rem]">
+                        <p className="text-xs text-[var(--color-text-tertiary)] mb-1.5">{r.attendance?.notes || '—'}</p>
                         <div className="inline-flex items-center gap-1.5">
                           <button
                             type="button"
