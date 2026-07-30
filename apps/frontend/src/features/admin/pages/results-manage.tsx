@@ -10,6 +10,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
+import { BackButton } from '../../shared/components/back-button';
 
 interface ExamBrief { _id: string; title: string; examDate: string; totalMarks: number; passingMarks: number; resultsPublished?: boolean; course?: { _id: string; title: { en: string }; slug: string; category: string }; }
 
@@ -202,7 +203,8 @@ export function ResultsManage() {
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">📊 Manage Results</h1>
+            <BackButton fallback="/admin/exams" />
+            <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">📊 Manage Results</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{results.length} total — {passed} passed, {failed} failed, {absent} absent</p>
           </div>
         </div>

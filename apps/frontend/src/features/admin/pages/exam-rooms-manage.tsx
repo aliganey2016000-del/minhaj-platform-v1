@@ -6,6 +6,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
+import { BackButton } from '../../shared/components/back-button';
 
 interface ExamRoom { _id: string; name: string; building: string; capacity: number; }
 interface ExamBrief { _id: string; title: string; examDate: string; course?: { _id: string; title: { en: string } }; }
@@ -169,7 +170,8 @@ export function ExamRoomsManage() {
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🏛️ Room Allocation</h1>
+            <BackButton fallback="/admin/exams" />
+            <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">🏛️ Room Allocation</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{rooms.length} room{rooms.length === 1 ? '' : 's'} configured</p>
           </div>
           <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">

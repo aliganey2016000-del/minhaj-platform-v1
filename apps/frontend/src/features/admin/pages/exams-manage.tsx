@@ -8,6 +8,7 @@ import { CalendarClock, PlayCircle, CheckCircle2, XCircle, MoreVertical, Pencil,
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
+import { BackButton } from '../../shared/components/back-button';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -697,7 +698,8 @@ export function ExamsManage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">📝 Manage Exams</h1>
+            <BackButton fallback="/admin" />
+            <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">📝 Manage Exams</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
               {exams.length} total — {scheduledCount} scheduled, {ongoingCount} ongoing, {completedCount} completed, {cancelledCount} cancelled
             </p>

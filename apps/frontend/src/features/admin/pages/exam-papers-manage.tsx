@@ -19,6 +19,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { BackButton } from '../../shared/components/back-button';
 
 interface School { _id: string; name: string; status?: string; }
 interface ExamBrief {
@@ -197,7 +198,8 @@ export function ExamPapersManage() {
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-6xl space-y-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">📄 Papers & Approval</h1>
+          <BackButton fallback="/admin/exams" />
+          <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)] mt-1">📄 Papers & Approval</h1>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Review exam papers submitted by instructors and approve or reject them</p>
         </div>
 

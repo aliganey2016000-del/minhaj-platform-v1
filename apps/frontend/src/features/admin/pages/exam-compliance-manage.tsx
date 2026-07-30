@@ -7,6 +7,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../../../lib/axios';
 import { toTitleCase } from '../../../lib/format';
+import { BackButton } from '../../shared/components/back-button';
 
 interface ExamBrief { _id: string; title: string; examDate: string; course?: { _id: string; title: { en: string } }; }
 interface StudentBrief { _id: string; studentId: string; profile?: { firstName: string; lastName: string }; }
@@ -185,7 +186,8 @@ export function ExamComplianceManage() {
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">⚠️ Compliances & Issues</h1>
+            <BackButton fallback="/admin/exams" />
+            <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">⚠️ Compliances & Issues</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{openIncidents} open incident{openIncidents === 1 ? '' : 's'} · {pendingAppeals} pending appeal{pendingAppeals === 1 ? '' : 's'}</p>
           </div>
           {tab === 'incidents' && (

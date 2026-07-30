@@ -9,6 +9,7 @@ import { Search, Clock, CalendarX, ClipboardCheck, Zap, Info, Printer, CheckSqua
 import { Html5Qrcode } from 'html5-qrcode';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { BackButton } from '../../shared/components/back-button';
 
 interface SchoolBrief { _id: string; name: string; }
 interface DepartmentBrief { _id: string; name: string; }
@@ -608,7 +609,8 @@ export function ExamAttendanceManage() {
     <div className={`p-6 lg:p-10 pt-20 lg:pt-10 ${showStickySaveBar ? 'pb-28' : ''}`}>
       <div className="mx-auto max-w-6xl space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">✅ Exam Attendance</h1>
+          <BackButton fallback="/admin/exams" />
+          <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">✅ Exam Attendance</h1>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Invigilator portal — mark exam-day attendance</p>
         </div>
 
