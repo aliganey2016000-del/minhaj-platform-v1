@@ -40,7 +40,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     Exam.find(scopedFilter)
       .populate({
         path: 'course',
-        select: 'title.en slug category teacher class school thumbnail',
+        select: 'title.en slug category teacher class school thumbnail enrolledStudents',
         populate: [
           { path: 'teacher', select: 'profile', populate: { path: 'profile', select: 'firstName lastName' } },
           { path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } },
@@ -169,7 +169,7 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
   const exams = await Exam.find({ course: { $in: courseIds } })
     .populate({
       path: 'course',
-      select: 'title.en slug category thumbnail class school teacher',
+      select: 'title.en slug category thumbnail class school teacher enrolledStudents',
       populate: [
         { path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } },
         { path: 'school', select: 'name' },
