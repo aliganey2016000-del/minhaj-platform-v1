@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Clock, ArrowRight, CalendarX } from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface SchoolBrief { _id: string; name: string; }
@@ -15,6 +15,9 @@ interface ExamBrief {
   _id: string;
   title: string;
   examDate: string;
+  startTime?: string;
+  endTime?: string;
+  status: string;
   course?: {
     _id: string;
     title: { en: string };
@@ -153,6 +156,11 @@ export function ExamAttendanceManage() {
     if (filterDepartment) return e.course?.class?.department?._id === filterDepartment;
     return true;
   });
+
+  // Today's Exams — surfaces same-day exams up front so the invigilator
+  // doesn't have to hunt through the cascade/dropdown to find what's due.
+  const todayStr = new Date().toDateString();
+  const examsToday = examsToShow.filter((e) => e.examDate && new Date(e.examDate).toDateString() === todayStr);
 
   const loadRoster = async (examId: string) => {
     setSelectedExam(examId);
@@ -442,7 +450,47 @@ export function ExamAttendanceManage() {
         )}
 
         {!selectedExam && (
-          <div className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg">👆 Select an exam above to mark attendance</p></div>
+          <>
+            {examsToday.length > 0 ? (
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-text-secondary)]">Today's Exams</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+                  {examsToday.map((e) => (
+                    <div
+                      key={e._id}
+                      onClick={() => loadRoster(e._id)}
+                      className="group bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl shadow-sm hover:border-indigo-500 hover:shadow-md transition-all cursor-pointer overflow-hidden p-4 flex flex-col gap-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-bold text-sm text-[var(--color-text-primary)] truncate">{e.title}</p>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold flex-shrink-0 capitalize ${
+                          e.status === 'ongoing' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                        }`}>
+                          {e.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-[var(--color-text-tertiary)] truncate">{e.course?.title?.en || 'Untitled Course'}</p>
+                      {e.startTime && e.endTime && (
+                        <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
+                          <Clock className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={1.75} />
+                          {e.startTime} – {e.endTime}
+                        </div>
+                      )}
+                      <span className="inline-flex items-center gap-1 mt-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 group-hover:gap-1.5 transition-all">
+                        Mark Attendance <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/20 rounded-2xl p-12 text-center">
+                <CalendarX className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" strokeWidth={1.5} />
+                <p className="text-lg text-[var(--color-text-secondary)]">No exams scheduled for today.</p>
+                <p className="text-sm mt-1 text-[var(--color-text-tertiary)]">👆 Select an exam above to mark attendance.</p>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
