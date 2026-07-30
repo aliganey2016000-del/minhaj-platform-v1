@@ -707,21 +707,42 @@ export function ExamsManage() {
           </button>
         </div>
 
-        {/* Stats — gradient tiles with icon badges instead of flat pastels */}
+        {/* Stats — gradient tiles doubling as status filter tabs: click one
+            to narrow the table below to just that status (click again to
+            clear), same interaction as the Manual/Automatic quick filters. */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {([
-            { label: 'Scheduled', count: scheduledCount, icon: CalendarClock, gradient: 'from-blue-500 to-blue-600' },
-            { label: 'Ongoing', count: ongoingCount, icon: PlayCircle, gradient: 'from-green-500 to-emerald-600' },
-            { label: 'Completed', count: completedCount, icon: CheckCircle2, gradient: 'from-purple-500 to-purple-600' },
-            { label: 'Cancelled', count: cancelledCount, icon: XCircle, gradient: 'from-red-500 to-rose-600' },
+            { key: 'scheduled', label: 'Scheduled', count: scheduledCount, icon: CalendarClock, gradient: 'from-blue-500 to-blue-600' },
+            { key: 'ongoing', label: 'Ongoing', count: ongoingCount, icon: PlayCircle, gradient: 'from-green-500 to-emerald-600' },
+            { key: 'completed', label: 'Completed', count: completedCount, icon: CheckCircle2, gradient: 'from-purple-500 to-purple-600' },
+            { key: 'cancelled', label: 'Cancelled', count: cancelledCount, icon: XCircle, gradient: 'from-red-500 to-rose-600' },
           ] as const).map((s) => (
-            <div key={s.label} className={`rounded-2xl bg-gradient-to-br ${s.gradient} p-4 text-white shadow-sm relative overflow-hidden`}>
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => setStatusFilter((prev) => (prev === s.key ? '' : s.key))}
+              className={`rounded-2xl bg-gradient-to-br ${s.gradient} p-4 text-white shadow-sm relative overflow-hidden text-left transition-all hover:shadow-md hover:-translate-y-0.5 ${
+                statusFilter === s.key ? 'ring-2 ring-offset-2 ring-offset-[var(--color-surface-primary)] ring-slate-900 dark:ring-white' : ''
+              }`}
+            >
               <s.icon className="absolute -right-2 -bottom-2 h-16 w-16 opacity-20" strokeWidth={1.5} />
               <p className="text-2xl font-bold relative">{s.count}</p>
               <p className="text-xs text-white/85 relative">{s.label}</p>
-            </div>
+            </button>
           ))}
         </div>
+        {statusFilter && (
+          <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] -mt-2">
+            <span>Showing only <span className="font-semibold capitalize">{statusFilter}</span> exams.</span>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('')}
+              className="inline-flex items-center gap-1 rounded-full border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-2.5 py-1 text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+            >
+              Clear filter
+            </button>
+          </div>
+        )}
 
         {/* Search & Filter — combined into one clean bar */}
         <div className="bg-[var(--color-surface-primary)] rounded-2xl border border-[var(--color-border-default)] p-4 space-y-3 shadow-sm">
