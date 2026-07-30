@@ -57,6 +57,22 @@ interface AuditLogEntry {
   createdAt: string;
 }
 
+interface AggregateRecord {
+  _id: string;
+  student: StudentBrief;
+  exam: { _id: string; title: string; examDate?: string; course?: { title: { en: string } } } | null;
+  status: string;
+  notes?: string;
+  markedAt?: string;
+  markedBy?: { name: string; role: string } | null;
+}
+
+interface AggregateReport {
+  examsCount: number;
+  summary: { total: number; present: number; absent: number; late: number; excused: number };
+  records: AggregateRecord[];
+}
+
 /**
  * Display-only status derived from the exam's actual clock instead of the
  * stored `status` field — that field is a manual label nobody reliably
@@ -242,6 +258,13 @@ export function ExamAttendanceManage() {
   // ExamAttendance row per student, updated in place), so this shows the
   // record's current marking metadata rather than a history list.
   const [auditEntry, setAuditEntry] = useState<RosterEntry | null>(null);
+
+  // Aggregate View Records/Report — used when View Records or Report is
+  // open but no single exam is selected, scoped by whatever level of the
+  // Organization/Department/Class cascade is currently set (or nothing at
+  // all, for a full platform view as a super admin).
+  const [aggregateData, setAggregateData] = useState<AggregateReport | null>(null);
+  const [aggregateLoading, setAggregateLoading] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [auditLogsLoading, setAuditLogsLoading] = useState(false);
 
@@ -328,6 +351,29 @@ export function ExamAttendanceManage() {
   }, [filterSchool]);
 
   useEffect(() => { fetchExams(); }, [fetchExams]);
+
+  // Aggregate View Records/Report — fetched whenever those tabs are open
+  // without a specific exam selected, re-scoped to whatever level of the
+  // cascade filters is currently set.
+  useEffect(() => {
+    if (selectedExam || (tab !== 'view' && tab !== 'report')) return;
+    setAggregateLoading(true);
+    setAggregateData(null);
+    (async () => {
+      try {
+        const params: Record<string, string> = {};
+        if (filterSchool) params.school = filterSchool;
+        if (filterDepartment) params.department = filterDepartment;
+        if (filterClass) params.classId = filterClass;
+        const { data } = await api.get('/exams/attendance/aggregate', { params });
+        setAggregateData(data.data || null);
+      } catch (err: any) {
+        setError(err.response?.data?.message || 'Failed to load aggregate report');
+      } finally {
+        setAggregateLoading(false);
+      }
+    })();
+  }, [selectedExam, tab, filterSchool, filterDepartment, filterClass]);
 
   // Exams don't carry a department/class query param on the backend — the
   // Class narrows client-side against each exam's populated course.class.
@@ -631,28 +677,37 @@ export function ExamAttendanceManage() {
           </div>
         </div>
 
-        {/* Tab Switcher — segmented control, matching Course Attendance */}
-        {selectedExam && (
-          <div className="flex bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-xl max-w-md gap-1">
-            {([
-              { key: 'take' as const, label: 'Take Attendance', icon: CheckSquare },
-              { key: 'view' as const, label: 'View Records', icon: FileText },
-              { key: 'report' as const, label: 'Report', icon: BarChart3 },
-            ]).map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                onClick={() => setTab(key)}
-                className={`flex-1 inline-flex items-center justify-center gap-1.5 text-sm transition-all ${
-                  tab === key
-                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm rounded-lg font-semibold px-4 py-2'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 px-4 py-2'
-                }`}
-              >
-                <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
-                <span className="hidden sm:inline">{label}</span>
-              </button>
-            ))}
-          </div>
+        {/* Tab Switcher — segmented control, matching Course Attendance.
+            Always visible: Take Attendance needs one specific exam, but
+            View Records/Report also work in an aggregate mode across every
+            exam matching the Organization/Department/Class filters above
+            when no single exam is picked — e.g. "all exams for this
+            Department" or the whole org for a super admin. */}
+        <div className="flex bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-xl max-w-md gap-1">
+          {([
+            { key: 'take' as const, label: 'Take Attendance', icon: CheckSquare },
+            { key: 'view' as const, label: 'View Records', icon: FileText },
+            { key: 'report' as const, label: 'Report', icon: BarChart3 },
+          ]).map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex-1 inline-flex items-center justify-center gap-1.5 text-sm transition-all ${
+                tab === key
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm rounded-lg font-semibold px-4 py-2'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 px-4 py-2'
+              }`}
+            >
+              <Icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
+
+        {!selectedExam && (tab === 'view' || tab === 'report') && (
+          <p className="text-xs text-[var(--color-text-tertiary)] -mt-2">
+            Showing aggregate {tab === 'view' ? 'records' : 'report'} for {filterClass ? 'this Class' : filterDepartment ? 'this Department' : filterSchool ? 'this Organization' : 'all organizations'} — pick a specific exam above for one exam's detail instead.
+          </p>
         )}
 
         {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
@@ -1073,7 +1128,7 @@ export function ExamAttendanceManage() {
           </div>
         )}
 
-        {!selectedExam && (
+        {!selectedExam && tab === 'take' && (
           <>
             {/* KPI summary — a quick read on today's exam load before diving
                 into any one roster. */}
@@ -1216,6 +1271,134 @@ export function ExamAttendanceManage() {
               </div>
             )}
           </>
+        )}
+
+        {/* ── Aggregate View Records (no specific exam selected) ── */}
+        {!selectedExam && tab === 'view' && (
+          aggregateLoading ? (
+            <div className="flex justify-center py-10"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>
+          ) : !aggregateData || aggregateData.records.length === 0 ? (
+            <div className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg">No attendance records found for this scope yet.</p></div>
+          ) : (
+            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+              <div className="p-4 border-b border-[var(--color-border-default)] flex items-center justify-between">
+                <p className="text-sm font-semibold text-[var(--color-text-secondary)]">
+                  {aggregateData.records.length} record{aggregateData.records.length === 1 ? '' : 's'} across {aggregateData.examsCount} exam{aggregateData.examsCount === 1 ? '' : 's'}
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50/70 dark:bg-slate-800/40">
+                    <tr>
+                      <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Student Name / ID</th>
+                      <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Exam / Course</th>
+                      <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Date</th>
+                      <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Marked By / Time</th>
+                      <th className="text-center px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Status</th>
+                      <th className="text-left px-5 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {aggregateData.records.map((r, i) => (
+                      <tr key={r._id} className={`border-b border-slate-100 dark:border-slate-800 ${i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/30' : 'bg-white dark:bg-slate-900'}`}>
+                        <td className="px-5 py-3 whitespace-nowrap">
+                          <p className="font-medium text-[var(--color-text-primary)]">{r.student.profile?.firstName} {r.student.profile?.lastName}</p>
+                          <code className="text-[11px] text-[var(--color-text-tertiary)]">{r.student.studentId}</code>
+                        </td>
+                        <td className="px-5 py-3 whitespace-nowrap">
+                          <p className="text-xs text-[var(--color-text-primary)]">{r.exam?.title || '—'}</p>
+                          <p className="text-[11px] text-[var(--color-text-tertiary)]">{r.exam?.course?.title?.en || '—'}</p>
+                        </td>
+                        <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                          {r.exam?.examDate ? new Date(r.exam.examDate).toLocaleDateString() : 'Self-Paced'}
+                        </td>
+                        <td className="px-5 py-3 whitespace-nowrap">
+                          <p className="text-xs text-[var(--color-text-secondary)]">{r.markedBy?.name || '—'}</p>
+                          <p className="text-[11px] text-[var(--color-text-tertiary)]">{r.markedAt ? new Date(r.markedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}</p>
+                        </td>
+                        <td className="px-5 py-3 text-center"><StatusBadge status={r.status} /></td>
+                        <td className="px-5 py-3 text-xs text-[var(--color-text-tertiary)]">{r.notes || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        )}
+
+        {/* ── Aggregate Report (no specific exam selected) ── */}
+        {!selectedExam && tab === 'report' && (
+          aggregateLoading ? (
+            <div className="flex justify-center py-10"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>
+          ) : !aggregateData || aggregateData.summary.total === 0 ? (
+            <div className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg">No attendance data for this scope yet.</p></div>
+          ) : (
+            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+              <div className="p-4 border-b border-[var(--color-border-default)]">
+                <p className="text-sm font-semibold text-[var(--color-text-secondary)]">
+                  Aggregate Summary — {aggregateData.summary.total} record{aggregateData.summary.total === 1 ? '' : 's'} across {aggregateData.examsCount} exam{aggregateData.examsCount === 1 ? '' : 's'}
+                </p>
+              </div>
+              <div className="p-5 border-b border-[var(--color-border-default)]">
+                <AttendanceDonutChart
+                  counts={aggregateData.summary}
+                  total={aggregateData.summary.total}
+                />
+              </div>
+              <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {([
+                  { label: 'Present', count: aggregateData.summary.present, color: 'text-green-600 dark:text-green-400' },
+                  { label: 'Absent', count: aggregateData.summary.absent, color: 'text-red-600 dark:text-red-400' },
+                  { label: 'Late', count: aggregateData.summary.late, color: 'text-amber-600 dark:text-amber-400' },
+                  { label: 'Excused', count: aggregateData.summary.excused, color: 'text-blue-600 dark:text-blue-400' },
+                ]).map((s) => (
+                  <div key={s.label} className="rounded-xl border border-[var(--color-border-default)] p-4 text-center">
+                    <p className={`text-2xl font-bold ${s.color}`}>{s.count}</p>
+                    <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                      {s.label} ({Math.round((s.count / aggregateData.summary.total) * 100)}%)
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {(() => {
+                const incidents = aggregateData.records.filter((r) => r.status === 'absent' || (r.notes || '').includes('🚩'));
+                if (incidents.length === 0) return null;
+                return (
+                  <div className="border-t border-[var(--color-border-default)]">
+                    <div className="px-5 pt-4 pb-2">
+                      <p className="text-sm font-semibold text-red-700 dark:text-red-400">⚠️ Absence &amp; Malpractice Incident Report</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-red-50/60 dark:bg-red-950/20">
+                          <tr>
+                            <th className="text-left px-5 py-2.5 font-semibold text-xs tracking-wider text-red-700 dark:text-red-400 uppercase">Student</th>
+                            <th className="text-left px-5 py-2.5 font-semibold text-xs tracking-wider text-red-700 dark:text-red-400 uppercase">Exam</th>
+                            <th className="text-center px-5 py-2.5 font-semibold text-xs tracking-wider text-red-700 dark:text-red-400 uppercase">Status</th>
+                            <th className="text-left px-5 py-2.5 font-semibold text-xs tracking-wider text-red-700 dark:text-red-400 uppercase">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {incidents.map((r) => (
+                            <tr key={r._id} className="border-b border-slate-100 dark:border-slate-800">
+                              <td className="px-5 py-2.5">
+                                <p className="font-medium">{r.student.profile?.firstName} {r.student.profile?.lastName}</p>
+                                <code className="text-[11px] text-[var(--color-text-tertiary)]">{r.student.studentId}</code>
+                              </td>
+                              <td className="px-5 py-2.5 text-xs text-[var(--color-text-secondary)]">{r.exam?.title || '—'}</td>
+                              <td className="px-5 py-2.5 text-center"><StatusBadge status={r.status} /></td>
+                              <td className="px-5 py-2.5 text-xs text-[var(--color-text-secondary)]">{r.notes || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )
         )}
       </div>
 

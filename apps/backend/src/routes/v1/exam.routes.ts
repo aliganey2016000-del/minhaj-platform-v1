@@ -23,6 +23,7 @@ router.get('/my/seating', roleMiddleware(['student']), asyncHandler(seatControll
 router.get('/my/attendance', roleMiddleware(['student']), asyncHandler(examAttendanceController.getMyHistory));
 router.get('/my/active', roleMiddleware(['student']), asyncHandler(attemptController.getActiveExams));
 router.get('/my/appeals', roleMiddleware(['student']), asyncHandler(appealController.getMy));
+router.get('/attendance/aggregate', adminOrTeacher, asyncHandler(examAttendanceController.getAggregateReport));
 
 router.get('/', adminOrTeacher, asyncHandler(examController.getAll));
 router.post('/', adminOrTeacher, asyncHandler(examController.create));

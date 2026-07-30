@@ -11,12 +11,33 @@ import ExamAttendanceLog from '../models/exam-attendance-log.model';
 import SeatAllocation from '../models/seat-allocation.model';
 import Student from '../models/student.model';
 import School from '../models/school.model';
+import Course from '../models/course.model';
+import ClassModel from '../models/class.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
-import { assertOwnsOrg, assertOwnsExamIfTeacher } from '../utils/tenant-scope';
+import { assertOwnsOrg, assertOwnsExamIfTeacher, applyOrgFilter, getOwnTeacherRecord } from '../utils/tenant-scope';
 import ensureStudentRecord from '../utils/ensure-student';
+
+/** Resolves changedBy/markedBy User ids into display names, labeling a
+ *  student's own account (self-paced auto check-in) as "Auto System". */
+async function resolveMarkerNames(userIds: string[]): Promise<Map<string, { name: string; role: string }>> {
+  const ids = [...new Set(userIds)];
+  const [users, profiles] = await Promise.all([
+    User.find({ _id: { $in: ids } }).select('email role').lean(),
+    Profile.find({ user: { $in: ids } }).select('user firstName lastName').lean(),
+  ]);
+  return new Map(
+    ids.map((id) => {
+      const u = users.find((mu) => mu._id.toString() === id);
+      if (u?.role === 'student') return [id, { name: 'Auto System', role: 'system' }];
+      const p = profiles.find((mp) => mp.user.toString() === id);
+      const name = p ? `${p.firstName} ${p.lastName}` : u?.email || 'Unknown';
+      return [id, { name, role: u?.role || '' }];
+    })
+  );
+}
 
 const VALID_STATUSES = ['present', 'absent', 'late', 'excused'];
 
@@ -222,6 +243,83 @@ export const getAuditLogs = async (req: Request, res: Response): Promise<Respons
   }));
 
   return ApiResponse.success(res, enriched);
+};
+
+// GET /exams/attendance/aggregate — cross-exam records + summary, scoped by
+// Organization/Department/Class/Course instead of one specific exam. Lets
+// an admin pull "all attendance for this Department" (or Class, Course, or
+// the whole org) without opening exams one at a time. A super admin with
+// no `school` filter sees every organization; org_admin/teacher stay
+// scoped exactly like the regular exam list (applyOrgFilter / assigned-
+// courses-only).
+export const getAggregateReport = async (req: Request, res: Response): Promise<Response> => {
+  const { school, department, classId, courseId } = req.query;
+
+  const examFilter: Record<string, unknown> = {};
+  if (school) examFilter.school = school as string;
+  const scopedExamFilter = applyOrgFilter(req, examFilter, 'school');
+
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    const teacherCourseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
+    scopedExamFilter.course = { $in: teacherCourseIds };
+  }
+
+  if (courseId) {
+    scopedExamFilter.course = courseId as string;
+  } else if (classId || department) {
+    const courseFilter: Record<string, unknown> = {};
+    if (classId) {
+      courseFilter.class = classId as string;
+    } else if (department) {
+      const classIds = await ClassModel.find({ department: department as string }).distinct('_id');
+      courseFilter.class = { $in: classIds };
+    }
+    const courseIds = await Course.find(courseFilter).distinct('_id');
+    scopedExamFilter.course = { $in: courseIds };
+  }
+
+  const exams = await Exam.find(scopedExamFilter)
+    .select('_id title examDate startTime endTime course')
+    .populate('course', 'title.en')
+    .lean();
+  const examIds = exams.map((e) => e._id);
+  const examMap = new Map(exams.map((e) => [e._id.toString(), e]));
+
+  const records = await ExamAttendance.find({ exam: { $in: examIds } })
+    .populate({
+      path: 'student',
+      select: 'studentId profile class',
+      populate: [
+        { path: 'profile', select: 'firstName lastName' },
+        { path: 'class', select: 'title section' },
+      ],
+    })
+    .sort({ markedAt: -1 })
+    .limit(2000)
+    .lean();
+
+  const markerMap = await resolveMarkerNames(records.map((r: any) => r.markedBy?.toString()).filter(Boolean));
+
+  const enriched = records.map((r: any) => ({
+    _id: r._id,
+    student: r.student,
+    exam: examMap.get(r.exam.toString()) || null,
+    status: r.status,
+    notes: r.notes,
+    markedAt: r.markedAt,
+    markedBy: r.markedBy ? markerMap.get(r.markedBy.toString()) || null : null,
+  }));
+
+  const summary = {
+    total: records.length,
+    present: records.filter((r) => r.status === 'present').length,
+    absent: records.filter((r) => r.status === 'absent').length,
+    late: records.filter((r) => r.status === 'late').length,
+    excused: records.filter((r) => r.status === 'excused').length,
+  };
+
+  return ApiResponse.success(res, { examsCount: examIds.length, summary, records: enriched });
 };
 
 // GET /exams/my/attendance — the logged-in student's own exam attendance history
