@@ -82,6 +82,29 @@ const emptyForm: ExamForm = {
   autoScheduleWindowDays: 2,
 };
 
+/**
+ * Display-only status derived from the exam's actual clock instead of the
+ * stored `status` field — that field is a manual label nobody reliably
+ * flips the moment an exam's window opens or closes, so a fixed-schedule
+ * exam whose end time already passed would otherwise still read
+ * "Scheduled"/"Ongoing" indefinitely. Self-paced exams have no single
+ * shared window (each student gets their own), so those fall back to the
+ * stored status as-is. Doesn't touch the underlying value — only what's
+ * shown/counted/filtered by.
+ */
+function getEffectiveStatus(exam: Exam): string {
+  if (exam.status === 'cancelled' || exam.status === 'completed') return exam.status;
+  if (exam.autoSchedule || !exam.examDate || !exam.startTime || !exam.endTime) return exam.status;
+
+  const datePart = new Date(exam.examDate).toISOString().split('T')[0];
+  const start = new Date(`${datePart}T${exam.startTime}`);
+  const end = new Date(`${datePart}T${exam.endTime}`);
+  const now = new Date();
+  if (now >= start && now <= end) return 'ongoing';
+  if (now > end) return 'completed';
+  return exam.status;
+}
+
 // ---------------------------------------------------------------------------
 // Status Badge
 // ---------------------------------------------------------------------------
@@ -550,11 +573,11 @@ function ViewModal({ exam, onClose }: { exam: Exam; onClose: () => void }) {
 
         <div className="space-y-3">
           <div className="text-center pb-3 border-b border-[var(--color-border-subtle)]">
-            <p className="text-lg font-bold">{toTitleCase(exam.title)}</p>
-            <p className="text-sm text-[var(--color-text-tertiary)]">{exam.course?.title?.en}</p>
+            <p className="text-lg font-bold" dir="auto">{toTitleCase(exam.title)}</p>
+            <p className="text-sm text-[var(--color-text-tertiary)]">{exam.course?.title?.en || '⚠️ Course missing'}</p>
           </div>
 
-          <DetailRow label="Status" value={<StatusBadge status={exam.status} />} />
+          <DetailRow label="Status" value={<StatusBadge status={getEffectiveStatus(exam)} />} />
           {exam.autoSchedule ? (
             <>
               <DetailRow label="Scheduling" value={`🤖 Automatic — unlocks after ${exam.milestone === 'mid' ? 'tagged modules' : 'the whole course'}`} />
@@ -611,7 +634,10 @@ export function ExamsManage() {
     try {
       const params: any = {};
       if (search) params.search = search;
-      if (statusFilter) params.status = statusFilter;
+      // Status filtering happens client-side against the effective
+      // (time-computed) status below, not the raw stored field — an exam
+      // whose window already ended should filter as "Completed" even if
+      // nobody flipped its stored status yet.
 
       const { data } = await api.get('/exams', { params });
       setExams(data.data || []);
@@ -620,7 +646,7 @@ export function ExamsManage() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter]);
+  }, [search]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -643,16 +669,17 @@ export function ExamsManage() {
     }
   };
 
-  const scheduledCount = exams.filter((e) => e.status === 'scheduled').length;
-  const ongoingCount = exams.filter((e) => e.status === 'ongoing').length;
-  const completedCount = exams.filter((e) => e.status === 'completed').length;
-  const cancelledCount = exams.filter((e) => e.status === 'cancelled').length;
+  const scheduledCount = exams.filter((e) => getEffectiveStatus(e) === 'scheduled').length;
+  const ongoingCount = exams.filter((e) => getEffectiveStatus(e) === 'ongoing').length;
+  const completedCount = exams.filter((e) => getEffectiveStatus(e) === 'completed').length;
+  const cancelledCount = exams.filter((e) => getEffectiveStatus(e) === 'cancelled').length;
 
   const manualCount = exams.filter((e) => !e.autoSchedule).length;
   const autoCount = exams.filter((e) => e.autoSchedule).length;
   const visibleExams = exams.filter((e) => {
-    if (scheduleFilter === 'manual') return !e.autoSchedule;
-    if (scheduleFilter === 'auto') return !!e.autoSchedule;
+    if (scheduleFilter === 'manual' && e.autoSchedule) return false;
+    if (scheduleFilter === 'auto' && !e.autoSchedule) return false;
+    if (statusFilter && getEffectiveStatus(e) !== statusFilter) return false;
     return true;
   });
 
@@ -775,13 +802,22 @@ export function ExamsManage() {
                     onClick={() => setViewingExam(exam)}
                   >
                     <td className="px-6 py-5 rounded-l-2xl border-y border-l border-[var(--color-border-subtle)]">
-                      <p className="font-semibold">{toTitleCase(exam.title)}</p>
+                      {/* dir="auto" reads the title's own script (Arabic,
+                          Somali, English, ...) and aligns accordingly
+                          instead of always forcing left-to-right. */}
+                      <p className="font-semibold" dir="auto">{toTitleCase(exam.title)}</p>
                       <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">{exam.duration} min</p>
                     </td>
                     <td className="px-6 py-5 hidden md:table-cell border-y border-[var(--color-border-subtle)]">
-                      <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">
-                        {exam.course?.title?.en}
-                      </span>
+                      {exam.course?.title?.en ? (
+                        <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">
+                          {exam.course.title.en}
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-amber-50 dark:bg-amber-950/30 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400" title="This exam's course reference is missing or was deleted">
+                          ⚠️ Course Missing
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-5 text-center hidden lg:table-cell text-sm border-y border-[var(--color-border-subtle)]">
                       {exam.autoSchedule ? <span className="text-[var(--color-text-tertiary)]">—</span> : exam.examDate ? new Date(exam.examDate).toLocaleDateString() : '—'}
@@ -800,7 +836,7 @@ export function ExamsManage() {
                       </span>
                     </td>
                     <td className="px-6 py-5 text-center border-y border-[var(--color-border-subtle)]" onClick={(e) => e.stopPropagation()}>
-                      <StatusPillSelect status={exam.status} onChange={(value) => handleStatusChange(exam._id, value)} />
+                      <StatusPillSelect status={getEffectiveStatus(exam)} onChange={(value) => handleStatusChange(exam._id, value)} />
                     </td>
                     <td className="px-6 py-5 text-center rounded-r-2xl border-y border-r border-[var(--color-border-subtle)]" onClick={(e) => e.stopPropagation()}>
                       <RowActionsMenu
