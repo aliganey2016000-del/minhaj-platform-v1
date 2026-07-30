@@ -280,23 +280,28 @@ export function StudentExams() {
           </p>
         </div>
 
+        {/* Status cards double as filter tabs — click one to narrow the
+            list below to just that status; click the active one again to
+            clear back to All (same interaction as the pill tabs below). */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{counts.upcoming}</p>
-            <p className="text-xs text-blue-600 dark:text-blue-400">Upcoming</p>
-          </div>
-          <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-green-700 dark:text-green-300">{counts.active}</p>
-            <p className="text-xs text-green-600 dark:text-green-400">Active</p>
-          </div>
-          <div className="rounded-xl border border-purple-200 dark:border-purple-900/50 bg-purple-50 dark:bg-purple-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-purple-700 dark:text-purple-300">{counts.completed}</p>
-            <p className="text-xs text-purple-600 dark:text-purple-400">Completed</p>
-          </div>
-          <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-red-700 dark:text-red-300">{counts.missed}</p>
-            <p className="text-xs text-red-600 dark:text-red-400">Missed</p>
-          </div>
+          {([
+            { key: 'upcoming' as const, count: counts.upcoming, label: 'Upcoming', border: 'border-blue-200 dark:border-blue-900/50', bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-300', sub: 'text-blue-600 dark:text-blue-400', ring: 'ring-blue-500' },
+            { key: 'active' as const, count: counts.active, label: 'Active', border: 'border-green-200 dark:border-green-900/50', bg: 'bg-green-50 dark:bg-green-950/30', text: 'text-green-700 dark:text-green-300', sub: 'text-green-600 dark:text-green-400', ring: 'ring-green-500' },
+            { key: 'completed' as const, count: counts.completed, label: 'Completed', border: 'border-purple-200 dark:border-purple-900/50', bg: 'bg-purple-50 dark:bg-purple-950/30', text: 'text-purple-700 dark:text-purple-300', sub: 'text-purple-600 dark:text-purple-400', ring: 'ring-purple-500' },
+            { key: 'missed' as const, count: counts.missed, label: 'Missed', border: 'border-red-200 dark:border-red-900/50', bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-300', sub: 'text-red-600 dark:text-red-400', ring: 'ring-red-500' },
+          ]).map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => setTab((prev) => (prev === s.key ? 'all' : s.key))}
+              className={`rounded-xl border ${s.border} ${s.bg} p-4 text-center transition-all hover:shadow-sm ${
+                tab === s.key ? `ring-2 ${s.ring} ring-offset-1` : ''
+              }`}
+            >
+              <p className={`text-2xl font-bold ${s.text}`}>{s.count}</p>
+              <p className={`text-xs ${s.sub}`}>{s.label}</p>
+            </button>
+          ))}
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-1">
