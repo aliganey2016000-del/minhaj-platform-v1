@@ -91,7 +91,24 @@ export const getForExam = async (req: Request, res: Response): Promise<Response>
     };
   });
 
-  return ApiResponse.success(res, roster);
+  // Return the exam's own details alongside the roster — the frontend
+  // previously looked this up in a separately-fetched (and independently
+  // filtered/paginated) exams list, which could fall out of sync with
+  // whatever roster was actually loaded and silently show blank Course/
+  // Date/Time columns. Sourcing it from the same request the roster came
+  // from guarantees they always match.
+  const examDetails = {
+    _id: exam._id,
+    title: exam.title,
+    examDate: exam.examDate,
+    startTime: exam.startTime,
+    endTime: exam.endTime,
+    status: exam.status,
+    autoSchedule: exam.autoSchedule,
+    course: course ? { _id: course._id, title: course.title } : null,
+  };
+
+  return ApiResponse.success(res, { exam: examDetails, roster });
 };
 
 // POST /exams/:id/attendance — bulk mark attendance

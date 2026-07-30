@@ -132,6 +132,11 @@ export function ExamAttendanceManage() {
   const [exams, setExams] = useState<ExamBrief[]>([]);
   const [selectedExam, setSelectedExam] = useState('');
   const [roster, setRoster] = useState<RosterEntry[]>([]);
+  // Sourced from the same GET /exams/:id/attendance response as the roster
+  // itself (rather than a separately-fetched exams list, which could be
+  // filtered/paginated out of sync) so Course/Date/Time always match what's
+  // actually loaded.
+  const [examDetails, setExamDetails] = useState<ExamBrief | null>(null);
   const [marks, setMarks] = useState<Record<string, { status: string; notes: string }>>({});
   const [loading, setLoading] = useState(true);
   const [rosterLoading, setRosterLoading] = useState(false);
@@ -249,11 +254,11 @@ export function ExamAttendanceManage() {
   // Opens a plain printable roster in a new tab — a fallback for an
   // invigilator who wants a paper sign-in sheet before touching the
   // digital Mark Attendance flow.
-  const printAttendanceSheet = async (exam?: ExamBrief) => {
+  const printAttendanceSheet = async (exam?: ExamBrief | null) => {
     if (!exam) return;
     try {
       const { data } = await api.get(`/exams/${exam._id}/attendance`);
-      const entries: RosterEntry[] = data.data || [];
+      const entries: RosterEntry[] = data.data?.roster || [];
       const rows = entries
         .map(
           (r, i) => `<tr><td>${i + 1}</td><td>${r.student.profile?.firstName || ''} ${r.student.profile?.lastName || ''}</td><td>${r.student.studentId}</td><td>${r.seat ? `${r.seat.room?.name || ''} · ${r.seat.deskNumber}` : ''}</td><td></td></tr>`
@@ -284,7 +289,7 @@ export function ExamAttendanceManage() {
     }
   };
 
-  const exportReportCsv = (exam?: ExamBrief) => {
+  const exportReportCsv = (exam?: ExamBrief | null) => {
     if (roster.length === 0) return;
     const header = ['Student ID', 'Student Name', 'Status'];
     const rows = roster.map((r) => [r.student.studentId, `${r.student.profile?.firstName || ''} ${r.student.profile?.lastName || ''}`.trim(), r.attendance?.status || 'present']);
@@ -305,6 +310,7 @@ export function ExamAttendanceManage() {
     setSelectedExam(examId);
     setTab('take');
     setRoster([]);
+    setExamDetails(null);
     setMessage('');
     setStudentSearch('');
     setStatusFilter('');
@@ -313,7 +319,8 @@ export function ExamAttendanceManage() {
     setError('');
     try {
       const { data } = await api.get(`/exams/${examId}/attendance`);
-      const entries: RosterEntry[] = data.data || [];
+      const entries: RosterEntry[] = data.data?.roster || [];
+      setExamDetails(data.data?.exam || null);
       setRoster(entries);
       const m: Record<string, { status: string; notes: string }> = {};
       entries.forEach((e) => {
@@ -452,7 +459,6 @@ export function ExamAttendanceManage() {
     return true;
   });
 
-  const selectedExamObj = exams.find((e) => e._id === selectedExam);
   const showStickySaveBar = !!selectedExam && roster.length > 0 && !rosterLoading && tab === 'take';
 
   return (
@@ -558,7 +564,7 @@ export function ExamAttendanceManage() {
         {/* Self-paced exams check themselves in — no one needs to walk the
             room, so make that obvious instead of leaving an invigilator
             wondering why students already show Present. */}
-        {selectedExam && selectedExamObj?.autoSchedule && (
+        {selectedExam && examDetails?.autoSchedule && (
           <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50 dark:bg-indigo-950/30 p-4 text-sm text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
             🤖 <span><strong>Auto Check-in enabled</strong> — this is a self-paced exam, so students are automatically marked Present the moment they start it. You can still review or override any student's status below.</span>
           </div>
@@ -619,7 +625,7 @@ export function ExamAttendanceManage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => printAttendanceSheet(selectedExamObj)}
+                  onClick={() => printAttendanceSheet(examDetails)}
                   className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors flex-shrink-0"
                 >
                   🖨️ Print Sheet
@@ -734,7 +740,7 @@ export function ExamAttendanceManage() {
               </div>
               <button
                 type="button"
-                onClick={() => printAttendanceSheet(selectedExamObj)}
+                onClick={() => printAttendanceSheet(examDetails)}
                 className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors flex-shrink-0"
               >
                 🖨️ Print Sheet
@@ -777,14 +783,14 @@ export function ExamAttendanceManage() {
                       <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
                         {r.student.class ? `${r.student.class.title} (${r.student.class.section})` : '—'}
                       </td>
-                      <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">{selectedExamObj?.course?.title?.en || '—'}</td>
+                      <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">{examDetails?.course?.title?.en || '—'}</td>
                       <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                        {selectedExamObj?.examDate
-                          ? `${new Date(selectedExamObj.examDate).toLocaleDateString(undefined, { weekday: 'long' })}, ${new Date(selectedExamObj.examDate).toLocaleDateString()}`
+                        {examDetails?.examDate
+                          ? `${new Date(examDetails.examDate).toLocaleDateString(undefined, { weekday: 'long' })}, ${new Date(examDetails.examDate).toLocaleDateString()}`
                           : 'Self-Paced'}
                       </td>
                       <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                        {selectedExamObj?.startTime && selectedExamObj?.endTime ? `${selectedExamObj.startTime} – ${selectedExamObj.endTime}` : '—'}
+                        {examDetails?.startTime && examDetails?.endTime ? `${examDetails.startTime} – ${examDetails.endTime}` : '—'}
                       </td>
                       <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">{r.attendance?.markedBy?.name || '—'}</td>
                       <td className="px-5 py-3 text-xs text-[var(--color-text-tertiary)] whitespace-nowrap">
@@ -833,14 +839,14 @@ export function ExamAttendanceManage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => printAttendanceSheet(selectedExamObj)}
+                  onClick={() => printAttendanceSheet(examDetails)}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
                 >
                   🖨️ Print Sheet
                 </button>
                 <button
                   type="button"
-                  onClick={() => exportReportCsv(selectedExamObj)}
+                  onClick={() => exportReportCsv(examDetails)}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
                 >
                   ⬇️ Export to Excel
