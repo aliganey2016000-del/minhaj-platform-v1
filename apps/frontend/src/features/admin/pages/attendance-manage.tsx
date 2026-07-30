@@ -165,6 +165,7 @@ function rateColorClass(pct: number): string {
 export function AttendanceManage() {
   const { user } = useAuth();
   const isPlatformAdmin = user?.role === 'admin';
+  const isOrgAdmin = user?.role === 'org_admin';
   const [unlocking, setUnlocking] = useState(false);
 
   const [tab, setTab] = useState<'take' | 'view' | 'report'>('take');
@@ -255,10 +256,15 @@ export function AttendanceManage() {
     (async () => {
       try {
         const { data } = await api.get('/schools');
-        setSchools(data.data || []);
+        const list: SchoolBrief[] = data.data || [];
+        setSchools(list);
+        // org_admin only ever has their own organization — /schools already
+        // scopes the list to just it, so auto-select it instead of showing
+        // a misleading "All Organizations" default they can't actually use.
+        if (isOrgAdmin && list[0]) setFilterSchool(list[0]._id);
       } catch {}
     })();
-  }, []);
+  }, [isOrgAdmin]);
 
   // Organization → Departments
   useEffect(() => {
@@ -720,17 +726,25 @@ export function AttendanceManage() {
         {/* Filters — Organization → Department → Class → Course cascade + Date Period */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100/80 dark:border-slate-800 shadow-sm mt-6">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1.5">🏢 Organization</label>
-            <select
-              value={filterSchool}
-              onChange={(e) => setFilterSchool(e.target.value)}
-              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
-            >
-              <option value="">All Organizations</option>
-              {schools.map((s) => (
-                <option key={s._id} value={s._id}>{s.name}</option>
-              ))}
-            </select>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">
+              🏢 Organization {isOrgAdmin && <span className="text-slate-400 font-normal">(your org)</span>}
+            </label>
+            {isOrgAdmin ? (
+              <div className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-4 flex items-center text-sm font-medium text-slate-600 dark:text-slate-300">
+                {schools.find((s) => s._id === filterSchool)?.name || 'Your Organization'}
+              </div>
+            ) : (
+              <select
+                value={filterSchool}
+                onChange={(e) => setFilterSchool(e.target.value)}
+                className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
+              >
+                <option value="">All Organizations</option>
+                {schools.map((s) => (
+                  <option key={s._id} value={s._id}>{s.name}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div>

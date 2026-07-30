@@ -6,6 +6,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Search, Clock, ArrowRight, CalendarX } from 'lucide-react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 
 interface SchoolBrief { _id: string; name: string; }
 interface DepartmentBrief { _id: string; name: string; }
@@ -61,6 +62,9 @@ function StatusButtons({ value, onChange }: { value: string; onChange: (status: 
 }
 
 export function ExamAttendanceManage() {
+  const { user } = useAuth();
+  const isOrgAdmin = user?.role === 'org_admin';
+
   // Cascading Organization → Department → Class filters that narrow the
   // Exam dropdown, mirroring the pattern in Course Attendance Management.
   const [schools, setSchools] = useState<SchoolBrief[]>([]);
@@ -89,10 +93,15 @@ export function ExamAttendanceManage() {
     (async () => {
       try {
         const { data } = await api.get('/schools');
-        setSchools(data.data || []);
+        const list: SchoolBrief[] = data.data || [];
+        setSchools(list);
+        // org_admin only ever has their own organization — /schools already
+        // scopes the list to just it, so auto-select it instead of showing
+        // a misleading "All Organizations" default they can't actually use.
+        if (isOrgAdmin && list[0]) setFilterSchool(list[0]._id);
       } catch {}
     })();
-  }, []);
+  }, [isOrgAdmin]);
 
   // Organization → Departments
   useEffect(() => {
@@ -259,15 +268,23 @@ export function ExamAttendanceManage() {
         {/* Filters — Organization → Department → Class cascade + Exam */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100/80 dark:border-slate-800 shadow-sm">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1.5">🏢 Organization</label>
-            <select
-              value={filterSchool}
-              onChange={(e) => setFilterSchool(e.target.value)}
-              className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
-            >
-              <option value="">All Organizations</option>
-              {schools.map((s) => (<option key={s._id} value={s._id}>{s.name}</option>))}
-            </select>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">
+              🏢 Organization {isOrgAdmin && <span className="text-slate-400 font-normal">(your org)</span>}
+            </label>
+            {isOrgAdmin ? (
+              <div className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-4 flex items-center text-sm font-medium text-slate-600 dark:text-slate-300">
+                {schools.find((s) => s._id === filterSchool)?.name || 'Your Organization'}
+              </div>
+            ) : (
+              <select
+                value={filterSchool}
+                onChange={(e) => setFilterSchool(e.target.value)}
+                className="h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 w-full"
+              >
+                <option value="">All Organizations</option>
+                {schools.map((s) => (<option key={s._id} value={s._id}>{s.name}</option>))}
+              </select>
+            )}
           </div>
 
           <div>
