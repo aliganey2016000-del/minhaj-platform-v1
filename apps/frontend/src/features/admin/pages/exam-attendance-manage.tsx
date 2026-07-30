@@ -47,6 +47,16 @@ interface RosterEntry {
   } | null;
 }
 
+interface AuditLogEntry {
+  _id: string;
+  previousStatus: string | null;
+  newStatus: string;
+  previousNotes: string;
+  newNotes: string;
+  changedBy: { name: string; role: string } | null;
+  createdAt: string;
+}
+
 /**
  * Display-only status derived from the exam's actual clock instead of the
  * stored `status` field — that field is a manual label nobody reliably
@@ -111,6 +121,76 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// Attendance breakdown donut — reuses the same status colors as every
+// badge/button elsewhere on this page (green/red/amber/blue), so identity
+// stays consistent instead of introducing a second palette for "chart mode".
+const DONUT_SEGMENTS: { key: 'present' | 'absent' | 'late' | 'excused'; label: string; stroke: string; text: string }[] = [
+  { key: 'present', label: 'Present', stroke: '#16a34a', text: 'text-green-600 dark:text-green-400' },
+  { key: 'late', label: 'Late', stroke: '#d97706', text: 'text-amber-600 dark:text-amber-400' },
+  { key: 'excused', label: 'Excused', stroke: '#2563eb', text: 'text-blue-600 dark:text-blue-400' },
+  { key: 'absent', label: 'Absent', stroke: '#dc2626', text: 'text-red-600 dark:text-red-400' },
+];
+
+function AttendanceDonutChart({ counts, total }: { counts: Record<string, number>; total: number }) {
+  const r = 44;
+  const circumference = 2 * Math.PI * r;
+  let offsetAcc = 0;
+
+  if (total === 0) {
+    return <p className="text-sm text-[var(--color-text-tertiary)] text-center py-8">No data to chart yet.</p>;
+  }
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-6">
+      <div className="relative flex-shrink-0">
+        <svg width="140" height="140" viewBox="0 0 100 100" className="-rotate-90">
+          <circle cx="50" cy="50" r={r} fill="none" stroke="currentColor" className="text-slate-100 dark:text-slate-800" strokeWidth="12" />
+          {DONUT_SEGMENTS.map((seg) => {
+            const count = counts[seg.key] || 0;
+            const pct = count / total;
+            const dash = pct * circumference;
+            const el = (
+              <circle
+                key={seg.key}
+                cx="50"
+                cy="50"
+                r={r}
+                fill="none"
+                stroke={seg.stroke}
+                strokeWidth="12"
+                strokeDasharray={`${dash} ${circumference - dash}`}
+                strokeDashoffset={-offsetAcc}
+                strokeLinecap={pct > 0 && pct < 1 ? 'butt' : 'round'}
+              >
+                <title>{seg.label}: {count} ({Math.round(pct * 100)}%)</title>
+              </circle>
+            );
+            offsetAcc += dash;
+            return el;
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <p className="text-xl font-bold text-[var(--color-text-primary)]">{total}</p>
+          <p className="text-[10px] text-[var(--color-text-tertiary)]">Students</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+        {DONUT_SEGMENTS.map((seg) => {
+          const count = counts[seg.key] || 0;
+          const pct = Math.round((count / total) * 100);
+          return (
+            <div key={seg.key} className="flex items-center gap-2 text-xs">
+              <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: seg.stroke }} />
+              <span className="text-[var(--color-text-secondary)]">{seg.label}</span>
+              <span className={`font-semibold ${seg.text}`}>{pct}%</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function ExamAttendanceManage() {
   const { user } = useAuth();
   const isOrgAdmin = user?.role === 'org_admin';
@@ -162,6 +242,23 @@ export function ExamAttendanceManage() {
   // ExamAttendance row per student, updated in place), so this shows the
   // record's current marking metadata rather than a history list.
   const [auditEntry, setAuditEntry] = useState<RosterEntry | null>(null);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+
+  const openAuditLogs = async (entry: RosterEntry) => {
+    setAuditEntry(entry);
+    setAuditLogs([]);
+    if (!selectedExam) return;
+    setAuditLogsLoading(true);
+    try {
+      const { data } = await api.get(`/exams/${selectedExam}/attendance/${entry.student._id}/logs`);
+      setAuditLogs(data.data || []);
+    } catch {
+      setAuditLogs([]);
+    } finally {
+      setAuditLogsLoading(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -823,7 +920,7 @@ export function ExamAttendanceManage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setAuditEntry(r)}
+                            onClick={() => openAuditLogs(r)}
                             title="View Audit Logs"
                             className="rounded-md border border-[var(--color-border-default)] px-2 py-1 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
                           >
@@ -866,6 +963,17 @@ export function ExamAttendanceManage() {
                 </button>
               </div>
             </div>
+            {/* KPI donut — same identity colors as every status badge/button
+                on this page, with a table-view equivalent (the stat cards
+                below + the per-student table) so the breakdown is never
+                color-only. */}
+            <div className="p-5 border-b border-[var(--color-border-default)]">
+              <AttendanceDonutChart
+                counts={{ present: presentCount, absent: absentCount, late: lateCount, excused: excusedCount }}
+                total={roster.length}
+              />
+            </div>
+
             <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
               {([
                 { label: 'Present', count: presentCount, pct: Math.round((presentCount / roster.length) * 100), color: 'text-green-600 dark:text-green-400' },
@@ -879,6 +987,46 @@ export function ExamAttendanceManage() {
                 </div>
               ))}
             </div>
+
+            {/* Absence & Malpractice Incident Report — the subset that
+                actually needs to go to a discipline/admin committee:
+                absentees plus anyone flagged with a malpractice note. */}
+            {(() => {
+              const incidents = roster.filter((r) => r.attendance?.status === 'absent' || (r.attendance?.notes || '').includes('🚩'));
+              if (incidents.length === 0) return null;
+              return (
+                <div className="border-t border-[var(--color-border-default)]">
+                  <div className="px-5 pt-4 pb-2">
+                    <p className="text-sm font-semibold text-red-700 dark:text-red-400">⚠️ Absence &amp; Malpractice Incident Report</p>
+                    <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Students absent or flagged for malpractice — for the discipline committee.</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-red-50/60 dark:bg-red-950/20">
+                        <tr>
+                          <th className="text-left px-5 py-2.5 font-semibold text-xs tracking-wider text-red-700 dark:text-red-400 uppercase">Student</th>
+                          <th className="text-center px-5 py-2.5 font-semibold text-xs tracking-wider text-red-700 dark:text-red-400 uppercase">Status</th>
+                          <th className="text-left px-5 py-2.5 font-semibold text-xs tracking-wider text-red-700 dark:text-red-400 uppercase">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {incidents.map((r) => (
+                          <tr key={r.student._id} className="border-b border-slate-100 dark:border-slate-800">
+                            <td className="px-5 py-2.5">
+                              <p className="font-medium">{r.student.profile?.firstName} {r.student.profile?.lastName}</p>
+                              <code className="text-[11px] text-[var(--color-text-tertiary)]">{r.student.studentId}</code>
+                            </td>
+                            <td className="px-5 py-2.5 text-center"><StatusBadge status={r.attendance?.status || 'present'} /></td>
+                            <td className="px-5 py-2.5 text-xs text-[var(--color-text-secondary)]">{r.attendance?.notes || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="overflow-x-auto border-t border-[var(--color-border-default)]">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/70 dark:bg-slate-800/40">
@@ -1128,39 +1276,58 @@ export function ExamAttendanceManage() {
         </div>
       )}
 
-      {/* Audit Logs Modal — the record's marking metadata (there's no
-          multi-entry history, one row per student per exam updated in place) */}
+      {/* Audit Logs Modal — full change history: every status/notes edit,
+          who made it, and when, oldest changes at the bottom. */}
       {auditEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setAuditEntry(null)}>
-          <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="p-4 border-b border-[var(--color-border-default)] flex items-center justify-between">
-              <p className="font-semibold text-sm text-[var(--color-text-primary)]">Audit Log</p>
+          <div className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-[var(--color-surface-primary)] shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-[var(--color-border-default)] flex items-center justify-between sticky top-0 bg-[var(--color-surface-primary)]">
+              <div>
+                <p className="font-semibold text-sm text-[var(--color-text-primary)]">Audit Trail</p>
+                <p className="text-xs text-[var(--color-text-tertiary)]">{auditEntry.student.profile?.firstName} {auditEntry.student.profile?.lastName} ({auditEntry.student.studentId})</p>
+              </div>
               <button type="button" onClick={() => setAuditEntry(null)} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
                 <X className="h-4 w-4" strokeWidth={2} />
               </button>
             </div>
-            <div className="p-4 space-y-3 text-sm">
-              <div>
-                <p className="text-xs text-[var(--color-text-tertiary)]">Student</p>
-                <p className="font-medium text-[var(--color-text-primary)]">{auditEntry.student.profile?.firstName} {auditEntry.student.profile?.lastName} ({auditEntry.student.studentId})</p>
-              </div>
-              <div>
-                <p className="text-xs text-[var(--color-text-tertiary)]">Status</p>
-                <StatusBadge status={auditEntry.attendance?.status || 'present'} />
-              </div>
-              <div>
-                <p className="text-xs text-[var(--color-text-tertiary)]">Marked By</p>
-                <p className="text-[var(--color-text-primary)]">{auditEntry.attendance?.markedBy?.name || 'Not yet marked'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-[var(--color-text-tertiary)]">Time Marked</p>
-                <p className="text-[var(--color-text-primary)]">{auditEntry.attendance?.markedAt ? new Date(auditEntry.attendance.markedAt).toLocaleString() : '—'}</p>
-              </div>
-              {auditEntry.attendance?.notes && (
-                <div>
-                  <p className="text-xs text-[var(--color-text-tertiary)]">Notes</p>
-                  <p className="text-[var(--color-text-primary)]">{auditEntry.attendance.notes}</p>
+            <div className="p-4">
+              {auditLogsLoading ? (
+                <div className="flex justify-center py-10">
+                  <div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
                 </div>
+              ) : auditLogs.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-sm text-[var(--color-text-tertiary)]">No changes recorded yet.</p>
+                  {auditEntry.attendance?.markedBy && (
+                    <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
+                      Current: <StatusBadge status={auditEntry.attendance.status} /> marked by {auditEntry.attendance.markedBy.name}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <ol className="relative border-l border-slate-200 dark:border-slate-700 space-y-5 ml-2">
+                  {auditLogs.map((log) => (
+                    <li key={log._id} className="ml-4">
+                      <span className="absolute -left-[5px] mt-1.5 h-2.5 w-2.5 rounded-full bg-primary-500" />
+                      <p className="text-xs font-semibold text-[var(--color-text-primary)]">Attendance Status Updated</p>
+                      <p className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
+                        Changed by <span className="font-medium text-[var(--color-text-secondary)]">{log.changedBy?.name || 'Unknown'}</span>
+                        {log.changedBy?.role ? ` (${log.changedBy.role})` : ''} &middot; {new Date(log.createdAt).toLocaleString()}
+                      </p>
+                      <div className="mt-1.5 rounded-lg bg-[var(--color-surface-secondary)] p-2.5 text-xs space-y-1">
+                        <p className="flex items-center gap-1.5">
+                          <span className="text-[var(--color-text-tertiary)]">Status:</span>
+                          {log.previousStatus ? <StatusBadge status={log.previousStatus} /> : <span className="text-[var(--color-text-tertiary)]">(none)</span>}
+                          <span className="text-[var(--color-text-tertiary)]">→</span>
+                          <StatusBadge status={log.newStatus} />
+                        </p>
+                        {log.newNotes && log.newNotes !== log.previousNotes && (
+                          <p className="text-[var(--color-text-secondary)]">Notes: "{log.newNotes}"</p>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
               )}
             </div>
           </div>

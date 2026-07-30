@@ -41,6 +41,7 @@ router.delete('/:id/seating', adminOrTeacher, asyncHandler(seatController.clearF
 // ── Exam-day Attendance ──
 router.get('/:id/attendance', adminOrTeacher, asyncHandler(examAttendanceController.getForExam));
 router.post('/:id/attendance', adminOrTeacher, asyncHandler(examAttendanceController.bulkMark));
+router.get('/:id/attendance/:studentId/logs', adminOrTeacher, asyncHandler(examAttendanceController.getAuditLogs));
 
 // ── Papers & Approval ──
 router.get('/:id/paper', adminOrTeacher, asyncHandler(paperController.getForExam));
