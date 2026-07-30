@@ -8,6 +8,7 @@ import { Request, Response } from 'express';
 import Exam from '../models/exam.model';
 import ExamPaper, { IPaperQuestion } from '../models/exam-paper.model';
 import ExamAttempt from '../models/exam-attempt.model';
+import ExamAttendance from '../models/exam-attendance.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -17,6 +18,33 @@ import { getAutoScheduleWindow, isWindowActive, isWindowPast } from '../utils/ex
 /** Strips correct-answer fields (and shuffles options/choices/etc.) so students never receive them — same engine as course quizzes. */
 function sanitizeQuestion(q: IPaperQuestion) {
   return sanitizeQuestionForStudent(q);
+}
+
+/**
+ * Self-paced/auto-scheduled exams have no invigilator — each student opens
+ * the exam on their own per-student window, so there's no one to manually
+ * mark them present. The system checks them in itself the moment they
+ * actually launch the exam, same intent as an invigilator's mark but
+ * driven by the student's own action instead of a person walking the room.
+ * `markedBy` is the student's own User id since there's no staff marker;
+ * upsert is idempotent so resuming an in-progress attempt is a no-op.
+ */
+async function autoCheckIn(examId: unknown, studentId: unknown, userId: string, school: unknown): Promise<void> {
+  await ExamAttendance.updateOne(
+    { exam: examId, student: studentId },
+    {
+      $setOnInsert: {
+        exam: examId,
+        student: studentId,
+        status: 'present',
+        notes: 'Auto-marked — self-paced exam check-in',
+        markedBy: userId,
+        markedAt: new Date(),
+        school: school || null,
+      },
+    },
+    { upsert: true }
+  );
 }
 
 /**
@@ -230,6 +258,12 @@ export const start = async (req: Request, res: Response): Promise<Response> => {
       maxScore: paper.totalPoints,
       school: exam.school || null,
     });
+
+    // Self-paced exams have no invigilator to mark attendance — the system
+    // checks the student in itself the moment they actually launch it.
+    if (exam.autoSchedule) {
+      await autoCheckIn(exam._id, student._id, req.user!.userId, exam.school);
+    }
   }
 
   return ApiResponse.success(res, {
@@ -314,6 +348,14 @@ export const submit = async (req: Request, res: Response): Promise<Response> => 
   attempt.status = isLate ? 'auto_submitted' : 'submitted';
   attempt.submittedAt = new Date();
   await attempt.save();
+
+  // Safety net alongside the one in start() — upsert is a no-op if already
+  // checked in (or if an invigilator already marked something for a
+  // manually-scheduled exam, since $setOnInsert never overwrites).
+  const exam = await Exam.findById(req.params.id).select('autoSchedule school').lean();
+  if (exam?.autoSchedule) {
+    await autoCheckIn(attempt.exam, student._id, req.user!.userId, exam.school);
+  }
 
   return ApiResponse.success(res, {
     status: attempt.status,

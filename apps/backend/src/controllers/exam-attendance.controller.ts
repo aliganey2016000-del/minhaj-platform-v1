@@ -9,6 +9,7 @@ import Exam from '../models/exam.model';
 import ExamAttendance from '../models/exam-attendance.model';
 import SeatAllocation from '../models/seat-allocation.model';
 import Student from '../models/student.model';
+import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, assertOwnsExamIfTeacher } from '../utils/tenant-scope';
@@ -18,7 +19,7 @@ const VALID_STATUSES = ['present', 'absent', 'late', 'excused'];
 
 /** Loads the exam and verifies the caller may manage its attendance. */
 async function loadManageableExam(req: Request, examId: string) {
-  const exam = await Exam.findById(examId).populate('course', 'title.en school teacher');
+  const exam = await Exam.findById(examId).populate('course', 'title.en school teacher class');
   if (!exam) throw new NotFoundError('Exam');
   assertOwnsOrg(req, exam, 'school');
   await assertOwnsExamIfTeacher(req, exam);
@@ -28,10 +29,18 @@ async function loadManageableExam(req: Request, examId: string) {
 // GET /exams/:id/attendance — roster (enrolled students + seat + current status)
 export const getForExam = async (req: Request, res: Response): Promise<Response> => {
   const exam = await loadManageableExam(req, req.params.id);
-  const courseId = (exam.course as any)?._id || exam.course;
+  const course = exam.course as any;
+  const courseId = course?._id || course;
+
+  // Class-based organizations roster exam attendance off the whole Class,
+  // same as regular course attendance — every student in the class, not
+  // just the ones individually enrolled in this course.
+  const school = course?.school ? await School.findById(course.school).select('attendanceType').lean() : null;
+  const isClassBased = school?.attendanceType === 'class_based' && !!course?.class;
+  const studentFilter = isClassBased ? { class: course.class } : { enrolledCourses: courseId };
 
   const [students, seats, records] = await Promise.all([
-    Student.find({ enrolledCourses: courseId })
+    Student.find(studentFilter)
       .populate('profile', 'firstName lastName')
       .select('studentId profile')
       .sort({ studentId: 1 })

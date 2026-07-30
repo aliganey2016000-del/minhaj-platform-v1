@@ -19,6 +19,7 @@ interface ExamBrief {
   startTime?: string;
   endTime?: string;
   status: string;
+  autoSchedule?: boolean;
   course?: {
     _id: string;
     title: { en: string };
@@ -255,6 +256,7 @@ export function ExamAttendanceManage() {
     return true;
   });
 
+  const selectedExamObj = exams.find((e) => e._id === selectedExam);
   const showStickySaveBar = !!selectedExam && roster.length > 0 && !rosterLoading;
 
   return (
@@ -332,6 +334,15 @@ export function ExamAttendanceManage() {
 
         {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
+
+        {/* Self-paced exams check themselves in — no one needs to walk the
+            room, so make that obvious instead of leaving an invigilator
+            wondering why students already show Present. */}
+        {selectedExam && selectedExamObj?.autoSchedule && (
+          <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50 dark:bg-indigo-950/30 p-4 text-sm text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
+            🤖 <span><strong>Auto Check-in enabled</strong> — this is a self-paced exam, so students are automatically marked Present the moment they start it. You can still review or override any student's status below.</span>
+          </div>
+        )}
 
         {/* Clickable stat cards */}
         {selectedExam && roster.length > 0 && (
