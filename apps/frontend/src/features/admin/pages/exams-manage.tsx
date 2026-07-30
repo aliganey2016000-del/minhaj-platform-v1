@@ -3,7 +3,8 @@
  * Lists, creates, edits, deletes exams via /api/v1/exams
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { CalendarClock, PlayCircle, CheckCircle2, XCircle, MoreVertical, Pencil, Trash2, Eye, Search } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -85,17 +86,78 @@ const emptyForm: ExamForm = {
 // Status Badge
 // ---------------------------------------------------------------------------
 
+const STATUS_PILL_CLASSES: Record<string, string> = {
+  scheduled: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  ongoing: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  completed: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+  cancelled: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+};
+
 function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    scheduled: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-    ongoing: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-    completed: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-    cancelled: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-  };
   return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-600'}`}>
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_PILL_CLASSES[status] || 'bg-gray-100 text-gray-600'}`}>
       {status}
     </span>
+  );
+}
+
+// A <select> styled to read as a soft pill badge rather than a form
+// control — still a real dropdown (keyboard/native accessible), just
+// skinned to match the status colors used everywhere else on the page.
+function StatusPillSelect({ status, onChange }: { status: string; onChange: (value: string) => void }) {
+  return (
+    <select
+      value={status}
+      onChange={(e) => onChange(e.target.value)}
+      className={`rounded-full border-0 pl-3 pr-7 py-1.5 text-xs font-semibold capitalize cursor-pointer appearance-none bg-[right_0.5rem_center] bg-no-repeat focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${STATUS_PILL_CLASSES[status] || 'bg-gray-100 text-gray-600'}`}
+      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3E%3C/svg%3E")`, backgroundSize: '14px 14px' }}
+    >
+      <option value="scheduled">Scheduled</option>
+      <option value="ongoing">Ongoing</option>
+      <option value="completed">Completed</option>
+      <option value="cancelled">Cancelled</option>
+    </select>
+  );
+}
+
+// Three-dot row action menu — replaces the bare ✏️/🗑️ icon pair with a
+// single compact trigger, closing itself on an outside click.
+function RowActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEdit: () => void; onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+      >
+        <MoreVertical className="h-4 w-4" strokeWidth={2} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-1 w-36 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-lg py-1 text-left">
+          <button onClick={() => { setOpen(false); onView(); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <Eye className="h-3.5 w-3.5" strokeWidth={1.75} /> View Details
+          </button>
+          <button onClick={() => { setOpen(false); onEdit(); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
+          </button>
+          <button onClick={() => { setOpen(false); onDelete(); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -618,62 +680,63 @@ export function ExamsManage() {
           </button>
         </div>
 
-        {/* Stats */}
+        {/* Stats — gradient tiles with icon badges instead of flat pastels */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{scheduledCount}</p>
-            <p className="text-xs text-blue-600 dark:text-blue-400">Scheduled</p>
-          </div>
-          <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-green-700 dark:text-green-300">{ongoingCount}</p>
-            <p className="text-xs text-green-600 dark:text-green-400">Ongoing</p>
-          </div>
-          <div className="rounded-xl border border-purple-200 dark:border-purple-900/50 bg-purple-50 dark:bg-purple-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-purple-700 dark:text-purple-300">{completedCount}</p>
-            <p className="text-xs text-purple-600 dark:text-purple-400">Completed</p>
-          </div>
-          <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center">
-            <p className="text-2xl font-bold text-red-700 dark:text-red-300">{cancelledCount}</p>
-            <p className="text-xs text-red-600 dark:text-red-400">Cancelled</p>
-          </div>
-        </div>
-
-        {/* Search & Filter */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            placeholder="Search by title, course, or room..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
-          />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm">
-            <option value="">All Status</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="ongoing">Ongoing</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </div>
-
-        {/* Manual vs Automatic scheduling */}
-        <div className="inline-flex rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 w-full sm:w-auto">
           {([
-            { key: 'all', label: 'All', count: exams.length },
-            { key: 'manual', label: '📅 Manual', count: manualCount },
-            { key: 'auto', label: '🤖 Automatic', count: autoCount },
-          ] as const).map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setScheduleFilter(t.key)}
-              className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap ${
-                scheduleFilter === t.key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
-              }`}
-            >
-              {t.label}
-              <span className={`rounded-full px-1.5 text-[10px] ${scheduleFilter === t.key ? 'bg-white/20' : 'bg-[var(--color-surface-tertiary)]'}`}>{t.count}</span>
-            </button>
+            { label: 'Scheduled', count: scheduledCount, icon: CalendarClock, gradient: 'from-blue-500 to-blue-600' },
+            { label: 'Ongoing', count: ongoingCount, icon: PlayCircle, gradient: 'from-green-500 to-emerald-600' },
+            { label: 'Completed', count: completedCount, icon: CheckCircle2, gradient: 'from-purple-500 to-purple-600' },
+            { label: 'Cancelled', count: cancelledCount, icon: XCircle, gradient: 'from-red-500 to-rose-600' },
+          ] as const).map((s) => (
+            <div key={s.label} className={`rounded-2xl bg-gradient-to-br ${s.gradient} p-4 text-white shadow-sm relative overflow-hidden`}>
+              <s.icon className="absolute -right-2 -bottom-2 h-16 w-16 opacity-20" strokeWidth={1.5} />
+              <p className="text-2xl font-bold relative">{s.count}</p>
+              <p className="text-xs text-white/85 relative">{s.label}</p>
+            </div>
           ))}
+        </div>
+
+        {/* Search & Filter — combined into one clean bar */}
+        <div className="bg-[var(--color-surface-primary)] rounded-2xl border border-[var(--color-border-default)] p-4 space-y-3 shadow-sm">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" strokeWidth={1.75} />
+              <input
+                type="text"
+                placeholder="Search by title, course, or room..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+              />
+            </div>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30">
+              <option value="">All Status</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="ongoing">Ongoing</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+
+          {/* Manual vs Automatic scheduling — quick filters */}
+          <div className="inline-flex rounded-xl bg-[var(--color-surface-secondary)] p-1 w-full sm:w-auto">
+            {([
+              { key: 'all', label: 'All', count: exams.length },
+              { key: 'manual', label: '📅 Manual', count: manualCount },
+              { key: 'auto', label: '🤖 Automatic', count: autoCount },
+            ] as const).map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setScheduleFilter(t.key)}
+                className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap ${
+                  scheduleFilter === t.key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
+                }`}
+              >
+                {t.label}
+                <span className={`rounded-full px-1.5 text-[10px] ${scheduleFilter === t.key ? 'bg-white/20' : 'bg-[var(--color-surface-tertiary)]'}`}>{t.count}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {error && (
@@ -683,79 +746,74 @@ export function ExamsManage() {
           </div>
         )}
 
-        {/* Table */}
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
-                <tr>
-                  <th className="text-left px-5 py-3 font-semibold">Exam</th>
-                  <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Course</th>
-                  <th className="text-center px-5 py-3 font-semibold hidden lg:table-cell">Date</th>
-                  <th className="text-center px-5 py-3 font-semibold">Time</th>
-                  <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Marks</th>
-                  <th className="text-center px-5 py-3 font-semibold">Status</th>
-                  <th className="text-center px-5 py-3 font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleExams.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]">
-                    <p className="text-lg mb-1">📝 No exams found</p>
-                    <p className="text-sm">Click "+ Schedule Exam" to create one.</p>
-                  </td></tr>
-                ) : (
-                  visibleExams.map((exam) => (
-                    <tr key={exam._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingExam(exam)}>
-                      <td className="px-5 py-4">
-                        <p className="font-semibold">{toTitleCase(exam.title)}</p>
-                        <p className="text-xs text-[var(--color-text-tertiary)]">{exam.duration} min</p>
-                      </td>
-                      <td className="px-5 py-4 hidden md:table-cell">
-                        <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">
-                          {exam.course?.title?.en}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 text-center hidden lg:table-cell text-sm">
-                        {exam.autoSchedule ? <span className="text-[var(--color-text-tertiary)]">—</span> : exam.examDate ? new Date(exam.examDate).toLocaleDateString() : '—'}
-                      </td>
-                      <td className="px-5 py-4 text-center">
-                        {exam.autoSchedule ? (
-                          <span className="rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-1 text-[10px] font-semibold text-violet-700 dark:text-violet-300">🤖 Auto</span>
-                        ) : (
-                          <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{exam.startTime} - {exam.endTime}</code>
-                        )}
-                      </td>
-                      <td className="px-5 py-4 text-center hidden sm:table-cell">
-                        <span className="text-xs">
-                          <span className="font-medium">{exam.totalMarks}</span>
-                          <span className="text-[var(--color-text-tertiary)]"> / {exam.passingMarks} pass</span>
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                        <select
-                          value={exam.status}
-                          onChange={(e) => handleStatusChange(exam._id, e.target.value)}
-                          className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer"
-                        >
-                          <option value="scheduled">Scheduled</option>
-                          <option value="ongoing">Ongoing</option>
-                          <option value="completed">Completed</option>
-                          <option value="cancelled">Cancelled</option>
-                        </select>
-                      </td>
-                      <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-center gap-1">
-                          <button onClick={() => setEditingExam(exam)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30" title="Edit">✏️</button>
-                          <button onClick={() => handleDelete(exam._id)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete">🗑️</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+        {/* Table — floating rows (border-spacing) instead of a dense grid,
+            each row its own rounded card with breathing room around it. */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-separate" style={{ borderSpacing: '0 0.5rem' }}>
+            <thead>
+              <tr>
+                <th className="text-left px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Exam</th>
+                <th className="text-left px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden md:table-cell">Course</th>
+                <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden lg:table-cell">Date</th>
+                <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Time</th>
+                <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden sm:table-cell">Marks</th>
+                <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Status</th>
+                <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleExams.length === 0 ? (
+                <tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)] bg-[var(--color-surface-primary)] rounded-2xl">
+                  <p className="text-lg mb-1">📝 No exams found</p>
+                  <p className="text-sm">Click "+ Schedule Exam" to create one.</p>
+                </td></tr>
+              ) : (
+                visibleExams.map((exam) => (
+                  <tr
+                    key={exam._id}
+                    className="bg-[var(--color-surface-primary)] shadow-sm hover:shadow-md transition-all cursor-pointer"
+                    onClick={() => setViewingExam(exam)}
+                  >
+                    <td className="px-6 py-5 rounded-l-2xl border-y border-l border-[var(--color-border-subtle)]">
+                      <p className="font-semibold">{toTitleCase(exam.title)}</p>
+                      <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">{exam.duration} min</p>
+                    </td>
+                    <td className="px-6 py-5 hidden md:table-cell border-y border-[var(--color-border-subtle)]">
+                      <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">
+                        {exam.course?.title?.en}
+                      </span>
+                    </td>
+                    <td className="px-6 py-5 text-center hidden lg:table-cell text-sm border-y border-[var(--color-border-subtle)]">
+                      {exam.autoSchedule ? <span className="text-[var(--color-text-tertiary)]">—</span> : exam.examDate ? new Date(exam.examDate).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-6 py-5 text-center border-y border-[var(--color-border-subtle)]">
+                      {exam.autoSchedule ? (
+                        <span className="rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-1 text-[10px] font-semibold text-violet-700 dark:text-violet-300">🤖 Auto</span>
+                      ) : (
+                        <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{exam.startTime} - {exam.endTime}</code>
+                      )}
+                    </td>
+                    <td className="px-6 py-5 text-center hidden sm:table-cell border-y border-[var(--color-border-subtle)]">
+                      <span className="text-xs">
+                        <span className="font-medium">{exam.totalMarks}</span>
+                        <span className="text-[var(--color-text-tertiary)]"> / {exam.passingMarks} pass</span>
+                      </span>
+                    </td>
+                    <td className="px-6 py-5 text-center border-y border-[var(--color-border-subtle)]" onClick={(e) => e.stopPropagation()}>
+                      <StatusPillSelect status={exam.status} onChange={(value) => handleStatusChange(exam._id, value)} />
+                    </td>
+                    <td className="px-6 py-5 text-center rounded-r-2xl border-y border-r border-[var(--color-border-subtle)]" onClick={(e) => e.stopPropagation()}>
+                      <RowActionsMenu
+                        onView={() => setViewingExam(exam)}
+                        onEdit={() => setEditingExam(exam)}
+                        onDelete={() => handleDelete(exam._id)}
+                      />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
