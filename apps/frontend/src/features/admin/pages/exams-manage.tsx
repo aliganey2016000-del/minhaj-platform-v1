@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { CalendarClock, PlayCircle, CheckCircle2, XCircle, MoreVertical, Pencil, Trash2, Eye, Search } from 'lucide-react';
+import { CalendarClock, PlayCircle, CheckCircle2, XCircle, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -712,17 +712,18 @@ export function ExamsManage() {
         {/* Stats — gradient tiles doubling as status filter tabs: click one
             to narrow the table below to just that status (click again to
             clear), same interaction as the Manual/Automatic quick filters. */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           {([
+            { key: '', label: 'All', count: exams.length, icon: LayoutGrid, gradient: 'from-slate-500 to-slate-600' },
             { key: 'scheduled', label: 'Scheduled', count: scheduledCount, icon: CalendarClock, gradient: 'from-blue-500 to-blue-600' },
             { key: 'ongoing', label: 'Ongoing', count: ongoingCount, icon: PlayCircle, gradient: 'from-green-500 to-emerald-600' },
             { key: 'completed', label: 'Completed', count: completedCount, icon: CheckCircle2, gradient: 'from-purple-500 to-purple-600' },
             { key: 'cancelled', label: 'Cancelled', count: cancelledCount, icon: XCircle, gradient: 'from-red-500 to-rose-600' },
           ] as const).map((s) => (
             <button
-              key={s.key}
+              key={s.key || 'all'}
               type="button"
-              onClick={() => setStatusFilter((prev) => (prev === s.key ? '' : s.key))}
+              onClick={() => setStatusFilter(s.key)}
               className={`rounded-2xl bg-gradient-to-br ${s.gradient} p-4 text-white shadow-sm relative overflow-hidden text-left transition-all hover:shadow-md hover:-translate-y-0.5 ${
                 statusFilter === s.key ? 'ring-2 ring-offset-2 ring-offset-[var(--color-surface-primary)] ring-slate-900 dark:ring-white' : ''
               }`}

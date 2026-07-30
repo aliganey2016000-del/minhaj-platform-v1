@@ -283,8 +283,9 @@ export function StudentExams() {
         {/* Status cards double as filter tabs — click one to narrow the
             list below to just that status; click the active one again to
             clear back to All (same interaction as the pill tabs below). */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           {([
+            { key: 'all' as const, count: counts.all, label: 'All', border: 'border-slate-200 dark:border-slate-700', bg: 'bg-slate-50 dark:bg-slate-800/40', text: 'text-slate-700 dark:text-slate-200', sub: 'text-slate-600 dark:text-slate-400', ring: 'ring-slate-500' },
             { key: 'upcoming' as const, count: counts.upcoming, label: 'Upcoming', border: 'border-blue-200 dark:border-blue-900/50', bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-300', sub: 'text-blue-600 dark:text-blue-400', ring: 'ring-blue-500' },
             { key: 'active' as const, count: counts.active, label: 'Active', border: 'border-green-200 dark:border-green-900/50', bg: 'bg-green-50 dark:bg-green-950/30', text: 'text-green-700 dark:text-green-300', sub: 'text-green-600 dark:text-green-400', ring: 'ring-green-500' },
             { key: 'completed' as const, count: counts.completed, label: 'Completed', border: 'border-purple-200 dark:border-purple-900/50', bg: 'bg-purple-50 dark:bg-purple-950/30', text: 'text-purple-700 dark:text-purple-300', sub: 'text-purple-600 dark:text-purple-400', ring: 'ring-purple-500' },
@@ -293,7 +294,7 @@ export function StudentExams() {
             <button
               key={s.key}
               type="button"
-              onClick={() => setTab((prev) => (prev === s.key ? 'all' : s.key))}
+              onClick={() => setTab(s.key)}
               className={`rounded-xl border ${s.border} ${s.bg} p-4 text-center transition-all hover:shadow-sm ${
                 tab === s.key ? `ring-2 ${s.ring} ring-offset-1` : ''
               }`}
