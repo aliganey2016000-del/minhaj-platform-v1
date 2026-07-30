@@ -322,7 +322,9 @@ export function ExamAttendanceManage() {
             >
               <option value="">Choose an exam...</option>
               {examsToShow.map((e) => (
-                <option key={e._id} value={e._id}>{e.title} — {e.course?.title?.en} ({new Date(e.examDate).toLocaleDateString()})</option>
+                <option key={e._id} value={e._id}>
+                  {e.title} — {e.course?.title?.en} ({e.examDate ? new Date(e.examDate).toLocaleDateString() : 'Self-Paced Exam'})
+                </option>
               ))}
             </select>
           </div>
