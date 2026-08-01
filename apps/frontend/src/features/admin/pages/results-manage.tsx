@@ -235,7 +235,7 @@ export function ResultsManage() {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className={`mx-auto space-y-6 ${tab === 'enter' ? 'max-w-none' : 'max-w-7xl'}`}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <BackButton fallback="/admin/exams" />
@@ -405,13 +405,13 @@ export function ResultsManage() {
                       </colgroup>
                       <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                         <tr>
-                          <th className="text-left px-4 py-2 font-semibold">Student Name / ID</th>
-                          <th className="text-left px-4 py-2 font-semibold hidden sm:table-cell">Organization / Department</th>
-                          <th className="text-left px-4 py-2 font-semibold hidden md:table-cell">Course / Class</th>
-                          <th className="text-left px-4 py-2 font-semibold hidden md:table-cell">Exam Type</th>
-                          <th className="text-left px-4 py-2 font-semibold">Marks</th>
-                          <th className="text-left px-4 py-2 font-semibold">Attendance</th>
-                          <th className="text-left px-4 py-2 font-semibold hidden lg:table-cell">Feedback</th>
+                          <th className="text-left px-4 py-1.5 font-semibold">Student Name / ID</th>
+                          <th className="text-left px-4 py-1.5 font-semibold hidden sm:table-cell">Organization / Department</th>
+                          <th className="text-left px-4 py-1.5 font-semibold hidden md:table-cell">Course / Class</th>
+                          <th className="text-left px-4 py-1.5 font-semibold hidden md:table-cell">Exam Type</th>
+                          <th className="text-left px-4 py-1.5 font-semibold">Marks</th>
+                          <th className="text-left px-4 py-1.5 font-semibold">Attendance</th>
+                          <th className="text-left px-4 py-1.5 font-semibold hidden lg:table-cell">Feedback</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -425,25 +425,25 @@ export function ResultsManage() {
                           const courseClassLabel = examClass ? `${examClass.title} (${examClass.section})` : classLabel;
                           return (
                             <tr key={s._id} className={`border-b border-[var(--color-border-subtle)] ${i % 2 === 1 ? 'bg-[var(--color-surface-secondary)]/50' : ''}`}>
-                              <td className="px-4 py-1.5">
-                                <div className="flex items-center gap-2.5">
-                                  <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${avatarColor(s._id)}`}>
+                              <td className="px-4 py-1">
+                                <div className="flex items-center gap-2">
+                                  <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white ${avatarColor(s._id)}`}>
                                     {initials(s.profile?.firstName, s.profile?.lastName)}
                                   </span>
                                   <div className="min-w-0">
                                     <p className="font-medium truncate leading-tight">{fullName}</p>
-                                    <code className="text-[11px] text-[var(--color-text-tertiary)]">{s.studentId}</code>
+                                    <code className="text-[10px] text-[var(--color-text-tertiary)]">{s.studentId}</code>
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-4 py-1.5 hidden sm:table-cell text-xs text-[var(--color-text-secondary)] truncate">
+                              <td className="px-4 py-1 hidden sm:table-cell text-xs text-[var(--color-text-secondary)] truncate">
                                 {orgLabel}{orgLabel && deptLabel ? ' · ' : ''}{deptLabel}
                               </td>
-                              <td className="px-4 py-1.5 hidden md:table-cell text-xs text-[var(--color-text-secondary)] truncate">
+                              <td className="px-4 py-1 hidden md:table-cell text-xs text-[var(--color-text-secondary)] truncate">
                                 {courseLabel}{courseLabel && courseClassLabel ? ' · ' : ''}{courseClassLabel}
                               </td>
-                              <td className="px-4 py-1.5 hidden md:table-cell text-xs text-[var(--color-text-secondary)] truncate" dir="auto">{selectedExamObj?.title || ''}</td>
-                              <td className="px-4 py-1.5">
+                              <td className="px-4 py-1 hidden md:table-cell text-xs text-[var(--color-text-secondary)] truncate" dir="auto">{selectedExamObj?.title || ''}</td>
+                              <td className="px-4 py-1">
                                 <input
                                   type="number"
                                   min={0}
@@ -455,7 +455,7 @@ export function ResultsManage() {
                                   placeholder={`/ ${selectedExamObj?.totalMarks || 100}`}
                                 />
                               </td>
-                              <td className="px-4 py-1.5">
+                              <td className="px-4 py-1">
                                 <select value={marks[s._id]?.status || 'present'} onChange={e => handleMarkChange(s._id, 'status', e.target.value)} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium text-left cursor-pointer">
                                   <option value="present">Present</option>
                                   <option value="absent">Absent</option>
@@ -463,7 +463,7 @@ export function ResultsManage() {
                                   <option value="excused">Excused</option>
                                 </select>
                               </td>
-                              <td className="px-4 py-1.5 hidden lg:table-cell">
+                              <td className="px-4 py-1 hidden lg:table-cell">
                                 <input type="text" value={marks[s._id]?.feedback || ''} onChange={e => handleMarkChange(s._id, 'feedback', e.target.value)} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1 text-xs text-left placeholder:text-slate-500 dark:placeholder:text-slate-400" placeholder="Shown to student" />
                               </td>
                             </tr>
