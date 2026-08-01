@@ -83,14 +83,6 @@ const STATE_META: Record<ExamState, { label: string; color: string }> = {
   cancelled: { label: 'Cancelled', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
 };
 
-const TABS: { key: 'all' | ExamState; icon: string }[] = [
-  { key: 'all', icon: '📋' },
-  { key: 'upcoming', icon: '⏳' },
-  { key: 'active', icon: '🟢' },
-  { key: 'completed', icon: '✅' },
-  { key: 'missed', icon: '⚠️' },
-];
-
 /** Real-time state — computed from now vs. the exam's own start/end, plus this student's attempt. Auto-scheduled exams use this student's own personal window (myScheduledStart/End) instead of a shared calendar date: locked (upcoming) until they finish the prerequisites, then upcoming again until their personal window opens, active during it, and missed once it closes without a submission. */
 function computeState(e: Exam): ExamState {
   if (e.status === 'cancelled') return 'cancelled';
@@ -265,7 +257,6 @@ export function StudentExams() {
   const getCat = (c: string) => (catLabels as any)[c]?.[lang] || c;
   const dateLabel = lang === 'so' ? 'Taariikh' : lang === 'ar' ? 'التاريخ' : 'Date';
   const timeLabel = lang === 'so' ? 'Waqti' : lang === 'ar' ? 'الوقت' : 'Time';
-  const tabLabel = (k: 'all' | ExamState) => (k === 'all' ? 'All' : STATE_META[k].label);
 
   if (loading) return <div className="flex justify-center py-20"><div className="h-10 w-10 animate-spin rounded-full border-3 border-t-primary-600" /></div>;
   if (error) return <div className="text-center py-20"><p className="text-red-500 mb-4">{error}</p><button onClick={() => window.location.reload()} className="rounded-xl bg-primary-600 px-5 py-2 text-sm text-white">{t('retry')}</button></div>;
@@ -305,22 +296,6 @@ export function StudentExams() {
           ))}
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {TABS.map(({ key, icon }) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
-                tab === key
-                  ? 'bg-primary-600 text-white shadow-sm'
-                  : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
-              }`}
-            >
-              <span>{icon}</span> {tabLabel(key)}
-              <span className={`rounded-full px-1.5 text-[10px] ${tab === key ? 'bg-white/20' : 'bg-[var(--color-surface-secondary)]'}`}>{counts[key]}</span>
-            </button>
-          ))}
-        </div>
 
         {filtered.length === 0 ? (
           <div className="text-center py-16 text-[var(--color-text-tertiary)]">
