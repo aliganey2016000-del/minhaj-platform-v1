@@ -235,7 +235,7 @@ export function ResultsManage() {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <BackButton fallback="/admin/exams" />
@@ -393,20 +393,29 @@ export function ResultsManage() {
               <>
                 <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm table-fixed">
+                      <colgroup>
+                        <col style={{ width: '22%' }} />
+                        <col className="hidden sm:table-column" style={{ width: '15%' }} />
+                        <col className="hidden md:table-column" style={{ width: '15%' }} />
+                        <col className="hidden md:table-column" style={{ width: '11%' }} />
+                        <col style={{ width: '10%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col className="hidden lg:table-column" style={{ width: '15%' }} />
+                      </colgroup>
                       <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                         <tr>
                           <th className="text-left px-4 py-2 font-semibold">Student Name / ID</th>
-                          <th className="text-center px-4 py-2 font-semibold hidden sm:table-cell">Organization / Department</th>
-                          <th className="text-center px-4 py-2 font-semibold hidden md:table-cell">Course / Class</th>
-                          <th className="text-center px-4 py-2 font-semibold hidden md:table-cell">Exam Type</th>
-                          <th className="text-center px-4 py-2 font-semibold">Marks</th>
-                          <th className="text-center px-4 py-2 font-semibold">Attendance</th>
-                          <th className="text-center px-4 py-2 font-semibold hidden lg:table-cell">Feedback</th>
+                          <th className="text-left px-4 py-2 font-semibold hidden sm:table-cell">Organization / Department</th>
+                          <th className="text-left px-4 py-2 font-semibold hidden md:table-cell">Course / Class</th>
+                          <th className="text-left px-4 py-2 font-semibold hidden md:table-cell">Exam Type</th>
+                          <th className="text-left px-4 py-2 font-semibold">Marks</th>
+                          <th className="text-left px-4 py-2 font-semibold">Attendance</th>
+                          <th className="text-left px-4 py-2 font-semibold hidden lg:table-cell">Feedback</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {examStudents.map((s) => {
+                        {examStudents.map((s, i) => {
                           const fullName = `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim() || 'Unknown Student';
                           const classLabel = s.class ? `${s.class.title} (${s.class.section})` : '';
                           const examClass = selectedExamObj?.course?.class;
@@ -415,7 +424,7 @@ export function ResultsManage() {
                           const courseLabel = selectedExamObj?.course?.title?.en || '';
                           const courseClassLabel = examClass ? `${examClass.title} (${examClass.section})` : classLabel;
                           return (
-                            <tr key={s._id} className="border-b border-[var(--color-border-subtle)]">
+                            <tr key={s._id} className={`border-b border-[var(--color-border-subtle)] ${i % 2 === 1 ? 'bg-[var(--color-surface-secondary)]/50' : ''}`}>
                               <td className="px-4 py-1.5">
                                 <div className="flex items-center gap-2.5">
                                   <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${avatarColor(s._id)}`}>
@@ -427,14 +436,14 @@ export function ResultsManage() {
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-4 py-1.5 text-center hidden sm:table-cell text-xs text-[var(--color-text-secondary)]">
+                              <td className="px-4 py-1.5 hidden sm:table-cell text-xs text-[var(--color-text-secondary)] truncate">
                                 {orgLabel}{orgLabel && deptLabel ? ' · ' : ''}{deptLabel}
                               </td>
-                              <td className="px-4 py-1.5 text-center hidden md:table-cell text-xs text-[var(--color-text-secondary)]">
+                              <td className="px-4 py-1.5 hidden md:table-cell text-xs text-[var(--color-text-secondary)] truncate">
                                 {courseLabel}{courseLabel && courseClassLabel ? ' · ' : ''}{courseClassLabel}
                               </td>
-                              <td className="px-4 py-1.5 text-center hidden md:table-cell text-xs text-[var(--color-text-secondary)]" dir="auto">{selectedExamObj?.title || ''}</td>
-                              <td className="px-4 py-1.5 text-center">
+                              <td className="px-4 py-1.5 hidden md:table-cell text-xs text-[var(--color-text-secondary)] truncate" dir="auto">{selectedExamObj?.title || ''}</td>
+                              <td className="px-4 py-1.5">
                                 <input
                                   type="number"
                                   min={0}
@@ -442,20 +451,20 @@ export function ResultsManage() {
                                   value={marks[s._id]?.obtained || ''}
                                   onChange={e => handleMarkChange(s._id, 'obtained', e.target.value)}
                                   disabled={marks[s._id]?.status === 'absent'}
-                                  className="w-20 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs text-center font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-30 placeholder:text-slate-500 dark:placeholder:text-slate-400"
+                                  className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs text-left font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-30 placeholder:text-slate-500 dark:placeholder:text-slate-400"
                                   placeholder={`/ ${selectedExamObj?.totalMarks || 100}`}
                                 />
                               </td>
-                              <td className="px-4 py-1.5 text-center">
-                                <select value={marks[s._id]?.status || 'present'} onChange={e => handleMarkChange(s._id, 'status', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium text-center cursor-pointer">
+                              <td className="px-4 py-1.5">
+                                <select value={marks[s._id]?.status || 'present'} onChange={e => handleMarkChange(s._id, 'status', e.target.value)} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium text-left cursor-pointer">
                                   <option value="present">Present</option>
                                   <option value="absent">Absent</option>
                                   <option value="late">Late</option>
                                   <option value="excused">Excused</option>
                                 </select>
                               </td>
-                              <td className="px-4 py-1.5 text-center hidden lg:table-cell">
-                                <input type="text" value={marks[s._id]?.feedback || ''} onChange={e => handleMarkChange(s._id, 'feedback', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1 text-xs w-36 text-center placeholder:text-slate-500 dark:placeholder:text-slate-400" placeholder="Shown to student" />
+                              <td className="px-4 py-1.5 hidden lg:table-cell">
+                                <input type="text" value={marks[s._id]?.feedback || ''} onChange={e => handleMarkChange(s._id, 'feedback', e.target.value)} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1 text-xs text-left placeholder:text-slate-500 dark:placeholder:text-slate-400" placeholder="Shown to student" />
                               </td>
                             </tr>
                           );
@@ -473,13 +482,13 @@ export function ResultsManage() {
                           className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 shadow-sm ${
                             selectedExamObj.resultsPublished
                               ? 'bg-green-600 text-white hover:bg-green-700'
-                              : 'border border-primary-300 dark:border-primary-800 text-primary-700 dark:text-primary-300 hover:bg-primary-50 dark:hover:bg-primary-950/30'
+                              : 'bg-blue-600 text-white hover:bg-blue-700'
                           }`}
                         >
                           {selectedExamObj.resultsPublished ? '✅ Published to Students' : '🔓 Publish to Students'}
                         </button>
                       )}
-                      <button onClick={handleBulkSubmit} disabled={loading} className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors shadow-sm">
+                      <button onClick={handleBulkSubmit} disabled={loading} className="rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors shadow-md">
                         {loading ? 'Saving...' : '💾 Save All Results'}
                       </button>
                     </div>
