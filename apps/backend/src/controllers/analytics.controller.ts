@@ -7,8 +7,16 @@ import User from '../models/user.model';
 import Student from '../models/student.model';
 import Course from '../models/course.model';
 import ApiResponse from '../utils/api-response';
+import { applyOrgFilter } from '../utils/tenant-scope';
 
-export const getDashboardStats = async (_req: Request, res: Response): Promise<Response> => {
+export const getDashboardStats = async (req: Request, res: Response): Promise<Response> => {
+  // org_admin must only ever see their own organization's numbers — every
+  // query here used to run completely unscoped, so an org_admin's
+  // dashboard silently showed platform-wide totals across every tenant.
+  const studentFilter = applyOrgFilter(req, {}, 'school');
+  const courseFilter = applyOrgFilter(req, {}, 'school');
+  const userFilter = applyOrgFilter(req, {}, 'organizationId');
+
   const [
     totalStudents,
     activeStudents,
@@ -19,14 +27,15 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<R
     recentRegistrations,
     totalRevenue,
   ] = await Promise.all([
-    Student.countDocuments(),
-    Student.countDocuments({ status: 'active' }),
-    Course.countDocuments(),
-    Course.countDocuments({ status: 'published' }),
-    User.countDocuments({ role: 'teacher' }),
-    User.countDocuments({ role: 'parent' }),
-    User.countDocuments({ createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
+    Student.countDocuments(studentFilter),
+    Student.countDocuments({ ...studentFilter, status: 'active' }),
+    Course.countDocuments(courseFilter),
+    Course.countDocuments({ ...courseFilter, status: 'published' }),
+    User.countDocuments({ ...userFilter, role: 'teacher' }),
+    User.countDocuments({ ...userFilter, role: 'parent' }),
+    User.countDocuments({ ...userFilter, createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
     Student.aggregate([
+      { $match: studentFilter },
       { $group: { _id: null, total: { $sum: '$totalFeesPaid' } } },
     ]).then((r) => (r[0]?.total || 0)),
   ]);
@@ -35,6 +44,7 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<R
   // (published or draft), so the slices always sum to `totalCourses`
   // above instead of silently under-counting against it.
   const courseDistribution = await Course.aggregate([
+    { $match: courseFilter },
     { $group: { _id: '$category', count: { $sum: 1 } } },
     { $sort: { count: -1 } },
   ]);
@@ -43,7 +53,7 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<R
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
   const monthlyRegistrations = await User.aggregate([
-    { $match: { createdAt: { $gte: sixMonthsAgo } } },
+    { $match: { ...userFilter, createdAt: { $gte: sixMonthsAgo } } },
     {
       $group: {
         _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
@@ -55,6 +65,7 @@ export const getDashboardStats = async (_req: Request, res: Response): Promise<R
 
   // Enrollment stats
   const enrollmentStats = await Course.aggregate([
+    { $match: courseFilter },
     { $group: { _id: null, totalEnrolled: { $sum: '$enrolledStudents' }, totalCapacity: { $sum: '$maxStudents' } } },
   ]);
 
