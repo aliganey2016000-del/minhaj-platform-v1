@@ -9,10 +9,29 @@
  *   4. Status column: pulled from Exam Attendance records (present/absent/late/excused)
  */
 import { useEffect, useState, useCallback } from 'react';
+import { Search, Trash2, CheckCircle2, XCircle, UserX, LayoutGrid } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 
-interface ExamBrief { _id: string; title: string; examDate: string; totalMarks: number; passingMarks: number; resultsPublished?: boolean; course?: { _id: string; title: { en: string }; slug: string; category: string }; }
+interface ExamBrief { _id: string; title: string; examDate: string; totalMarks: number; passingMarks: number; resultsPublished?: boolean; autoSchedule?: boolean; course?: { _id: string; title: { en: string }; slug: string; category: string }; }
+
+function formatExamDate(exam: ExamBrief): string {
+  if (exam.autoSchedule || !exam.examDate) return 'Self-Paced Exam';
+  const d = new Date(exam.examDate);
+  if (isNaN(d.getTime())) return 'Self-Paced Exam';
+  return d.toLocaleDateString();
+}
+
+function initials(first?: string, last?: string): string {
+  return `${(first || '?').charAt(0)}${(last || '').charAt(0)}`.toUpperCase();
+}
+
+const AVATAR_COLORS = ['bg-indigo-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-sky-500', 'bg-violet-500'];
+function avatarColor(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
 
 interface StudentBrief { _id: string; studentId: string; profile?: { firstName: string; lastName: string }; }
 
@@ -224,80 +243,112 @@ export function ResultsManage() {
         {/* ── View Results Tab ── */}
         {tab === 'view' && (
           <>
-            {/* Stats — dynamically computed */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
-                <p className="text-2xl font-bold text-green-700 dark:text-green-300">{passed}</p>
-                <p className="text-xs text-green-600 dark:text-green-400">Passed</p>
-              </div>
-              <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center">
-                <p className="text-2xl font-bold text-red-700 dark:text-red-300">{failed}</p>
-                <p className="text-xs text-red-600 dark:text-red-400">Failed</p>
-              </div>
-              <div className="rounded-xl border border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/30 p-4 text-center">
-                <p className="text-2xl font-bold text-gray-600 dark:text-gray-400">{absent}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-500">Absent</p>
-              </div>
+            {/* Stats — gradient tiles doubling as status filter tabs */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {([
+                { key: '', label: 'All', count: results.length, icon: LayoutGrid, gradient: 'from-slate-500 to-slate-600' },
+                { key: 'passed', label: 'Passed', count: passed, icon: CheckCircle2, gradient: 'from-green-500 to-emerald-600' },
+                { key: 'failed', label: 'Failed', count: failed, icon: XCircle, gradient: 'from-red-500 to-rose-600' },
+                { key: 'absent', label: 'Absent', count: absent, icon: UserX, gradient: 'from-gray-500 to-slate-600' },
+              ] as const).map((s) => (
+                <button
+                  key={s.key || 'all'}
+                  type="button"
+                  onClick={() => setStatusFilter(s.key)}
+                  className={`rounded-2xl bg-gradient-to-br ${s.gradient} p-4 text-white shadow-sm relative overflow-hidden text-left transition-all hover:shadow-md hover:-translate-y-0.5 ${
+                    statusFilter === s.key ? 'ring-2 ring-offset-2 ring-offset-[var(--color-surface-primary)] ring-slate-900 dark:ring-white' : ''
+                  }`}
+                >
+                  <s.icon className="absolute -right-2 -bottom-2 h-16 w-16 opacity-20" strokeWidth={1.5} />
+                  <p className="text-2xl font-bold relative">{s.count}</p>
+                  <p className="text-xs text-white/85 relative">{s.label}</p>
+                </button>
+              ))}
             </div>
 
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input type="text" placeholder="Search by student name, ID, or exam title..." value={search} onChange={e => setSearch(e.target.value)} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" />
-              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm">
-                <option value="">All Status</option><option value="passed">Passed</option><option value="failed">Failed</option><option value="absent">Absent</option>
-              </select>
+            {/* Search & Filter — combined panel */}
+            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--color-text-tertiary)]" strokeWidth={2} />
+                <input
+                  type="text"
+                  placeholder="Search by student name, ID, or exam title..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                />
+              </div>
+              {statusFilter && (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('')}
+                  className="inline-flex items-center gap-1 self-start sm:self-center rounded-full border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                >
+                  Clear filter
+                </button>
+              )}
             </div>
 
-            {/* Table */}
-            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
-                    <tr>
-                      <th className="text-left px-5 py-3 font-semibold">Student</th>
-                      <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Exam</th>
-                      <th className="text-center px-5 py-3 font-semibold">Marks</th>
-                      <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">%</th>
-                      <th className="text-center px-5 py-3 font-semibold">Grade</th>
-                      <th className="text-center px-5 py-3 font-semibold">Attendance</th>
-                      <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Result</th>
-                      <th className="text-center px-5 py-3 font-semibold">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.length === 0 ? (
-                      <tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">📊 No results found</p><p className="text-sm">Switch to "Enter Results" to add exam results.</p></td></tr>
-                    ) : results.map(r => (
-                      <tr key={r._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
-                        <td className="px-5 py-4">
-                          <p className="font-semibold">{r.student?.profile?.firstName} {r.student?.profile?.lastName}</p>
-                          <p className="text-xs text-[var(--color-text-tertiary)]">{r.student?.studentId}</p>
+            {/* Table — floating rounded card rows */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-separate" style={{ borderSpacing: '0 0.5rem' }}>
+                <thead>
+                  <tr className="text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                    <th className="text-left px-5 py-2 font-semibold">Student</th>
+                    <th className="text-left px-5 py-2 font-semibold hidden md:table-cell">Exam</th>
+                    <th className="text-center px-5 py-2 font-semibold">Marks</th>
+                    <th className="text-center px-5 py-2 font-semibold hidden sm:table-cell">%</th>
+                    <th className="text-center px-5 py-2 font-semibold">Grade</th>
+                    <th className="text-center px-5 py-2 font-semibold">Attendance</th>
+                    <th className="text-center px-5 py-2 font-semibold hidden sm:table-cell">Result</th>
+                    <th className="text-center px-5 py-2 font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.length === 0 ? (
+                    <tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">📊 No results found</p><p className="text-sm">Switch to "Enter Results" to add exam results.</p></td></tr>
+                  ) : results.map(r => {
+                    const fullName = `${r.student?.profile?.firstName || ''} ${r.student?.profile?.lastName || ''}`.trim() || 'Unknown Student';
+                    return (
+                      <tr key={r._id} className="shadow-sm hover:shadow-md transition-shadow bg-[var(--color-surface-primary)]">
+                        <td className="px-5 py-4 rounded-l-2xl border-y border-l border-[var(--color-border-default)]">
+                          <div className="flex items-center gap-3">
+                            <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${avatarColor(r.student?._id || fullName)}`}>
+                              {initials(r.student?.profile?.firstName, r.student?.profile?.lastName)}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="font-semibold truncate">{fullName}</p>
+                              <p className="text-xs text-[var(--color-text-tertiary)]">{r.student?.studentId}</p>
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-5 py-4 hidden md:table-cell">
-                          <p className="text-sm font-medium">{r.exam?.title}</p>
+                        <td className="px-5 py-4 hidden md:table-cell border-y border-[var(--color-border-default)]">
+                          <p className="text-sm font-medium" dir="auto">{r.exam?.title}</p>
                           <p className="text-xs text-[var(--color-text-tertiary)]">{r.exam?.course?.title?.en}</p>
                         </td>
-                        <td className="px-5 py-4 text-center">
+                        <td className="px-5 py-4 text-center border-y border-[var(--color-border-default)]">
                           <span className="font-mono text-sm font-bold">{r.marksObtained}<span className="text-[var(--color-text-tertiary)] font-normal">/{r.totalMarks}</span></span>
                         </td>
-                        <td className="px-5 py-4 text-center hidden sm:table-cell">
+                        <td className="px-5 py-4 text-center hidden sm:table-cell border-y border-[var(--color-border-default)]">
                           <span className={`text-sm font-bold ${r.percentage >= 50 ? 'text-green-600' : 'text-red-600'}`}>{r.percentage}%</span>
                         </td>
-                        <td className="px-5 py-4 text-center"><GradeBadge grade={r.grade} /></td>
-                        <td className="px-5 py-4 text-center">
+                        <td className="px-5 py-4 text-center border-y border-[var(--color-border-default)]"><GradeBadge grade={r.grade} /></td>
+                        <td className="px-5 py-4 text-center border-y border-[var(--color-border-default)]">
                           <AttendanceBadge status={r.attendanceStatus} />
                         </td>
-                        <td className="px-5 py-4 text-center hidden sm:table-cell">
+                        <td className="px-5 py-4 text-center hidden sm:table-cell border-y border-[var(--color-border-default)]">
                           <ResultStatusBadge status={r.status} />
                         </td>
-                        <td className="px-5 py-4 text-center">
-                          <button onClick={() => handleDelete(r._id)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete">🗑️</button>
+                        <td className="px-5 py-4 text-center rounded-r-2xl border-y border-r border-[var(--color-border-default)]">
+                          <button onClick={() => handleDelete(r._id)} className="inline-flex items-center justify-center rounded-lg p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors" title="Delete">
+                            <Trash2 className="h-4 w-4" strokeWidth={2} />
+                          </button>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </>
         )}
@@ -310,7 +361,7 @@ export function ResultsManage() {
               <select value={selectedExam} onChange={e => loadExamForEntry(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm">
                 <option value="">Choose an exam...</option>
                 {exams.map(e => (
-                  <option key={e._id} value={e._id}>{e.title} — {e.course?.title?.en} ({new Date(e.examDate).toLocaleDateString()})</option>
+                  <option key={e._id} value={e._id}>{e.title} — {e.course?.title?.en} ({formatExamDate(e)})</option>
                 ))}
               </select>
               {selectedExamObj && (
