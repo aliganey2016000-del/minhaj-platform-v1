@@ -17,6 +17,25 @@ const LandingPage = lazy(() =>
   import('../features/public/pages/landing').then((m) => ({ default: m.LandingPage }))
 );
 
+const SuganhubLandingPage = lazy(() =>
+  import('../features/public/pages/suganhub-landing').then((m) => ({ default: m.SuganhubLandingPage }))
+);
+
+// Custom domains that get their own dedicated landing page instead of the
+// generic multi-tenant SaaS marketing page. Checked directly against
+// window.location.hostname rather than the subdomain-only TenantContext,
+// since these are fully separate top-level domains, not *.sahaledu.com
+// subdomains.
+const CUSTOM_DOMAIN_LANDING: Record<string, typeof SuganhubLandingPage> = {
+  'suganhub.com': SuganhubLandingPage,
+};
+
+function HomePage() {
+  const hostname = typeof window !== 'undefined' ? window.location.hostname.replace(/^www\./, '') : '';
+  const CustomLanding = CUSTOM_DOMAIN_LANDING[hostname];
+  return CustomLanding ? <CustomLanding /> : <LandingPage />;
+}
+
 // ---------------------------------------------------------------------------
 // Fallback loading component
 // ---------------------------------------------------------------------------
@@ -48,7 +67,7 @@ export const publicRoutes: RouteObject[] = [
         index: true,
         element: (
           <Suspense fallback={<PageLoader />}>
-            <LandingPage />
+            <HomePage />
           </Suspense>
         ),
       },
