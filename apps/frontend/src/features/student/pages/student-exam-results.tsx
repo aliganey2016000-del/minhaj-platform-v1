@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Download, FileText } from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface ExamResultItem {
@@ -77,6 +77,53 @@ function MetricBox({ label, value, valueClass }: { label: string; value: number 
     <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-center min-w-[4.5rem]">
       <p className={`text-sm font-bold tracking-tight ${valueClass || 'text-[var(--color-text-primary)]'}`}>{value}</p>
       <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">{label}</p>
+    </div>
+  );
+}
+
+function ExamResultCard({ courseTitle, r }: { courseTitle: string; r: ExamResultItem }) {
+  const accent = r.status === 'passed' ? 'border-l-green-500' : r.status === 'failed' ? 'border-l-red-500' : 'border-l-slate-400';
+  const barColor = r.status === 'absent' ? 'bg-slate-400' : r.percentage >= 50 ? 'bg-green-500' : 'bg-red-500';
+  const pctColor = r.status === 'absent' ? 'text-[var(--color-text-tertiary)]' : r.percentage >= 50 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
+
+  return (
+    <div className={`rounded-xl border border-[var(--color-border-default)] border-l-4 ${accent} bg-[var(--color-surface-secondary)] p-4`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-2.5 min-w-0">
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)]">
+            <FileText className="h-4 w-4" strokeWidth={2} />
+          </span>
+          <div className="min-w-0">
+            <p className="font-semibold text-[var(--color-text-primary)] truncate">{r.title}</p>
+            <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+              {r.examDate ? new Date(r.examDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <GradeBadge grade={r.grade} />
+          <StatusBadge status={r.status} />
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-3">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]">
+          <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${Math.max(r.percentage, 2)}%` }} />
+        </div>
+        <span className="font-mono text-xs font-semibold text-[var(--color-text-secondary)] flex-shrink-0">{r.marksObtained}/{r.totalMarks}</span>
+        <span className={`text-sm font-bold flex-shrink-0 ${pctColor}`}>{r.percentage}%</span>
+      </div>
+
+      {r.feedback && (
+        <p className="mt-2.5 rounded-lg bg-[var(--color-surface-tertiary)] px-3 py-2 text-xs italic text-[var(--color-text-secondary)]">"{r.feedback}"</p>
+      )}
+
+      <button
+        onClick={() => downloadResultSlip(courseTitle, r)}
+        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-[11px] font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+      >
+        <Download className="h-3.5 w-3.5" strokeWidth={2} /> Download Result Slip
+      </button>
     </div>
   );
 }
@@ -225,31 +272,9 @@ export function StudentExamResults() {
                             {c.exams.length === 0 ? (
                               <p className="text-sm text-[var(--color-text-tertiary)]">No published exam results yet.</p>
                             ) : (
-                              <div className="space-y-2">
+                              <div className="space-y-2.5">
                                 {c.exams.map((r) => (
-                                  <div
-                                    key={r.resultId}
-                                    className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-3 flex flex-wrap items-center justify-between gap-2"
-                                  >
-                                    <div>
-                                      <p className="text-sm font-semibold text-[var(--color-text-primary)]">{r.title}</p>
-                                      <p className="text-xs text-[var(--color-text-tertiary)]">
-                                        {r.examDate ? new Date(r.examDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-                                        {' · '}{r.marksObtained}/{r.totalMarks} ({r.percentage}%)
-                                      </p>
-                                      {r.feedback && <p className="text-xs italic text-[var(--color-text-tertiary)] mt-1">"{r.feedback}"</p>}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <GradeBadge grade={r.grade} />
-                                      <StatusBadge status={r.status} />
-                                      <button
-                                        onClick={() => downloadResultSlip(c.title, r)}
-                                        className="rounded-lg border border-[var(--color-border-default)] px-2.5 py-1 text-[11px] font-semibold hover:bg-[var(--color-surface-tertiary)] transition-colors"
-                                      >
-                                        ⬇️ Slip
-                                      </button>
-                                    </div>
-                                  </div>
+                                  <ExamResultCard key={r.resultId} courseTitle={c.title} r={r} />
                                 ))}
                               </div>
                             )}
