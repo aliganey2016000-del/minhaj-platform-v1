@@ -6,19 +6,22 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { StarGlyph } from '../landing/_decor';
 
-const BRAND_NAME = 'Sahal Education Platform';
+const isSuganhub = typeof window !== 'undefined' && window.location.hostname.replace(/^www\./, '') === 'suganhub.com';
+const BRAND_NAME = isSuganhub ? 'Suganhub' : 'Sahal Education Platform';
 
 export function Footer() {
   const { t } = useTranslation('landing');
   const currentYear = new Date().getFullYear();
 
-  const quickLinks = [
-    { href: '/#features', label: t('nav.features') },
-    { href: '/#audience', label: t('nav.solutions') },
-    { href: '/#multitenant', label: t('nav.architecture') },
-    { href: '/#pricing', label: t('nav.pricing') },
-    { href: '/#faq', label: t('nav.faq') },
-  ];
+  const quickLinks = isSuganhub
+    ? [{ href: '/#programs', label: 'Programs' }]
+    : [
+        { href: '/#features', label: t('nav.features') },
+        { href: '/#audience', label: t('nav.solutions') },
+        { href: '/#multitenant', label: t('nav.architecture') },
+        { href: '/#pricing', label: t('nav.pricing') },
+        { href: '/#faq', label: t('nav.faq') },
+      ];
 
   return (
     <footer className="bg-[#02180f] text-emerald-50/80">
@@ -32,7 +35,9 @@ export function Footer() {
               <span className="font-display text-lg font-semibold text-white">{BRAND_NAME}</span>
             </Link>
             <p className="max-w-xl text-sm leading-7 text-emerald-50/65">
-              {t('footer.brand_desc')}
+              {isSuganhub
+                ? 'A modern learning center spanning 21st-century skills, languages, Islamic studies, mathematics, science, and life skills.'
+                : t('footer.brand_desc')}
             </p>
             <div className="flex flex-wrap gap-3">
               <a href="#" aria-label={t('footer.social_facebook')} className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.05] text-emerald-50/80 transition hover:bg-gold-400/15">
@@ -63,8 +68,10 @@ export function Footer() {
           <div className="space-y-5">
             <h3 className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-50/65">{t('footer.column_account')}</h3>
             <ul className="space-y-3 text-sm text-emerald-50/55">
-              <li><Link to="/auth/login" className="transition-colors hover:text-white">{t('nav.sign_in')}</Link></li>
-              <li><Link to="/auth/register" className="transition-colors hover:text-white">{t('footer.account_create')}</Link></li>
+              <li><Link to="/auth/login" className="transition-colors hover:text-white">{isSuganhub ? 'Log In' : t('nav.sign_in')}</Link></li>
+              {!isSuganhub && (
+                <li><Link to="/auth/register" className="transition-colors hover:text-white">{t('footer.account_create')}</Link></li>
+              )}
             </ul>
           </div>
 

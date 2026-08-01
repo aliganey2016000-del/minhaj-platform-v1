@@ -13,7 +13,8 @@ import { LanguageSwitcher } from '../shared/language-switcher';
 import { ThemeToggle } from '../shared/theme-toggle';
 import { StarGlyph } from '../landing/_decor';
 
-const BRAND_NAME = 'Sahal Education Platform';
+const isSuganhub = typeof window !== 'undefined' && window.location.hostname.replace(/^www\./, '') === 'suganhub.com';
+const BRAND_NAME = isSuganhub ? 'Suganhub' : 'Sahal Education Platform';
 
 export function Navbar() {
   const { t } = useTranslation('landing');
@@ -21,13 +22,15 @@ export function Navbar() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const { pathname } = useLocation();
 
-  const navLinks = [
-    { href: '/#features', label: t('nav.features') },
-    { href: '/#audience', label: t('nav.solutions') },
-    { href: '/#multitenant', label: t('nav.architecture') },
-    { href: '/#pricing', label: t('nav.pricing') },
-    { href: '/#faq', label: t('nav.faq') },
-  ];
+  const navLinks = isSuganhub
+    ? [{ href: '/#programs', label: 'Programs' }]
+    : [
+        { href: '/#features', label: t('nav.features') },
+        { href: '/#audience', label: t('nav.solutions') },
+        { href: '/#multitenant', label: t('nav.architecture') },
+        { href: '/#pricing', label: t('nav.pricing') },
+        { href: '/#faq', label: t('nav.faq') },
+      ];
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
@@ -90,27 +93,33 @@ export function Navbar() {
               <ThemeToggle />
               <Link
                 to="/auth/login"
-                className="ms-2 inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-white/10 active:scale-[0.98]"
+                className={isSuganhub
+                  ? "ms-2 inline-flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-5 py-2.5 text-sm font-bold text-emerald-950 shadow-lg shadow-gold-500/25 transition-all hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.98]"
+                  : "ms-2 inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-white/10 active:scale-[0.98]"}
               >
-                {t('nav.sign_in')}
+                {isSuganhub ? 'Log In' : t('nav.sign_in')}
               </Link>
-              <Link
-                to="/auth/register"
-                className="ms-1 inline-flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-5 py-2.5 text-sm font-bold text-emerald-950 shadow-lg shadow-gold-500/25 transition-all hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.98]"
-              >
-                {t('nav.start_free')}
-                <svg className="h-4 w-4 rtl:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 7l5 5-5 5M6 12h12" /></svg>
-              </Link>
+              {!isSuganhub && (
+                <Link
+                  to="/auth/register"
+                  className="ms-1 inline-flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-5 py-2.5 text-sm font-bold text-emerald-950 shadow-lg shadow-gold-500/25 transition-all hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.98]"
+                >
+                  {t('nav.start_free')}
+                  <svg className="h-4 w-4 rtl:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 7l5 5-5 5M6 12h12" /></svg>
+                </Link>
+              )}
             </div>
 
             {/* Tablet actions */}
             <div className="hidden items-center gap-2 sm:flex lg:hidden">
-              <Link to="/auth/login" className="whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-white/10">
-                {t('nav.sign_in')}
+              <Link to="/auth/login" className={isSuganhub ? "whitespace-nowrap rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-4 py-1.5 text-sm font-bold text-emerald-950 transition-transform hover:-translate-y-0.5" : "whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-white/10"}>
+                {isSuganhub ? 'Log In' : t('nav.sign_in')}
               </Link>
-              <Link to="/auth/register" className="whitespace-nowrap rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-4 py-1.5 text-sm font-bold text-emerald-950 transition-transform hover:-translate-y-0.5">
-                {t('nav.start_free')}
-              </Link>
+              {!isSuganhub && (
+                <Link to="/auth/register" className="whitespace-nowrap rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-4 py-1.5 text-sm font-bold text-emerald-950 transition-transform hover:-translate-y-0.5">
+                  {t('nav.start_free')}
+                </Link>
+              )}
               <LanguageSwitcher />
               <ThemeToggle />
             </div>
@@ -156,7 +165,7 @@ export function Navbar() {
                 <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
                   <div className="flex items-center gap-2.5">
                     {brandMark}
-                    <span className="font-display text-base font-semibold text-white">Sahal</span>
+                    <span className="font-display text-base font-semibold text-white">{isSuganhub ? 'Suganhub' : 'Sahal'}</span>
                   </div>
                   <button
                     onClick={() => setIsMobileOpen(false)}
@@ -195,17 +204,21 @@ export function Navbar() {
                   <Link
                     to="/auth/login"
                     onClick={() => setIsMobileOpen(false)}
-                    className="flex w-full items-center justify-center rounded-xl border border-white/20 bg-white/5 px-6 py-3 text-base font-semibold text-white transition-all hover:bg-white/10"
+                    className={isSuganhub
+                      ? "flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-gold-400 to-gold-500 px-6 py-3 text-base font-bold text-emerald-950 shadow-lg shadow-gold-500/20"
+                      : "flex w-full items-center justify-center rounded-xl border border-white/20 bg-white/5 px-6 py-3 text-base font-semibold text-white transition-all hover:bg-white/10"}
                   >
-                    {t('nav.sign_in')}
+                    {isSuganhub ? 'Log In' : t('nav.sign_in')}
                   </Link>
-                  <Link
-                    to="/auth/register"
-                    onClick={() => setIsMobileOpen(false)}
-                    className="flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-gold-400 to-gold-500 px-6 py-3 text-base font-bold text-emerald-950 shadow-lg shadow-gold-500/20"
-                  >
-                    {t('nav.start_free')}
-                  </Link>
+                  {!isSuganhub && (
+                    <Link
+                      to="/auth/register"
+                      onClick={() => setIsMobileOpen(false)}
+                      className="flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-gold-400 to-gold-500 px-6 py-3 text-base font-bold text-emerald-950 shadow-lg shadow-gold-500/20"
+                    >
+                      {t('nav.start_free')}
+                    </Link>
+                  )}
                 </div>
               </div>
             </motion.aside>
