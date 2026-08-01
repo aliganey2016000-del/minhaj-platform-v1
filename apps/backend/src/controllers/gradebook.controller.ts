@@ -8,12 +8,14 @@ import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import Course from '../models/course.model';
 import Student from '../models/student.model';
+import School from '../models/school.model';
 import GradingScheme from '../models/grading-scheme.model';
 import ManualGradeEntry from '../models/manual-grade-entry.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { getOwnTeacherRecord, assertOwnsOrg } from '../utils/tenant-scope';
 import { computeCourseGrade, validateCategoryWeights } from '../utils/grade-calculator';
+import ensureStudentRecord from '../utils/ensure-student';
 
 async function assertOwnsCourseIfTeacher(req: Request, course: any): Promise<void> {
   if (req.user?.role !== 'teacher') return;
@@ -136,6 +138,34 @@ export const getStudentGrade = async (req: Request, res: Response): Promise<Resp
 
   const result = await computeCourseGrade(courseId, studentId);
   return ApiResponse.success(res, result);
+};
+
+// ---------------------------------------------------------------------------
+// GET /gradebook/:courseId/my — the calling student's own grade breakdown
+// for a course they're actually enrolled in (or auto-rostered into, for a
+// class-based organization). No admin/teacher access required.
+// ---------------------------------------------------------------------------
+export const getMyCourseGrade = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId } = req.params;
+  const student = await ensureStudentRecord(req.user!.userId);
+
+  const course = await Course.findById(courseId).select('school class').lean();
+  if (!course) throw new NotFoundError('Course');
+
+  const school = course.school ? await School.findById(course.school).select('attendanceType').lean() : null;
+  const isClassBased = school?.attendanceType === 'class_based' && !!course.class;
+  const studentClassId = (student as any).class?.toString();
+
+  const owns = isClassBased
+    ? course.class?.toString() === studentClassId
+    : student.enrolledCourses.some((id: any) => id.toString() === courseId);
+  if (!owns) throw new ForbiddenError('You are not enrolled in this course.');
+
+  const scheme = await GradingScheme.findOne({ course: courseId }).lean();
+  if (!scheme) return ApiResponse.success(res, { configured: false });
+
+  const result = await computeCourseGrade(courseId, student._id.toString());
+  return ApiResponse.success(res, { configured: true, ...result });
 };
 
 // ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, Download, FileText } from 'lucide-react';
+import { ChevronDown, Download, FileText, HelpCircle, ClipboardList, CalendarCheck, Star, Award } from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface ExamResultItem {
@@ -36,6 +36,26 @@ interface AssignmentItem {
 interface OtherItem {
   label: string;
   score: number;
+}
+
+interface GradeCategory {
+  key: string;
+  label: string;
+  weight: number;
+  sourceType: string;
+  earnedPercent: number;
+  contribution: number;
+  detail?: string;
+}
+
+interface CourseGrade {
+  configured: boolean;
+  categories?: GradeCategory[];
+  weightedTotal?: number;
+  bonusApplied?: number;
+  finalGrade?: number;
+  passingScore?: number;
+  passed?: boolean;
 }
 
 interface CourseResults {
@@ -77,6 +97,66 @@ function MetricBox({ label, value, valueClass }: { label: string; value: number 
     <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-center min-w-[4.5rem]">
       <p className={`text-sm font-bold tracking-tight ${valueClass || 'text-[var(--color-text-primary)]'}`}>{value}</p>
       <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">{label}</p>
+    </div>
+  );
+}
+
+const CATEGORY_ICON: Record<string, typeof HelpCircle> = {
+  quizzes: HelpCircle,
+  assignments: ClipboardList,
+  exam: FileText,
+  attendance: CalendarCheck,
+  manual: Star,
+};
+
+function FinalGradeCard({ grade }: { grade: CourseGrade }) {
+  const categories = grade.categories || [];
+  const finalGrade = grade.finalGrade ?? 0;
+  const passed = !!grade.passed;
+  const barColor = passed ? 'bg-green-500' : 'bg-red-500';
+
+  return (
+    <div className="rounded-xl border border-primary-200 dark:border-primary-900/50 bg-gradient-to-br from-primary-50 to-transparent dark:from-primary-950/20 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase flex items-center gap-1.5">
+          <Award className="h-3.5 w-3.5" strokeWidth={2} /> Final Grade
+        </p>
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${passed ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+          {passed ? 'Pass' : 'Fail'}
+        </span>
+      </div>
+
+      <div className="space-y-2 mb-3">
+        {categories.map((cat) => {
+          const Icon = CATEGORY_ICON[cat.sourceType] || Star;
+          return (
+            <div key={cat.key} className="flex items-center gap-2.5">
+              <Icon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--color-text-tertiary)]" strokeWidth={2} />
+              <span className="text-xs text-[var(--color-text-secondary)] w-28 flex-shrink-0 truncate">{cat.label}</span>
+              <span className="text-[10px] text-[var(--color-text-tertiary)] w-10 flex-shrink-0">{cat.weight}%</span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]">
+                <div className="h-full rounded-full bg-primary-500 transition-all duration-700" style={{ width: `${Math.max(cat.earnedPercent, 2)}%` }} />
+              </div>
+              <span className="text-xs font-semibold text-[var(--color-text-primary)] w-10 flex-shrink-0 text-right">{cat.earnedPercent}%</span>
+            </div>
+          );
+        })}
+        {grade.bonusApplied ? (
+          <div className="flex items-center gap-2.5">
+            <Star className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" strokeWidth={2} />
+            <span className="text-xs text-[var(--color-text-secondary)] w-28 flex-shrink-0">Bonus</span>
+            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">+{grade.bonusApplied}%</span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex items-center gap-3 pt-2 border-t border-[var(--color-border-default)]">
+        <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]">
+          <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${Math.max(finalGrade, 2)}%` }} />
+        </div>
+        <span className={`text-lg font-bold flex-shrink-0 ${passed ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{finalGrade}%</span>
+      </div>
+      <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1">Passing score: {grade.passingScore}%</p>
     </div>
   );
 }
@@ -159,6 +239,22 @@ export function StudentExamResults() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [gradeByCourse, setGradeByCourse] = useState<Record<string, CourseGrade>>({});
+  const [gradeLoading, setGradeLoading] = useState<string | null>(null);
+
+  const toggleExpand = async (courseId: string) => {
+    setExpandedId((prev) => (prev === courseId ? null : courseId));
+    if (gradeByCourse[courseId]) return; // already fetched
+    setGradeLoading(courseId);
+    try {
+      const { data } = await api.get(`/gradebook/${courseId}/my`);
+      setGradeByCourse((prev) => ({ ...prev, [courseId]: data.data || { configured: false } }));
+    } catch {
+      setGradeByCourse((prev) => ({ ...prev, [courseId]: { configured: false } }));
+    } finally {
+      setGradeLoading(null);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -231,7 +327,7 @@ export function StudentExamResults() {
                   >
                     <button
                       type="button"
-                      onClick={() => setExpandedId((prev) => (prev === c.courseId ? null : c.courseId))}
+                      onClick={() => toggleExpand(c.courseId)}
                       className="w-full flex flex-col sm:flex-row sm:items-center gap-4 p-4 sm:p-5 text-left"
                     >
                       <div className="flex-1 min-w-0">
@@ -266,6 +362,19 @@ export function StudentExamResults() {
                     {isExpanded && (
                       <div className="px-4 sm:px-5 pb-4 sm:pb-5 -mt-1">
                         <div className="border-t border-[var(--color-border-default)] pt-4 space-y-5">
+                          {/* Final Grade — the weighted breakdown a teacher configured for
+                              this course (Final Exam 40%, Quizzes 20%, ... -> Final Grade),
+                              the same computation shown on the admin/teacher Gradebook page. */}
+                          {gradeLoading === c.courseId ? (
+                            <div className="flex justify-center py-4">
+                              <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
+                            </div>
+                          ) : (
+                            gradeByCourse[c.courseId]?.configured && (
+                              <FinalGradeCard grade={gradeByCourse[c.courseId]} />
+                            )
+                          )}
+
                           {/* Exams — mid exam, final exam, etc. (published only) */}
                           <div>
                             <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase mb-2">Exams</p>
