@@ -1,5 +1,9 @@
 /**
  * Footer Component — Premium SaaS Footer
+ *
+ * suganhub.com gets a distinct, minimal 3-part footer per the approved
+ * brief (copyright left, legal links center, contact right) instead of the
+ * full 4-column Sahal marketing footer.
  */
 
 import { Link } from 'react-router-dom';
@@ -9,19 +13,54 @@ import { StarGlyph } from '../landing/_decor';
 const isSuganhub = typeof window !== 'undefined' && window.location.hostname.replace(/^www\./, '') === 'suganhub.com';
 const BRAND_NAME = isSuganhub ? 'Suganhub' : 'Sahal Education Platform';
 
+function SuganhubFooter() {
+  const currentYear = new Date().getFullYear();
+  return (
+    <footer className="bg-[#02180f] text-emerald-50/80">
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+        <div className="flex flex-col items-center gap-6 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
+          {/* Left: copyright */}
+          <p className="text-sm text-emerald-50/50">
+            © {currentYear} Suganhub Center. Powered by <span className="text-emerald-50/70">Sahal Education Platform</span>.
+          </p>
+
+          {/* Center: legal links */}
+          {/* TODO: these link to "#" because there are no dedicated legal pages yet — wire up real routes once they exist. */}
+          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-emerald-50/50">
+            <a href="#" className="transition-colors hover:text-white">Privacy Policy</a>
+            <a href="#" className="transition-colors hover:text-white">Terms of Service</a>
+            <a href="#" className="transition-colors hover:text-white">Cookie Policy</a>
+          </div>
+
+          {/* Right: contact */}
+          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-emerald-50/50">
+            <a href="mailto:invo@sahaledu.com" className="flex items-center gap-1.5 transition-colors hover:text-white">
+              📧 invo@sahaledu.com
+            </a>
+            <a href="tel:+252615328006" className="flex items-center gap-1.5 transition-colors hover:text-white">
+              📞 +252615328006
+            </a>
+            <span className="flex items-center gap-1.5">📍 Mogadishu, Somalia</span>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
 export function Footer() {
   const { t } = useTranslation('landing');
-  const currentYear = new Date().getFullYear();
 
-  const quickLinks = isSuganhub
-    ? [{ href: '/#programs', label: 'Programs' }]
-    : [
-        { href: '/#features', label: t('nav.features') },
-        { href: '/#audience', label: t('nav.solutions') },
-        { href: '/#multitenant', label: t('nav.architecture') },
-        { href: '/#pricing', label: t('nav.pricing') },
-        { href: '/#faq', label: t('nav.faq') },
-      ];
+  if (isSuganhub) return <SuganhubFooter />;
+
+  const currentYear = new Date().getFullYear();
+  const quickLinks = [
+    { href: '/#features', label: t('nav.features') },
+    { href: '/#audience', label: t('nav.solutions') },
+    { href: '/#multitenant', label: t('nav.architecture') },
+    { href: '/#pricing', label: t('nav.pricing') },
+    { href: '/#faq', label: t('nav.faq') },
+  ];
 
   return (
     <footer className="bg-[#02180f] text-emerald-50/80">
@@ -35,9 +74,7 @@ export function Footer() {
               <span className="font-display text-lg font-semibold text-white">{BRAND_NAME}</span>
             </Link>
             <p className="max-w-xl text-sm leading-7 text-emerald-50/65">
-              {isSuganhub
-                ? 'A modern learning center spanning 21st-century skills, languages, Islamic studies, mathematics, science, and life skills.'
-                : t('footer.brand_desc')}
+              {t('footer.brand_desc')}
             </p>
             <div className="flex flex-wrap gap-3">
               <a href="#" aria-label={t('footer.social_facebook')} className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.05] text-emerald-50/80 transition hover:bg-gold-400/15">
@@ -68,10 +105,8 @@ export function Footer() {
           <div className="space-y-5">
             <h3 className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-50/65">{t('footer.column_account')}</h3>
             <ul className="space-y-3 text-sm text-emerald-50/55">
-              <li><Link to="/auth/login" className="transition-colors hover:text-white">{isSuganhub ? 'Log In' : t('nav.sign_in')}</Link></li>
-              {!isSuganhub && (
-                <li><Link to="/auth/register" className="transition-colors hover:text-white">{t('footer.account_create')}</Link></li>
-              )}
+              <li><Link to="/auth/login" className="transition-colors hover:text-white">{t('nav.sign_in')}</Link></li>
+              <li><Link to="/auth/register" className="transition-colors hover:text-white">{t('footer.account_create')}</Link></li>
             </ul>
           </div>
 

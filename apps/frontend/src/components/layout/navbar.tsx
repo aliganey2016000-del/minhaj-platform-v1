@@ -23,7 +23,11 @@ export function Navbar() {
   const { pathname } = useLocation();
 
   const navLinks = isSuganhub
-    ? [{ href: '/#programs', label: 'Programs' }]
+    ? [
+        { href: '/#pillars', label: 'Programs' },
+        { href: '/#pillars', label: 'Our Pillars' },
+        { href: '/#faq', label: 'FAQ' },
+      ]
     : [
         { href: '/#features', label: t('nav.features') },
         { href: '/#audience', label: t('nav.solutions') },
@@ -78,7 +82,7 @@ export function Navbar() {
           <div className="hidden lg:flex lg:items-center lg:gap-1">
             {navLinks.map((link) => (
               <a
-                key={link.href}
+                key={link.label}
                 href={link.href}
                 className="rounded-full px-4 py-2 text-sm font-medium text-emerald-50/80 transition-colors hover:bg-white/10 hover:text-white"
               >
@@ -97,7 +101,7 @@ export function Navbar() {
                   ? "ms-2 inline-flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-5 py-2.5 text-sm font-bold text-emerald-950 shadow-lg shadow-gold-500/25 transition-all hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.98]"
                   : "ms-2 inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-white/10 active:scale-[0.98]"}
               >
-                {isSuganhub ? 'Log In' : t('nav.sign_in')}
+                {isSuganhub ? 'Log In to Portal' : t('nav.sign_in')}
               </Link>
               {!isSuganhub && (
                 <Link
@@ -113,7 +117,7 @@ export function Navbar() {
             {/* Tablet actions */}
             <div className="hidden items-center gap-2 sm:flex lg:hidden">
               <Link to="/auth/login" className={isSuganhub ? "whitespace-nowrap rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-4 py-1.5 text-sm font-bold text-emerald-950 transition-transform hover:-translate-y-0.5" : "whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-white/10"}>
-                {isSuganhub ? 'Log In' : t('nav.sign_in')}
+                {isSuganhub ? 'Log In to Portal' : t('nav.sign_in')}
               </Link>
               {!isSuganhub && (
                 <Link to="/auth/register" className="whitespace-nowrap rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-4 py-1.5 text-sm font-bold text-emerald-950 transition-transform hover:-translate-y-0.5">
@@ -182,7 +186,7 @@ export function Navbar() {
                   <ul className="space-y-1">
                     {navLinks.map((link, idx) => (
                       <motion.li
-                        key={link.href}
+                        key={link.label}
                         initial={{ opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.05 }}
@@ -208,7 +212,7 @@ export function Navbar() {
                       ? "flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-gold-400 to-gold-500 px-6 py-3 text-base font-bold text-emerald-950 shadow-lg shadow-gold-500/20"
                       : "flex w-full items-center justify-center rounded-xl border border-white/20 bg-white/5 px-6 py-3 text-base font-semibold text-white transition-all hover:bg-white/10"}
                   >
-                    {isSuganhub ? 'Log In' : t('nav.sign_in')}
+                    {isSuganhub ? 'Log In to Portal' : t('nav.sign_in')}
                   </Link>
                   {!isSuganhub && (
                     <Link
