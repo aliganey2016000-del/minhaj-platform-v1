@@ -21,7 +21,7 @@ function SuganhubFooter() {
         <div className="flex flex-col items-center gap-6 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
           {/* Left: copyright */}
           <p className="text-sm text-emerald-50/50">
-            © {currentYear} Suganhub Center. Powered by <span className="text-emerald-50/70">Sahal Education Platform</span>.
+            © {currentYear} Suganhub Center. All rights reserved.
           </p>
 
           {/* Center: legal links */}
@@ -34,8 +34,8 @@ function SuganhubFooter() {
 
           {/* Right: contact */}
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-emerald-50/50">
-            <a href="mailto:invo@sahaledu.com" className="flex items-center gap-1.5 transition-colors hover:text-white">
-              📧 invo@sahaledu.com
+            <a href="mailto:info@suganhub.com" className="flex items-center gap-1.5 transition-colors hover:text-white">
+              📧 info@suganhub.com
             </a>
             <a href="tel:+252615328006" className="flex items-center gap-1.5 transition-colors hover:text-white">
               📞 +252615328006

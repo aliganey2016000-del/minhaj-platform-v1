@@ -17,6 +17,14 @@ import { router } from './routes';
 // Import i18n configuration (must be before any useTranslation calls)
 import './i18n';
 
+// suganhub.com is a fully custom domain (not a *.sahaledu.com subdomain, so
+// the TenantContext branding fetch doesn't cover it) — the browser tab title
+// is otherwise hardcoded to "Sahal Education Platform" in index.html for
+// every domain this same build serves.
+if (typeof window !== 'undefined' && window.location.hostname.replace(/^www\./, '') === 'suganhub.com') {
+  document.title = 'Suganhub | Where Faith, Science, and Technology Converge';
+}
+
 export function App() {
   return (
     <TenantProvider>
