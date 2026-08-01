@@ -113,11 +113,10 @@ function FinalGradeCard({ grade }: { grade: CourseGrade }) {
   const categories = grade.categories || [];
   const finalGrade = grade.finalGrade ?? 0;
   const passed = !!grade.passed;
-  const barColor = passed ? 'bg-green-500' : 'bg-red-500';
 
   return (
-    <div className="rounded-xl border border-primary-200 dark:border-primary-900/50 bg-gradient-to-br from-primary-50 to-transparent dark:from-primary-950/20 p-4">
-      <div className="flex items-center justify-between mb-3">
+    <div className="rounded-xl border border-[var(--color-border-default)] overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
         <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase flex items-center gap-1.5">
           <Award className="h-3.5 w-3.5" strokeWidth={2} /> Final Grade
         </p>
@@ -126,37 +125,54 @@ function FinalGradeCard({ grade }: { grade: CourseGrade }) {
         </span>
       </div>
 
-      <div className="space-y-2 mb-3">
-        {categories.map((cat) => {
-          const Icon = CATEGORY_ICON[cat.sourceType] || Star;
-          return (
-            <div key={cat.key} className="flex items-center gap-2.5">
-              <Icon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--color-text-tertiary)]" strokeWidth={2} />
-              <span className="text-xs text-[var(--color-text-secondary)] w-28 flex-shrink-0 truncate">{cat.label}</span>
-              <span className="text-[10px] text-[var(--color-text-tertiary)] w-10 flex-shrink-0">{cat.weight}%</span>
-              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]">
-                <div className="h-full rounded-full bg-primary-500 transition-all duration-700" style={{ width: `${Math.max(cat.earnedPercent, 2)}%` }} />
-              </div>
-              <span className="text-xs font-semibold text-[var(--color-text-primary)] w-10 flex-shrink-0 text-right">{cat.earnedPercent}%</span>
-            </div>
-          );
-        })}
-        {grade.bonusApplied ? (
-          <div className="flex items-center gap-2.5">
-            <Star className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" strokeWidth={2} />
-            <span className="text-xs text-[var(--color-text-secondary)] w-28 flex-shrink-0">Bonus</span>
-            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">+{grade.bonusApplied}%</span>
-          </div>
-        ) : null}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wide text-[var(--color-text-tertiary)] border-b border-[var(--color-border-default)]">
+              <th className="text-left px-4 py-2 font-semibold">Category</th>
+              <th className="text-center px-4 py-2 font-semibold">Weight</th>
+              <th className="text-center px-4 py-2 font-semibold">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {categories.map((cat, i) => {
+              const Icon = CATEGORY_ICON[cat.sourceType] || Star;
+              return (
+                <tr key={cat.key} className={i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/40' : ''}>
+                  <td className="px-4 py-2">
+                    <span className="flex items-center gap-2 text-[var(--color-text-primary)]">
+                      <Icon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--color-text-tertiary)]" strokeWidth={2} />
+                      {cat.label}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-center text-xs text-[var(--color-text-tertiary)]">{cat.weight}%</td>
+                  <td className="px-4 py-2 text-center font-semibold text-[var(--color-text-primary)]">{cat.earnedPercent}%</td>
+                </tr>
+              );
+            })}
+            {!!grade.bonusApplied && (
+              <tr>
+                <td className="px-4 py-2">
+                  <span className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                    <Star className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} /> Bonus
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-center text-xs text-[var(--color-text-tertiary)]">—</td>
+                <td className="px-4 py-2 text-center font-semibold text-amber-600 dark:text-amber-400">+{grade.bonusApplied}%</td>
+              </tr>
+            )}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]">
+              <td className="px-4 py-2.5 font-bold text-[var(--color-text-primary)]">Final Grade</td>
+              <td className="px-4 py-2.5 text-center text-xs text-[var(--color-text-tertiary)]">100%</td>
+              <td className={`px-4 py-2.5 text-center font-bold ${passed ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{finalGrade}%</td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
 
-      <div className="flex items-center gap-3 pt-2 border-t border-[var(--color-border-default)]">
-        <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]">
-          <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${Math.max(finalGrade, 2)}%` }} />
-        </div>
-        <span className={`text-lg font-bold flex-shrink-0 ${passed ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{finalGrade}%</span>
-      </div>
-      <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1">Passing score: {grade.passingScore}%</p>
+      <p className="px-4 py-2 border-t border-[var(--color-border-default)] text-[10px] text-[var(--color-text-tertiary)]">Passing score: {grade.passingScore}%</p>
     </div>
   );
 }
@@ -389,52 +405,14 @@ export function StudentExamResults() {
                             )}
                           </div>
 
-                          {/* Quizzes + Assignments — quick metric row */}
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-w-md">
-                            <MetricBox label="Quizzes Taken" value={c.quizzes?.count ?? 0} />
-                            <MetricBox label="Quiz Avg" value={c.quizzes ? `${c.quizzes.averagePercent}%` : '—'} />
-                            <MetricBox label="Assignments Graded" value={c.assignments?.count ?? 0} />
-                            <MetricBox label="Assignment Avg" value={c.assignments ? `${c.assignments.averagePercent}%` : '—'} />
-                          </div>
-                          {c.assignments && c.assignments.items.length > 0 && (
-                            <div className="space-y-1.5">
-                              {c.assignments.items.map((a, i) => (
-                                <div key={i} className="flex items-center justify-between text-sm rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2">
-                                  <span className="text-[var(--color-text-primary)]">{a.title} {a.isLate && <span className="text-amber-600 text-xs">(late)</span>}</span>
-                                  <span className="font-mono text-xs text-[var(--color-text-tertiary)]">{a.score}/{a.totalMarks} ({a.percentage}%)</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Attendance summary for this course */}
-                          <div>
-                            <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase mb-2">Attendance</p>
-                            {c.attendance ? (
-                              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 max-w-lg">
-                                <MetricBox label="Days" value={c.attendance.days} />
-                                <MetricBox label="Present" value={c.attendance.present} valueClass="text-green-600 dark:text-green-400" />
-                                <MetricBox label="Absent" value={c.attendance.absent} valueClass="text-red-600 dark:text-red-400" />
-                                <MetricBox label="Late" value={c.attendance.late} valueClass="text-amber-600 dark:text-amber-400" />
-                                <MetricBox label="Rate" value={`${c.attendance.presentPercentage}%`} />
-                              </div>
-                            ) : (
-                              <p className="text-sm text-[var(--color-text-tertiary)]">No attendance recorded yet.</p>
-                            )}
-                          </div>
-
-                          {/* Other graded activities — anything a teacher entered manually */}
-                          {c.other.length > 0 && (
-                            <div>
-                              <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase mb-2">Other Activities</p>
-                              <div className="space-y-1.5">
-                                {c.other.map((o, i) => (
-                                  <div key={i} className="flex items-center justify-between text-sm rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2">
-                                    <span className="text-[var(--color-text-primary)]">{o.label}</span>
-                                    <span className="font-mono text-xs text-[var(--color-text-tertiary)]">{o.score}%</span>
-                                  </div>
-                                ))}
-                              </div>
+                          {/* Fallback for courses with no weighted grading scheme configured —
+                              the Final Grade table above only renders when one exists, so this
+                              keeps quiz/assignment/attendance data visible either way. */}
+                          {!gradeByCourse[c.courseId]?.configured && (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-w-lg">
+                              <MetricBox label="Quiz Avg" value={c.quizzes ? `${c.quizzes.averagePercent}%` : '—'} />
+                              <MetricBox label="Assignment Avg" value={c.assignments ? `${c.assignments.averagePercent}%` : '—'} />
+                              <MetricBox label="Attendance Rate" value={c.attendance ? `${c.attendance.presentPercentage}%` : '—'} />
                             </div>
                           )}
                         </div>
