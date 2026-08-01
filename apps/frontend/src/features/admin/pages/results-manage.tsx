@@ -158,6 +158,20 @@ export function ResultsManage() {
       const existing: ResultRow[] = resultData.data || [];
       setExistingResults(existing);
 
+      // Exam attendance already taken (by an invigilator on the Exam
+      // Attendance page, or auto-marked for a self-paced exam check-in)
+      // should pre-fill this column instead of always defaulting to
+      // "Present" — the roster comes from the same source the Exam
+      // Attendance page itself reads.
+      const attendanceByStudent: Record<string, string> = {};
+      try {
+        const { data: attData } = await api.get(`/exams/${examId}/attendance`);
+        const roster: { student: { _id: string }; attendance: { status: string } | null }[] = attData.data?.roster || [];
+        for (const r of roster) {
+          if (r.attendance?.status) attendanceByStudent[r.student._id] = r.attendance.status;
+        }
+      } catch { /* attendance not taken yet or not accessible — fall back to 'present' below */ }
+
       const m: Record<string, { obtained: string; remarks: string; feedback: string; status: string }> = {};
       enrolled.forEach(s => {
         const existingR = existing.find(r => r.student?._id === s._id);
@@ -165,7 +179,7 @@ export function ResultsManage() {
           obtained: existingR ? String(existingR.marksObtained) : '',
           remarks: existingR ? existingR.remarks || '' : '',
           feedback: existingR ? (existingR as any).feedback || '' : '',
-          status: existingR ? (existingR.attendanceStatus || existingR.status || 'present') : 'present',
+          status: existingR ? (existingR.attendanceStatus || existingR.status || 'present') : (attendanceByStudent[s._id] || 'present'),
         };
       });
       setMarks(m);
