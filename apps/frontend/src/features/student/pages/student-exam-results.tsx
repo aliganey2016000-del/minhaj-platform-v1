@@ -391,19 +391,23 @@ export function StudentExamResults() {
                             )
                           )}
 
-                          {/* Exams — mid exam, final exam, etc. (published only) */}
-                          <div>
-                            <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase mb-2">Exams</p>
-                            {c.exams.length === 0 ? (
-                              <p className="text-sm text-[var(--color-text-tertiary)]">No published exam results yet.</p>
-                            ) : (
-                              <div className="space-y-2.5">
-                                {c.exams.map((r) => (
-                                  <ExamResultCard key={r.resultId} courseTitle={c.title} r={r} />
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                          {/* Exams — only shown as a fallback when this course has no
+                              weighted grading scheme configured; otherwise the Final Grade
+                              table above already covers each exam's score. */}
+                          {!gradeByCourse[c.courseId]?.configured && (
+                            <div>
+                              <p className="text-xs font-semibold tracking-wide text-[var(--color-text-tertiary)] uppercase mb-2">Exams</p>
+                              {c.exams.length === 0 ? (
+                                <p className="text-sm text-[var(--color-text-tertiary)]">No published exam results yet.</p>
+                              ) : (
+                                <div className="space-y-2.5">
+                                  {c.exams.map((r) => (
+                                    <ExamResultCard key={r.resultId} courseTitle={c.title} r={r} />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           {/* Fallback for courses with no weighted grading scheme configured —
                               the Final Grade table above only renders when one exists, so this
