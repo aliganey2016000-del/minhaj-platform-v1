@@ -9,7 +9,7 @@
 
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Code2, GraduationCap, Laptop, ChevronDown } from 'lucide-react';
+import { ArrowRight, ChevronDown } from 'lucide-react';
 import { IslamicPattern, StarGlyph, Eyebrow, Reveal } from '../../../components/landing/_decor';
 
 const PILLARS = [
@@ -158,47 +158,18 @@ export function SuganhubLandingPage() {
 
             {/* ── Right: visual ── */}
             <Reveal delay={140} className="relative">
-              <div className="relative rounded-[26px] border border-white/15 bg-white/[0.07] p-6 shadow-[0_40px_120px_-40px_rgba(0,0,0,0.75)] backdrop-blur-xl sm:p-8">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-gold-400 to-gold-500 text-emerald-950 shadow-lg shadow-gold-500/30">
-                    <Laptop className="h-5 w-5" strokeWidth={2} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white">Student Workspace</p>
-                    <p className="text-[11px] text-emerald-200/70">Coding · Qur’an · Science</p>
-                  </div>
-                </div>
-
-                <div className="mt-6 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
-                    <Code2 className="h-6 w-6 text-gold-300" strokeWidth={1.75} />
-                    <p className="mt-3 text-sm font-semibold text-white">Coding Basics</p>
-                    <p className="mt-1 text-[11px] text-emerald-200/60">Module 3 of 8</p>
-                    <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                      <div className="h-full w-[42%] rounded-full bg-gradient-to-r from-gold-400 to-gold-300" />
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
-                    <StarGlyph className="h-6 w-6 text-emerald-300" />
-                    <p className="mt-3 text-sm font-semibold text-white">Qur’an Hifz</p>
-                    <p className="mt-1 text-[11px] text-emerald-200/60">Juz 12 in progress</p>
-                    <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                      <div className="h-full w-[68%] rounded-full bg-gradient-to-r from-emerald-400 to-emerald-300" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-4">
-                  <GraduationCap className="h-6 w-6 flex-shrink-0 text-gold-300" strokeWidth={1.75} />
-                  <div>
-                    <p className="text-sm font-semibold text-white">Balanced Report Card</p>
-                    <p className="text-[11px] text-emerald-200/60">Faith, Science &amp; Technology — all in one place</p>
-                  </div>
-                </div>
+              <div className="relative overflow-hidden rounded-[26px] border border-white/15 shadow-[0_40px_120px_-40px_rgba(0,0,0,0.75)]">
+                <img
+                  src="/images/suganhub-hero.png"
+                  alt="Suganhub students and teacher learning together in a modern, faith-centered classroom"
+                  className="aspect-[4/3] w-full object-cover"
+                  loading="eager"
+                />
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#03231a]/40 via-transparent to-transparent" />
               </div>
 
               {/* floating badge */}
-              <div className="absolute -end-4 -bottom-6 hidden animate-float items-center gap-2.5 rounded-2xl border border-white/15 bg-emerald-950/70 px-4 py-3 shadow-xl backdrop-blur-md sm:flex">
+              <div className="absolute -end-4 -bottom-6 hidden animate-float items-center gap-2.5 rounded-2xl border border-white/15 bg-emerald-950/80 px-4 py-3 shadow-xl backdrop-blur-md sm:flex">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-gold-400 to-gold-500 text-emerald-950">🎖️</div>
                 <div>
                   <p className="text-[11px] font-semibold text-white">6 Core Pillars</p>

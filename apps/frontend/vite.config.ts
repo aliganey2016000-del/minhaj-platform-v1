@@ -20,6 +20,10 @@ export default defineConfig({
       filename: 'sw.ts',
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,json}'],
+        // Large marketing/landing photos (e.g. public/images/*) aren't part
+        // of the app shell and shouldn't bloat the service worker's
+        // precache for every user — they load fine on demand instead.
+        globIgnores: ['images/**'],
       },
       includeAssets: ['favicon.svg', 'icons/*.png', 'screenshots/*.png', 'offline.html'],
       manifest: {
