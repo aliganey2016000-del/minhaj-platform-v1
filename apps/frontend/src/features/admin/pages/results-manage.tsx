@@ -402,7 +402,6 @@ export function ResultsManage() {
                           <th className="text-center px-4 py-2 font-semibold hidden md:table-cell">Exam Type</th>
                           <th className="text-center px-4 py-2 font-semibold">Marks</th>
                           <th className="text-center px-4 py-2 font-semibold">Attendance</th>
-                          <th className="text-center px-4 py-2 font-semibold hidden lg:table-cell">Remarks</th>
                           <th className="text-center px-4 py-2 font-semibold hidden lg:table-cell">Feedback</th>
                         </tr>
                       </thead>
@@ -454,9 +453,6 @@ export function ResultsManage() {
                                   <option value="late">Late</option>
                                   <option value="excused">Excused</option>
                                 </select>
-                              </td>
-                              <td className="px-4 py-1.5 text-center hidden lg:table-cell">
-                                <input type="text" value={marks[s._id]?.remarks || ''} onChange={e => handleMarkChange(s._id, 'remarks', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1 text-xs w-36 text-center placeholder:text-slate-500 dark:placeholder:text-slate-400" placeholder="Internal only" />
                               </td>
                               <td className="px-4 py-1.5 text-center hidden lg:table-cell">
                                 <input type="text" value={marks[s._id]?.feedback || ''} onChange={e => handleMarkChange(s._id, 'feedback', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1 text-xs w-36 text-center placeholder:text-slate-500 dark:placeholder:text-slate-400" placeholder="Shown to student" />
