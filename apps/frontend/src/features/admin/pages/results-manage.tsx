@@ -8,8 +8,8 @@
  *   3. Stats cards: dynamically counted from results
  *   4. Status column: pulled from Exam Attendance records (present/absent/late/excused)
  */
-import { useEffect, useState, useCallback } from 'react';
-import { Search, Trash2, CheckCircle2, XCircle, UserX, LayoutGrid } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { Search, Trash2, CheckCircle2, XCircle, UserX, LayoutGrid, MoreVertical, Pencil, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 
@@ -60,6 +60,7 @@ interface ResultRow {
   percentage: number;
   grade: string;
   remarks: string;
+  feedback?: string;
   status: 'passed' | 'failed' | 'absent';
   attendanceStatus?: 'present' | 'absent' | 'late' | 'excused'; // from ExamAttendance model
   enteredBy?: { _id: string; email: string };
@@ -99,6 +100,51 @@ function GradeBadge({ grade }: { grade: string }) {
   return <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${c[grade] || 'bg-gray-100 text-gray-600'}`}>{grade}</span>;
 }
 
+function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center justify-center rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+        title="Actions"
+      >
+        <MoreVertical className="h-4 w-4" strokeWidth={2} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-36 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onEdit(); }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+          >
+            <Pencil className="h-3.5 w-3.5" strokeWidth={2} /> Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onDelete(); }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} /> Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ResultsManage() {
   const [tab, setTab] = useState<'view' | 'enter'>('view');
   const [results, setResults] = useState<ResultRow[]>([]);
@@ -117,6 +163,11 @@ export function ResultsManage() {
   const [selectedExamObj, setSelectedExamObj] = useState<ExamBrief | null>(null);
   const [existingResults, setExistingResults] = useState<ResultRow[]>([]);
   const [publishing, setPublishing] = useState(false);
+
+  // Single-result edit modal (opened from the View Results row actions menu)
+  const [editingResult, setEditingResult] = useState<ResultRow | null>(null);
+  const [editForm, setEditForm] = useState({ marksObtained: '', remarks: '', feedback: '', absent: false });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => { fetchExams(); }, []);
 
@@ -221,6 +272,35 @@ export function ResultsManage() {
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this result?')) return;
     try { await api.delete(`/results/${id}`); fetchResults(); } catch (err: any) { alert(err.response?.data?.message || 'Failed'); }
+  };
+
+  const openEdit = (r: ResultRow) => {
+    setEditingResult(r);
+    setEditForm({
+      marksObtained: String(r.marksObtained ?? ''),
+      remarks: r.remarks || '',
+      feedback: r.feedback || '',
+      absent: r.status === 'absent',
+    });
+  };
+
+  const handleEditSave = async () => {
+    if (!editingResult) return;
+    setSavingEdit(true);
+    setError('');
+    try {
+      await api.patch(`/results/${editingResult._id}`, {
+        marksObtained: editForm.absent ? 0 : Number(editForm.marksObtained || 0),
+        remarks: editForm.remarks,
+        feedback: editForm.feedback,
+        status: editForm.absent ? 'absent' : undefined,
+      });
+      setEditingResult(null);
+      setMessage('✅ Result updated.');
+      fetchResults();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to update result');
+    } finally { setSavingEdit(false); }
   };
 
   const handleTogglePublish = async () => {
@@ -370,9 +450,7 @@ export function ResultsManage() {
                           <ResultStatusBadge status={r.status} />
                         </td>
                         <td className="px-5 py-4 text-center rounded-r-2xl border-y border-r border-[var(--color-border-default)]">
-                          <button onClick={() => handleDelete(r._id)} className="inline-flex items-center justify-center rounded-lg p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors" title="Delete">
-                            <Trash2 className="h-4 w-4" strokeWidth={2} />
-                          </button>
+                          <RowActionsMenu onEdit={() => openEdit(r)} onDelete={() => handleDelete(r._id)} />
                         </td>
                       </tr>
                     );
@@ -528,6 +606,83 @@ export function ResultsManage() {
           </div>
         )}
       </div>
+
+      {/* Edit Result modal — opened from the View Results row's 3-dot menu */}
+      {editingResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditingResult(null)}>
+          <div
+            className="w-full max-w-md rounded-2xl bg-[var(--color-surface-primary)] shadow-xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[var(--color-border-default)] px-5 py-4">
+              <div>
+                <h3 className="font-bold text-[var(--color-text-primary)]">Edit Result</h3>
+                <p className="text-xs text-[var(--color-text-tertiary)]">
+                  {editingResult.student?.profile?.firstName} {editingResult.student?.profile?.lastName} — {editingResult.exam?.title}
+                </p>
+              </div>
+              <button onClick={() => setEditingResult(null)} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)]">
+                <X className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={editForm.absent}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, absent: e.target.checked }))}
+                  className="h-4 w-4 rounded border-[var(--color-border-default)]"
+                />
+                Mark as Absent
+              </label>
+
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Marks Obtained</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={editingResult.totalMarks}
+                  value={editForm.marksObtained}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, marksObtained: e.target.value }))}
+                  disabled={editForm.absent}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm disabled:opacity-40"
+                  placeholder={`/ ${editingResult.totalMarks}`}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Remarks (Internal only)</label>
+                <input
+                  type="text"
+                  value={editForm.remarks}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Feedback (Shown to student)</label>
+                <textarea
+                  value={editForm.feedback}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, feedback: e.target.value }))}
+                  rows={3}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border-default)] px-5 py-4">
+              <button onClick={() => setEditingResult(null)} className="rounded-xl px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleEditSave} disabled={savingEdit} className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors">
+                {savingEdit ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
