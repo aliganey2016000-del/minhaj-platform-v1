@@ -160,10 +160,13 @@ export function SuganhubLandingPage() {
             <Reveal delay={140} className="relative">
               <div className="relative overflow-hidden rounded-[26px] border border-white/15 shadow-[0_40px_120px_-40px_rgba(0,0,0,0.75)]">
                 <img
-                  src="/images/suganhub-hero.png"
+                  src="/images/suganhub-hero.jpg"
                   alt="Suganhub students and teacher learning together in a modern, faith-centered classroom"
                   className="aspect-[4/3] w-full object-cover"
+                  width={1100}
+                  height={880}
                   loading="eager"
+                  fetchPriority="high"
                 />
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#03231a]/40 via-transparent to-transparent" />
               </div>
