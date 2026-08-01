@@ -13,7 +13,23 @@ import { Search, Trash2, CheckCircle2, XCircle, UserX, LayoutGrid } from 'lucide
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 
-interface ExamBrief { _id: string; title: string; examDate: string; totalMarks: number; passingMarks: number; resultsPublished?: boolean; autoSchedule?: boolean; course?: { _id: string; title: { en: string }; slug: string; category: string }; }
+interface ExamBrief {
+  _id: string;
+  title: string;
+  examDate: string;
+  totalMarks: number;
+  passingMarks: number;
+  resultsPublished?: boolean;
+  autoSchedule?: boolean;
+  school?: { name: string } | null;
+  course?: {
+    _id: string;
+    title: { en: string };
+    slug: string;
+    category: string;
+    class?: { title: string; section: string; department?: { name: string } | null } | null;
+  };
+}
 
 function formatExamDate(exam: ExamBrief): string {
   if (exam.autoSchedule || !exam.examDate) return 'Self-Paced Exam';
@@ -394,8 +410,8 @@ export function ResultsManage() {
                       <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                         <tr>
                           <th className="text-left px-5 py-3 font-semibold">Student Name / ID</th>
-                          <th className="text-left px-5 py-3 font-semibold hidden sm:table-cell">Department / Class</th>
-                          <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Course</th>
+                          <th className="text-left px-5 py-3 font-semibold hidden sm:table-cell">Organization / Department</th>
+                          <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Course / Class</th>
                           <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Exam Type</th>
                           <th className="text-center px-5 py-3 font-semibold">Marks</th>
                           <th className="text-center px-5 py-3 font-semibold">Attendance</th>
@@ -407,6 +423,11 @@ export function ResultsManage() {
                         {examStudents.map((s) => {
                           const fullName = `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim() || 'Unknown Student';
                           const classLabel = s.class ? `${s.class.title} (${s.class.section})` : '';
+                          const examClass = selectedExamObj?.course?.class;
+                          const orgLabel = selectedExamObj?.school?.name || '';
+                          const deptLabel = examClass?.department?.name || s.department || '';
+                          const courseLabel = selectedExamObj?.course?.title?.en || '';
+                          const courseClassLabel = examClass ? `${examClass.title} (${examClass.section})` : classLabel;
                           return (
                             <tr key={s._id} className="border-b border-[var(--color-border-subtle)]">
                               <td className="px-5 py-3">
@@ -421,9 +442,11 @@ export function ResultsManage() {
                                 </div>
                               </td>
                               <td className="px-5 py-3 hidden sm:table-cell text-xs text-[var(--color-text-secondary)]">
-                                {s.department || ''}{s.department && classLabel ? ' · ' : ''}{classLabel}
+                                {orgLabel}{orgLabel && deptLabel ? ' · ' : ''}{deptLabel}
                               </td>
-                              <td className="px-5 py-3 hidden md:table-cell text-xs text-[var(--color-text-secondary)]">{selectedExamObj?.course?.title?.en || ''}</td>
+                              <td className="px-5 py-3 hidden md:table-cell text-xs text-[var(--color-text-secondary)]">
+                                {courseLabel}{courseLabel && courseClassLabel ? ' · ' : ''}{courseClassLabel}
+                              </td>
                               <td className="px-5 py-3 hidden md:table-cell text-xs text-[var(--color-text-secondary)]" dir="auto">{selectedExamObj?.title || ''}</td>
                               <td className="px-5 py-3 text-center">
                                 <input
