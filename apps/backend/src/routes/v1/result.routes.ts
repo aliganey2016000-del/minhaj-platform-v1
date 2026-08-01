@@ -10,6 +10,7 @@ router.use(authMiddleware);
 
 router.get('/', adminOrTeacher, asyncHandler(resultController.getAll));
 router.get('/my', roleMiddleware(['student']), asyncHandler(resultController.getMyResults));
+router.get('/my/courses', roleMiddleware(['student']), asyncHandler(resultController.getMyResultsByCourse));
 router.post('/', adminOrTeacher, asyncHandler(resultController.create));
 router.post('/bulk', adminOrTeacher, asyncHandler(resultController.bulkCreate));
 router.patch('/:id', adminOrTeacher, asyncHandler(resultController.update));

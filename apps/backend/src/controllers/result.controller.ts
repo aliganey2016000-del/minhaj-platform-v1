@@ -4,6 +4,12 @@ import Result from '../models/result.model';
 import Exam from '../models/exam.model';
 import Course from '../models/course.model';
 import Student from '../models/student.model';
+import School from '../models/school.model';
+import Attendance from '../models/attendance.model';
+import QuizAttempt from '../models/quiz-attempt.model';
+import AssignmentSubmission from '../models/assignment-submission.model';
+import ManualGradeEntry from '../models/manual-grade-entry.model';
+import GradingScheme from '../models/grading-scheme.model';
 import ExamAttendance from '../models/exam-attendance.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
@@ -164,6 +170,166 @@ export const getMyResults = async (req: Request, res: Response): Promise<Respons
     .lean();
 
   return ApiResponse.success(res, results);
+};
+
+// ---------------------------------------------------------------------------
+// GET /results/my/courses — Student's own results, broken down per course
+// ---------------------------------------------------------------------------
+
+export const getMyResultsByCourse = async (req: Request, res: Response): Promise<Response> => {
+  const student = await ensureStudentRecord(req.user!.userId);
+
+  // Same course-resolution rule used for attendance: for a class-based
+  // organization every course tied to the student's Class shows up (even
+  // with zero activity yet); for a course-based one, only courses the
+  // student individually enrolled in.
+  const studentSchoolId = (student as any).school;
+  const studentClassId = (student as any).class;
+  const school = studentSchoolId ? await School.findById(studentSchoolId).select('attendanceType').lean() : null;
+  const isClassBased = school?.attendanceType === 'class_based' && !!studentClassId;
+
+  const courseFilter = isClassBased
+    ? { class: studentClassId }
+    : { _id: { $in: student.enrolledCourses } };
+
+  const courses = await Course.find(courseFilter)
+    .select('title slug category')
+    .populate('class', 'title section')
+    .lean();
+
+  const courseIds = courses.map((c) => c._id);
+  if (courseIds.length === 0) return ApiResponse.success(res, []);
+
+  const [attendanceAgg, quizAttempts, assignmentSubs, publishedExams, manualEntries, schemes] = await Promise.all([
+    Attendance.aggregate([
+      { $match: { student: student._id, course: { $in: courseIds } } },
+      {
+        $group: {
+          _id: '$course',
+          total: { $sum: 1 },
+          present: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
+          late: { $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] } },
+          absent: { $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] } },
+          excused: { $sum: { $cond: [{ $eq: ['$status', 'excused'] }, 1, 0] } },
+        },
+      },
+    ]),
+    QuizAttempt.find({ student: student._id, course: { $in: courseIds } }).select('course quizId percentage').lean(),
+    AssignmentSubmission.find({ student: student._id, course: { $in: courseIds }, status: { $in: ['graded', 'returned'] } })
+      .select('course assignment score isLate')
+      .populate('assignment', 'title totalMarks')
+      .lean(),
+    Exam.find({ course: { $in: courseIds }, resultsPublished: true }).select('_id title examDate course').lean(),
+    ManualGradeEntry.find({ student: student._id, course: { $in: courseIds }, categoryKey: { $ne: '__bonus' } }).lean(),
+    GradingScheme.find({ course: { $in: courseIds } }).select('course categories').lean(),
+  ]);
+
+  const examIds = publishedExams.map((e: any) => e._id);
+  const examResults = examIds.length
+    ? await Result.find({ exam: { $in: examIds }, student: student._id }).lean()
+    : [];
+  const examMap = new Map(publishedExams.map((e: any) => [e._id.toString(), e]));
+
+  const attendanceMap = new Map(attendanceAgg.map((a: any) => [a._id.toString(), a]));
+
+  const quizByCourse = new Map<string, Map<string, number>>(); // courseId -> quizId -> best %
+  for (const a of quizAttempts as any[]) {
+    const cId = a.course.toString();
+    if (!quizByCourse.has(cId)) quizByCourse.set(cId, new Map());
+    const byQuiz = quizByCourse.get(cId)!;
+    const existing = byQuiz.get(a.quizId);
+    if (existing === undefined || a.percentage > existing) byQuiz.set(a.quizId, a.percentage);
+  }
+
+  const assignmentsByCourse = new Map<string, any[]>();
+  for (const s of assignmentSubs as any[]) {
+    const cId = s.course.toString();
+    if (!assignmentsByCourse.has(cId)) assignmentsByCourse.set(cId, []);
+    const max = s.assignment?.totalMarks || 100;
+    const percentage = max > 0 ? Math.round(((s.score || 0) / max) * 100) : 0;
+    assignmentsByCourse.get(cId)!.push({
+      title: s.assignment?.title || 'Assignment',
+      score: s.score || 0,
+      totalMarks: max,
+      percentage,
+      isLate: s.isLate,
+    });
+  }
+
+  const examsByCourse = new Map<string, any[]>();
+  for (const r of examResults as any[]) {
+    const exam = examMap.get(r.exam.toString());
+    if (!exam) continue;
+    const cId = exam.course.toString();
+    if (!examsByCourse.has(cId)) examsByCourse.set(cId, []);
+    examsByCourse.get(cId)!.push({
+      resultId: r._id,
+      title: exam.title,
+      examDate: exam.examDate,
+      marksObtained: r.marksObtained,
+      totalMarks: r.totalMarks,
+      percentage: r.percentage,
+      grade: r.grade,
+      status: r.status,
+      feedback: r.feedback,
+    });
+  }
+
+  const schemeLabelByCourse = new Map<string, Map<string, string>>();
+  for (const sch of schemes as any[]) {
+    const labels = new Map<string, string>();
+    for (const cat of sch.categories || []) labels.set(cat.key, cat.label);
+    schemeLabelByCourse.set(sch.course.toString(), labels);
+  }
+
+  const otherByCourse = new Map<string, any[]>();
+  for (const m of manualEntries as any[]) {
+    const cId = m.course.toString();
+    if (!otherByCourse.has(cId)) otherByCourse.set(cId, []);
+    const labels = schemeLabelByCourse.get(cId);
+    otherByCourse.get(cId)!.push({
+      label: labels?.get(m.categoryKey) || m.categoryKey,
+      score: m.score,
+    });
+  }
+
+  const result = courses.map((course) => {
+    const cId = course._id.toString();
+    const att = attendanceMap.get(cId);
+    const quizzes = [...(quizByCourse.get(cId)?.values() || [])];
+    const assignments = assignmentsByCourse.get(cId) || [];
+
+    return {
+      courseId: course._id,
+      code: course.slug?.toUpperCase() || '',
+      title: course.title?.en || 'Unknown Course',
+      section: (course as any).class ? `${(course as any).class.title} (${(course as any).class.section})` : (course as any).category || '',
+      attendance: att
+        ? {
+            days: att.total,
+            present: att.present,
+            absent: att.absent,
+            late: att.late,
+            excused: att.excused,
+            presentPercentage: att.total > 0 ? Math.round((att.present / att.total) * 100) : 0,
+          }
+        : null,
+      quizzes: quizzes.length
+        ? { count: quizzes.length, averagePercent: Math.round(quizzes.reduce((s, p) => s + p, 0) / quizzes.length) }
+        : null,
+      assignments: assignments.length
+        ? {
+            count: assignments.length,
+            averagePercent: Math.round(assignments.reduce((s, a) => s + a.percentage, 0) / assignments.length),
+            items: assignments,
+          }
+        : null,
+      exams: examsByCourse.get(cId) || [],
+      other: otherByCourse.get(cId) || [],
+    };
+  });
+
+  return ApiResponse.success(res, result);
 };
 
 // ---------------------------------------------------------------------------
