@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
+import { getAllowedOrigins } from './utils/cors-origins';
 import {
   enforceHttps,
   requestTimeout,
@@ -45,8 +46,13 @@ app.use(helmet({
   noSniff: true,
   xssFilter: true,
 }));
+const allowedOrigins = getAllowedOrigins();
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    // No Origin header (server-to-server, curl, same-origin) — allow.
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

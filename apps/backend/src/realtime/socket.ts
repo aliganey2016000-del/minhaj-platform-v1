@@ -17,6 +17,7 @@ import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt';
 import User from '../models/user.model';
+import { getAllowedOrigins } from '../utils/cors-origins';
 
 let io: SocketIOServer | null = null;
 
@@ -32,7 +33,7 @@ function userRoom(userId: string): string {
 export function initSocket(httpServer: HttpServer): SocketIOServer {
   io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.CLIENT_URL || 'http://localhost:5173',
+      origin: getAllowedOrigins(),
       credentials: true,
     },
   });
