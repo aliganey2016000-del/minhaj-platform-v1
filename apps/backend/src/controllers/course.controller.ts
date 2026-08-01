@@ -557,6 +557,7 @@ export const getEnrolledStudents = async (req: Request, res: Response): Promise<
   const students = await Student.find(studentFilter)
     .populate('user', 'email role isActive')
     .populate('profile', 'firstName lastName avatar')
+    .populate('class', 'title section')
     .skip((page - 1) * limit)
     .limit(limit)
     .lean();

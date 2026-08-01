@@ -33,7 +33,7 @@ function avatarColor(seed: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
-interface StudentBrief { _id: string; studentId: string; profile?: { firstName: string; lastName: string }; }
+interface StudentBrief { _id: string; studentId: string; department?: string; class?: { title: string; section: string } | null; profile?: { firstName: string; lastName: string }; }
 
 interface ResultRow {
   _id: string;
@@ -393,49 +393,67 @@ export function ResultsManage() {
                     <table className="w-full text-sm">
                       <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                         <tr>
-                          <th className="text-left px-5 py-3 font-semibold">#</th>
-                          <th className="text-left px-5 py-3 font-semibold">Student</th>
-                          <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">ID</th>
-                          <th className="text-center px-5 py-3 font-semibold">Marks Obtained</th>
+                          <th className="text-left px-5 py-3 font-semibold">Student Name / ID</th>
+                          <th className="text-left px-5 py-3 font-semibold hidden sm:table-cell">Department / Class</th>
+                          <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Course</th>
+                          <th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Exam Type</th>
+                          <th className="text-center px-5 py-3 font-semibold">Marks</th>
                           <th className="text-center px-5 py-3 font-semibold">Attendance</th>
-                          <th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Remarks</th>
+                          <th className="text-center px-5 py-3 font-semibold hidden lg:table-cell">Remarks</th>
                           <th className="text-center px-5 py-3 font-semibold hidden lg:table-cell">Feedback</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {examStudents.map((s, i) => (
-                          <tr key={s._id} className="border-b border-[var(--color-border-subtle)]">
-                            <td className="px-5 py-3 text-center text-xs text-[var(--color-text-tertiary)] w-10">{i + 1}</td>
-                            <td className="px-5 py-3"><p className="font-medium">{s.profile?.firstName} {s.profile?.lastName}</p></td>
-                            <td className="px-5 py-3 text-center hidden sm:table-cell"><code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{s.studentId}</code></td>
-                            <td className="px-5 py-3 text-center">
-                              <input
-                                type="number"
-                                min={0}
-                                max={selectedExamObj?.totalMarks || 100}
-                                value={marks[s._id]?.obtained || ''}
-                                onChange={e => handleMarkChange(s._id, 'obtained', e.target.value)}
-                                disabled={marks[s._id]?.status === 'absent'}
-                                className="w-20 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1.5 text-xs text-center font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-30"
-                                placeholder={`/ ${selectedExamObj?.totalMarks || 100}`}
-                              />
-                            </td>
-                            <td className="px-5 py-3 text-center">
-                              <select value={marks[s._id]?.status || 'present'} onChange={e => handleMarkChange(s._id, 'status', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer">
-                                <option value="present">Present</option>
-                                <option value="absent">Absent</option>
-                                <option value="late">Late</option>
-                                <option value="excused">Excused</option>
-                              </select>
-                            </td>
-                            <td className="px-5 py-3 text-center hidden md:table-cell">
-                              <input type="text" value={marks[s._id]?.remarks || ''} onChange={e => handleMarkChange(s._id, 'remarks', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-36" placeholder="Internal only" />
-                            </td>
-                            <td className="px-5 py-3 text-center hidden lg:table-cell">
-                              <input type="text" value={marks[s._id]?.feedback || ''} onChange={e => handleMarkChange(s._id, 'feedback', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-36" placeholder="Shown to student" />
-                            </td>
-                          </tr>
-                        ))}
+                        {examStudents.map((s) => {
+                          const fullName = `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim() || 'Unknown Student';
+                          const classLabel = s.class ? `${s.class.title} (${s.class.section})` : '';
+                          return (
+                            <tr key={s._id} className="border-b border-[var(--color-border-subtle)]">
+                              <td className="px-5 py-3">
+                                <div className="flex items-center gap-3">
+                                  <span className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${avatarColor(s._id)}`}>
+                                    {initials(s.profile?.firstName, s.profile?.lastName)}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <p className="font-medium truncate">{fullName}</p>
+                                    <code className="text-[11px] text-[var(--color-text-tertiary)]">{s.studentId}</code>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-5 py-3 hidden sm:table-cell text-xs text-[var(--color-text-secondary)]">
+                                {s.department || ''}{s.department && classLabel ? ' · ' : ''}{classLabel}
+                              </td>
+                              <td className="px-5 py-3 hidden md:table-cell text-xs text-[var(--color-text-secondary)]">{selectedExamObj?.course?.title?.en || ''}</td>
+                              <td className="px-5 py-3 hidden md:table-cell text-xs text-[var(--color-text-secondary)]" dir="auto">{selectedExamObj?.title || ''}</td>
+                              <td className="px-5 py-3 text-center">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={selectedExamObj?.totalMarks || 100}
+                                  value={marks[s._id]?.obtained || ''}
+                                  onChange={e => handleMarkChange(s._id, 'obtained', e.target.value)}
+                                  disabled={marks[s._id]?.status === 'absent'}
+                                  className="w-20 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1.5 text-xs text-center font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-30"
+                                  placeholder={`/ ${selectedExamObj?.totalMarks || 100}`}
+                                />
+                              </td>
+                              <td className="px-5 py-3 text-center">
+                                <select value={marks[s._id]?.status || 'present'} onChange={e => handleMarkChange(s._id, 'status', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer">
+                                  <option value="present">Present</option>
+                                  <option value="absent">Absent</option>
+                                  <option value="late">Late</option>
+                                  <option value="excused">Excused</option>
+                                </select>
+                              </td>
+                              <td className="px-5 py-3 text-center hidden lg:table-cell">
+                                <input type="text" value={marks[s._id]?.remarks || ''} onChange={e => handleMarkChange(s._id, 'remarks', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-36" placeholder="Internal only" />
+                              </td>
+                              <td className="px-5 py-3 text-center hidden lg:table-cell">
+                                <input type="text" value={marks[s._id]?.feedback || ''} onChange={e => handleMarkChange(s._id, 'feedback', e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs w-36" placeholder="Shown to student" />
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
