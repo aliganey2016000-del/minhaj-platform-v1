@@ -395,13 +395,13 @@ export function ResultsManage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm table-fixed">
                       <colgroup>
-                        <col style={{ width: '22%' }} />
-                        <col className="hidden sm:table-column" style={{ width: '15%' }} />
-                        <col className="hidden md:table-column" style={{ width: '15%' }} />
-                        <col className="hidden md:table-column" style={{ width: '11%' }} />
+                        <col style={{ width: '20%' }} />
+                        <col className="hidden sm:table-column" style={{ width: '14%' }} />
+                        <col className="hidden md:table-column" style={{ width: '18%' }} />
+                        <col className="hidden md:table-column" style={{ width: '10%' }} />
                         <col style={{ width: '10%' }} />
                         <col style={{ width: '12%' }} />
-                        <col className="hidden lg:table-column" style={{ width: '15%' }} />
+                        <col className="hidden lg:table-column" style={{ width: '16%' }} />
                       </colgroup>
                       <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                         <tr>
@@ -424,7 +424,7 @@ export function ResultsManage() {
                           const courseLabel = selectedExamObj?.course?.title?.en || '';
                           const courseClassLabel = examClass ? `${examClass.title} (${examClass.section})` : classLabel;
                           return (
-                            <tr key={s._id} className={`border-b border-[var(--color-border-subtle)] ${i % 2 === 1 ? 'bg-[var(--color-surface-secondary)]/50' : ''}`}>
+                            <tr key={s._id} className={`border-b border-[var(--color-border-subtle)] ${i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/40' : ''}`}>
                               <td className="px-4 py-1">
                                 <div className="flex items-center gap-2">
                                   <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white ${avatarColor(s._id)}`}>
@@ -439,7 +439,7 @@ export function ResultsManage() {
                               <td className="px-4 py-1 hidden sm:table-cell text-xs text-[var(--color-text-secondary)] truncate">
                                 {orgLabel}{orgLabel && deptLabel ? ' · ' : ''}{deptLabel}
                               </td>
-                              <td className="px-4 py-1 hidden md:table-cell text-xs text-[var(--color-text-secondary)] truncate">
+                              <td className="px-4 py-1 hidden md:table-cell text-xs text-[var(--color-text-secondary)] whitespace-normal break-words leading-tight">
                                 {courseLabel}{courseLabel && courseClassLabel ? ' · ' : ''}{courseClassLabel}
                               </td>
                               <td className="px-4 py-1 hidden md:table-cell text-xs text-[var(--color-text-secondary)] truncate" dir="auto">{selectedExamObj?.title || ''}</td>
@@ -451,7 +451,8 @@ export function ResultsManage() {
                                   value={marks[s._id]?.obtained || ''}
                                   onChange={e => handleMarkChange(s._id, 'obtained', e.target.value)}
                                   disabled={marks[s._id]?.status === 'absent'}
-                                  className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs text-left font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-30 placeholder:text-slate-500 dark:placeholder:text-slate-400"
+                                  style={{ textAlign: 'left' }}
+                                  className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-30 placeholder:text-slate-500 dark:placeholder:text-slate-400"
                                   placeholder={`/ ${selectedExamObj?.totalMarks || 100}`}
                                 />
                               </td>
@@ -479,10 +480,10 @@ export function ResultsManage() {
                         <button
                           onClick={handleTogglePublish}
                           disabled={publishing}
-                          className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 shadow-sm ${
+                          className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
                             selectedExamObj.resultsPublished
-                              ? 'bg-green-600 text-white hover:bg-green-700'
-                              : 'bg-blue-600 text-white hover:bg-blue-700'
+                              ? 'border-2 border-green-600 text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-950/30'
+                              : 'border-2 border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
                           }`}
                         >
                           {selectedExamObj.resultsPublished ? '✅ Published to Students' : '🔓 Publish to Students'}
