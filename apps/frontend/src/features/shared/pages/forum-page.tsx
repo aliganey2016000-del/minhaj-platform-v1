@@ -1,10 +1,21 @@
 /**
- * Forum Page — Public (Madal Guud) & Private (Wada-hadal Gaar ah) Threads
+ * Forum Page — Public discussions & private conversations.
  *
  * Reusable across Admin, Teacher, Student, and Parent portals.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import {
+  MessageSquare,
+  Lock,
+  Plus,
+  ArrowLeft,
+  Pin,
+  Send,
+  Trash2,
+  Users,
+  Inbox,
+} from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
 import api from '../../../lib/axios';
 
@@ -73,6 +84,67 @@ function formatTime(iso: string): string {
   if (diff < 86_400_000) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   if (diff < 172_800_000) return 'Yesterday';
   return d.toLocaleDateString();
+}
+
+// ---------------------------------------------------------------------------
+// Small presentational components
+// ---------------------------------------------------------------------------
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+        active
+          ? 'bg-white text-primary-700 shadow-sm dark:bg-slate-700 dark:text-primary-300'
+          : 'text-slate-500 hover:bg-slate-200/60 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/40 dark:hover:text-slate-200'
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function EmptyState({
+  icon,
+  title,
+  subtitle,
+  ctaLabel,
+  onCta,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  ctaLabel: string;
+  onCta: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center px-4 py-20 text-center">
+      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary-50 text-primary-400 dark:bg-primary-950/30 dark:text-primary-500">
+        {icon}
+      </div>
+      <p className="mt-6 text-lg font-semibold text-slate-800 dark:text-slate-100">{title}</p>
+      <p className="mt-1.5 max-w-xs text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
+      <button
+        onClick={onCta}
+        className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+      >
+        <Plus className="h-4 w-4" strokeWidth={2.25} />
+        {ctaLabel}
+      </button>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -238,42 +310,60 @@ export function ForumPage() {
   // Render
   // -------------------------------------------------------------------------
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
+    <div className="flex h-[calc(100vh-4rem)] flex-col bg-slate-50 dark:bg-slate-900">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] px-4 py-3 lg:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3.5 dark:border-slate-800 dark:bg-slate-800 lg:px-6">
         <div>
-          <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Forum</h1>
-          <p className="text-xs text-[var(--color-text-tertiary)]">
-            {tab === 'public' ? 'Public discussions (Madal Guud)' : 'Private conversations (Wada-hadal Gaar ah)'}
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Forum</h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {tab === 'public'
+              ? 'Browse and participate in open community discussions.'
+              : 'Private, one-on-one and group conversations.'}
           </p>
         </div>
         {!activeThread && (
-          <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 transition-colors">
-            + {tab === 'public' ? 'New Topic' : 'New Conversation'}
+          <button
+            onClick={() => setShowCreate(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+          >
+            <Plus className="h-4 w-4" strokeWidth={2.25} />
+            {tab === 'public' ? 'New Topic' : 'New Conversation'}
           </button>
         )}
         {activeThread && (
-          <button onClick={() => setActiveThread(null)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
-            ← Back to Threads
+          <button
+            onClick={() => setActiveThread(null)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            <ArrowLeft className="h-4 w-4" strokeWidth={2} />
+            Back to Threads
           </button>
         )}
       </div>
 
-      {/* Tab Bar */}
+      {/* Tab Bar — segmented pill control */}
       {!activeThread && (
-        <div className="flex border-b border-[var(--color-border-subtle)] px-4 lg:px-6">
-          <button onClick={() => setTab('public')} className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${tab === 'public' ? 'border-primary-600 text-primary-700 dark:text-primary-400' : 'border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}`}>
-            🏛️ Madal Guud (Public)
-          </button>
-          <button onClick={() => setTab('private')} className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${tab === 'private' ? 'border-primary-600 text-primary-700 dark:text-primary-400' : 'border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}`}>
-            🔒 Wada-hadal Gaar ah (Private)
-          </button>
+        <div className="border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-800 lg:px-6">
+          <div className="inline-flex items-center gap-1 rounded-full bg-slate-100 p-1 dark:bg-slate-900">
+            <TabButton
+              active={tab === 'public'}
+              onClick={() => setTab('public')}
+              icon={<MessageSquare className="h-4 w-4" strokeWidth={2} />}
+              label="Public Forum"
+            />
+            <TabButton
+              active={tab === 'private'}
+              onClick={() => setTab('private')}
+              icon={<Lock className="h-4 w-4" strokeWidth={2} />}
+              label="Private Channels"
+            />
+          </div>
         </div>
       )}
 
       {/* Error */}
       {error && (
-        <div className="mx-4 mt-3 lg:mx-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+        <div className="mx-4 mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300 lg:mx-6">
           {error}
           <button onClick={() => setError('')} className="ml-3 underline">Dismiss</button>
         </div>
@@ -282,41 +372,47 @@ export function ForumPage() {
       {/* Content Area */}
       <div className="flex-1 overflow-hidden">
         {activeThread ? (
-          <div className="flex flex-col h-full">
-            <div className="border-b border-[var(--color-border-subtle)] px-4 py-3 lg:px-6">
+          <div className="flex h-full flex-col">
+            <div className="border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-800 lg:px-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-[var(--color-text-primary)]">{activeThread.title || 'Private Conversation'}</h2>
-                  <p className="text-xs text-[var(--color-text-tertiary)]">
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">{activeThread.title || 'Private Conversation'}</h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {activeThread.type === 'public' ? `${activeThread.participantCount} participants` : `With ${activeThread.participants.filter((p) => p._id !== userId).map((p) => p.email).join(', ')}`}
                   </p>
                 </div>
                 {activeThread.createdBy._id === userId && (
-                  <button onClick={() => handleDeleteThread(activeThread._id)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">Delete</button>
+                  <button onClick={() => handleDeleteThread(activeThread._id)} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-950/30">
+                    <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                    Delete
+                  </button>
                 )}
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-6 space-y-3">
+            <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4 lg:px-6">
               {msgLoading ? (
-                <div className="flex justify-center py-10"><div className="h-7 w-7 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" /></div>
+                <div className="flex justify-center py-10"><div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-primary-600 dark:border-slate-700" /></div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-[var(--color-text-tertiary)]"><span className="text-4xl mb-3">💬</span><p className="text-sm">No messages yet. Start the conversation!</p></div>
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-slate-500">
+                  <MessageSquare className="h-10 w-10" strokeWidth={1.5} />
+                  <p className="mt-3 text-sm">No messages yet. Start the conversation!</p>
+                </div>
               ) : (
                 messages.map((msg) => {
                   const isMine = msg.senderId._id === userId;
                   return (
                     <div key={msg._id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${isMine ? 'bg-primary-600 text-white rounded-br-md' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)] rounded-bl-md'}`}>
+                      <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${isMine ? 'rounded-br-md bg-primary-600 text-white' : 'rounded-bl-md bg-white text-slate-800 shadow-sm dark:bg-slate-800 dark:text-slate-100'}`}>
                         {!isMine && (
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-semibold text-[var(--color-text-primary)]">{msg.senderId.email}</span>
+                          <div className="mb-1 flex items-center gap-2">
+                            <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">{msg.senderId.email}</span>
                             <span className={`rounded-full px-1.5 py-0 text-[10px] font-medium ${ROLE_BADGES[msg.senderId.role] || 'bg-gray-100 text-gray-700'}`}>{ROLE_LABELS[msg.senderId.role] || msg.senderId.role}</span>
                           </div>
                         )}
-                        <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
-                        <div className={`flex items-center gap-2 mt-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
-                          <span className={`text-[10px] ${isMine ? 'text-white/60' : 'text-[var(--color-text-tertiary)]'}`}>{formatTime(msg.createdAt)}</span>
-                          {isMine && <button onClick={() => handleDeleteMessage(msg._id)} className="text-[10px] text-white/50 hover:text-white/80 transition-colors">Delete</button>}
+                        <p className="whitespace-pre-wrap break-words text-sm">{msg.content}</p>
+                        <div className={`mt-1 flex items-center gap-2 ${isMine ? 'justify-end' : 'justify-start'}`}>
+                          <span className={`text-[10px] ${isMine ? 'text-white/60' : 'text-slate-400 dark:text-slate-500'}`}>{formatTime(msg.createdAt)}</span>
+                          {isMine && <button onClick={() => handleDeleteMessage(msg._id)} className="text-[10px] text-white/50 transition-colors hover:text-white/80">Delete</button>}
                         </div>
                       </div>
                     </div>
@@ -325,43 +421,72 @@ export function ForumPage() {
               )}
               <div ref={messagesEndRef} />
             </div>
-            <form onSubmit={handleSend} className="border-t border-[var(--color-border-subtle)] px-4 py-3 lg:px-6">
+            <form onSubmit={handleSend} className="border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-800 lg:px-6">
               <div className="flex gap-2">
-                <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type your message..." className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40" disabled={sending} />
-                <button type="submit" disabled={sending || !newMessage.trim()} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors">{sending ? '...' : 'Send'}</button>
+                <input
+                  type="text"
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  placeholder="Type your message..."
+                  className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40 dark:border-slate-700 dark:bg-slate-900"
+                  disabled={sending}
+                />
+                <button
+                  type="submit"
+                  disabled={sending || !newMessage.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4" strokeWidth={2} />
+                  {sending ? 'Sending...' : 'Send'}
+                </button>
               </div>
             </form>
           </div>
         ) : (
-          <div className="overflow-y-auto h-full">
+          <div className="h-full overflow-y-auto">
             {loading ? (
-              <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>
+              <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-3 border-slate-200 border-t-primary-600 dark:border-slate-700" /></div>
             ) : threads.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-[var(--color-text-tertiary)]">
-                <span className="text-5xl mb-4">{tab === 'public' ? '🏛️' : '🔒'}</span>
-                <p className="text-lg font-medium text-[var(--color-text-primary)] mb-1">{tab === 'public' ? 'No public topics yet' : 'No private conversations yet'}</p>
-                <p className="text-sm">{tab === 'public' ? 'Start a new discussion topic!' : 'Start a private conversation with someone!'}</p>
-              </div>
+              <EmptyState
+                icon={tab === 'public' ? <MessageSquare className="h-9 w-9" strokeWidth={1.5} /> : <Inbox className="h-9 w-9" strokeWidth={1.5} />}
+                title={tab === 'public' ? 'No public topics yet' : 'No private conversations yet'}
+                subtitle={tab === 'public' ? 'Start a new discussion topic and get the conversation going.' : 'Start a private conversation with someone in your organization.'}
+                ctaLabel="Start a Discussion"
+                onCta={() => setShowCreate(true)}
+              />
             ) : (
-              <div className="divide-y divide-[var(--color-border-subtle)]">
+              <div className="flex flex-col gap-2.5 p-4 lg:p-6">
                 {threads.map((thread) => (
-                  <div key={thread._id} onClick={() => openThread(thread)} className="flex items-start gap-3 px-4 py-3 lg:px-6 hover:bg-[var(--color-surface-secondary)] cursor-pointer transition-colors">
-                    <span className="mt-0.5 text-xl flex-shrink-0">{thread.type === 'public' ? '🏛️' : '🔒'}</span>
-                    <div className="flex-1 min-w-0">
+                  <div
+                    key={thread._id}
+                    onClick={() => openThread(thread)}
+                    className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3.5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700/60 dark:bg-slate-800"
+                  >
+                    <span className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-400">
+                      {thread.type === 'public' ? <MessageSquare className="h-4 w-4" strokeWidth={2} /> : <Lock className="h-4 w-4" strokeWidth={2} />}
+                    </span>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-[var(--color-text-primary)] truncate">{thread.title || `Private with ${thread.participants.filter((p: any) => (p._id || p) !== userId).map((p: any) => p.email).join(', ')}`}</h3>
-                        {thread.isPinned && <span className="text-xs text-gold-500">📌</span>}
+                        <h3 className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{thread.title || `Private with ${thread.participants.filter((p: any) => (p._id || p) !== userId).map((p: any) => p.email).join(', ')}`}</h3>
+                        {thread.isPinned && <Pin className="h-3.5 w-3.5 flex-shrink-0 fill-gold-400 text-gold-500" strokeWidth={1.5} />}
                       </div>
                       {thread.lastMessage ? (
-                        <p className="text-xs text-[var(--color-text-tertiary)] truncate mt-0.5"><span className="font-medium">{thread.lastMessage.senderId.email}:</span> {thread.lastMessage.content}</p>
+                        <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400"><span className="font-medium">{thread.lastMessage.senderId.email}:</span> {thread.lastMessage.content}</p>
                       ) : (
-                        <p className="text-xs text-[var(--color-text-tertiary)] italic mt-0.5">No messages yet</p>
+                        <p className="mt-0.5 text-xs italic text-slate-400 dark:text-slate-500">No messages yet</p>
                       )}
                     </div>
-                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                      <span className="text-[10px] text-[var(--color-text-tertiary)]">{thread.lastMessage ? formatTime(thread.lastMessage.createdAt) : formatTime(thread.createdAt)}</span>
-                      {thread.type === 'public' && <span className="text-[10px] text-[var(--color-text-tertiary)]">{thread.participantCount} members</span>}
-                      {thread.type === 'private' && <span className="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-text-secondary)]">{thread.participants.length} people</span>}
+                    <div className="flex flex-shrink-0 flex-col items-end gap-1">
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">{thread.lastMessage ? formatTime(thread.lastMessage.createdAt) : formatTime(thread.createdAt)}</span>
+                      {thread.type === 'public' && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
+                          <Users className="h-3 w-3" strokeWidth={2} />
+                          {thread.participantCount}
+                        </span>
+                      )}
+                      {thread.type === 'private' && (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">{thread.participants.length} people</span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -377,34 +502,34 @@ export function ForumPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={() => { setShowCreate(false); setNewTitle(''); setSelectedParticipants([]); setMemberSearch(''); }}
         >
-          <div className="w-full max-w-md rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-[var(--color-text-primary)] mb-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-800" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-4 text-lg font-bold text-slate-900 dark:text-white">
               {tab === 'public' ? 'New Public Topic' : 'New Private Conversation'}
             </h2>
 
             {tab === 'public' ? (
               <div>
-                <label className="block text-xs font-semibold text-[var(--color-text-secondary)] mb-1.5">Topic Title</label>
-                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="What do you want to discuss?" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40" autoFocus />
+                <label className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">Topic Title</label>
+                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="What do you want to discuss?" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40 dark:border-slate-700 dark:bg-slate-900" autoFocus />
               </div>
             ) : (
               <div>
-                <label className="block text-xs font-semibold text-[var(--color-text-secondary)] mb-1.5">Select Participants</label>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">Select Participants</label>
                 {selectedParticipants.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-2">
+                  <div className="mb-2 flex flex-wrap gap-1.5">
                     {selectedParticipants.map((p) => (
-                      <span key={p._id} className="inline-flex items-center gap-1 rounded-full bg-primary-50 dark:bg-primary-950/30 px-2.5 py-1 text-xs font-medium text-primary-700 dark:text-primary-300">
+                      <span key={p._id} className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
                         {p.email}
                         <button onClick={() => setSelectedParticipants((prev) => prev.filter((x) => x._id !== p._id))} className="ml-0.5 text-primary-400 hover:text-red-500">×</button>
                       </span>
                     ))}
                   </div>
                 )}
-                <input type="text" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} placeholder="Search by email..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40" />
+                <input type="text" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} placeholder="Search by email..." className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40 dark:border-slate-700 dark:bg-slate-900" />
                 {members.length > 0 && (
-                  <div className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-[var(--color-border-subtle)]">
+                  <div className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
                     {members.filter((m) => !selectedParticipants.some((s) => s._id === m._id)).map((m) => (
-                      <button key={m._id} onClick={() => setSelectedParticipants((prev) => [...prev, m])} className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--color-surface-secondary)] transition-colors">
+                      <button key={m._id} onClick={() => setSelectedParticipants((prev) => [...prev, m])} className="flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-700">
                         <span>{m.email}</span>
                         <span className={`rounded-full px-1.5 py-0 text-[10px] font-medium ${ROLE_BADGES[m.role] || 'bg-gray-100 text-gray-700'}`}>{ROLE_LABELS[m.role] || m.role}</span>
                       </button>
@@ -414,9 +539,9 @@ export function ForumPage() {
               </div>
             )}
 
-            <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => { setShowCreate(false); setNewTitle(''); setSelectedParticipants([]); setMemberSearch(''); }} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
-              <button onClick={handleCreate} disabled={creating || (tab === 'public' && !newTitle.trim()) || (tab === 'private' && selectedParticipants.length === 0)} className="rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors">{creating ? 'Creating...' : 'Create'}</button>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => { setShowCreate(false); setNewTitle(''); setSelectedParticipants([]); setMemberSearch(''); }} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700">Cancel</button>
+              <button onClick={handleCreate} disabled={creating || (tab === 'public' && !newTitle.trim()) || (tab === 'private' && selectedParticipants.length === 0)} className="rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-50">{creating ? 'Creating...' : 'Create'}</button>
             </div>
           </div>
         </div>
