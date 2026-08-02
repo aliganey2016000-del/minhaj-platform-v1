@@ -16,5 +16,6 @@ router.use(authMiddleware);
 router.use(adminOnly);
 
 router.get('/', asyncHandler(gradebookController.listCourseGradingStatus));
+router.post('/bulk-apply', asyncHandler(gradebookController.bulkApplyScheme));
 
 export default router;

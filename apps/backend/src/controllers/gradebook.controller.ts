@@ -242,6 +242,70 @@ export const exportClassGrades = async (req: Request, res: Response): Promise<vo
 };
 
 // ---------------------------------------------------------------------------
+// POST /gradebook-courses/bulk-apply — apply one grading scheme template to
+// many courses at once, instead of building the same category list one
+// course at a time. 'exam' sourceType categories are rejected here — each
+// course has its own distinct Exam documents, so a shared template can't
+// reference a valid examId for every target course; those categories still
+// have to be added per-course from the individual editor.
+// ---------------------------------------------------------------------------
+export const bulkApplyScheme = async (req: Request, res: Response): Promise<Response> => {
+  const { courseIds, categories, passingScore, latePenaltyPercent, bonusCapPercent, dropLowestQuiz } = req.body;
+
+  if (!Array.isArray(courseIds) || courseIds.length === 0) {
+    throw new BadRequestError('At least one target course is required.');
+  }
+  if (!Array.isArray(categories) || categories.length === 0) {
+    throw new BadRequestError('At least one grading category is required.');
+  }
+  for (const cat of categories) {
+    if (!cat.key || !cat.label || typeof cat.weight !== 'number') {
+      throw new BadRequestError('Each category needs a key, label, and numeric weight.');
+    }
+    if (!['attendance', 'assignments', 'quizzes', 'manual'].includes(cat.sourceType)) {
+      throw new BadRequestError(
+        `Category "${cat.label}": bulk templates only support Attendance, Assignments, Quizzes, or Manual — exam-specific categories must be added per course since each course has its own exams.`
+      );
+    }
+  }
+  if (!validateCategoryWeights(categories)) {
+    throw new BadRequestError('Category weights must add up to exactly 100%.');
+  }
+
+  // Scope target courses to the caller's own organization — an org_admin
+  // must never be able to write a scheme onto another tenant's course by
+  // passing its id, even though this endpoint is admin/org_admin only.
+  const scopedFilter = applyOrgFilter(req, { _id: { $in: courseIds } }, 'school');
+  const ownedCourses = await Course.find(scopedFilter).select('_id').lean();
+  const ownedIds = ownedCourses.map((c) => c._id.toString());
+  const skipped = courseIds.filter((id: string) => !ownedIds.includes(id));
+
+  const payload = {
+    categories,
+    passingScore: passingScore ?? 60,
+    latePenaltyPercent: latePenaltyPercent ?? 0,
+    bonusCapPercent: bonusCapPercent ?? 0,
+    dropLowestQuiz: !!dropLowestQuiz,
+  };
+
+  await Promise.all(
+    ownedIds.map((courseId) =>
+      GradingScheme.findOneAndUpdate(
+        { course: courseId },
+        { course: courseId, ...payload },
+        { upsert: true, runValidators: true }
+      )
+    )
+  );
+
+  return ApiResponse.success(
+    res,
+    { applied: ownedIds.length, skipped: skipped.length },
+    `Grading rules applied to ${ownedIds.length} course${ownedIds.length === 1 ? '' : 's'}.`
+  );
+};
+
+// ---------------------------------------------------------------------------
 // GET /gradebook-courses — every course in the caller's organization, with
 // its grading-scheme status, so an org_admin can jump straight into any
 // course's Grading Rules editor without hunting through Course Builder one
