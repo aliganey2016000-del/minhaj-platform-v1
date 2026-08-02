@@ -25,7 +25,63 @@ function getMarked(): Promise<typeof import('marked')> {
 
 import { BadRequestError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
-import { buildXlsxBuffer } from '../utils/xlsx-buffer';
+
+// ---------------------------------------------------------------------------
+// Ready-to-copy AI prompts — shipped as extra sheets in the downloadable
+// template, so an admin can hand their raw lesson text to any chat AI
+// (ChatGPT, DeepSeek, ...) and get back rows in EXACTLY this importer's
+// column format, instead of writing the spreadsheet by hand. Two variants
+// because "paraphrase this" and "don't touch my wording" need opposite
+// instructions — same table contract either way.
+// ---------------------------------------------------------------------------
+
+const PROMPT_TABLE_CONTRACT = `Output ONLY a table with these exact columns, in this exact order, as TAB-SEPARATED values (so I can paste it straight into Excel) — one row per question, repeating the same Block Title on every question row that belongs to the same block:
+
+Block Title	Block Content (plain text or Markdown)	Min Read Seconds	Question Type (mcq or true_false)	Question Text	Option 1	Option 2	Option 3	Correct Answer (mcq: 1/2/3, true_false: TRUE/FALSE)	Explanation
+
+Rules:
+- Put the Block Content only on the FIRST row of each block — leave it blank on that block's other question rows.
+- For mcq questions: fill Option 1, Option 2, and Option 3, and set Correct Answer to the option NUMBER (1, 2, or 3).
+- For true_false questions: leave Option 1, Option 2, and Option 3 blank, and set Correct Answer to TRUE or FALSE.
+- Min Read Seconds can just be 30 for every block unless I say otherwise.
+- Do not add any commentary, headers, or explanation before or after the table — output the table rows only.`;
+
+function buildPromptSheetLines(title: string, bodyInstruction: string): string[] {
+  return [
+    title,
+    '='.repeat(title.length),
+    '',
+    'HOW TO USE: edit the <<...>> placeholders below, paste your lesson text where shown, then send the WHOLE prompt to your AI (ChatGPT, DeepSeek, etc). Copy its reply and paste it into this importer\'s "Manual Copy & Paste" option.',
+    '',
+    'EDIT THESE PLACEHOLDERS BEFORE SENDING:',
+    '- <<NUMBER_OF_BLOCKS>> — how many content blocks to split the lesson into (e.g. 4)',
+    '- <<QUESTIONS_PER_BLOCK>> — how many questions per block (e.g. 1 to 3)',
+    '- <<QUESTION_TYPES>> — mcq, true_false, or "a mix of mcq and true_false"',
+    '',
+    '-----------------------------------------------------------------',
+    'PROMPT — copy everything from here down:',
+    '',
+    'You are helping me prepare an interactive lesson for a Learning Management System. I will give you my lesson source text at the end of this message.',
+    '',
+    bodyInstruction,
+    '',
+    PROMPT_TABLE_CONTRACT,
+    '',
+    'Here is my lesson source text:',
+    '',
+    '<<PASTE YOUR LESSON TEXT HERE>>',
+  ];
+}
+
+const PARAPHRASE_PROMPT_LINES = buildPromptSheetLines(
+  'AI LESSON IMPORT PROMPT — Paraphrase Mode',
+  'Rewrite the text in clearer, more polished language while preserving every fact and idea (a paraphrase/polish pass, not new invented content), then split the result into exactly <<NUMBER_OF_BLOCKS>> content blocks. For each block, write <<QUESTIONS_PER_BLOCK>> comprehension question(s) of type <<QUESTION_TYPES>>, answerable purely from that block\'s own content.'
+);
+
+const PRESERVE_PROMPT_LINES = buildPromptSheetLines(
+  'AI LESSON IMPORT PROMPT — Exact Wording Mode (no paraphrasing)',
+  'Do NOT rewrite, paraphrase, or summarize any of the wording — use my exact original text, character for character. Only split it into exactly <<NUMBER_OF_BLOCKS>> content blocks at natural section breaks. For each block, write <<QUESTIONS_PER_BLOCK>> comprehension question(s) of type <<QUESTION_TYPES>>, answerable purely from that block\'s own (unedited) content.'
+);
 
 const HEADER_TITLES = new Set([
   'block title', 'block content', 'min read seconds', 'question type',
@@ -86,7 +142,24 @@ export const downloadContentBlocksTemplate = async (_req: Request, res: Response
     ['Times of Prayer', '', '', 'mcq', 'Which prayer is performed at dawn?', 'Fajr', 'Dhuhr', 'Isha', '1', ''],
     ['Times of Prayer', '', '', 'true_false', 'Maghrib is prayed after sunset.', '', '', '', 'TRUE', 'Maghrib is performed just after the sun sets.'],
   ];
-  const buffer = buildXlsxBuffer(headers, rows, 'Content Blocks Template');
+  // buildXlsxBuffer only builds a single-sheet workbook — build this one
+  // directly with 3 sheets: the data template, plus the two AI prompt
+  // sheets (each a single wide column of text, one line per row so it
+  // reads naturally in Excel and is easy to select-all and copy).
+  const templateSheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  templateSheet['!cols'] = headers.map((h) => ({ wch: Math.min(Math.max(h.length + 2, 20), 50) }));
+
+  const paraphraseSheet = XLSX.utils.aoa_to_sheet(PARAPHRASE_PROMPT_LINES.map((line) => [line]));
+  paraphraseSheet['!cols'] = [{ wch: 120 }];
+
+  const preserveSheet = XLSX.utils.aoa_to_sheet(PRESERVE_PROMPT_LINES.map((line) => [line]));
+  preserveSheet['!cols'] = [{ wch: 120 }];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, templateSheet, 'Content Blocks Template');
+  XLSX.utils.book_append_sheet(workbook, paraphraseSheet, 'AI Prompt - Paraphrase');
+  XLSX.utils.book_append_sheet(workbook, preserveSheet, 'AI Prompt - Exact Wording');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=content-blocks-template.xlsx');

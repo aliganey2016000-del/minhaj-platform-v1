@@ -225,6 +225,9 @@ export function ContentBlocksImportModal({ onClose, defaultMinReadSeconds, onImp
               <svg className="h-5 w-5 text-primary-500 group-hover:translate-y-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
             </div>
           </button>
+          <p className="text-xs text-[var(--color-text-tertiary)] -mt-3">
+            💡 The download also includes 2 extra sheets — ready-to-copy AI prompts ("AI Prompt - Paraphrase" and "AI Prompt - Exact Wording") you can hand to ChatGPT/DeepSeek along with your lesson text to generate rows in this exact format.
+          </p>
 
           <div className="grid grid-cols-2 gap-3">
             <button type="button" onClick={() => { setMode('upload'); setPasteError(''); }} className={`rounded-xl border-2 p-4 text-left transition-all ${mode === 'upload' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm' : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'}`}>
