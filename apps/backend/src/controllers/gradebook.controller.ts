@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import Course from '../models/course.model';
 import Student from '../models/student.model';
 import School from '../models/school.model';
+import Exam from '../models/exam.model';
 import GradingScheme from '../models/grading-scheme.model';
 import ManualGradeEntry from '../models/manual-grade-entry.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
@@ -244,10 +245,16 @@ export const exportClassGrades = async (req: Request, res: Response): Promise<vo
 // ---------------------------------------------------------------------------
 // POST /gradebook-courses/bulk-apply — apply one grading scheme template to
 // many courses at once, instead of building the same category list one
-// course at a time. 'exam' sourceType categories are rejected here — each
-// course has its own distinct Exam documents, so a shared template can't
-// reference a valid examId for every target course; those categories still
-// have to be added per-course from the individual editor.
+// course at a time.
+//
+// 'exam' categories can't carry a single shared examId (each course has its
+// own distinct Exam documents), so instead the template carries an
+// `examTitleMatch` string (e.g. "Final Exam") per exam category — applied
+// per course, each course's own Exam collection is searched for a
+// case-insensitive title match and THAT course's exam id is linked. A
+// course with no matching exam still gets the category (so weights stay at
+// 100%), just left unlinked until the admin picks one manually from that
+// course's own editor.
 // ---------------------------------------------------------------------------
 export const bulkApplyScheme = async (req: Request, res: Response): Promise<Response> => {
   const { courseIds, categories, passingScore, latePenaltyPercent, bonusCapPercent, dropLowestQuiz } = req.body;
@@ -262,9 +269,12 @@ export const bulkApplyScheme = async (req: Request, res: Response): Promise<Resp
     if (!cat.key || !cat.label || typeof cat.weight !== 'number') {
       throw new BadRequestError('Each category needs a key, label, and numeric weight.');
     }
-    if (!['attendance', 'assignments', 'quizzes', 'manual'].includes(cat.sourceType)) {
+    if (!['attendance', 'assignments', 'quizzes', 'exam', 'manual'].includes(cat.sourceType)) {
+      throw new BadRequestError(`Invalid source type "${cat.sourceType}".`);
+    }
+    if (cat.sourceType === 'exam' && !String(cat.examTitleMatch || '').trim()) {
       throw new BadRequestError(
-        `Category "${cat.label}": bulk templates only support Attendance, Assignments, Quizzes, or Manual — exam-specific categories must be added per course since each course has its own exams.`
+        `Category "${cat.label}": enter the exam title to match (e.g. "Final Exam") — each course's matching exam will be linked automatically.`
       );
     }
   }
@@ -280,28 +290,49 @@ export const bulkApplyScheme = async (req: Request, res: Response): Promise<Resp
   const ownedIds = ownedCourses.map((c) => c._id.toString());
   const skipped = courseIds.filter((id: string) => !ownedIds.includes(id));
 
-  const payload = {
-    categories,
-    passingScore: passingScore ?? 60,
-    latePenaltyPercent: latePenaltyPercent ?? 0,
-    bonusCapPercent: bonusCapPercent ?? 0,
-    dropLowestQuiz: !!dropLowestQuiz,
-  };
+  const hasExamCategory = categories.some((c: any) => c.sourceType === 'exam');
+  let unlinkedExamCount = 0;
 
   await Promise.all(
-    ownedIds.map((courseId) =>
-      GradingScheme.findOneAndUpdate(
+    ownedIds.map(async (courseId) => {
+      let courseExams: { _id: any; title: string }[] = [];
+      if (hasExamCategory) {
+        courseExams = await Exam.find({ course: courseId }).select('title').lean();
+      }
+
+      const courseCategories = categories.map((cat: any) => {
+        if (cat.sourceType !== 'exam') {
+          return { key: cat.key, label: cat.label, weight: cat.weight, sourceType: cat.sourceType };
+        }
+        const wanted = String(cat.examTitleMatch || '').trim().toLowerCase();
+        const match = courseExams.find((e) => e.title.trim().toLowerCase() === wanted);
+        if (!match) unlinkedExamCount++;
+        return { key: cat.key, label: cat.label, weight: cat.weight, sourceType: 'exam', examId: match?._id };
+      });
+
+      await GradingScheme.findOneAndUpdate(
         { course: courseId },
-        { course: courseId, ...payload },
+        {
+          course: courseId,
+          categories: courseCategories,
+          passingScore: passingScore ?? 60,
+          latePenaltyPercent: latePenaltyPercent ?? 0,
+          bonusCapPercent: bonusCapPercent ?? 0,
+          dropLowestQuiz: !!dropLowestQuiz,
+        },
         { upsert: true, runValidators: true }
-      )
-    )
+      );
+    })
   );
+
+  const unlinkedNote = unlinkedExamCount > 0
+    ? ` ${unlinkedExamCount} exam-category link${unlinkedExamCount === 1 ? '' : 's'} couldn't be matched automatically — open those courses' editors to pick the exam manually.`
+    : '';
 
   return ApiResponse.success(
     res,
-    { applied: ownedIds.length, skipped: skipped.length },
-    `Grading rules applied to ${ownedIds.length} course${ownedIds.length === 1 ? '' : 's'}.`
+    { applied: ownedIds.length, skipped: skipped.length, unlinkedExamCount },
+    `Grading rules applied to ${ownedIds.length} course${ownedIds.length === 1 ? '' : 's'}.${unlinkedNote}`
   );
 };
 

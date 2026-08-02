@@ -36,19 +36,21 @@ interface CourseGradingStatus {
   passingScore: number | null;
 }
 
-type BulkSourceType = 'attendance' | 'assignments' | 'quizzes' | 'manual';
+type BulkSourceType = 'attendance' | 'assignments' | 'quizzes' | 'exam' | 'manual';
 
 interface BulkCategory {
   key: string;
   label: string;
   weight: number;
   sourceType: BulkSourceType;
+  examTitleMatch?: string; // sourceType === 'exam' only — matched per-course by exam title
 }
 
 const BULK_SOURCE_TYPES: { value: BulkSourceType; label: string }[] = [
   { value: 'attendance', label: 'Attendance (auto)' },
   { value: 'assignments', label: 'Assignments (auto)' },
   { value: 'quizzes', label: 'Quizzes (auto)' },
+  { value: 'exam', label: 'Specific Exam (auto)' },
   { value: 'manual', label: 'Manual Entry (e.g. Participation)' },
 ];
 
@@ -316,43 +318,54 @@ export function GradingRulesManage() {
               </button>
             </div>
             <p className="text-xs text-[var(--color-text-tertiary)] mb-4">
-              Applying to <strong>{selectedIds.size}</strong> course{selectedIds.size === 1 ? '' : 's'}. Exam-specific categories aren't
-              available here since each course has its own exams — add those individually from a course's own editor.
+              Applying to <strong>{selectedIds.size}</strong> course{selectedIds.size === 1 ? '' : 's'}. For "Specific Exam" categories,
+              enter the exam's title (e.g. "Final Exam") — each course's own matching exam is linked automatically.
             </p>
 
             <div className="space-y-2.5">
               {templateCategories.map((cat) => (
-                <div key={cat.key} className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--color-border-subtle)] p-3">
-                  <input
-                    type="text"
-                    value={cat.label}
-                    onChange={(e) => updateCategory(cat.key, { label: e.target.value })}
-                    placeholder="Category label (e.g. Quizzes)"
-                    className="flex-1 min-w-[10rem] rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={cat.weight}
-                    onChange={(e) => updateCategory(cat.key, { weight: Number(e.target.value) })}
-                    className="w-20 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-                  />
-                  <span className="text-xs text-[var(--color-text-tertiary)]">%</span>
-                  <select
-                    value={cat.sourceType}
-                    onChange={(e) => updateCategory(cat.key, { sourceType: e.target.value as BulkSourceType })}
-                    className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-                  >
-                    {BULK_SOURCE_TYPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </select>
-                  <button
-                    onClick={() => setTemplateCategories((prev) => prev.filter((c) => c.key !== cat.key))}
-                    disabled={templateCategories.length === 1}
-                    className="rounded-lg p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-30 transition-colors"
-                  >
-                    <Trash2 className="h-4 w-4" strokeWidth={2} />
-                  </button>
+                <div key={cat.key} className="rounded-xl border border-[var(--color-border-subtle)] p-3 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      value={cat.label}
+                      onChange={(e) => updateCategory(cat.key, { label: e.target.value })}
+                      placeholder="Category label (e.g. Quizzes)"
+                      className="flex-1 min-w-[10rem] rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={cat.weight}
+                      onChange={(e) => updateCategory(cat.key, { weight: Number(e.target.value) })}
+                      className="w-20 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                    />
+                    <span className="text-xs text-[var(--color-text-tertiary)]">%</span>
+                    <select
+                      value={cat.sourceType}
+                      onChange={(e) => updateCategory(cat.key, { sourceType: e.target.value as BulkSourceType })}
+                      className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                    >
+                      {BULK_SOURCE_TYPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                    </select>
+                    <button
+                      onClick={() => setTemplateCategories((prev) => prev.filter((c) => c.key !== cat.key))}
+                      disabled={templateCategories.length === 1}
+                      className="rounded-lg p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-30 transition-colors"
+                    >
+                      <Trash2 className="h-4 w-4" strokeWidth={2} />
+                    </button>
+                  </div>
+                  {cat.sourceType === 'exam' && (
+                    <input
+                      type="text"
+                      value={cat.examTitleMatch || ''}
+                      onChange={(e) => updateCategory(cat.key, { examTitleMatch: e.target.value })}
+                      placeholder='Exam title to match per course (e.g. "Final Exam")'
+                      className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                    />
+                  )}
                 </div>
               ))}
               <button
@@ -394,7 +407,7 @@ export function GradingRulesManage() {
               </button>
               <button
                 onClick={handleApplyTemplate}
-                disabled={applying || !weightValid || templateCategories.some((c) => !c.label.trim())}
+                disabled={applying || !weightValid || templateCategories.some((c) => !c.label.trim() || (c.sourceType === 'exam' && !c.examTitleMatch?.trim()))}
                 className="rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
               >
                 {applying ? 'Applying...' : `Apply to ${selectedIds.size} Course${selectedIds.size === 1 ? '' : 's'}`}
