@@ -8,8 +8,8 @@
  *   3. Stats cards: dynamically counted from results
  *   4. Status column: pulled from Exam Attendance records (present/absent/late/excused)
  */
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { Search, Trash2, CheckCircle2, XCircle, UserX, LayoutGrid, MoreVertical, Pencil, X } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { Search, CheckCircle2, XCircle, LayoutGrid } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 
@@ -67,94 +67,70 @@ interface ResultRow {
   createdAt: string;
 }
 
-function ResultStatusBadge({ status }: { status: string }) {
-  const c: Record<string, string> = {
-    passed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-    absent: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-  };
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${c[status] || 'bg-gray-100'}`}>{status}</span>;
+function PassFailBadge({ passed }: { passed: boolean }) {
+  return passed ? (
+    <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-bold text-green-700 dark:bg-green-900/30 dark:text-green-300">Pass</span>
+  ) : (
+    <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">Fail</span>
+  );
 }
 
-function AttendanceBadge({ status }: { status?: string }) {
-  const c: Record<string, string> = {
-    present: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-    absent: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-    late: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-    excused: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-  };
-  const label = status || 'unknown';
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${c[label] || 'bg-gray-100 text-gray-600'}`}>{label}</span>;
+// ---------------------------------------------------------------------------
+// Org-wide Gradebook Overview — one row per (student, course), each grading
+// category's earned % as its own column. Feeds the View Results table.
+// ---------------------------------------------------------------------------
+
+interface GradebookCategory {
+  key: string;
+  label: string;
+  sourceType: string;
+  earnedPercent: number;
 }
 
-function GradeBadge({ grade }: { grade: string }) {
-  const c: Record<string, string> = {
-    'A+': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-    'A': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-    'B': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-    'C': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-    'D': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-    'F': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-    'N/A': 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-  };
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${c[grade] || 'bg-gray-100 text-gray-600'}`}>{grade}</span>;
+interface GradebookOverviewRow {
+  studentId: string;
+  studentCode: string;
+  studentName: string;
+  organization: string;
+  department: string;
+  courseClass: string;
+  categories: GradebookCategory[];
+  grandTotal: number;
+  passed: boolean;
+  passingScore: number;
 }
 
-function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+/** Finds the first category matching a sourceType and/or label keywords, for mapping flexible-labeled scheme categories onto fixed table columns. */
+function pickCategoryPercent(
+  categories: GradebookCategory[],
+  opts: { sourceType?: string; excludeSourceType?: string; keywords?: string[] }
+): number | null {
+  const found = categories.find((c) => {
+    if (opts.sourceType && c.sourceType !== opts.sourceType) return false;
+    if (opts.excludeSourceType && c.sourceType === opts.excludeSourceType) return false;
+    if (opts.keywords && !opts.keywords.some((k) => c.label.toLowerCase().includes(k))) return false;
+    return true;
+  });
+  return found ? found.earnedPercent : null;
+}
 
-  useEffect(() => {
-    if (!open) return;
-    const onClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
-  }, [open]);
-
-  return (
-    <div className="relative inline-block" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center justify-center rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
-        title="Actions"
-      >
-        <MoreVertical className="h-4 w-4" strokeWidth={2} />
-      </button>
-      {open && (
-        <div className="absolute right-0 z-10 mt-1 w-36 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-lg overflow-hidden">
-          <button
-            type="button"
-            onClick={() => { setOpen(false); onEdit(); }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
-          >
-            <Pencil className="h-3.5 w-3.5" strokeWidth={2} /> Edit
-          </button>
-          <button
-            type="button"
-            onClick={() => { setOpen(false); onDelete(); }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-          >
-            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} /> Delete
-          </button>
-        </div>
-      )}
-    </div>
+function PctCell({ value }: { value: number | null }) {
+  return value === null ? (
+    <span className="text-[var(--color-text-tertiary)]">—</span>
+  ) : (
+    <span className={`font-semibold ${value >= 50 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{value}%</span>
   );
 }
 
 export function ResultsManage() {
   const [tab, setTab] = useState<'view' | 'enter'>('view');
-  const [results, setResults] = useState<ResultRow[]>([]);
+  const [overviewRows, setOverviewRows] = useState<GradebookOverviewRow[]>([]);
   const [exams, setExams] = useState<ExamBrief[]>([]);
-  const [students, setStudents] = useState<StudentBrief[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'' | 'passed' | 'failed'>('');
 
   // Bulk entry state
   const [selectedExam, setSelectedExam] = useState('');
@@ -164,32 +140,29 @@ export function ResultsManage() {
   const [existingResults, setExistingResults] = useState<ResultRow[]>([]);
   const [publishing, setPublishing] = useState(false);
 
-  // Single-result edit modal (opened from the View Results row actions menu)
-  const [editingResult, setEditingResult] = useState<ResultRow | null>(null);
-  const [editForm, setEditForm] = useState({ marksObtained: '', remarks: '', feedback: '', absent: false });
-  const [savingEdit, setSavingEdit] = useState(false);
-
   useEffect(() => { fetchExams(); }, []);
 
   const fetchExams = async () => {
     try { const { data } = await api.get('/exams'); setExams(data.data || []); } catch {}
   };
 
-  const fetchResults = useCallback(async () => {
+  const fetchOverview = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const params: any = {};
       if (search) params.search = search;
-      if (statusFilter) params.status = statusFilter;
-      const { data } = await api.get('/results', { params });
-      setResults(data.data || []);
+      const { data } = await api.get('/gradebook-courses/overview', { params });
+      setOverviewRows(data.data || []);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load results');
     } finally { setLoading(false); }
-  }, [search, statusFilter]);
+  }, [search]);
 
-  useEffect(() => { fetchResults(); }, [fetchResults]);
+  useEffect(() => {
+    const t = setTimeout(fetchOverview, 300);
+    return () => clearTimeout(t);
+  }, [fetchOverview]);
 
   const loadExamForEntry = async (examId: string) => {
     if (!examId) return;
@@ -263,44 +236,10 @@ export function ResultsManage() {
 
       await api.post('/results/bulk', { exam: selectedExam, results: resultsArray });
       setMessage(`✅ Results saved for ${examStudents.length} students!`);
-      fetchResults();
+      fetchOverview();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to save results');
     } finally { setLoading(false); }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this result?')) return;
-    try { await api.delete(`/results/${id}`); fetchResults(); } catch (err: any) { alert(err.response?.data?.message || 'Failed'); }
-  };
-
-  const openEdit = (r: ResultRow) => {
-    setEditingResult(r);
-    setEditForm({
-      marksObtained: String(r.marksObtained ?? ''),
-      remarks: r.remarks || '',
-      feedback: r.feedback || '',
-      absent: r.status === 'absent',
-    });
-  };
-
-  const handleEditSave = async () => {
-    if (!editingResult) return;
-    setSavingEdit(true);
-    setError('');
-    try {
-      await api.patch(`/results/${editingResult._id}`, {
-        marksObtained: editForm.absent ? 0 : Number(editForm.marksObtained || 0),
-        remarks: editForm.remarks,
-        feedback: editForm.feedback,
-        status: editForm.absent ? 'absent' : undefined,
-      });
-      setEditingResult(null);
-      setMessage('✅ Result updated.');
-      fetchResults();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to update result');
-    } finally { setSavingEdit(false); }
   };
 
   const handleTogglePublish = async () => {
@@ -318,12 +257,12 @@ export function ResultsManage() {
     } finally { setPublishing(false); }
   };
 
-  // ── Dynamic stats from the current results ──
-  const passed = results.filter(r => r.status === 'passed').length;
-  const failed = results.filter(r => r.status === 'failed').length;
-  const absent = results.filter(r => r.status === 'absent').length;
+  // ── Dynamic stats from the current gradebook overview ──
+  const passed = overviewRows.filter(r => r.passed).length;
+  const failed = overviewRows.length - passed;
+  const visibleRows = statusFilter ? overviewRows.filter(r => (statusFilter === 'passed' ? r.passed : !r.passed)) : overviewRows;
 
-  if (loading && results.length === 0 && tab === 'view') {
+  if (loading && overviewRows.length === 0 && tab === 'view') {
     return <div className="flex min-h-[400px] items-center justify-center"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>;
   }
 
@@ -334,7 +273,7 @@ export function ResultsManage() {
           <div>
             <BackButton fallback="/admin/exams" />
             <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">📊 Manage Results</h1>
-            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{results.length} total — {passed} passed, {failed} failed, {absent} absent</p>
+            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{overviewRows.length} student record{overviewRows.length === 1 ? '' : 's'} — {passed} passed, {failed} failed</p>
           </div>
         </div>
 
@@ -348,18 +287,17 @@ export function ResultsManage() {
         </div>
 
         {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
-        {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600"><p>{error}</p><button onClick={fetchResults} className="text-primary-600 font-medium text-xs mt-1 hover:underline">Retry</button></div>}
+        {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600"><p>{error}</p><button onClick={fetchOverview} className="text-primary-600 font-medium text-xs mt-1 hover:underline">Retry</button></div>}
 
-        {/* ── View Results Tab ── */}
+        {/* ── View Results Tab — org-wide gradebook overview ── */}
         {tab === 'view' && (
           <>
             {/* Stats — gradient tiles doubling as status filter tabs */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               {([
-                { key: '', label: 'All', count: results.length, icon: LayoutGrid, gradient: 'from-slate-500 to-slate-600' },
+                { key: '', label: 'All', count: overviewRows.length, icon: LayoutGrid, gradient: 'from-slate-500 to-slate-600' },
                 { key: 'passed', label: 'Passed', count: passed, icon: CheckCircle2, gradient: 'from-green-500 to-emerald-600' },
                 { key: 'failed', label: 'Failed', count: failed, icon: XCircle, gradient: 'from-red-500 to-rose-600' },
-                { key: 'absent', label: 'Absent', count: absent, icon: UserX, gradient: 'from-gray-500 to-slate-600' },
               ] as const).map((s) => (
                 <button
                   key={s.key || 'all'}
@@ -382,7 +320,7 @@ export function ResultsManage() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--color-text-tertiary)]" strokeWidth={2} />
                 <input
                   type="text"
-                  placeholder="Search by student name, ID, or exam title..."
+                  placeholder="Search by course title..."
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
@@ -404,57 +342,70 @@ export function ResultsManage() {
               <table className="w-full text-sm border-separate" style={{ borderSpacing: '0 0.5rem' }}>
                 <thead>
                   <tr className="text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]">
-                    <th className="text-left px-5 py-2 font-semibold">Student</th>
-                    <th className="text-left px-5 py-2 font-semibold hidden md:table-cell">Exam</th>
-                    <th className="text-center px-5 py-2 font-semibold">Marks</th>
-                    <th className="text-center px-5 py-2 font-semibold hidden sm:table-cell">%</th>
-                    <th className="text-center px-5 py-2 font-semibold">Grade</th>
-                    <th className="text-center px-5 py-2 font-semibold">Attendance</th>
-                    <th className="text-center px-5 py-2 font-semibold hidden sm:table-cell">Result</th>
-                    <th className="text-center px-5 py-2 font-semibold">Actions</th>
+                    <th className="text-left px-4 py-2 font-semibold">Student Name / ID</th>
+                    <th className="text-left px-4 py-2 font-semibold hidden sm:table-cell">Organization / Department</th>
+                    <th className="text-left px-4 py-2 font-semibold hidden md:table-cell">Course / Class</th>
+                    <th className="text-center px-3 py-2 font-semibold">Mid Exam</th>
+                    <th className="text-center px-3 py-2 font-semibold hidden lg:table-cell">Mid Activity</th>
+                    <th className="text-center px-3 py-2 font-semibold">Final</th>
+                    <th className="text-center px-3 py-2 font-semibold hidden lg:table-cell">Final Activity</th>
+                    <th className="text-center px-3 py-2 font-semibold hidden md:table-cell">Quizzes</th>
+                    <th className="text-center px-3 py-2 font-semibold hidden md:table-cell">Assignment</th>
+                    <th className="text-center px-3 py-2 font-semibold hidden sm:table-cell">Attendance</th>
+                    <th className="text-center px-4 py-2 font-semibold">Grand Total</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {results.length === 0 ? (
-                    <tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">📊 No results found</p><p className="text-sm">Switch to "Enter Results" to add exam results.</p></td></tr>
-                  ) : results.map(r => {
-                    const fullName = `${r.student?.profile?.firstName || ''} ${r.student?.profile?.lastName || ''}`.trim() || 'Unknown Student';
-                    return (
-                      <tr key={r._id} className="shadow-sm hover:shadow-md transition-shadow bg-[var(--color-surface-primary)]">
-                        <td className="px-5 py-4 rounded-l-2xl border-y border-l border-[var(--color-border-default)]">
-                          <div className="flex items-center gap-3">
-                            <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${avatarColor(r.student?._id || fullName)}`}>
-                              {initials(r.student?.profile?.firstName, r.student?.profile?.lastName)}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="font-semibold truncate">{fullName}</p>
-                              <p className="text-xs text-[var(--color-text-tertiary)]">{r.student?.studentId}</p>
-                            </div>
+                  {visibleRows.length === 0 ? (
+                    <tr><td colSpan={11} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">📊 No results found</p><p className="text-sm">Set up Grading Rules for a course to see student breakdowns here.</p></td></tr>
+                  ) : visibleRows.map((r, i) => (
+                    <tr key={`${r.studentId}_${i}`} className="shadow-sm hover:shadow-md transition-shadow bg-[var(--color-surface-primary)]">
+                      <td className="px-4 py-3 rounded-l-2xl border-y border-l border-[var(--color-border-default)]">
+                        <div className="flex items-center gap-3">
+                          <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${avatarColor(r.studentId || r.studentName)}`}>
+                            {initials(r.studentName.split(' ')[0], r.studentName.split(' ').slice(1).join(' '))}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="font-semibold truncate">{r.studentName || 'Unknown Student'}</p>
+                            <p className="text-xs text-[var(--color-text-tertiary)]">{r.studentCode}</p>
                           </div>
-                        </td>
-                        <td className="px-5 py-4 hidden md:table-cell border-y border-[var(--color-border-default)]">
-                          <p className="text-sm font-medium" dir="auto">{r.exam?.title}</p>
-                          <p className="text-xs text-[var(--color-text-tertiary)]">{r.exam?.course?.title?.en}</p>
-                        </td>
-                        <td className="px-5 py-4 text-center border-y border-[var(--color-border-default)]">
-                          <span className="font-mono text-sm font-bold">{r.marksObtained}<span className="text-[var(--color-text-tertiary)] font-normal">/{r.totalMarks}</span></span>
-                        </td>
-                        <td className="px-5 py-4 text-center hidden sm:table-cell border-y border-[var(--color-border-default)]">
-                          <span className={`text-sm font-bold ${r.percentage >= 50 ? 'text-green-600' : 'text-red-600'}`}>{r.percentage}%</span>
-                        </td>
-                        <td className="px-5 py-4 text-center border-y border-[var(--color-border-default)]"><GradeBadge grade={r.grade} /></td>
-                        <td className="px-5 py-4 text-center border-y border-[var(--color-border-default)]">
-                          <AttendanceBadge status={r.attendanceStatus} />
-                        </td>
-                        <td className="px-5 py-4 text-center hidden sm:table-cell border-y border-[var(--color-border-default)]">
-                          <ResultStatusBadge status={r.status} />
-                        </td>
-                        <td className="px-5 py-4 text-center rounded-r-2xl border-y border-r border-[var(--color-border-default)]">
-                          <RowActionsMenu onEdit={() => openEdit(r)} onDelete={() => handleDelete(r._id)} />
-                        </td>
-                      </tr>
-                    );
-                  })}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 hidden sm:table-cell text-xs text-[var(--color-text-secondary)] border-y border-[var(--color-border-default)]">
+                        {r.organization}{r.organization && r.department ? ' · ' : ''}{r.department}
+                      </td>
+                      <td className="px-4 py-3 hidden md:table-cell text-xs text-[var(--color-text-secondary)] border-y border-[var(--color-border-default)]">
+                        {r.courseClass}
+                      </td>
+                      <td className="px-3 py-3 text-center border-y border-[var(--color-border-default)]">
+                        <PctCell value={pickCategoryPercent(r.categories, { sourceType: 'exam', keywords: ['mid'] })} />
+                      </td>
+                      <td className="px-3 py-3 text-center hidden lg:table-cell border-y border-[var(--color-border-default)]">
+                        <PctCell value={pickCategoryPercent(r.categories, { excludeSourceType: 'exam', keywords: ['mid'] })} />
+                      </td>
+                      <td className="px-3 py-3 text-center border-y border-[var(--color-border-default)]">
+                        <PctCell value={pickCategoryPercent(r.categories, { sourceType: 'exam', keywords: ['final'] })} />
+                      </td>
+                      <td className="px-3 py-3 text-center hidden lg:table-cell border-y border-[var(--color-border-default)]">
+                        <PctCell value={pickCategoryPercent(r.categories, { excludeSourceType: 'exam', keywords: ['final'] })} />
+                      </td>
+                      <td className="px-3 py-3 text-center hidden md:table-cell border-y border-[var(--color-border-default)]">
+                        <PctCell value={pickCategoryPercent(r.categories, { sourceType: 'quizzes' })} />
+                      </td>
+                      <td className="px-3 py-3 text-center hidden md:table-cell border-y border-[var(--color-border-default)]">
+                        <PctCell value={pickCategoryPercent(r.categories, { sourceType: 'assignments' })} />
+                      </td>
+                      <td className="px-3 py-3 text-center hidden sm:table-cell border-y border-[var(--color-border-default)]">
+                        <PctCell value={pickCategoryPercent(r.categories, { sourceType: 'attendance' })} />
+                      </td>
+                      <td className="px-4 py-3 text-center rounded-r-2xl border-y border-r border-[var(--color-border-default)]">
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="font-bold text-[var(--color-text-primary)]">{r.grandTotal}%</span>
+                          <PassFailBadge passed={r.passed} />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -606,83 +557,6 @@ export function ResultsManage() {
           </div>
         )}
       </div>
-
-      {/* Edit Result modal — opened from the View Results row's 3-dot menu */}
-      {editingResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditingResult(null)}>
-          <div
-            className="w-full max-w-md rounded-2xl bg-[var(--color-surface-primary)] shadow-xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-[var(--color-border-default)] px-5 py-4">
-              <div>
-                <h3 className="font-bold text-[var(--color-text-primary)]">Edit Result</h3>
-                <p className="text-xs text-[var(--color-text-tertiary)]">
-                  {editingResult.student?.profile?.firstName} {editingResult.student?.profile?.lastName} — {editingResult.exam?.title}
-                </p>
-              </div>
-              <button onClick={() => setEditingResult(null)} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)]">
-                <X className="h-4 w-4" strokeWidth={2} />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={editForm.absent}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, absent: e.target.checked }))}
-                  className="h-4 w-4 rounded border-[var(--color-border-default)]"
-                />
-                Mark as Absent
-              </label>
-
-              <div>
-                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Marks Obtained</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={editingResult.totalMarks}
-                  value={editForm.marksObtained}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, marksObtained: e.target.value }))}
-                  disabled={editForm.absent}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm disabled:opacity-40"
-                  placeholder={`/ ${editingResult.totalMarks}`}
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Remarks (Internal only)</label>
-                <input
-                  type="text"
-                  value={editForm.remarks}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, remarks: e.target.value }))}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Feedback (Shown to student)</label>
-                <textarea
-                  value={editForm.feedback}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, feedback: e.target.value }))}
-                  rows={3}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border-default)] px-5 py-4">
-              <button onClick={() => setEditingResult(null)} className="rounded-xl px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
-                Cancel
-              </button>
-              <button onClick={handleEditSave} disabled={savingEdit} className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors">
-                {savingEdit ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

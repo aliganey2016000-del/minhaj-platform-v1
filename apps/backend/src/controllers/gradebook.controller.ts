@@ -387,3 +387,70 @@ export const listCourseGradingStatus = async (req: Request, res: Response): Prom
 
   return ApiResponse.success(res, result);
 };
+
+// ---------------------------------------------------------------------------
+// GET /gradebook-courses/overview — one row per (student, course) across
+// every configured course in the caller's organization, with each grading
+// category's earned % as its own column plus the weighted Grand Total.
+// Feeds the "View Results" table on Manage Results — courses with no
+// GradingScheme configured yet are skipped (nothing to show a breakdown
+// of), matching "Grading Rules" page's own configured/not-configured split.
+// ---------------------------------------------------------------------------
+export const getOrgGradebookOverview = async (req: Request, res: Response): Promise<Response> => {
+  const { search } = req.query;
+
+  const filter: Record<string, unknown> = {};
+  if (search) filter['title.en'] = { $regex: search as string, $options: 'i' };
+  const scopedFilter = applyOrgFilter(req, filter, 'school');
+
+  const courses = await Course.find(scopedFilter)
+    .select('title slug school class')
+    .populate('school', 'name attendanceType')
+    .populate({
+      path: 'class',
+      select: 'title section department',
+      populate: { path: 'department', select: 'name' },
+    })
+    .lean();
+
+  const courseIds = courses.map((c: any) => c._id);
+  const schemes = await GradingScheme.find({ course: { $in: courseIds } }).lean();
+  const schemeByCourse = new Map(schemes.map((s: any) => [s.course.toString(), s]));
+
+  const rows: any[] = [];
+
+  for (const course of courses as any[]) {
+    const scheme = schemeByCourse.get(course._id.toString());
+    if (!scheme || !scheme.categories?.length) continue; // nothing configured — nothing to show
+
+    const isClassBased = course.school?.attendanceType === 'class_based' && !!course.class;
+    const students = await Student.find(
+      isClassBased ? { class: course.class._id } : { enrolledCourses: course._id }
+    )
+      .populate('profile', 'firstName lastName')
+      .select('profile studentId department class')
+      .lean();
+
+    const orgLabel = course.school?.name || '';
+    const deptLabel = course.class?.department?.name || '';
+    const courseClassLabel = course.class ? `${course.title?.en || ''} · ${course.class.title} (${course.class.section})` : (course.title?.en || '');
+
+    for (const s of students as any[]) {
+      const result = await computeCourseGrade(course._id.toString(), s._id.toString());
+      rows.push({
+        studentId: s._id,
+        studentCode: s.studentId,
+        studentName: `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim(),
+        organization: orgLabel,
+        department: deptLabel || s.department || '',
+        courseClass: courseClassLabel,
+        categories: result.categories,
+        grandTotal: result.finalGrade,
+        passed: result.passed,
+        passingScore: result.passingScore,
+      });
+    }
+  }
+
+  return ApiResponse.success(res, rows);
+};
