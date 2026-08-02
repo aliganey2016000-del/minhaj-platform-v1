@@ -13,7 +13,7 @@ import GradingScheme from '../models/grading-scheme.model';
 import ManualGradeEntry from '../models/manual-grade-entry.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
-import { getOwnTeacherRecord, assertOwnsOrg } from '../utils/tenant-scope';
+import { getOwnTeacherRecord, assertOwnsOrg, applyOrgFilter } from '../utils/tenant-scope';
 import { computeCourseGrade, validateCategoryWeights } from '../utils/grade-calculator';
 import ensureStudentRecord from '../utils/ensure-student';
 
@@ -239,4 +239,56 @@ export const exportClassGrades = async (req: Request, res: Response): Promise<vo
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=${filename}.xlsx`);
   res.end(buffer);
+};
+
+// ---------------------------------------------------------------------------
+// GET /gradebook-courses — every course in the caller's organization, with
+// its grading-scheme status, so an org_admin can jump straight into any
+// course's Grading Rules editor without hunting through Course Builder one
+// course at a time. Admin/org_admin only (teachers keep using the existing
+// per-course Gradebook link inside their own Course Builder).
+// ---------------------------------------------------------------------------
+export const listCourseGradingStatus = async (req: Request, res: Response): Promise<Response> => {
+  const { search, status } = req.query;
+
+  const filter: Record<string, unknown> = {};
+  if (status && ['draft', 'published', 'archived'].includes(status as string)) filter.status = status;
+  if (search) filter['title.en'] = { $regex: search as string, $options: 'i' };
+
+  const scopedFilter = applyOrgFilter(req, filter, 'school');
+
+  const courses = await Course.find(scopedFilter)
+    .select('title slug category status teacher class school')
+    .populate({
+      path: 'teacher',
+      select: 'profile',
+      populate: { path: 'profile', select: 'firstName lastName' },
+    })
+    .populate('class', 'title section')
+    .sort({ 'title.en': 1 })
+    .lean();
+
+  const courseIds = courses.map((c: any) => c._id);
+  const schemes = await GradingScheme.find({ course: { $in: courseIds } })
+    .select('course categories passingScore')
+    .lean();
+  const schemeByCourse = new Map(schemes.map((s: any) => [s.course.toString(), s]));
+
+  const result = courses.map((c: any) => {
+    const scheme = schemeByCourse.get(c._id.toString());
+    return {
+      _id: c._id,
+      title: c.title,
+      slug: c.slug,
+      category: c.category,
+      status: c.status,
+      teacher: c.teacher ? { name: `${c.teacher.profile?.firstName || ''} ${c.teacher.profile?.lastName || ''}`.trim() } : null,
+      class: c.class ? { title: c.class.title, section: c.class.section } : null,
+      configured: !!scheme,
+      categoriesCount: scheme?.categories?.length || 0,
+      passingScore: scheme?.passingScore ?? null,
+    };
+  });
+
+  return ApiResponse.success(res, result);
 };

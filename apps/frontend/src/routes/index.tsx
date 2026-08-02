@@ -194,6 +194,9 @@ const ExamPaperReviewPage = lazy(() =>
 const ExamComplianceManage = lazy(() =>
   import('../features/admin/pages/exam-compliance-manage').then((m) => ({ default: m.ExamComplianceManage }))
 );
+const GradingRulesManage = lazy(() =>
+  import('../features/admin/pages/grading-rules-manage').then((m) => ({ default: m.GradingRulesManage }))
+);
 const CertificatesManage = lazy(() =>
   import('../features/admin/pages/certificates-manage').then((m) => ({ default: m.CertificatesManage }))
 );
@@ -378,6 +381,7 @@ export const router = createBrowserRouter([
       { path: 'exams/papers', element: L(<ExamPapersManage />) },
       { path: 'exams/:examId/paper/review', element: L(<ExamPaperReviewPage />) },
       { path: 'exams/compliance', element: L(<ExamComplianceManage />) },
+      { path: 'exams/grading-rules', element: L(<GradingRulesManage />) },
       { path: 'results', element: L(<ResultsManage />) },
       { path: 'payments', element: L(<PaymentsOverview />) },
       { path: 'payments/record', element: L(<PaymentsRecord />) },
