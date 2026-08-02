@@ -27,6 +27,7 @@ import TableCell from '@tiptap/extension-table-cell';
 import Placeholder from '@tiptap/extension-placeholder';
 import { TextStyle, FontFamily, FontSize, Color } from '@tiptap/extension-text-style';
 import { BlockDirection } from './tiptap-text-direction';
+import { PdfEmbed } from './tiptap-pdf-embed';
 import { sanitizeHtml } from '../../../../lib/sanitize-html';
 import { HtmlPreview } from '../../../../components/shared/html-preview';
 
@@ -41,6 +42,8 @@ const PROSE_CLASSES =
   '[&_h1]:text-xl [&_h1]:font-bold [&_h2]:text-lg [&_h2]:font-bold [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2 ' +
   '[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_img]:rounded-lg [&_img]:max-w-full ' +
   '[&_blockquote]:border-l-4 [&_blockquote]:border-primary-400 [&_blockquote]:pl-3 [&_blockquote]:italic ' +
+  // PDF embeds
+  '[&_iframe.pdf-embed]:w-full [&_iframe.pdf-embed]:rounded-lg [&_iframe.pdf-embed]:border [&_iframe.pdf-embed]:border-[var(--color-border-default)] [&_iframe.pdf-embed]:my-2 ' +
   // Task lists — no bullet, checkbox + label laid out inline
   '[&_ul[data-type="taskList"]]:list-none [&_ul[data-type="taskList"]]:pl-0 ' +
   '[&_ul[data-type="taskList"]_li]:flex [&_ul[data-type="taskList"]_li]:items-start [&_ul[data-type="taskList"]_li]:gap-2 ' +
@@ -65,6 +68,7 @@ const PREVIEW_CLASSES =
   '[&_li]:text-sm ' +
   '[&_a]:text-primary-600 [&_a]:underline [&_a]:hover:text-primary-700 ' +
   '[&_img]:rounded-xl [&_img]:max-w-full [&_img]:my-4 ' +
+  '[&_iframe.pdf-embed]:w-full [&_iframe.pdf-embed]:rounded-xl [&_iframe.pdf-embed]:border [&_iframe.pdf-embed]:border-[var(--color-border-default)] [&_iframe.pdf-embed]:my-4 ' +
   '[&_blockquote]:border-l-4 [&_blockquote]:border-primary-400 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-[var(--color-text-secondary)] [&_blockquote]:my-4 ' +
   '[&_code]:bg-[var(--color-surface-tertiary)] [&_code]:rounded-md [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_code]:font-mono ' +
   '[&_pre]:bg-[var(--color-surface-tertiary)] [&_pre]:rounded-xl [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:mb-4 ' +
@@ -280,6 +284,12 @@ function Toolbar({ editor }: { editor: Editor }) {
     editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
   };
 
+  const embedPdf = () => {
+    const url = window.prompt('PDF URL (paste an uploaded attachment link or any direct PDF URL)');
+    if (!url) return;
+    editor.chain().focus().setPdfEmbed({ src: url }).run();
+  };
+
   const inTable = editor.isActive('table');
 
   // An RTL block is one whose current paragraph/heading has dir="rtl".
@@ -358,6 +368,7 @@ function Toolbar({ editor }: { editor: Editor }) {
       {/* Insertions */}
       <ToolbarButton title="Insert link" label="🔗" active={editor.isActive('link')} onClick={setLink} />
       <ToolbarButton title="Insert image" label="🖼️" onClick={addImage} />
+      <ToolbarButton title="Embed PDF" label="📄" onClick={embedPdf} />
       <ToolbarButton title="Insert table" label="⊞" onClick={insertTable} />
 
       {/* Contextual table controls */}
@@ -393,6 +404,7 @@ export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorP
       TaskItem.configure({ nested: true }),
       Link.configure({ openOnClick: false, autolink: true }),
       Image,
+      PdfEmbed,
       Table.configure({ resizable: false }),
       TableRow,
       TableHeader,
