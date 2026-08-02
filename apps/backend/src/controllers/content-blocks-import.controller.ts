@@ -73,10 +73,18 @@ export const downloadContentBlocksTemplate = async (_req: Request, res: Response
     'Question Type (mcq or true_false)', 'Question Text', 'Option 1', 'Option 2', 'Option 3',
     'Correct Answer (mcq: 1/2/3, true_false: TRUE/FALSE)', 'Explanation (optional)',
   ];
+  // Every sample block repeats its title across 3 rows — one row per
+  // checkpoint question — so the "same Block Title = same block" grouping
+  // rule is obvious at a glance. This is just the default: add more rows
+  // (with the same Block Title) for more questions on a block, or delete
+  // rows down to just 1 for a single-question block.
   const rows = [
     ['Introduction to Salaah', 'Salaah is the second pillar of Islam, performed five times a day.', '30', 'mcq', 'What is Salaah?', 'The second pillar of Islam', 'A type of charity', 'A pilgrimage', '1', 'Salaah refers to the ritual prayer performed five times daily.'],
     ['Introduction to Salaah', '', '', 'true_false', 'Salaah is performed only once a day.', '', '', '', 'FALSE', 'Salaah is performed five times a day, not once.'],
+    ['Introduction to Salaah', '', '', 'mcq', 'Which pillar of Islam is Salaah?', 'The first', 'The second', 'The third', '2', ''],
     ['Times of Prayer', 'There are five daily prayers: Fajr, Dhuhr, Asr, Maghrib, and Isha.', '30', 'mcq', 'How many daily prayers are there?', '3', '5', '7', '2', ''],
+    ['Times of Prayer', '', '', 'mcq', 'Which prayer is performed at dawn?', 'Fajr', 'Dhuhr', 'Isha', '1', ''],
+    ['Times of Prayer', '', '', 'true_false', 'Maghrib is prayed after sunset.', '', '', '', 'TRUE', 'Maghrib is performed just after the sun sets.'],
   ];
   const buffer = buildXlsxBuffer(headers, rows, 'Content Blocks Template');
 
