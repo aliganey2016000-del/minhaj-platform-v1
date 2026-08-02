@@ -15,7 +15,20 @@ import path from 'path';
 import fs from 'fs';
 import CourseContent, { type ICourseContent } from '../models/course-content.model';
 import Course from '../models/course.model';
-import { generateLessonHtml, generateQuizQuestions, generateStopCheckQuestion, splitLessonWithAi, generateAssignmentHtml, buildTutorSystemPrompt, tutorChatResponse, type QuestionCountSpec } from '../utils/deepseek';
+import {
+  generateLessonHtml,
+  generateQuizQuestions,
+  generateStopCheckQuestion,
+  generateStopCheckQuestions,
+  splitLessonWithAi,
+  generateInteractiveLessonBlocks,
+  generateAssignmentHtml,
+  buildTutorSystemPrompt,
+  tutorChatResponse,
+  type QuestionCountSpec,
+  type InteractiveContentMode,
+  type StopCheckTypeMode,
+} from '../utils/deepseek';
 import { extractTextFromDocument } from '../utils/document-parser';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
@@ -55,6 +68,91 @@ export const generateFromDocument = async (req: Request, res: Response): Promise
 
   const html = await generateLessonHtml(extractedText);
   return ApiResponse.success(res, { html }, 'Lesson generated successfully');
+};
+
+/** Reshapes a backend StopCheckQuestion (correctOptionIndex) into the frontend's ContentBlockQuestion shape (correctIndex). */
+function toContentBlockQuestion(q: { type: 'mcq' | 'true_false'; question: string; options?: string[]; correctOptionIndex?: number; correctAnswer?: boolean; explanation?: string }) {
+  if (q.type === 'mcq') {
+    return {
+      type: 'mcq' as const,
+      question: q.question,
+      options: q.options || [],
+      correctIndex: q.correctOptionIndex ?? 0,
+      explanation: q.explanation,
+      aiGenerated: true,
+    };
+  }
+  return {
+    type: 'true_false' as const,
+    question: q.question,
+    correctAnswer: q.correctAnswer ?? true,
+    explanation: q.explanation,
+    aiGenerated: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/ai/generate-interactive-lesson — builds Interactive Gate
+// content blocks (each with 1-3 Stop & Check questions) directly, without
+// requiring the admin to first write Traditional content and split it.
+// Matches the Interactive Gate mode's "AI Generate" (from title) and
+// "Paste Content" (paraphrase or preserve-as-is) options.
+// ---------------------------------------------------------------------------
+export const generateInteractiveLesson = async (req: Request, res: Response): Promise<Response> => {
+  const {
+    source,
+    title,
+    pasteText,
+    paraphrase,
+    blockCount,
+    questionsPerBlock,
+    questionType,
+  } = req.body as {
+    source: 'title' | 'paste';
+    title?: string;
+    pasteText?: string;
+    paraphrase?: boolean;
+    blockCount: number;
+    questionsPerBlock: number;
+    questionType?: StopCheckTypeMode;
+  };
+
+  let sourceText: string;
+  let contentMode: InteractiveContentMode;
+  if (source === 'title') {
+    if (!title || !title.trim()) throw new BadRequestError('A lesson title is required to generate from title.');
+    sourceText = `Lesson title: "${title.trim()}". Write a full lesson body that thoroughly covers this topic.`;
+    contentMode = 'compose';
+  } else if (source === 'paste') {
+    if (!pasteText || !pasteText.trim()) throw new BadRequestError('Paste some content first.');
+    sourceText = pasteText;
+    contentMode = paraphrase ? 'paraphrase' : 'preserve';
+  } else {
+    throw new BadRequestError('source must be "title" or "paste".');
+  }
+
+  const blocks = await generateInteractiveLessonBlocks({
+    sourceText,
+    blockCount: Number(blockCount) || 4,
+    contentMode,
+  });
+
+  // Generate each block's questions in parallel. A single block's question
+  // generation failing shouldn't discard the whole batch — that block just
+  // ships with no questions, and the admin can add them manually.
+  const questionResults = await Promise.allSettled(
+    blocks.map((block) =>
+      generateStopCheckQuestions(stripHtml(block.content), Number(questionsPerBlock) || 1, questionType || 'mixed')
+    )
+  );
+
+  const blocksWithQuestions = blocks.map((block, i) => {
+    const result = questionResults[i];
+    const questions = result.status === 'fulfilled' ? result.value.map(toContentBlockQuestion) : [];
+    return { ...block, questions };
+  });
+
+  return ApiResponse.success(res, { blocks: blocksWithQuestions }, 'Interactive lesson generated successfully');
 };
 
 // ---------------------------------------------------------------------------

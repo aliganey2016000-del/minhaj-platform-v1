@@ -166,48 +166,21 @@ export function useCourseContent(courseId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-save hook — debounced save
+// Save hook — manual only. Previously auto-saved on a debounce timer, but
+// that caused the whole content tree to be replaced with the server's
+// response mid-edit (every few seconds while the admin was still typing),
+// which reset scroll position/focus and read as the page "jumping" —
+// removed per explicit request: the admin must click Save themselves.
 // ---------------------------------------------------------------------------
 export function useAutoSave(
   saveFn: () => Promise<any>,
-  content: CourseContent | null,
-  delayMs = 3000,
+  _content: CourseContent | null,
+  _delayMs = 3000,
 ) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isDirtyRef = useRef(false);
-  const lastContentJson = useRef('');
-
-  useEffect(() => {
-    if (!content) return;
-    const currentJson = JSON.stringify(content.chapters);
-    if (currentJson === lastContentJson.current) return;
-
-    lastContentJson.current = currentJson;
-    isDirtyRef.current = true;
-
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(async () => {
-      if (isDirtyRef.current) {
-        try {
-          await saveFn();
-          isDirtyRef.current = false;
-        } catch {
-          // Retry on next change
-        }
-      }
-    }, delayMs);
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [content, saveFn, delayMs]);
-
-  // Force immediate save
+  // Force immediate save — the only way saveFn ever runs now.
   const saveNow = useCallback(async () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
     try {
       await saveFn();
-      isDirtyRef.current = false;
     } catch {
       // ignore
     }

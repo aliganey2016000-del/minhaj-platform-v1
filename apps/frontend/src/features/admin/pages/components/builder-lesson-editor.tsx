@@ -8,6 +8,7 @@ import type { LessonItem, Attachment, ContentBlock, LessonDeliveryMode, VideoChe
 import { generateTempId } from '../course-builder.api';
 import { RichTextEditor } from './rich-text-editor';
 import { AiLessonGeneratorModal } from './ai-lesson-generator-modal';
+import { AiInteractiveLessonModal } from './ai-interactive-lesson-modal';
 import { ContentBlockEditor } from './content-block-editor';
 import { VideoCheckpointEditor } from './video-checkpoint-editor';
 import api from '../../../../lib/axios';
@@ -69,6 +70,7 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
   const [newAttUrl, setNewAttUrl] = useState('');
   const [newAttName, setNewAttName] = useState('');
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiInteractiveModalOpen, setAiInteractiveModalOpen] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<LessonDeliveryMode>(lesson.deliveryMode || 'traditional');
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>(lesson.contentBlocks || []);
   const [aiSplitting, setAiSplitting] = useState(false);
@@ -338,23 +340,41 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs font-semibold text-[var(--color-text-secondary)]">Content Blocks</label>
-            <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)]">
-              Default min. read time:
-              <input
-                type="number"
-                min={5}
-                max={600}
-                className="w-16 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs"
-                value={form.defaultMinReadSeconds}
-                onChange={(e) => update('defaultMinReadSeconds', Number(e.target.value))}
-              />
-              sec
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)]">
+                Default min. read time:
+                <input
+                  type="number"
+                  min={5}
+                  max={600}
+                  className="w-16 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs"
+                  value={form.defaultMinReadSeconds}
+                  onChange={(e) => update('defaultMinReadSeconds', Number(e.target.value))}
+                />
+                sec
+              </div>
+              <button
+                type="button"
+                onClick={() => setAiInteractiveModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-violet-700 hover:to-indigo-700 transition-all"
+              >
+                <span>✨</span> AI Generate
+              </button>
             </div>
           </div>
           <ContentBlockEditor
             blocks={contentBlocks}
             onChange={setContentBlocks}
             defaultMinReadSeconds={Number(form.defaultMinReadSeconds) || 30}
+          />
+          <AiInteractiveLessonModal
+            isOpen={aiInteractiveModalOpen}
+            onClose={() => setAiInteractiveModalOpen(false)}
+            lessonTitle={form.title}
+            defaultMinReadSeconds={Number(form.defaultMinReadSeconds) || 30}
+            onGenerated={(newBlocks) =>
+              setContentBlocks((prev) => [...prev, ...newBlocks.map((b, i) => ({ ...b, order: prev.length + i }))])
+            }
           />
         </div>
       )}

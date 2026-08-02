@@ -2,8 +2,8 @@
  * Course Content Builder — Enterprise-grade drag-and-drop curriculum builder.
  *
  * Supports: modules (chapters), lessons, quizzes, assignments with full
- * reordering, inline editing, publish/draft workflow, autosave, and
- * responsive dark mode.
+ * reordering, inline editing, publish/draft workflow (manual save only —
+ * the admin clicks Save when ready), and responsive dark mode.
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -1099,7 +1099,7 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
         {/* ── Bottom action bar ── */}
         <div className="flex items-center justify-between pt-2 border-t border-[var(--color-border-default)]">
           <p className="text-xs text-[var(--color-text-tertiary)]">
-            Changes are auto-saved every few seconds. You can also save manually.
+            Changes are not saved automatically — click Save when you're ready.
           </p>
           <button
             onClick={handleManualSave}

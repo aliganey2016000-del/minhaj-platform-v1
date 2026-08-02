@@ -77,6 +77,10 @@ router.post('/generate-stop-check-question', asyncHandler(aiController.generateS
 // POST /api/v1/ai/split-lesson  { html: string }
 router.post('/split-lesson', asyncHandler(aiController.splitLesson));
 
+// POST /api/v1/ai/generate-interactive-lesson
+// { source: 'title'|'paste', title?, pasteText?, paraphrase?, blockCount, questionsPerBlock, questionType? }
+router.post('/generate-interactive-lesson', asyncHandler(aiController.generateInteractiveLesson));
+
 // POST /api/v1/ai/generate-assignment  (multipart/form-data)
 // Fields: sourceType ('lessons'|'paste'|'upload'), customInstructions,
 // lessonContents (JSON string[]) | pasteText | file

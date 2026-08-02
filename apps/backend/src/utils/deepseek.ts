@@ -527,6 +527,86 @@ function normalizeStopCheckQuestion(raw: any): StopCheckQuestion {
   return { type: 'mcq', question, options, correctOptionIndex, explanation, aiGenerated: true };
 }
 
+export type StopCheckTypeMode = 'mixed' | 'mcq' | 'true_false';
+
+const STOP_CHECK_MULTI_SYSTEM_PROMPT_BASE = `You write short comprehension-check questions for a single paragraph of lesson content, used to verify a student actually read it before moving on.
+
+Return ONLY a single JSON object — no markdown, no code fences, no commentary:
+{"questions": [ { "type": "mcq", "question": string, "options": string[] (exactly 3), "correctOptionIndex": number (0-based), "explanation": string } | { "type": "true_false", "question": string, "correctAnswer": boolean, "explanation": string }, ... ]}
+
+Rules:
+- Every question must be answerable purely from the paragraph given — do not require outside knowledge.
+- Each question must test a DIFFERENT fact or idea from the paragraph — never ask the same thing twice.
+- Keep questions short and unambiguous, one correct answer only.
+- For MCQ, the two incorrect options must be plausible-sounding but clearly wrong to someone who read the paragraph.
+- "explanation" is one short sentence shown to the student ONLY if they answer incorrectly — it should point back to what the paragraph actually says, not just restate the correct option.`;
+
+/** Generates `count` distinct comprehension questions for one content block in a single DeepSeek call. */
+export async function generateStopCheckQuestions(
+  blockText: string,
+  count: number,
+  typeMode: StopCheckTypeMode = 'mixed'
+): Promise<StopCheckQuestion[]> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new InternalServerError('AI question generation is not configured on this server (missing DEEPSEEK_API_KEY).');
+  }
+
+  const trimmed = (blockText || '').trim();
+  if (!trimmed) {
+    throw new BadRequestError('No content block text to generate a question from.');
+  }
+
+  const clampedCount = Math.min(Math.max(Math.round(count) || 1, 1), 3);
+  const clipped = trimmed.length > 4000 ? trimmed.slice(0, 4000) : trimmed;
+  const typeInstruction =
+    typeMode === 'mcq'
+      ? 'Every question must be type "mcq".'
+      : typeMode === 'true_false'
+        ? 'Every question must be type "true_false".'
+        : 'Mix MCQ and True/False questions naturally.';
+  const systemPrompt = `${STOP_CHECK_MULTI_SYSTEM_PROMPT_BASE}\n- Write exactly ${clampedCount} question${clampedCount === 1 ? '' : 's'}.\n- ${typeInstruction}`;
+
+  let response;
+  try {
+    response = await axios.post(
+      DEEPSEEK_API_URL,
+      {
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: clipped },
+        ],
+        temperature: 0.4,
+        max_tokens: 900,
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30_000,
+      }
+    );
+  } catch (err: any) {
+    const status = err.response?.status;
+    const detail = err.response?.data?.error?.message || err.message;
+    throw new InternalServerError(`DeepSeek request failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+
+  const raw: string = response.data?.choices?.[0]?.message?.content || '{}';
+  let parsed: any;
+  try {
+    parsed = JSON.parse(stripCodeFences(raw));
+  } catch {
+    throw new InternalServerError('DeepSeek returned malformed JSON. Please try again.');
+  }
+
+  const rawQuestions = Array.isArray(parsed?.questions) ? parsed.questions : [];
+  return rawQuestions.slice(0, clampedCount).map(normalizeStopCheckQuestion);
+}
+
 // ---------------------------------------------------------------------------
 // AI Lesson Splitter — turns one Traditional-mode lesson body into ordered
 // "Content Blocks" for Interactive Gate delivery mode.
@@ -613,6 +693,114 @@ export async function splitLessonWithAi(html: string): Promise<SplitLessonBlock[
       content: String(b?.content || '').trim(),
     }))
     .filter((b: SplitLessonBlock) => b.content.length > 0);
+}
+
+// ---------------------------------------------------------------------------
+// AI Interactive Lesson Generator — builds a full set of "Content Blocks"
+// (each with its own Stop & Check question(s)) in one flow, for the
+// Interactive Gate delivery mode's "AI Generate" / "Paste Content" options.
+// Unlike splitLessonWithAi (which only reorganizes an EXISTING Traditional
+// body), this composes fresh content from a topic, or paraphrases/preserves
+// pasted source text — matching the admin's actual starting point when they
+// pick "Interactive Gate" mode before writing anything.
+// ---------------------------------------------------------------------------
+
+export type InteractiveContentMode = 'compose' | 'paraphrase' | 'preserve';
+
+export interface GenerateInteractiveBlocksParams {
+  sourceText: string;
+  blockCount: number;
+  contentMode: InteractiveContentMode;
+}
+
+const INTERACTIVE_SPLIT_SYSTEM_PROMPT_BASE = `You prepare a lesson's content for a "Stop and Check" interactive reading flow, where a student reads one short section at a time and answers a question before continuing.
+
+Return ONLY a single JSON object — no markdown, no code fences, no commentary:
+{"blocks": [{"title": string, "content": string}, ...]}
+
+Rules:
+- "title" is a short heading for the section (3-6 words).
+- "content" is clean HTML for just that section's body (paragraphs, lists, blockquotes as needed) — do NOT include any heading tag in "content", the heading goes in "title" only.
+- Each block should be readable in well under a minute.`;
+
+export async function generateInteractiveLessonBlocks(params: GenerateInteractiveBlocksParams): Promise<SplitLessonBlock[]> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new InternalServerError('AI lesson generation is not configured on this server (missing DEEPSEEK_API_KEY).');
+  }
+
+  const { sourceText, blockCount, contentMode } = params;
+  const trimmed = (sourceText || '').trim();
+  if (!trimmed) {
+    throw new BadRequestError('No source text to generate from.');
+  }
+
+  const clipped =
+    trimmed.length > MAX_SOURCE_CHARS
+      ? `${trimmed.slice(0, MAX_SOURCE_CHARS)}\n\n[...source truncated for length...]`
+      : trimmed;
+
+  const clampedCount = Math.min(Math.max(Math.round(blockCount) || 4, 2), 12);
+
+  let modeInstruction: string;
+  if (contentMode === 'compose') {
+    modeInstruction = `- Compose full, well-explained original lesson content on this topic — do not just restate the topic in one line, thoroughly teach it.\n- Produce exactly ${clampedCount} blocks, each covering a distinct sub-topic that together fully teach the subject.`;
+  } else if (contentMode === 'paraphrase') {
+    modeInstruction = `- Rewrite the source material in clearer, more polished language while preserving its meaning and every factual point — this is a paraphrase/polish pass, not new invented content.\n- Split the (paraphrased) material into exactly ${clampedCount} blocks if it naturally supports that many; otherwise use as many well-formed blocks as the material supports.`;
+  } else {
+    modeInstruction = `- Preserve the source wording exactly — split it into sections, do not rewrite, paraphrase, or summarize any of it.\n- Aim for exactly ${clampedCount} blocks if the source naturally supports it; if the source is too short, produce as many well-formed blocks as it supports (never pad with filler or invented text).`;
+  }
+
+  const systemPrompt = `${INTERACTIVE_SPLIT_SYSTEM_PROMPT_BASE}\n${modeInstruction}`;
+
+  let response;
+  try {
+    response = await axios.post(
+      DEEPSEEK_API_URL,
+      {
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: contentMode === 'compose' ? clipped : `Source material:\n\n${clipped}` },
+        ],
+        temperature: contentMode === 'preserve' ? 0.2 : 0.5,
+        max_tokens: 4000,
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 90_000,
+      }
+    );
+  } catch (err: any) {
+    const status = err.response?.status;
+    const detail = err.response?.data?.error?.message || err.message;
+    throw new InternalServerError(`DeepSeek request failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+
+  const raw: string = response.data?.choices?.[0]?.message?.content || '{}';
+  let parsed: any;
+  try {
+    parsed = JSON.parse(stripCodeFences(raw));
+  } catch {
+    throw new InternalServerError('DeepSeek returned malformed JSON. Please try again.');
+  }
+
+  const blocks = Array.isArray(parsed?.blocks) ? parsed.blocks : [];
+  const normalized: SplitLessonBlock[] = blocks
+    .map((b: any) => ({
+      title: String(b?.title || '').trim(),
+      content: String(b?.content || '').trim(),
+    }))
+    .filter((b: SplitLessonBlock) => b.content.length > 0);
+
+  if (normalized.length === 0) {
+    throw new InternalServerError('DeepSeek did not return any usable content blocks. Please try again.');
+  }
+  return normalized;
 }
 
 // ---------------------------------------------------------------------------
