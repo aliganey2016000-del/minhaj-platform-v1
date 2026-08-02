@@ -723,35 +723,158 @@ Rules:
 - "content" is clean HTML for just that section's body (paragraphs, lists, blockquotes as needed) — do NOT include any heading tag in "content", the heading goes in "title" only.
 - Each block should be readable in well under a minute.`;
 
-export async function generateInteractiveLessonBlocks(params: GenerateInteractiveBlocksParams): Promise<SplitLessonBlock[]> {
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Splits plain pasted text into `chunkCount` roughly-balanced pieces on
+ * paragraph boundaries (falling back to line boundaries for a single huge
+ * paragraph), so "preserve" mode never has to ask an LLM to reproduce the
+ * whole source in one response, and "paraphrase" mode only ever has to
+ * rewrite one small piece per call — both eliminate the truncation
+ * ("response cut off mid-JSON") failure a single big generate/paraphrase
+ * call was hitting on real multi-page pastes.
+ */
+function splitPlainTextIntoChunks(text: string, chunkCount: number): string[] {
+  const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const units = paragraphs.length > 1 ? paragraphs : text.split(/\n/).map((p) => p.trim()).filter(Boolean);
+  if (units.length === 0) return [text.trim()];
+
+  const target = Math.min(Math.max(chunkCount, 1), units.length);
+  const totalChars = units.reduce((sum, u) => sum + u.length, 0);
+  const perChunk = totalChars / target;
+
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let currentChars = 0;
+  for (const unit of units) {
+    current.push(unit);
+    currentChars += unit.length;
+    if (currentChars >= perChunk && chunks.length < target - 1) {
+      chunks.push(current.join('\n\n'));
+      current = [];
+      currentChars = 0;
+    }
+  }
+  if (current.length) chunks.push(current.join('\n\n'));
+  return chunks;
+}
+
+/** Wraps a plain-text chunk's paragraphs in <p> tags, HTML-escaped — used for "preserve" mode, which never calls the AI for content. */
+function chunkToHtml(chunk: string): string {
+  return chunk
+    .split(/\n\s*\n/)
+    .map((p) => `<p>${escapeHtml(p.trim()).replace(/\n/g, '<br/>')}</p>`)
+    .join('');
+}
+
+function deriveTitleFromChunk(chunk: string, index: number): string {
+  const firstLine = (chunk.split(/\n/)[0] || '').trim();
+  const words = firstLine.split(/\s+/).filter(Boolean).slice(0, 6).join(' ');
+  return words || `Section ${index + 1}`;
+}
+
+const PARAPHRASE_CHUNK_SYSTEM_PROMPT = `You rewrite ONE section of lesson source material in clearer, more polished language for an interactive "Stop and Check" reading flow, while preserving its meaning and every factual point — a paraphrase/polish pass, not new invented content.
+
+Return ONLY a single JSON object — no markdown, no code fences, no commentary:
+{"title": string, "content": string}
+
+Rules:
+- "title" is a short heading for this section (3-6 words).
+- "content" is clean HTML (paragraphs, lists, blockquotes as needed) — do NOT include any heading tag, the heading goes in "title" only.`;
+
+/** Paraphrases exactly one (already-small) chunk — bounded output size means this never risks the truncation a whole-document paraphrase call would. */
+async function paraphraseChunkWithAi(chunk: string, index: number): Promise<SplitLessonBlock> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
     throw new InternalServerError('AI lesson generation is not configured on this server (missing DEEPSEEK_API_KEY).');
   }
 
+  let response;
+  try {
+    response = await axios.post(
+      DEEPSEEK_API_URL,
+      {
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: 'system', content: PARAPHRASE_CHUNK_SYSTEM_PROMPT },
+          { role: 'user', content: chunk },
+        ],
+        temperature: 0.5,
+        max_tokens: 2000,
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60_000,
+      }
+    );
+  } catch (err: any) {
+    const status = err.response?.status;
+    const detail = err.response?.data?.error?.message || err.message;
+    throw new InternalServerError(`DeepSeek request failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+
+  const raw: string = response.data?.choices?.[0]?.message?.content || '{}';
+  let parsed: any = {};
+  try {
+    parsed = JSON.parse(stripCodeFences(raw));
+  } catch {
+    // Fall through to the original-text fallback below rather than failing
+    // the whole batch over one chunk's malformed JSON.
+  }
+
+  const content = String(parsed?.content || '').trim();
+  const title = String(parsed?.title || '').trim();
+  return {
+    title: title || deriveTitleFromChunk(chunk, index),
+    // If paraphrasing this one chunk failed, ship the original wording
+    // (as HTML) instead of silently dropping the section.
+    content: content || chunkToHtml(chunk),
+  };
+}
+
+const INTERACTIVE_COMPOSE_SYSTEM_PROMPT_SUFFIX = `- Compose full, well-explained original lesson content on this topic — do not just restate the topic in one line, thoroughly teach it.`;
+
+export async function generateInteractiveLessonBlocks(params: GenerateInteractiveBlocksParams): Promise<SplitLessonBlock[]> {
   const { sourceText, blockCount, contentMode } = params;
   const trimmed = (sourceText || '').trim();
   if (!trimmed) {
     throw new BadRequestError('No source text to generate from.');
   }
 
-  const clipped =
-    trimmed.length > MAX_SOURCE_CHARS
-      ? `${trimmed.slice(0, MAX_SOURCE_CHARS)}\n\n[...source truncated for length...]`
-      : trimmed;
-
+  const clipped = trimmed.length > MAX_SOURCE_CHARS ? trimmed.slice(0, MAX_SOURCE_CHARS) : trimmed;
   const clampedCount = Math.min(Math.max(Math.round(blockCount) || 4, 2), 12);
 
-  let modeInstruction: string;
-  if (contentMode === 'compose') {
-    modeInstruction = `- Compose full, well-explained original lesson content on this topic — do not just restate the topic in one line, thoroughly teach it.\n- Produce exactly ${clampedCount} blocks, each covering a distinct sub-topic that together fully teach the subject.`;
-  } else if (contentMode === 'paraphrase') {
-    modeInstruction = `- Rewrite the source material in clearer, more polished language while preserving its meaning and every factual point — this is a paraphrase/polish pass, not new invented content.\n- Split the (paraphrased) material into exactly ${clampedCount} blocks if it naturally supports that many; otherwise use as many well-formed blocks as the material supports.`;
-  } else {
-    modeInstruction = `- Preserve the source wording exactly — split it into sections, do not rewrite, paraphrase, or summarize any of it.\n- Aim for exactly ${clampedCount} blocks if the source naturally supports it; if the source is too short, produce as many well-formed blocks as it supports (never pad with filler or invented text).`;
+  // "preserve" — purely local split, zero AI calls. This is the only way to
+  // actually guarantee the wording is untouched (an LLM asked to "copy
+  // exactly" can still subtly drift), and it can never truncate.
+  if (contentMode === 'preserve') {
+    const chunks = splitPlainTextIntoChunks(clipped, clampedCount);
+    return chunks.map((chunk, i) => ({ title: deriveTitleFromChunk(chunk, i), content: chunkToHtml(chunk) }));
   }
 
-  const systemPrompt = `${INTERACTIVE_SPLIT_SYSTEM_PROMPT_BASE}\n${modeInstruction}`;
+  // "paraphrase" — split locally first, then paraphrase each (small) chunk
+  // in its own call, in parallel. A single call asked to paraphrase an
+  // entire multi-page paste was hitting the output token ceiling and
+  // returning truncated/empty JSON; per-chunk calls each have a bounded,
+  // safe output size regardless of total source length.
+  if (contentMode === 'paraphrase') {
+    const chunks = splitPlainTextIntoChunks(clipped, clampedCount);
+    return Promise.all(chunks.map((chunk, i) => paraphraseChunkWithAi(chunk, i)));
+  }
+
+  // "compose" — no source text to reproduce, so a single call stays well
+  // within budget regardless of blockCount.
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new InternalServerError('AI lesson generation is not configured on this server (missing DEEPSEEK_API_KEY).');
+  }
+  const systemPrompt = `${INTERACTIVE_SPLIT_SYSTEM_PROMPT_BASE}\n${INTERACTIVE_COMPOSE_SYSTEM_PROMPT_SUFFIX}\n- Produce exactly ${clampedCount} blocks, each covering a distinct sub-topic that together fully teach the subject.`;
 
   let response;
   try {
@@ -761,14 +884,9 @@ export async function generateInteractiveLessonBlocks(params: GenerateInteractiv
         model: DEEPSEEK_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: contentMode === 'compose' ? clipped : `Source material:\n\n${clipped}` },
+          { role: 'user', content: clipped },
         ],
-        temperature: contentMode === 'preserve' ? 0.2 : 0.5,
-        // Composing/paraphrasing can require noticeably more output than the
-        // source's own length (HTML markup +, for "compose", brand-new
-        // prose) — 4000 was tuned for splitLessonWithAi's reformat-only
-        // case and was cutting the response short (empty/invalid JSON) on
-        // longer pastes, which is why this needs its own higher budget.
+        temperature: 0.5,
         max_tokens: 8000,
         response_format: { type: 'json_object' },
       },
@@ -793,7 +911,7 @@ export async function generateInteractiveLessonBlocks(params: GenerateInteractiv
     parsed = JSON.parse(stripCodeFences(raw));
   } catch {
     if (finishReason === 'length') {
-      throw new InternalServerError('The source text is too long to generate in one pass. Try pasting a shorter section, or reduce the number of blocks.');
+      throw new InternalServerError('The topic is too broad to generate in one pass. Try reducing the number of blocks.');
     }
     throw new InternalServerError('DeepSeek returned malformed JSON. Please try again.');
   }
@@ -808,7 +926,7 @@ export async function generateInteractiveLessonBlocks(params: GenerateInteractiv
 
   if (normalized.length === 0) {
     if (finishReason === 'length') {
-      throw new InternalServerError('The source text is too long to generate in one pass. Try pasting a shorter section, or reduce the number of blocks.');
+      throw new InternalServerError('The topic is too broad to generate in one pass. Try reducing the number of blocks.');
     }
     throw new InternalServerError('DeepSeek did not return any usable content blocks. Please try again.');
   }
