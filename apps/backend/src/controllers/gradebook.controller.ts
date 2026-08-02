@@ -417,40 +417,51 @@ export const getOrgGradebookOverview = async (req: Request, res: Response): Prom
   const schemes = await GradingScheme.find({ course: { $in: courseIds } }).lean();
   const schemeByCourse = new Map(schemes.map((s: any) => [s.course.toString(), s]));
 
-  const rows: any[] = [];
+  // Configured courses only — courses with no GradingScheme have nothing to
+  // break down, and skipping them here avoids wasted student/grade lookups.
+  const configuredCourses = (courses as any[]).filter((c) => {
+    const scheme = schemeByCourse.get(c._id.toString());
+    return scheme && scheme.categories?.length;
+  });
 
-  for (const course of courses as any[]) {
-    const scheme = schemeByCourse.get(course._id.toString());
-    if (!scheme || !scheme.categories?.length) continue; // nothing configured — nothing to show
+  // Both the course loop AND the per-student grade computation inside it
+  // are fanned out with Promise.all instead of sequential awaits — this
+  // endpoint can easily be computing grades for hundreds of (student,
+  // category) combinations, and awaiting them one at a time serially was
+  // slow enough to trip the request timeout.
+  const rowsByCourse = await Promise.all(
+    configuredCourses.map(async (course) => {
+      const isClassBased = course.school?.attendanceType === 'class_based' && !!course.class;
+      const students = await Student.find(
+        isClassBased ? { class: course.class._id } : { enrolledCourses: course._id }
+      )
+        .populate('profile', 'firstName lastName')
+        .select('profile studentId department class')
+        .lean();
 
-    const isClassBased = course.school?.attendanceType === 'class_based' && !!course.class;
-    const students = await Student.find(
-      isClassBased ? { class: course.class._id } : { enrolledCourses: course._id }
-    )
-      .populate('profile', 'firstName lastName')
-      .select('profile studentId department class')
-      .lean();
+      const orgLabel = course.school?.name || '';
+      const deptLabel = course.class?.department?.name || '';
+      const courseClassLabel = course.class ? `${course.title?.en || ''} · ${course.class.title} (${course.class.section})` : (course.title?.en || '');
 
-    const orgLabel = course.school?.name || '';
-    const deptLabel = course.class?.department?.name || '';
-    const courseClassLabel = course.class ? `${course.title?.en || ''} · ${course.class.title} (${course.class.section})` : (course.title?.en || '');
+      return Promise.all(
+        (students as any[]).map(async (s) => {
+          const result = await computeCourseGrade(course._id.toString(), s._id.toString());
+          return {
+            studentId: s._id,
+            studentCode: s.studentId,
+            studentName: `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim(),
+            organization: orgLabel,
+            department: deptLabel || s.department || '',
+            courseClass: courseClassLabel,
+            categories: result.categories,
+            grandTotal: result.finalGrade,
+            passed: result.passed,
+            passingScore: result.passingScore,
+          };
+        })
+      );
+    })
+  );
 
-    for (const s of students as any[]) {
-      const result = await computeCourseGrade(course._id.toString(), s._id.toString());
-      rows.push({
-        studentId: s._id,
-        studentCode: s.studentId,
-        studentName: `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim(),
-        organization: orgLabel,
-        department: deptLabel || s.department || '',
-        courseClass: courseClassLabel,
-        categories: result.categories,
-        grandTotal: result.finalGrade,
-        passed: result.passed,
-        passingScore: result.passingScore,
-      });
-    }
-  }
-
-  return ApiResponse.success(res, rows);
+  return ApiResponse.success(res, rowsByCourse.flat());
 };
