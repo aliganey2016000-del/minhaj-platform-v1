@@ -83,33 +83,6 @@ const PRESERVE_PROMPT_LINES = buildPromptSheetLines(
   'Do NOT rewrite, paraphrase, or summarize any of the wording — use my exact original text, character for character. Only split it into exactly <<NUMBER_OF_BLOCKS>> content blocks at natural section breaks. For each block, write <<QUESTIONS_PER_BLOCK>> comprehension question(s) of type <<QUESTION_TYPES>>, answerable purely from that block\'s own (unedited) content.'
 );
 
-// Third variant — for the importer's "Plain Text (--- dividers)" paste
-// mode. Here the ADMIN decides exactly where each block breaks (either by
-// typing the dividers themselves, or asking an AI to place them for
-// them) — no table, no questions, just the original text with "---" cut
-// points. Deliberately has no <<...>> placeholders: this mode is either
-// fully manual, or a much simpler one-line instruction to the AI.
-const DIVIDER_PROMPT_LINES = [
-  'AI LESSON IMPORT PROMPT — Divider Split Mode (you choose the block breaks)',
-  '='.repeat('AI LESSON IMPORT PROMPT — Divider Split Mode (you choose the block breaks)'.length),
-  '',
-  'HOW TO USE: this mode is for when YOU decide exactly where each block starts and ends — either by typing "---" yourself directly in your own notes (skip this prompt entirely and just paste your text with --- already in it), or by asking an AI to place the --- markers for you using the prompt below. Either way, paste the result into this importer\'s "Manual Copy & Paste" → "Plain Text (--- dividers)" option.',
-  '',
-  'No questions are added automatically in this mode — after import, use each block\'s own "Generate Question" button in the Lesson Editor (AI-assisted), or write one by hand.',
-  '',
-  '-----------------------------------------------------------------',
-  'PROMPT — copy everything from here down (only needed if you want an AI to place the dividers for you):',
-  '',
-  'You are helping me prepare an interactive lesson for a Learning Management System, split into short sections a student reads one at a time.',
-  '',
-  'Split my lesson text below into logical sections at natural topic boundaries. Between each section, insert a line containing only three dashes: ---',
-  'Do NOT rewrite, paraphrase, or summarize any of the wording — use my exact original text, only inserting the --- dividers between sections. Do not add any commentary, titles, or numbering — output only my original text with --- inserted between sections.',
-  '',
-  'Here is my lesson source text:',
-  '',
-  '<<PASTE YOUR LESSON TEXT HERE>>',
-];
-
 const HEADER_TITLES = new Set([
   'block title', 'block content', 'min read seconds', 'question type',
   'question text', 'option 1', 'option 2', 'option 3', 'correct answer', 'explanation',
@@ -170,7 +143,7 @@ export const downloadContentBlocksTemplate = async (_req: Request, res: Response
     ['Times of Prayer', '', '', 'true_false', 'Maghrib is prayed after sunset.', '', '', '', 'TRUE', 'Maghrib is performed just after the sun sets.'],
   ];
   // buildXlsxBuffer only builds a single-sheet workbook — build this one
-  // directly with 4 sheets: the data template, plus the three AI prompt
+  // directly with 3 sheets: the data template, plus the two AI prompt
   // sheets (each a single wide column of text, one line per row so it
   // reads naturally in Excel and is easy to select-all and copy).
   const templateSheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
@@ -182,13 +155,9 @@ export const downloadContentBlocksTemplate = async (_req: Request, res: Response
   const preserveSheet = XLSX.utils.aoa_to_sheet(PRESERVE_PROMPT_LINES.map((line) => [line]));
   preserveSheet['!cols'] = [{ wch: 120 }];
 
-  const dividerSheet = XLSX.utils.aoa_to_sheet(DIVIDER_PROMPT_LINES.map((line) => [line]));
-  dividerSheet['!cols'] = [{ wch: 120 }];
-
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, templateSheet, 'Content Blocks Template');
   XLSX.utils.book_append_sheet(workbook, paraphraseSheet, 'AI Prompt - Paraphrase');
-  XLSX.utils.book_append_sheet(workbook, dividerSheet, 'AI Prompt - Divider Split');
   XLSX.utils.book_append_sheet(workbook, preserveSheet, 'AI Prompt - Exact Wording');
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 

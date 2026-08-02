@@ -10,34 +10,9 @@
  */
 
 import { useRef, useState } from 'react';
-import { marked } from 'marked';
 import api from '../../../../lib/axios';
 import { generateTempId } from '../course-builder.api';
 import type { ContentBlock, ContentBlockQuestion } from '../course-builder.types';
-
-/**
- * Splits plain pasted text into blocks on a "---" divider (its own line) —
- * for when the admin (or an AI told to do so) has already decided exactly
- * where each block should break, instead of asking the importer to infer
- * it from a Block Title column. No questions are attached here; add them
- * per-block afterward via the block editor's own "Generate Question"
- * button. Mirrors builder-lesson-editor.tsx's splitContentByDivider, but
- * over plain/Markdown text (marked-converted) instead of Tiptap HTML.
- */
-function splitByDividerText(text: string, defaultMinReadSeconds: number): ContentBlock[] {
-  const chunks = text
-    .split(/^\s*---+\s*$/m)
-    .map((c) => c.trim())
-    .filter(Boolean);
-
-  return chunks.map((chunk, i) => ({
-    _id: generateTempId(),
-    order: i,
-    content: marked.parse(chunk, { async: false }) as string,
-    minReadSeconds: defaultMinReadSeconds,
-    questions: [],
-  }));
-}
 
 // Same tab-separated parser as CourseContentImportModal — Excel/Sheets
 // wraps any copied cell containing a newline/tab/quote in double quotes
@@ -102,7 +77,6 @@ interface ContentBlocksImportModalProps {
 
 export function ContentBlocksImportModal({ onClose, defaultMinReadSeconds, onImported }: ContentBlocksImportModalProps) {
   const [mode, setMode] = useState<'upload' | 'paste'>('upload');
-  const [pasteFormat, setPasteFormat] = useState<'table' | 'divider'>('table');
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [pasteText, setPasteText] = useState('');
@@ -221,19 +195,7 @@ export function ContentBlocksImportModal({ onClose, defaultMinReadSeconds, onImp
     }
   };
 
-  const submitDividerImport = () => {
-    setPasteError('');
-    const blocks = splitByDividerText(pasteText, defaultMinReadSeconds);
-    if (blocks.length === 0) {
-      setPasteError('No "---" dividers found (or the text is empty after splitting). Put "---" on its own line between sections first.');
-      return;
-    }
-    onImported(blocks);
-    onClose();
-  };
-
   const parsedRows = parsePastedRows();
-  const dividerBlockCount = pasteText.split(/^\s*---+\s*$/m).map((c) => c.trim()).filter(Boolean).length;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -264,7 +226,7 @@ export function ContentBlocksImportModal({ onClose, defaultMinReadSeconds, onImp
             </div>
           </button>
           <p className="text-xs text-[var(--color-text-tertiary)] -mt-3">
-            💡 The download also includes 3 extra sheets — ready-to-copy AI prompts ("AI Prompt - Paraphrase", "AI Prompt - Exact Wording", and "AI Prompt - Divider Split") you can hand to ChatGPT/DeepSeek along with your lesson text.
+            💡 The download also includes 2 extra sheets — ready-to-copy AI prompts ("AI Prompt - Paraphrase" and "AI Prompt - Exact Wording") you can hand to ChatGPT/DeepSeek along with your lesson text to generate rows in this exact format.
           </p>
 
           <div className="grid grid-cols-2 gap-3">
@@ -310,80 +272,37 @@ export function ContentBlocksImportModal({ onClose, defaultMinReadSeconds, onImp
 
           {mode === 'paste' && (
             <div className="space-y-3">
-              <div className="inline-flex rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1">
-                <button
-                  type="button"
-                  onClick={() => { setPasteFormat('table'); setPasteError(''); }}
-                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${pasteFormat === 'table' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}`}
-                >
-                  Spreadsheet Table
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setPasteFormat('divider'); setPasteError(''); }}
-                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${pasteFormat === 'divider' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}`}
-                >
-                  Plain Text (--- dividers)
-                </button>
+              <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+                <p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below (tab-separated columns, one row per line — one row per question, rows sharing a Block Title group into one block):</p>
+                <p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">
+                  Block Title &nbsp; Block Content &nbsp; Min Read Seconds &nbsp; Question Type &nbsp; Question Text &nbsp; Option 1 &nbsp; Option 2 &nbsp; Option 3 &nbsp; Correct Answer &nbsp; Explanation
+                </p>
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => { setPasteText(e.target.value); setPasteError(''); }}
+                  rows={8}
+                  placeholder={"Paste data from Excel here...\n\nExample:\nIntroduction to Salaah\tSalaah is the second pillar of Islam...\t30\tmcq\tWhat is Salaah?\tThe second pillar of Islam\tA type of charity\tA pilgrimage\t1\t\nIntroduction to Salaah\t\t\ttrue_false\tSalaah is performed once a day.\t\t\t\tFALSE\tSalaah is performed five times a day."}
+                  className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y"
+                />
               </div>
-
-              {pasteFormat === 'table' ? (
-                <>
-                  <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
-                    <p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below (tab-separated columns, one row per line — one row per question, rows sharing a Block Title group into one block):</p>
-                    <p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">
-                      Block Title &nbsp; Block Content &nbsp; Min Read Seconds &nbsp; Question Type &nbsp; Question Text &nbsp; Option 1 &nbsp; Option 2 &nbsp; Option 3 &nbsp; Correct Answer &nbsp; Explanation
-                    </p>
-                    <textarea
-                      value={pasteText}
-                      onChange={(e) => { setPasteText(e.target.value); setPasteError(''); }}
-                      rows={8}
-                      placeholder={"Paste data from Excel here...\n\nExample:\nIntroduction to Salaah\tSalaah is the second pillar of Islam...\t30\tmcq\tWhat is Salaah?\tThe second pillar of Islam\tA type of charity\tA pilgrimage\t1\t\nIntroduction to Salaah\t\t\ttrue_false\tSalaah is performed once a day.\t\t\t\tFALSE\tSalaah is performed five times a day."}
-                      className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y"
-                    />
-                  </div>
-                  {pasteError && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{pasteError}</div>}
-                  {parsedRows.length > 0 && (
-                    <div className="rounded-xl border border-[var(--color-border-default)] overflow-hidden">
-                      <div className="bg-[var(--color-surface-secondary)] px-4 py-2 text-xs font-semibold text-[var(--color-text-tertiary)]">Preview — {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''} parsed</div>
-                      <div className="max-h-40 overflow-auto">
-                        <table className="w-full text-xs">
-                          <tbody className="divide-y divide-[var(--color-border-subtle)]">
-                            {parsedRows.slice(0, 20).map((row, ri) => (
-                              <tr key={ri} className={ri % 2 === 0 ? 'bg-[var(--color-surface-primary)]' : 'bg-[var(--color-surface-secondary)]'}>
-                                {row.map((cell, ci) => (
-                                  <td key={ci} className="px-3 py-1.5 text-[var(--color-text-secondary)] whitespace-nowrap border-r border-[var(--color-border-subtle)] last:border-r-0">{cell}</td>
-                                ))}
-                              </tr>
+              {pasteError && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{pasteError}</div>}
+              {parsedRows.length > 0 && (
+                <div className="rounded-xl border border-[var(--color-border-default)] overflow-hidden">
+                  <div className="bg-[var(--color-surface-secondary)] px-4 py-2 text-xs font-semibold text-[var(--color-text-tertiary)]">Preview — {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''} parsed</div>
+                  <div className="max-h-40 overflow-auto">
+                    <table className="w-full text-xs">
+                      <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                        {parsedRows.slice(0, 20).map((row, ri) => (
+                          <tr key={ri} className={ri % 2 === 0 ? 'bg-[var(--color-surface-primary)]' : 'bg-[var(--color-surface-secondary)]'}>
+                            {row.map((cell, ci) => (
+                              <td key={ci} className="px-3 py-1.5 text-[var(--color-text-secondary)] whitespace-nowrap border-r border-[var(--color-border-subtle)] last:border-r-0">{cell}</td>
                             ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
-                    <p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">
-                      Paste plain text (or Markdown) below, with a line containing only <code className="rounded bg-[var(--color-surface-tertiary)] px-1">---</code> between each block. You decide the split points — either put the dividers in yourself, or ask an AI to insert them (see "AI Prompt - Divider Split" in the downloaded template).
-                    </p>
-                    <p className="text-xs text-[var(--color-text-tertiary)] mb-3">No questions are added automatically in this mode — use each block's own "Generate Question" button afterward, or write one by hand.</p>
-                    <textarea
-                      value={pasteText}
-                      onChange={(e) => { setPasteText(e.target.value); setPasteError(''); }}
-                      rows={10}
-                      placeholder={"Salaah is the second pillar of Islam, performed five times a day.\n\n---\n\nThere are five daily prayers: Fajr, Dhuhr, Asr, Maghrib, and Isha."}
-                      className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y"
-                    />
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  {pasteError && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{pasteError}</div>}
-                  {pasteText.trim() && (
-                    <p className="text-xs text-[var(--color-text-tertiary)]">
-                      {dividerBlockCount} block{dividerBlockCount === 1 ? '' : 's'} will be created.
-                    </p>
-                  )}
-                </>
+                </div>
               )}
             </div>
           )}
@@ -395,7 +314,7 @@ export function ContentBlocksImportModal({ onClose, defaultMinReadSeconds, onImp
           <button type="button" onClick={onClose} disabled={importing} className="rounded-lg border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Close</button>
           <button
             type="button"
-            onClick={mode === 'upload' ? submitFileImport : pasteFormat === 'divider' ? submitDividerImport : submitPasteImport}
+            onClick={mode === 'upload' ? submitFileImport : submitPasteImport}
             disabled={importing || (mode === 'upload' && !selectedFile) || (mode === 'paste' && !pasteText.trim())}
             className="rounded-lg bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors inline-flex items-center gap-2"
           >
