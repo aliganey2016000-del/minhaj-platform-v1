@@ -764,7 +764,12 @@ export async function generateInteractiveLessonBlocks(params: GenerateInteractiv
           { role: 'user', content: contentMode === 'compose' ? clipped : `Source material:\n\n${clipped}` },
         ],
         temperature: contentMode === 'preserve' ? 0.2 : 0.5,
-        max_tokens: 4000,
+        // Composing/paraphrasing can require noticeably more output than the
+        // source's own length (HTML markup +, for "compose", brand-new
+        // prose) — 4000 was tuned for splitLessonWithAi's reformat-only
+        // case and was cutting the response short (empty/invalid JSON) on
+        // longer pastes, which is why this needs its own higher budget.
+        max_tokens: 8000,
         response_format: { type: 'json_object' },
       },
       {
@@ -781,11 +786,15 @@ export async function generateInteractiveLessonBlocks(params: GenerateInteractiv
     throw new InternalServerError(`DeepSeek request failed${status ? ` (${status})` : ''}: ${detail}`);
   }
 
+  const finishReason = response.data?.choices?.[0]?.finish_reason;
   const raw: string = response.data?.choices?.[0]?.message?.content || '{}';
   let parsed: any;
   try {
     parsed = JSON.parse(stripCodeFences(raw));
   } catch {
+    if (finishReason === 'length') {
+      throw new InternalServerError('The source text is too long to generate in one pass. Try pasting a shorter section, or reduce the number of blocks.');
+    }
     throw new InternalServerError('DeepSeek returned malformed JSON. Please try again.');
   }
 
@@ -798,6 +807,9 @@ export async function generateInteractiveLessonBlocks(params: GenerateInteractiv
     .filter((b: SplitLessonBlock) => b.content.length > 0);
 
   if (normalized.length === 0) {
+    if (finishReason === 'length') {
+      throw new InternalServerError('The source text is too long to generate in one pass. Try pasting a shorter section, or reduce the number of blocks.');
+    }
     throw new InternalServerError('DeepSeek did not return any usable content blocks. Please try again.');
   }
   return normalized;
