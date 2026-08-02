@@ -9,6 +9,7 @@ import { generateTempId } from '../course-builder.api';
 import { RichTextEditor } from './rich-text-editor';
 import { AiLessonGeneratorModal } from './ai-lesson-generator-modal';
 import { AiInteractiveLessonModal } from './ai-interactive-lesson-modal';
+import { ContentBlocksImportModal } from './content-blocks-import-modal';
 import { ContentBlockEditor } from './content-block-editor';
 import { VideoCheckpointEditor } from './video-checkpoint-editor';
 import api from '../../../../lib/axios';
@@ -71,6 +72,7 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
   const [newAttName, setNewAttName] = useState('');
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiInteractiveModalOpen, setAiInteractiveModalOpen] = useState(false);
+  const [blocksImportModalOpen, setBlocksImportModalOpen] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<LessonDeliveryMode>(lesson.deliveryMode || 'traditional');
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>(lesson.contentBlocks || []);
   const [aiSplitting, setAiSplitting] = useState(false);
@@ -355,6 +357,13 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
               </div>
               <button
                 type="button"
+                onClick={() => setBlocksImportModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+              >
+                <span>📥</span> Import
+              </button>
+              <button
+                type="button"
                 onClick={() => setAiInteractiveModalOpen(true)}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-violet-700 hover:to-indigo-700 transition-all"
               >
@@ -376,6 +385,15 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
               setContentBlocks((prev) => [...prev, ...newBlocks.map((b, i) => ({ ...b, order: prev.length + i }))])
             }
           />
+          {blocksImportModalOpen && (
+            <ContentBlocksImportModal
+              onClose={() => setBlocksImportModalOpen(false)}
+              defaultMinReadSeconds={Number(form.defaultMinReadSeconds) || 30}
+              onImported={(newBlocks) =>
+                setContentBlocks((prev) => [...prev, ...newBlocks.map((b, i) => ({ ...b, order: prev.length + i }))])
+              }
+            />
+          )}
         </div>
       )}
 
