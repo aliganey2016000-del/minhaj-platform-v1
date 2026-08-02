@@ -51,7 +51,7 @@ function buildPromptSheetLines(title: string, bodyInstruction: string): string[]
     title,
     '='.repeat(title.length),
     '',
-    'HOW TO USE: edit the <<...>> placeholders below, paste your lesson text where shown, then send the WHOLE prompt to your AI (ChatGPT, DeepSeek, etc). Copy its reply and paste it into this importer\'s "Manual Copy & Paste" option.',
+    'HOW TO USE: edit the <<...>> placeholders below, then send the WHOLE prompt to your AI (ChatGPT, DeepSeek, etc) — either paste your lesson text where shown at the bottom, OR attach/upload a PDF (or Word/PowerPoint) file of the lesson to the chat instead and leave that placeholder as-is; the prompt already tells the AI to read the attached file. Copy the AI\'s reply and paste it into this importer\'s "Manual Copy & Paste" option.',
     '',
     'EDIT THESE PLACEHOLDERS BEFORE SENDING:',
     '- <<NUMBER_OF_BLOCKS>> — how many content blocks to split the lesson into (e.g. 4)',
@@ -61,15 +61,15 @@ function buildPromptSheetLines(title: string, bodyInstruction: string): string[]
     '-----------------------------------------------------------------',
     'PROMPT — copy everything from here down:',
     '',
-    'You are helping me prepare an interactive lesson for a Learning Management System. I will give you my lesson source text at the end of this message.',
+    'You are helping me prepare an interactive lesson for a Learning Management System. My lesson source text is either pasted at the end of this message, or attached to this chat as a file (PDF, Word, or PowerPoint) — if a file is attached, read it and use its full content as the source text instead of the placeholder text below.',
     '',
     bodyInstruction,
     '',
     PROMPT_TABLE_CONTRACT,
     '',
-    'Here is my lesson source text:',
+    'Here is my lesson source text (ignore this line if I attached a file instead):',
     '',
-    '<<PASTE YOUR LESSON TEXT HERE>>',
+    '<<PASTE YOUR LESSON TEXT HERE, OR LEAVE THIS AS-IS IF YOU ATTACHED A PDF/DOC FILE INSTEAD>>',
   ];
 }
 
