@@ -65,13 +65,27 @@ interface CourseBrief {
   department?: { _id: string; name: string } | null;
 }
 
+interface EntrySummaryCourse {
+  _id: string;
+  title: string;
+  organization: string;
+  department: string;
+  courseClass: string;
+  totalStudents: number;
+  gradedStudents: number;
+  completed: boolean;
+}
+
 interface EntrySummary {
   coursesTotal: number;
   coursesCompleted: number;
   coursesPending: number;
   studentsGraded: number;
   studentsTotal: number;
+  courses: EntrySummaryCourse[];
 }
+
+type SummaryTab = 'completed' | 'graded' | 'pending';
 
 type ManualEntrySlot = 'midExam' | 'midActivity' | 'final' | 'finalActivity';
 const MANUAL_ENTRY_SLOTS: { slot: ManualEntrySlot; label: string }[] = [
@@ -191,17 +205,25 @@ function sanitizeNumericInput(raw: string): string {
   return cleaned;
 }
 
-function MetricCard({ icon, label, value, sub, progress, tone }: {
+const TONE_CLASSES = {
+  emerald: { bg: 'bg-emerald-50 dark:bg-emerald-950/20', ring: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-500', activeRing: 'ring-2 ring-emerald-400' },
+  sky: { bg: 'bg-sky-50 dark:bg-sky-950/20', ring: 'text-sky-600 dark:text-sky-400', bar: 'bg-sky-500', activeRing: 'ring-2 ring-sky-400' },
+  amber: { bg: 'bg-amber-50 dark:bg-amber-950/20', ring: 'text-amber-600 dark:text-amber-400', bar: 'bg-amber-500', activeRing: 'ring-2 ring-amber-400' },
+} as const;
+
+/** A quick-metric card that doubles as a tab button — tapping it opens a course breakdown panel for that metric, tapping the active one again closes it. */
+function MetricCard({ icon, label, value, sub, progress, tone, active, onClick }: {
   icon: React.ReactNode; label: string; value: string; sub?: string; progress?: number;
-  tone: 'emerald' | 'sky' | 'amber';
+  tone: keyof typeof TONE_CLASSES; active: boolean; onClick: () => void;
 }) {
-  const toneClasses = {
-    emerald: { bg: 'bg-emerald-50 dark:bg-emerald-950/20', ring: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-500' },
-    sky: { bg: 'bg-sky-50 dark:bg-sky-950/20', ring: 'text-sky-600 dark:text-sky-400', bar: 'bg-sky-500' },
-    amber: { bg: 'bg-amber-50 dark:bg-amber-950/20', ring: 'text-amber-600 dark:text-amber-400', bar: 'bg-amber-500' },
-  }[tone];
+  const toneClasses = TONE_CLASSES[tone];
   return (
-    <div className={`rounded-2xl border border-[var(--color-border-default)] ${toneClasses.bg} p-4`}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`w-full text-left rounded-2xl border border-[var(--color-border-default)] ${toneClasses.bg} p-4 transition-shadow hover:shadow-md ${active ? toneClasses.activeRing : ''}`}
+    >
       <div className="flex items-center gap-2.5">
         <span className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--color-surface-primary)] ${toneClasses.ring}`}>{icon}</span>
         <div className="min-w-0">
@@ -215,6 +237,60 @@ function MetricCard({ icon, label, value, sub, progress, tone }: {
         </div>
       )}
       {sub && <p className="mt-1.5 text-[10px] text-[var(--color-text-tertiary)]">{sub}</p>}
+    </button>
+  );
+}
+
+const SUMMARY_TAB_META: Record<SummaryTab, { title: string; empty: string }> = {
+  completed: { title: 'Courses fully entered', empty: 'No courses are fully entered yet.' },
+  graded: { title: 'Grading progress by course', empty: 'No courses with students yet.' },
+  pending: { title: 'Courses still pending entry', empty: 'Nothing pending — all caught up 🎉' },
+};
+
+/** The panel that opens under the quick-metric tabs — a responsive, scrollable list of courses for whichever metric is active, each row jumping straight into that course's Enter Results sheet on click. */
+function SummaryBreakdownPanel({ tab, courses, onClose, onSelectCourse }: {
+  tab: SummaryTab; courses: EntrySummaryCourse[]; onClose: () => void; onSelectCourse: (courseId: string) => void;
+}) {
+  const rows = tab === 'completed'
+    ? courses.filter((c) => c.completed)
+    : tab === 'pending'
+    ? courses.filter((c) => !c.completed)
+    : [...courses].sort((a, b) => b.gradedStudents - a.gradedStudents);
+  const meta = SUMMARY_TAB_META[tab];
+
+  return (
+    <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-[var(--color-text-secondary)]">{meta.title} · {rows.length}</p>
+        <button type="button" onClick={onClose} className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]">Close ✕</button>
+      </div>
+      <div className="max-h-80 overflow-y-auto divide-y divide-[var(--color-border-subtle)]">
+        {rows.length === 0 && <p className="px-4 py-6 text-center text-sm text-[var(--color-text-tertiary)]">{meta.empty}</p>}
+        {rows.map((c) => (
+          <button
+            type="button"
+            key={c._id}
+            onClick={() => onSelectCourse(c._id)}
+            className="w-full flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 px-4 py-2.5 text-left hover:bg-[var(--color-surface-tertiary)] transition-colors"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-[var(--color-text-primary)] truncate">{c.title}</p>
+              <p className="text-xs text-[var(--color-text-tertiary)] truncate">{[c.organization, c.department, c.courseClass].filter(Boolean).join(' · ')}</p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="h-1.5 w-20 rounded-full bg-black/5 dark:bg-white/10 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${c.completed ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                  style={{ width: `${c.totalStudents ? Math.min(100, (c.gradedStudents / c.totalStudents) * 100) : 0}%` }}
+                />
+              </div>
+              <span className={`text-xs font-semibold whitespace-nowrap ${c.completed ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--color-text-secondary)]'}`}>
+                {c.gradedStudents}/{c.totalStudents}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -235,6 +311,7 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
   const [message, setMessage] = useState('');
   const [showImport, setShowImport] = useState(false);
   const [hiddenColumns, setHiddenColumns] = useState<Set<ManualEntrySlot>>(loadHiddenColumns);
+  const [activeSummaryTab, setActiveSummaryTab] = useState<SummaryTab | null>(null);
 
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
@@ -349,6 +426,19 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
     } finally {
       setLoading(false);
     }
+  };
+
+  /** Jumping in from a quick-metric tab's course list bypasses the cascading filters entirely (a course from "Pending" might not match whatever Org/Dept/Class is currently picked), so those reset here to guarantee the target course shows up in the Course picker. */
+  const jumpToCourse = (courseId: string) => {
+    setOrgFilter('');
+    setDeptFilter('');
+    setClassFilter('');
+    setActiveSummaryTab(null);
+    loadCourse(courseId);
+  };
+
+  const toggleSummaryTab = (tab: SummaryTab) => {
+    setActiveSummaryTab((prev) => (prev === tab ? null : tab));
   };
 
   const hasFieldErrors = Object.values(fieldErrors).some((row) => Object.keys(row).length > 0);
@@ -533,7 +623,7 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
         )}
 
         {!loading && !selectedCourseId && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {summary && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <MetricCard
@@ -542,6 +632,8 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                   value={`${summary.coursesCompleted}/${summary.coursesTotal}`}
                   progress={summary.coursesTotal ? (summary.coursesCompleted / summary.coursesTotal) * 100 : 0}
                   tone="emerald"
+                  active={activeSummaryTab === 'completed'}
+                  onClick={() => toggleSummaryTab('completed')}
                 />
                 <MetricCard
                   icon={<Users className="h-4 w-4" strokeWidth={2} />}
@@ -549,6 +641,8 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                   value={`${summary.studentsGraded}/${summary.studentsTotal}`}
                   progress={summary.studentsTotal ? (summary.studentsGraded / summary.studentsTotal) * 100 : 0}
                   tone="sky"
+                  active={activeSummaryTab === 'graded'}
+                  onClick={() => toggleSummaryTab('graded')}
                 />
                 <MetricCard
                   icon={<Clock className="h-4 w-4" strokeWidth={2} />}
@@ -556,10 +650,22 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                   value={`${summary.coursesPending}`}
                   sub={summary.coursesPending === 0 ? 'All caught up 🎉' : 'Still waiting on scores'}
                   tone="amber"
+                  active={activeSummaryTab === 'pending'}
+                  onClick={() => toggleSummaryTab('pending')}
                 />
               </div>
             )}
-            <div className="text-center py-10 text-[var(--color-text-tertiary)]"><p className="text-lg">👆 Select a course above to enter results</p></div>
+            {summary && activeSummaryTab && (
+              <SummaryBreakdownPanel
+                tab={activeSummaryTab}
+                courses={summary.courses}
+                onClose={() => setActiveSummaryTab(null)}
+                onSelectCourse={jumpToCourse}
+              />
+            )}
+            {!activeSummaryTab && (
+              <div className="text-center py-10 text-[var(--color-text-tertiary)]"><p className="text-lg">👆 Select a course above to enter results</p></div>
+            )}
           </div>
         )}
 

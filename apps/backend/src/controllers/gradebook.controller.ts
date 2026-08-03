@@ -825,13 +825,13 @@ export const getEntrySummary = async (req: Request, res: Response): Promise<Resp
   }
 
   const courses = await Course.find(scopedFilter)
-    .select('school class')
-    .populate('school', 'attendanceType')
-    .populate('class', 'department')
+    .select('title school class')
+    .populate('school', 'name attendanceType')
+    .populate({ path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } })
     .lean();
 
   if (courses.length === 0) {
-    return ApiResponse.success(res, { coursesTotal: 0, coursesCompleted: 0, coursesPending: 0, studentsGraded: 0, studentsTotal: 0 });
+    return ApiResponse.success(res, { coursesTotal: 0, coursesCompleted: 0, coursesPending: 0, studentsGraded: 0, studentsTotal: 0, courses: [] });
   }
 
   const courseIds = courses.map((c: any) => c._id);
@@ -878,18 +878,35 @@ export const getEntrySummary = async (req: Request, res: Response): Promise<Resp
   let coursesCompleted = 0;
   let studentsGraded = 0;
   let studentsTotal = 0;
+  const courseBreakdown: {
+    _id: string; title: string; organization: string; department: string; courseClass: string;
+    totalStudents: number; gradedStudents: number; completed: boolean;
+  }[] = [];
 
   for (const c of courses as any[]) {
     const cid = c._id.toString();
     const roster = rosterByCourse.get(cid) || [];
     studentsTotal += roster.length;
-    if (roster.length === 0) continue;
+
+    const courseClass = c.class ? `${c.class.title} (${c.class.section})` : '';
+    const breakdownRow = {
+      _id: cid,
+      title: c.title?.en || 'Untitled course',
+      organization: c.school?.name || '',
+      department: c.class?.department?.name || '',
+      courseClass,
+      totalStudents: roster.length,
+      gradedStudents: 0,
+      completed: false,
+    };
+
+    if (roster.length === 0) { courseBreakdown.push(breakdownRow); continue; }
 
     const categories: IGradingCategory[] = schemeByCourse.get(cid)?.categories || [];
     const activeSlotKeys = MANUAL_ENTRY_SLOTS.map((slot) => matchCategoryForSlot(categories, slot))
       .filter((cat) => cat && !(isTeacher && cat.teacherVisible === false))
       .map((cat) => cat!.key);
-    if (activeSlotKeys.length === 0) continue; // never opened yet — nothing entered, correctly pending
+    if (activeSlotKeys.length === 0) { courseBreakdown.push(breakdownRow); continue; } // never opened yet — nothing entered, correctly pending
 
     let studentsGradedInCourse = 0;
     for (const sid of roster) {
@@ -898,7 +915,12 @@ export const getEntrySummary = async (req: Request, res: Response): Promise<Resp
       if (filledCount === activeSlotKeys.length) studentsGradedInCourse++;
     }
     studentsGraded += studentsGradedInCourse;
-    if (studentsGradedInCourse === roster.length) coursesCompleted++;
+    const isCompleted = studentsGradedInCourse === roster.length;
+    if (isCompleted) coursesCompleted++;
+
+    breakdownRow.gradedStudents = studentsGradedInCourse;
+    breakdownRow.completed = isCompleted;
+    courseBreakdown.push(breakdownRow);
   }
 
   return ApiResponse.success(res, {
@@ -907,5 +929,6 @@ export const getEntrySummary = async (req: Request, res: Response): Promise<Resp
     coursesPending: courses.length - coursesCompleted,
     studentsGraded,
     studentsTotal,
+    courses: courseBreakdown,
   });
 };
