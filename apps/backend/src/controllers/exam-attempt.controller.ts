@@ -9,6 +9,7 @@ import Exam from '../models/exam.model';
 import ExamPaper, { IPaperQuestion } from '../models/exam-paper.model';
 import ExamAttempt from '../models/exam-attempt.model';
 import ExamAttendance from '../models/exam-attendance.model';
+import Result from '../models/result.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -348,6 +349,21 @@ export const submit = async (req: Request, res: Response): Promise<Response> => 
   attempt.status = isLate ? 'auto_submitted' : 'submitted';
   attempt.submittedAt = new Date();
   await attempt.save();
+
+  // Bridge the auto-graded score into the Result collection so the Grading
+  // Rules' exam-sourced categories (Mid Exam/Final) pick it up automatically
+  // — same as Quizzes already do via QuizAttempt, no manual entry required.
+  // A teacher can still override this later from Enter Results; manual
+  // entries always win over an auto-computed Result (see grade-calculator).
+  if (attempt.maxScore > 0) {
+    const resultDoc =
+      (await Result.findOne({ exam: attempt.exam, student: student._id })) ||
+      new Result({ exam: attempt.exam, student: student._id });
+    resultDoc.marksObtained = earnedPoints;
+    resultDoc.totalMarks = attempt.maxScore;
+    resultDoc.enteredBy = req.user!.userId as any;
+    await resultDoc.save();
+  }
 
   // Safety net alongside the one in start() — upsert is a no-op if already
   // checked in (or if an invigilator already marked something for a
