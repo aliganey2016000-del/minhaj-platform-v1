@@ -60,7 +60,7 @@ export function AnnouncementsManage() {
           <div><h1 className="text-3xl font-bold text-[var(--color-text-primary)]">📢 Announcements</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} total — {active} active, {pinned} pinned</p></div>
           <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">+ New</button>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-300">{active}</p><p className="text-xs text-green-600 dark:text-green-400">Active</p></div>
           <div className="rounded-xl border border-gray-200 bg-gray-50 dark:bg-gray-800/30 p-4 text-center"><p className="text-2xl font-bold text-gray-600 dark:text-gray-400">{items.filter(i => i.status === 'inactive').length}</p><p className="text-xs text-gray-500">Inactive</p></div>
           <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-4 text-center"><p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{pinned}</p><p className="text-xs text-amber-600 dark:text-amber-400">Pinned</p></div>

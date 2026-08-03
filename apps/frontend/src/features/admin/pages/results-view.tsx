@@ -156,7 +156,7 @@ export function ResultsView() {
         )}
 
         {/* Stats — gradient tiles doubling as status filter tabs */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {([
             { key: '', label: 'All', count: rows.length, icon: LayoutGrid, gradient: 'from-slate-500 to-slate-600' },
             { key: 'passed', label: 'Passed', count: passed, icon: CheckCircle2, gradient: 'from-green-500 to-emerald-600' },

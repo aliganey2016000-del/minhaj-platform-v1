@@ -42,7 +42,7 @@ export function StudentDownloads() {
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10"><div className="mx-auto max-w-6xl space-y-6">
       <div><h1 className="text-3xl font-bold text-[var(--color-text-primary)]">📥 {t('downloads')}</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{resources.length} {t('files')} ({courseCount} courses · {formatSize(totalSize)})</p></div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-950/30 p-4 text-center"><p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{resources.length}</p><p className="text-xs">{t('files')}</p></div>
         <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-300">{courseCount}</p><p className="text-xs">{t('courses')}</p></div>
         <div className="rounded-xl border border-purple-200 bg-purple-50 dark:bg-purple-950/30 p-4 text-center"><p className="text-2xl font-bold text-purple-700 dark:text-purple-300">{formatSize(totalSize)}</p><p className="text-xs">Size</p></div>

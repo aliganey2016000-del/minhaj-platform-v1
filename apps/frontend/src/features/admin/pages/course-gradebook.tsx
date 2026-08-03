@@ -203,24 +203,31 @@ export function CourseGradebook({ basePath = '/admin' }: CourseGradebookProps) {
                 )}
                 <div className="space-y-2">
                   {scheme.categories.map((cat, idx) => (
-                    <div key={cat.key} className="grid grid-cols-12 gap-2 items-center rounded-xl border border-[var(--color-border-default)] p-2.5">
-                      <input className={`${ic} col-span-3`} placeholder="Category name" value={cat.label} onChange={(e) => updateCategory(idx, { label: e.target.value })} />
-                      <input type="number" className={`${ic} col-span-2`} placeholder="Weight %" value={cat.weight} onChange={(e) => updateCategory(idx, { weight: Number(e.target.value) })} />
-                      <select className={`${ic} col-span-3`} value={cat.sourceType} onChange={(e) => updateCategory(idx, { sourceType: e.target.value as SourceType, examId: undefined })}>
-                        {SOURCE_TYPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                      </select>
-                      {cat.sourceType === 'exam' ? (
-                        <select className={`${ic} col-span-2`} value={cat.examId || ''} onChange={(e) => updateCategory(idx, { examId: e.target.value })}>
-                          <option value="">Select exam...</option>
-                          {exams.map((ex) => <option key={ex._id} value={ex._id}>{ex.title}</option>)}
+                    <div key={cat.key} className="grid grid-cols-12 gap-2 sm:items-center rounded-xl border border-[var(--color-border-default)] p-2.5">
+                      <input className={`${ic} col-span-12 sm:col-span-3`} placeholder="Category name" value={cat.label} onChange={(e) => updateCategory(idx, { label: e.target.value })} />
+                      <input type="number" className={`${ic} col-span-6 sm:col-span-2`} placeholder="Weight %" value={cat.weight} onChange={(e) => updateCategory(idx, { weight: Number(e.target.value) })} />
+                      <div className="col-span-6 sm:col-span-3">
+                        <span className="block text-[10px] text-[var(--color-text-tertiary)] mb-0.5 sm:hidden">Source</span>
+                        <select className={ic} value={cat.sourceType} onChange={(e) => updateCategory(idx, { sourceType: e.target.value as SourceType, examId: undefined })}>
+                          {SOURCE_TYPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                         </select>
-                      ) : <div className="col-span-2" />}
+                      </div>
+                      {cat.sourceType === 'exam' ? (
+                        <div className="col-span-12 sm:col-span-2">
+                          <span className="block text-[10px] text-[var(--color-text-tertiary)] mb-0.5 sm:hidden">Exam</span>
+                          <select className={ic} value={cat.examId || ''} onChange={(e) => updateCategory(idx, { examId: e.target.value })}>
+                            <option value="">Select exam...</option>
+                            {exams.map((ex) => <option key={ex._id} value={ex._id}>{ex.title}</option>)}
+                          </select>
+                        </div>
+                      ) : <div className="hidden sm:block sm:col-span-2" />}
                       {basePath !== '/teacher' ? (
-                        <label title="Visible to teacher when entering results" className="col-span-1 flex items-center justify-center cursor-pointer">
+                        <label title="Visible to teacher when entering results" className="col-span-6 sm:col-span-1 flex items-center gap-2 sm:justify-center cursor-pointer">
                           <input type="checkbox" checked={cat.teacherVisible !== false} onChange={(e) => updateCategory(idx, { teacherVisible: e.target.checked })} />
+                          <span className="text-xs text-[var(--color-text-tertiary)] sm:hidden">Visible to teacher</span>
                         </label>
-                      ) : <div className="col-span-1" />}
-                      <button onClick={() => removeCategory(idx)} className="col-span-1 text-red-500 hover:text-red-700 text-xs font-semibold">✕</button>
+                      ) : <div className="hidden sm:block sm:col-span-1" />}
+                      <button onClick={() => removeCategory(idx)} className="col-span-6 sm:col-span-1 text-red-500 hover:text-red-700 text-xs font-semibold text-right sm:text-left">✕ <span className="sm:hidden">Remove</span></button>
                     </div>
                   ))}
                 </div>

@@ -502,7 +502,7 @@ function CourseModal({
           </div>
 
           {/* Row: Duration + Fee + Capacity */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div>
               <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Duration (weeks)</label>
               <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="number" min={1} value={form.duration} onChange={(e) => update('duration', Number(e.target.value))} />
@@ -1508,7 +1508,7 @@ export function CoursesManage() {
                     {importResult.created} of {importResult.totalRows} rows imported successfully{importResult.failed > 0 && ` — ${importResult.failed} failed`}
                   </p>
                   {importResult.errors.length > 0 && (
-                    <div className="max-h-36 overflow-y-auto rounded-lg border border-red-200 dark:border-red-900/40">
+                    <div className="max-h-36 overflow-auto rounded-lg border border-red-200 dark:border-red-900/40">
                       <table className="w-full text-xs">
                         <thead className="bg-red-50 dark:bg-red-950/30 text-left text-red-700 dark:text-red-300"><tr><th className="px-3 py-1.5">Row</th><th className="px-3 py-1.5">Error</th></tr></thead>
                         <tbody className="divide-y divide-red-100 dark:divide-red-900/30">
@@ -1524,7 +1524,7 @@ export function CoursesManage() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center">
             <p className="text-2xl font-bold text-green-700 dark:text-green-300">{publishedCount}</p>
             <p className="text-xs text-green-600 dark:text-green-400">Published</p>

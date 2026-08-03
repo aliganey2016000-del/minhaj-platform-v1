@@ -329,7 +329,7 @@ export function ContentBlocksImportModal({ onClose, defaultMinReadSeconds, onImp
               {result.errors.length > 0 && ` — ${result.errors.length} row${result.errors.length === 1 ? '' : 's'} skipped`}
             </p>
             {result.errors.length > 0 && (
-              <div className="max-h-36 overflow-y-auto rounded-lg border border-red-200 dark:border-red-900/40">
+              <div className="max-h-36 overflow-auto rounded-lg border border-red-200 dark:border-red-900/40">
                 <table className="w-full text-xs">
                   <thead className="bg-red-50 dark:bg-red-950/30 text-left text-red-700 dark:text-red-300">
                     <tr><th className="px-3 py-1.5">Row</th><th className="px-3 py-1.5">Error</th></tr>

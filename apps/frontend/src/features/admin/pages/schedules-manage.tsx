@@ -606,7 +606,7 @@ export function SchedulesManage() {
               {hasFetched ? `${total} total schedules` : 'Apply a filter to view schedules'}
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <button
               onClick={openImportModal}
               className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-5 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
@@ -877,7 +877,7 @@ export function SchedulesManage() {
                     {importResult.failed > 0 && ` — ${importResult.failed} failed`}
                   </p>
                   {importResult.errors.length > 0 && (
-                    <div className="max-h-36 overflow-y-auto rounded-lg border border-red-200 dark:border-red-900/40">
+                    <div className="max-h-36 overflow-auto rounded-lg border border-red-200 dark:border-red-900/40">
                       <table className="w-full text-xs">
                         <thead className="bg-red-50 dark:bg-red-950/30 text-left text-red-700 dark:text-red-300">
                           <tr>

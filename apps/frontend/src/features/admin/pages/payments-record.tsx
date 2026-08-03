@@ -149,7 +149,7 @@ function InvoiceModal({ invoice, onClose }: { invoice: InvoiceData; onClose: () 
         </div>
 
         {/* ── Transaction Table ── */}
-        <div className="px-8 py-2">
+        <div className="px-8 py-2 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b-2 border-emerald-200 dark:border-emerald-800">
@@ -471,7 +471,7 @@ export function PaymentsRecord() {
                   ))}
                 </select>
                 {selStudent && (
-                  <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                       <p className="text-[var(--color-text-tertiary)]">Total Fees</p>
                       <p className="font-bold">${(selStudent.totalFees || 0).toLocaleString()}</p>
@@ -548,7 +548,7 @@ export function PaymentsRecord() {
                   ))}
                 </select>
                 {selFeesStudent && (
-                  <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                       <p className="text-[var(--color-text-tertiary)]">Current Total</p>
                       <p className="font-bold">${(selFeesStudent.totalFees || 0).toLocaleString()}</p>
