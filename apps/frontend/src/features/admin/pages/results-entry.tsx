@@ -13,6 +13,17 @@
  * endpoint here is scoped server-side to the caller's organization and, for
  * teachers, to only the courses they teach.
  *
+ * Each field is entered as RAW POINTS out of that category's own configured
+ * weight (e.g. "38/40" for a category worth 40% of the grade) rather than a
+ * 0-100 percentage — this matches how a teacher actually thinks about
+ * grading ("this exam is worth 40 points, they got 38"). The backend still
+ * stores/computes everything as a 0-100 percent-of-category internally (so
+ * Grading Rules' weighted math and View Results stay unchanged), so this
+ * page converts raw points <-> percent on the way in/out — see
+ * pointsToPercent/percentToPoints below. A category at 0% weight has no
+ * meaningful point cap, so it falls back to a plain 0-100 entry (the
+ * zero-weight warning banner below already flags that it won't count).
+ *
  * Rebuilt from scratch as its own page (previously a tab inside a combined
  * "Manage Results" page), so entering scores never shares loading/error
  * state with the org-wide View Results table.
@@ -68,11 +79,29 @@ interface ResultsEntryProps {
   backFallback?: string;
 }
 
+/** A slot's point cap for entry purposes — its category's weight, or 100 when the weight is 0 (nothing meaningful to cap against). */
+function entryMax(weight: number | undefined): number {
+  return weight && weight > 0 ? weight : 100;
+}
+
+/** Stored value (0-100 percent-of-category) -> what the admin sees (raw points out of the category's weight). */
+function percentToPoints(percent: number, weight: number | undefined): number {
+  if (!weight || weight <= 0) return percent;
+  return Math.round((percent / 100) * weight);
+}
+
+/** What the admin typed (raw points out of the category's weight) -> stored value (0-100 percent-of-category). */
+function pointsToPercent(points: number, weight: number | undefined): number {
+  if (!weight || weight <= 0) return Math.min(100, points);
+  return Math.min(100, Math.round((points / weight) * 100 * 100) / 100);
+}
+
 export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProps) {
   const [courses, setCourses] = useState<CourseBrief[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [roster, setRoster] = useState<ManualEntryRoster | null>(null);
   const [entryValues, setEntryValues] = useState<Record<string, Record<ManualEntrySlot, string>>>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, Partial<Record<ManualEntrySlot, string>>>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -97,14 +126,15 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
       const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
       const r: ManualEntryRoster = data.data;
       setRoster(r);
+      setFieldErrors({});
       const values: Record<string, Record<ManualEntrySlot, string>> = {};
       r.students.forEach((s) => {
-        values[s.studentId] = {
-          midExam: s.scores.midExam === null ? '' : String(s.scores.midExam),
-          midActivity: s.scores.midActivity === null ? '' : String(s.scores.midActivity),
-          final: s.scores.final === null ? '' : String(s.scores.final),
-          finalActivity: s.scores.finalActivity === null ? '' : String(s.scores.finalActivity),
-        };
+        const row = {} as Record<ManualEntrySlot, string>;
+        MANUAL_ENTRY_SLOTS.forEach(({ slot }) => {
+          const percent = s.scores[slot];
+          row[slot] = percent === null ? '' : String(percentToPoints(percent, r.slots[slot]?.weight));
+        });
+        values[s.studentId] = row;
       });
       setEntryValues(values);
     } catch (err: any) {
@@ -114,12 +144,35 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
     }
   };
 
+  const hasFieldErrors = Object.values(fieldErrors).some((row) => Object.keys(row).length > 0);
+
   const handleEntryChange = (studentId: string, slot: ManualEntrySlot, value: string) => {
     setEntryValues((prev) => ({ ...prev, [studentId]: { ...prev[studentId], [slot]: value } }));
+
+    const max = entryMax(roster?.slots[slot]?.weight);
+    const num = Number(value);
+    const outOfRange = value !== '' && !Number.isNaN(num) && (num > max || num < 0);
+    setFieldErrors((prev) => {
+      const rowErrors = { ...(prev[studentId] || {}) };
+      if (outOfRange) {
+        rowErrors[slot] = num > max
+          ? `Max ${max} — this is ${MANUAL_ENTRY_SLOTS.find((s) => s.slot === slot)?.label}'s configured weight for this course`
+          : 'Must be 0 or higher';
+      } else {
+        delete rowErrors[slot];
+      }
+      return { ...prev, [studentId]: rowErrors };
+    });
   };
 
   const handleSubmit = async () => {
     if (!selectedCourseId || !roster || roster.students.length === 0) return;
+
+    if (hasFieldErrors) {
+      setError('Fix the highlighted scores before saving — they exceed the category\'s configured weight.');
+      return;
+    }
+
     setSaving(true);
     setError('');
     setMessage('');
@@ -127,11 +180,12 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
       const entries: { studentId: string; slot: ManualEntrySlot; score: number }[] = [];
       roster.students.forEach((s) => {
         MANUAL_ENTRY_SLOTS.forEach(({ slot }) => {
-          if (!roster.slots[slot]) return;
+          const cat = roster.slots[slot];
+          if (!cat) return;
           const raw = entryValues[s.studentId]?.[slot];
           if (raw === undefined || raw === '') return;
-          const score = Number(raw);
-          if (!Number.isNaN(score)) entries.push({ studentId: s.studentId, slot, score });
+          const points = Number(raw);
+          if (!Number.isNaN(points)) entries.push({ studentId: s.studentId, slot, score: pointsToPercent(points, cat.weight) });
         });
       });
 
@@ -265,19 +319,27 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                         {roster.organization}{roster.organization && s.department ? ' · ' : ''}{s.department}
                       </td>
                       {MANUAL_ENTRY_SLOTS.map(({ slot }) => {
-                        const active = !!roster.slots[slot];
+                        const cat = roster.slots[slot];
+                        const active = !!cat;
+                        const max = entryMax(cat?.weight);
+                        const fieldError = fieldErrors[s.studentId]?.[slot];
                         return (
                           <td className="px-4 py-1.5" key={slot}>
                             <input
                               type="number"
                               min={0}
-                              max={100}
+                              max={max}
                               value={entryValues[s.studentId]?.[slot] || ''}
                               onChange={(e) => handleEntryChange(s.studentId, slot, e.target.value)}
                               disabled={!active}
-                              className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-30 placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                              placeholder={active ? '/ 100' : 'not set up'}
+                              className={`w-full rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 disabled:opacity-30 placeholder:text-slate-400 dark:placeholder:text-slate-500 ${
+                                fieldError
+                                  ? 'border-red-400 focus:ring-red-500/30'
+                                  : 'border-[var(--color-border-default)] focus:ring-primary-500/30'
+                              }`}
+                              placeholder={active ? `/ ${max}` : 'not set up'}
                             />
+                            {fieldError && <p className="mt-0.5 text-[10px] leading-tight text-red-500">{fieldError}</p>}
                           </td>
                         );
                       })}
@@ -290,7 +352,8 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
               <p className="text-xs text-[var(--color-text-tertiary)]">{roster.students.length} students</p>
               <button
                 onClick={handleSubmit}
-                disabled={saving}
+                disabled={saving || hasFieldErrors}
+                title={hasFieldErrors ? 'Fix the highlighted scores before saving' : undefined}
                 className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors shadow-md"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
