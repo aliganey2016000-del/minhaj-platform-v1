@@ -18,7 +18,7 @@
  * state with the org-wide View Results table.
  */
 import { useEffect, useState } from 'react';
-import { ClipboardEdit, Save, Loader2 } from 'lucide-react';
+import { ClipboardEdit, Save, Loader2, AlertTriangle } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 
@@ -56,7 +56,7 @@ interface ManualEntryRosterStudent {
 }
 
 interface ManualEntryRoster {
-  slots: Record<ManualEntrySlot, { key: string; label: string } | null>;
+  slots: Record<ManualEntrySlot, { key: string; label: string; weight: number } | null>;
   organization: string;
   courseClass: string;
   passingScore: number;
@@ -200,6 +200,21 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
         )}
 
         {!loading && selectedCourseId && roster && roster.students.length > 0 && (
+          <>
+            {(() => {
+              const zeroWeightLabels = MANUAL_ENTRY_SLOTS.filter(({ slot }) => roster.slots[slot] && roster.slots[slot]!.weight === 0).map(({ label }) => label);
+              if (zeroWeightLabels.length === 0) return null;
+              return (
+                <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-3.5 flex items-start gap-2.5 text-sm text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" strokeWidth={2} />
+                  <p>
+                    <strong>{zeroWeightLabels.join(', ')}</strong> {zeroWeightLabels.length === 1 ? 'is' : 'are'} set to 0% weight for this course —
+                    scores entered here are saved but won't affect the student's Final Grade until you assign a weight to{' '}
+                    {zeroWeightLabels.length === 1 ? 'it' : 'them'} in Grading Rules.
+                  </p>
+                </div>
+              );
+            })()}
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="overflow-x-auto">
               <table className="w-full text-sm table-fixed">
@@ -215,9 +230,21 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                   <tr>
                     <th className="text-left px-4 py-2 font-semibold">Student Name / ID</th>
                     <th className="text-left px-4 py-2 font-semibold hidden sm:table-cell">Organization / Department</th>
-                    {MANUAL_ENTRY_SLOTS.map(({ slot, label }) => (
-                      <th key={slot} className="text-left px-4 py-2 font-semibold">{label}</th>
-                    ))}
+                    {MANUAL_ENTRY_SLOTS.map(({ slot, label }) => {
+                      const zeroWeight = roster.slots[slot] && roster.slots[slot]!.weight === 0;
+                      return (
+                        <th key={slot} className="text-left px-4 py-2 font-semibold">
+                          <span className="inline-flex items-center gap-1">
+                            {label}
+                            {zeroWeight && (
+                              <span title="0% weight — scores here won't count toward the Final Grade until you set a weight in Grading Rules">
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" strokeWidth={2} />
+                              </span>
+                            )}
+                          </span>
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
@@ -271,6 +298,7 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
               </button>
             </div>
           </div>
+          </>
         )}
 
         {!loading && selectedCourseId && roster && roster.students.length === 0 && (

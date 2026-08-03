@@ -276,13 +276,13 @@ export const getManualEntryRoster = async (req: Request, res: Response): Promise
   // false (e.g. an official invigilated exam score they shouldn't be able to
   // touch) — org_admin/admin always see every slot.
   const isTeacher = req.user?.role === 'teacher';
-  const slotCategory: Record<ManualEntrySlot, { key: string; label: string } | null> = {
+  const slotCategory: Record<ManualEntrySlot, { key: string; label: string; weight: number } | null> = {
     midExam: null, midActivity: null, final: null, finalActivity: null,
   };
   for (const slot of MANUAL_ENTRY_SLOTS) {
     const match = matchCategoryForSlot(categories, slot);
     if (match && !(isTeacher && match.teacherVisible === false)) {
-      slotCategory[slot] = { key: match.key, label: match.label };
+      slotCategory[slot] = { key: match.key, label: match.label, weight: match.weight };
     }
   }
 
