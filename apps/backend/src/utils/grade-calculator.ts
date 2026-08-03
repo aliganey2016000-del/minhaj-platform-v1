@@ -95,69 +95,81 @@ async function computeExamPercent(examId: string | undefined, studentId: string)
   return { percent: Math.round((result as any).percentage), detail: `${(result as any).marksObtained}/${(result as any).totalMarks}` };
 }
 
-async function computeManualPercent(courseId: string, studentId: string, categoryKey: string): Promise<{ percent: number; detail: string }> {
-  const entry = await ManualGradeEntry.findOne({ course: courseId, student: studentId, categoryKey }).select('score').lean();
-  if (!entry) return { percent: 0, detail: 'Not entered yet' };
-  return { percent: (entry as any).score, detail: 'Manually entered' };
-}
+/** Minimal shape needed from a GradingScheme — lets a caller that's already looping many students in one course (getClassGrades, getOrgGradebookOverview) pass in the scheme it already fetched once, instead of this function re-fetching the identical document per student. */
+export type PreloadedGradingScheme = {
+  categories: IGradingCategory[];
+  passingScore?: number;
+  latePenaltyPercent?: number;
+  bonusCapPercent?: number;
+  dropLowestQuiz?: boolean;
+} | null;
 
-/** Same lookup as computeManualPercent, but returns null (instead of a 0% placeholder) when no override exists, so callers can fall back to the category's own automatic source. */
-async function computeManualOverride(courseId: string, studentId: string, categoryKey: string): Promise<{ percent: number; detail: string } | null> {
-  const entry = await ManualGradeEntry.findOne({ course: courseId, student: studentId, categoryKey }).select('score').lean();
-  if (!entry) return null;
-  return { percent: (entry as any).score, detail: 'Manually entered (override)' };
-}
-
-export async function computeCourseGrade(courseId: string, studentId: string): Promise<CourseGradeResult> {
-  const scheme = await GradingScheme.findOne({ course: courseId }).lean();
+export async function computeCourseGrade(
+  courseId: string,
+  studentId: string,
+  preloadedScheme?: PreloadedGradingScheme
+): Promise<CourseGradeResult> {
+  const scheme = preloadedScheme !== undefined ? preloadedScheme : await GradingScheme.findOne({ course: courseId }).lean();
   const categories: IGradingCategory[] = scheme?.categories || [];
   const passingScore = scheme?.passingScore ?? 60;
   const latePenaltyPercent = scheme?.latePenaltyPercent ?? 0;
   const dropLowestQuiz = scheme?.dropLowestQuiz ?? false;
 
-  const results: CategoryResult[] = [];
-  for (const cat of categories) {
-    let percent = 0;
-    let detail = '';
-    // A manual entry always wins over the category's configured automatic
-    // source, regardless of sourceType — this is what lets an admin/teacher
-    // directly key in a score (e.g. from the "Enter Results" bulk sheet) for
-    // ANY category, including 'exam'-sourced ones, without needing a real
-    // Exam+Result document behind it. 'manual' sourceType categories already
-    // worked this way (computeManualPercent did this same lookup); this just
-    // generalizes it to every sourceType.
-    const override = cat.sourceType === 'manual' ? null : await computeManualOverride(courseId, studentId, cat.key);
-    if (override) {
-      ({ percent, detail } = override);
-    } else if (cat.sourceType === 'attendance') {
-      ({ percent, detail } = await computeAttendancePercent(courseId, studentId));
-    } else if (cat.sourceType === 'assignments') {
-      ({ percent, detail } = await computeAssignmentsPercent(courseId, studentId, latePenaltyPercent));
-    } else if (cat.sourceType === 'quizzes') {
-      ({ percent, detail } = await computeQuizzesPercent(courseId, studentId, dropLowestQuiz));
-    } else if (cat.sourceType === 'exam') {
-      ({ percent, detail } = await computeExamPercent(cat.examId?.toString(), studentId));
-    } else if (cat.sourceType === 'manual') {
-      ({ percent, detail } = await computeManualPercent(courseId, studentId, cat.key));
-    }
-    results.push({
-      key: cat.key,
-      label: cat.label,
-      weight: cat.weight,
-      sourceType: cat.sourceType,
-      earnedPercent: percent,
-      contribution: Math.round(percent * (cat.weight / 100) * 100) / 100,
-      detail,
-    });
-  }
+  // ALL manual entries for this student in this course fetched in one query
+  // (instead of one query per category) — categoryKey lookups below are then
+  // just an in-memory Map read, and the remaining per-category source
+  // computations run in parallel via Promise.all. This single query also
+  // backs the bonus lookup ('__bonus' key) further down, so nothing else
+  // touches ManualGradeEntry directly in this function anymore. Both changes
+  // were needed after adding the override behavior below turned what used
+  // to be N sequential queries (one per category) into 2N — this endpoint
+  // computes grades for every (student, category) combo across an entire
+  // org's courses, and that regression was slow enough to notice.
+  const manualEntries = await ManualGradeEntry.find({ course: courseId, student: studentId }).select('categoryKey score').lean();
+  const manualByKey = new Map(manualEntries.map((e: any) => [e.categoryKey, e.score as number]));
+
+  const results: CategoryResult[] = await Promise.all(
+    categories.map(async (cat) => {
+      let percent = 0;
+      let detail = '';
+      // A manual entry always wins over the category's configured automatic
+      // source, regardless of sourceType — this is what lets an admin/teacher
+      // directly key in a score (e.g. from the "Enter Results" bulk sheet)
+      // for ANY category, including 'exam'-sourced ones, without needing a
+      // real Exam+Result document behind it. 'manual' sourceType categories
+      // already worked this way; this generalizes it to every sourceType.
+      const overrideScore = cat.sourceType === 'manual' ? undefined : manualByKey.get(cat.key);
+      if (overrideScore !== undefined) {
+        percent = overrideScore;
+        detail = 'Manually entered (override)';
+      } else if (cat.sourceType === 'attendance') {
+        ({ percent, detail } = await computeAttendancePercent(courseId, studentId));
+      } else if (cat.sourceType === 'assignments') {
+        ({ percent, detail } = await computeAssignmentsPercent(courseId, studentId, latePenaltyPercent));
+      } else if (cat.sourceType === 'quizzes') {
+        ({ percent, detail } = await computeQuizzesPercent(courseId, studentId, dropLowestQuiz));
+      } else if (cat.sourceType === 'exam') {
+        ({ percent, detail } = await computeExamPercent(cat.examId?.toString(), studentId));
+      } else if (cat.sourceType === 'manual') {
+        const manualScore = manualByKey.get(cat.key);
+        percent = manualScore ?? 0;
+        detail = manualScore !== undefined ? 'Manually entered' : 'Not entered yet';
+      }
+      return {
+        key: cat.key,
+        label: cat.label,
+        weight: cat.weight,
+        sourceType: cat.sourceType,
+        earnedPercent: percent,
+        contribution: Math.round(percent * (cat.weight / 100) * 100) / 100,
+        detail,
+      };
+    })
+  );
 
   const weightedTotal = Math.round(results.reduce((sum, r) => sum + r.contribution, 0) * 100) / 100;
   const bonusCap = scheme?.bonusCapPercent ?? 0;
-  let bonusApplied = 0;
-  if (bonusCap > 0) {
-    const bonusEntry = await ManualGradeEntry.findOne({ course: courseId, student: studentId, categoryKey: '__bonus' }).select('score').lean();
-    bonusApplied = Math.min(bonusCap, (bonusEntry as any)?.score || 0);
-  }
+  const bonusApplied = bonusCap > 0 ? Math.min(bonusCap, manualByKey.get('__bonus') || 0) : 0;
   const finalGrade = Math.min(100, Math.round((weightedTotal + bonusApplied) * 100) / 100);
 
   return {

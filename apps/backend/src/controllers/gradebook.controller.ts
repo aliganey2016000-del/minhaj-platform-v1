@@ -114,7 +114,7 @@ export const getClassGrades = async (req: Request, res: Response): Promise<Respo
 
   const grades = await Promise.all(
     students.map(async (s: any) => {
-      const result = await computeCourseGrade(courseId, s._id.toString());
+      const result = await computeCourseGrade(courseId, s._id.toString(), scheme);
       return {
         ...result,
         studentId: s._id,
@@ -570,10 +570,11 @@ export const getOrgGradebookOverview = async (req: Request, res: Response): Prom
       const orgLabel = course.school?.name || '';
       const deptLabel = course.class?.department?.name || '';
       const courseClassLabel = course.class ? `${course.title?.en || ''} · ${course.class.title} (${course.class.section})` : (course.title?.en || '');
+      const scheme = schemeByCourse.get(course._id.toString());
 
       return Promise.all(
         (students as any[]).map(async (s) => {
-          const result = await computeCourseGrade(course._id.toString(), s._id.toString());
+          const result = await computeCourseGrade(course._id.toString(), s._id.toString(), scheme);
           return {
             studentId: s._id,
             studentCode: s.studentId,
