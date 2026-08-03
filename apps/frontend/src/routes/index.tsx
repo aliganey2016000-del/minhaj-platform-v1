@@ -176,8 +176,11 @@ const ParentsManage = lazy(() =>
 const ExamsManage = lazy(() =>
   import('../features/admin/pages/exams-manage').then((m) => ({ default: m.ExamsManage }))
 );
-const ResultsManage = lazy(() =>
-  import('../features/admin/pages/results-manage').then((m) => ({ default: m.ResultsManage }))
+const ResultsView = lazy(() =>
+  import('../features/admin/pages/results-view').then((m) => ({ default: m.ResultsView }))
+);
+const ResultsEntry = lazy(() =>
+  import('../features/admin/pages/results-entry').then((m) => ({ default: m.ResultsEntry }))
 );
 const ExamRoomsManage = lazy(() =>
   import('../features/admin/pages/exam-rooms-manage').then((m) => ({ default: m.ExamRoomsManage }))
@@ -382,7 +385,8 @@ export const router = createBrowserRouter([
       { path: 'exams/:examId/paper/review', element: L(<ExamPaperReviewPage />) },
       { path: 'exams/compliance', element: L(<ExamComplianceManage />) },
       { path: 'exams/grading-rules', element: L(<GradingRulesManage />) },
-      { path: 'results', element: L(<ResultsManage />) },
+      { path: 'results', element: L(<ResultsView />) },
+      { path: 'results/enter', element: L(<ResultsEntry />) },
       { path: 'payments', element: L(<PaymentsOverview />) },
       { path: 'payments/record', element: L(<PaymentsRecord />) },
       { path: 'payments/history', element: L(<PaymentsHistory />) },

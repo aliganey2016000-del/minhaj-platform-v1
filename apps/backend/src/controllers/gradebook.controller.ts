@@ -16,6 +16,7 @@ import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-err
 import ApiResponse from '../utils/api-response';
 import { getOwnTeacherRecord, assertOwnsOrg, applyOrgFilter } from '../utils/tenant-scope';
 import { computeCourseGrade, validateCategoryWeights } from '../utils/grade-calculator';
+import { computeCourseGradesBulk } from '../utils/bulk-grade-calculator';
 import ensureStudentRecord from '../utils/ensure-student';
 
 async function assertOwnsCourseIfTeacher(req: Request, course: any): Promise<void> {
@@ -112,17 +113,16 @@ export const getClassGrades = async (req: Request, res: Response): Promise<Respo
     .select('profile studentId')
     .lean();
 
-  const grades = await Promise.all(
-    students.map(async (s: any) => {
-      const result = await computeCourseGrade(courseId, s._id.toString(), scheme);
-      return {
-        ...result,
-        studentId: s._id,
-        studentCode: s.studentId,
-        name: `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim(),
-      };
-    })
-  );
+  const gradeMap = await computeCourseGradesBulk(courseId, students.map((s: any) => s._id.toString()), scheme);
+  const grades = students.map((s: any) => {
+    const result = gradeMap.get(s._id.toString())!;
+    return {
+      ...result,
+      studentId: s._id,
+      studentCode: s.studentId,
+      name: `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim(),
+    };
+  });
 
   return ApiResponse.success(res, { configured: true, students: grades });
 };
@@ -552,11 +552,11 @@ export const getOrgGradebookOverview = async (req: Request, res: Response): Prom
     return scheme && scheme.categories?.length;
   });
 
-  // Both the course loop AND the per-student grade computation inside it
-  // are fanned out with Promise.all instead of sequential awaits — this
-  // endpoint can easily be computing grades for hundreds of (student,
-  // category) combinations, and awaiting them one at a time serially was
-  // slow enough to trip the request timeout.
+  // Each course's students are graded with ONE batch call (computeCourseGradesBulk)
+  // instead of one computeCourseGrade call per student — that fixed-query-count
+  // batching (not just parallelizing N per-student calls) is what keeps this
+  // endpoint fast regardless of how many students an org's courses have.
+  // Courses themselves still run in parallel across each other.
   const rowsByCourse = await Promise.all(
     configuredCourses.map(async (course) => {
       const isClassBased = course.school?.attendanceType === 'class_based' && !!course.class;
@@ -571,24 +571,23 @@ export const getOrgGradebookOverview = async (req: Request, res: Response): Prom
       const deptLabel = course.class?.department?.name || '';
       const courseClassLabel = course.class ? `${course.title?.en || ''} · ${course.class.title} (${course.class.section})` : (course.title?.en || '');
       const scheme = schemeByCourse.get(course._id.toString());
+      const gradeMap = await computeCourseGradesBulk(course._id.toString(), (students as any[]).map((s) => s._id.toString()), scheme);
 
-      return Promise.all(
-        (students as any[]).map(async (s) => {
-          const result = await computeCourseGrade(course._id.toString(), s._id.toString(), scheme);
-          return {
-            studentId: s._id,
-            studentCode: s.studentId,
-            studentName: `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim(),
-            organization: orgLabel,
-            department: deptLabel || s.department || '',
-            courseClass: courseClassLabel,
-            categories: result.categories,
-            grandTotal: result.finalGrade,
-            passed: result.passed,
-            passingScore: result.passingScore,
-          };
-        })
-      );
+      return (students as any[]).map((s) => {
+        const result = gradeMap.get(s._id.toString())!;
+        return {
+          studentId: s._id,
+          studentCode: s.studentId,
+          studentName: `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim(),
+          organization: orgLabel,
+          department: deptLabel || s.department || '',
+          courseClass: courseClassLabel,
+          categories: result.categories,
+          grandTotal: result.finalGrade,
+          passed: result.passed,
+          passingScore: result.passingScore,
+        };
+      });
     })
   );
 

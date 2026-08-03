@@ -22,7 +22,7 @@ import {
   CalendarRange, Building, CheckCircle2, FileCheck2, BarChart3, AlertTriangle, Wallet,
   PieChart, CreditCard, History, AlertCircle, Award, MessagesSquare, Megaphone,
   Newspaper, PartyPopper, Image, ShieldCheck, Settings, Compass, TrendingUp,
-  ScrollText, User, KeyRound, LogOut, Percent,
+  ScrollText, User, KeyRound, LogOut, Percent, ClipboardEdit,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -72,7 +72,8 @@ const navSections: { title: string; items: NavEntry[] }[] = [
           { path: '/admin/exams/rooms',        label: 'Room Allocation',      icon: Building },
           { path: '/admin/exams/attendance',   label: 'Exam Attendance',      icon: CheckCircle2 },
           { path: '/admin/exams/papers',       label: 'Papers & Approval',    icon: FileCheck2 },
-          { path: '/admin/results',           label: 'Results Management',   icon: BarChart3 },
+          { path: '/admin/results',           label: 'View Results',         icon: BarChart3 },
+          { path: '/admin/results/enter',      label: 'Enter Results',        icon: ClipboardEdit },
           { path: '/admin/exams/compliance',   label: 'Compliances & Issues', icon: AlertTriangle },
           { path: '/admin/exams/grading-rules', label: 'Grading Rules',      icon: Percent },
         ],
