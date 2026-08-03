@@ -13,29 +13,11 @@ import { Search, CheckCircle2, XCircle, LayoutGrid } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 
-interface ExamBrief {
+interface CourseBrief {
   _id: string;
-  title: string;
-  examDate: string;
-  totalMarks: number;
-  passingMarks: number;
-  resultsPublished?: boolean;
-  autoSchedule?: boolean;
-  school?: { name: string } | null;
-  course?: {
-    _id: string;
-    title: { en: string };
-    slug: string;
-    category: string;
-    class?: { title: string; section: string; department?: { name: string } | null } | null;
-  };
-}
-
-function formatExamDate(exam: ExamBrief): string {
-  if (exam.autoSchedule || !exam.examDate) return 'Self-Paced Exam';
-  const d = new Date(exam.examDate);
-  if (isNaN(d.getTime())) return 'Self-Paced Exam';
-  return d.toLocaleDateString();
+  title: { en: string };
+  class?: { title: string; section: string } | null;
+  configured: boolean;
 }
 
 function initials(first?: string, last?: string): string {
@@ -49,22 +31,35 @@ function avatarColor(seed: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
-interface StudentBrief { _id: string; studentId: string; department?: string; class?: { title: string; section: string } | null; profile?: { firstName: string; lastName: string }; }
+// ---------------------------------------------------------------------------
+// Manual Entry Roster — the "Enter Results" bulk sheet. Fixed 4 UI columns
+// (Mid Exam, Mid Activity, Final, Final Activity) matched onto whichever
+// categories the selected course's own GradingScheme defines with those
+// labels — a slot with no matching category is disabled for that course,
+// since there's nothing configured to save it against.
+// ---------------------------------------------------------------------------
+type ManualEntrySlot = 'midExam' | 'midActivity' | 'final' | 'finalActivity';
+const MANUAL_ENTRY_SLOTS: { slot: ManualEntrySlot; label: string }[] = [
+  { slot: 'midExam', label: 'Mid Exam' },
+  { slot: 'midActivity', label: 'Mid Activity' },
+  { slot: 'final', label: 'Final' },
+  { slot: 'finalActivity', label: 'Final Activity' },
+];
 
-interface ResultRow {
-  _id: string;
-  exam: ExamBrief;
-  student: StudentBrief;
-  marksObtained: number;
-  totalMarks: number;
-  percentage: number;
-  grade: string;
-  remarks: string;
-  feedback?: string;
-  status: 'passed' | 'failed' | 'absent';
-  attendanceStatus?: 'present' | 'absent' | 'late' | 'excused'; // from ExamAttendance model
-  enteredBy?: { _id: string; email: string };
-  createdAt: string;
+interface ManualEntryRosterStudent {
+  studentId: string;
+  studentCode: string;
+  studentName: string;
+  department: string;
+  scores: Record<ManualEntrySlot, number | null>;
+}
+
+interface ManualEntryRoster {
+  slots: Record<ManualEntrySlot, { key: string; label: string } | null>;
+  organization: string;
+  courseClass: string;
+  passingScore: number;
+  students: ManualEntryRosterStudent[];
 }
 
 function PassFailBadge({ passed }: { passed: boolean }) {
@@ -125,7 +120,7 @@ function PctCell({ value }: { value: number | null }) {
 export function ResultsManage() {
   const [tab, setTab] = useState<'view' | 'enter'>('view');
   const [overviewRows, setOverviewRows] = useState<GradebookOverviewRow[]>([]);
-  const [exams, setExams] = useState<ExamBrief[]>([]);
+  const [courses, setCourses] = useState<CourseBrief[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -133,17 +128,18 @@ export function ResultsManage() {
   const [statusFilter, setStatusFilter] = useState<'' | 'passed' | 'failed'>('');
 
   // Bulk entry state
-  const [selectedExam, setSelectedExam] = useState('');
-  const [examStudents, setExamStudents] = useState<StudentBrief[]>([]);
-  const [marks, setMarks] = useState<Record<string, { obtained: string; remarks: string; feedback: string; status: string }>>({});
-  const [selectedExamObj, setSelectedExamObj] = useState<ExamBrief | null>(null);
-  const [existingResults, setExistingResults] = useState<ResultRow[]>([]);
-  const [publishing, setPublishing] = useState(false);
+  const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [roster, setRoster] = useState<ManualEntryRoster | null>(null);
+  const [entryValues, setEntryValues] = useState<Record<string, Record<ManualEntrySlot, string>>>({});
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => { fetchExams(); }, []);
+  useEffect(() => { fetchCourses(); }, []);
 
-  const fetchExams = async () => {
-    try { const { data } = await api.get('/exams'); setExams(data.data || []); } catch {}
+  const fetchCourses = async () => {
+    try {
+      const { data } = await api.get('/gradebook-courses');
+      setCourses((data.data || []).filter((c: CourseBrief) => c.configured));
+    } catch {}
   };
 
   const fetchOverview = useCallback(async () => {
@@ -164,97 +160,65 @@ export function ResultsManage() {
     return () => clearTimeout(t);
   }, [fetchOverview]);
 
-  const loadExamForEntry = async (examId: string) => {
-    if (!examId) return;
-    setSelectedExam(examId);
+  const loadCourseForEntry = async (courseId: string) => {
+    setSelectedCourseId(courseId);
+    if (!courseId) { setRoster(null); return; }
     setLoading(true);
+    setError('');
     try {
-      const exam = exams.find(e => e._id === examId);
-      setSelectedExamObj(exam || null);
-
-      // Get students enrolled in this course
-      const { data: studentData } = await api.get(`/courses/${exam?.course?._id}/students`);
-      const enrolled: StudentBrief[] = studentData.data || [];
-      setExamStudents(enrolled);
-
-      // Get existing results for this exam to pre-fill
-      const { data: resultData } = await api.get(`/results?examId=${examId}&limit=200`);
-      const existing: ResultRow[] = resultData.data || [];
-      setExistingResults(existing);
-
-      // Exam attendance already taken (by an invigilator on the Exam
-      // Attendance page, or auto-marked for a self-paced exam check-in)
-      // should pre-fill this column instead of always defaulting to
-      // "Present" — the roster comes from the same source the Exam
-      // Attendance page itself reads.
-      const attendanceByStudent: Record<string, string> = {};
-      try {
-        const { data: attData } = await api.get(`/exams/${examId}/attendance`);
-        const roster: { student: { _id: string }; attendance: { status: string } | null }[] = attData.data?.roster || [];
-        for (const r of roster) {
-          if (r.attendance?.status) attendanceByStudent[r.student._id] = r.attendance.status;
-        }
-      } catch { /* attendance not taken yet or not accessible — fall back to 'present' below */ }
-
-      const m: Record<string, { obtained: string; remarks: string; feedback: string; status: string }> = {};
-      enrolled.forEach(s => {
-        const existingR = existing.find(r => r.student?._id === s._id);
-        m[s._id] = {
-          obtained: existingR ? String(existingR.marksObtained) : '',
-          remarks: existingR ? existingR.remarks || '' : '',
-          feedback: existingR ? (existingR as any).feedback || '' : '',
-          status: existingR ? (existingR.attendanceStatus || existingR.status || 'present') : (attendanceByStudent[s._id] || 'present'),
+      const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
+      const r: ManualEntryRoster = data.data;
+      setRoster(r);
+      const values: Record<string, Record<ManualEntrySlot, string>> = {};
+      r.students.forEach((s) => {
+        values[s.studentId] = {
+          midExam: s.scores.midExam === null ? '' : String(s.scores.midExam),
+          midActivity: s.scores.midActivity === null ? '' : String(s.scores.midActivity),
+          final: s.scores.final === null ? '' : String(s.scores.final),
+          finalActivity: s.scores.finalActivity === null ? '' : String(s.scores.finalActivity),
         };
       });
-      setMarks(m);
+      setEntryValues(values);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load students');
     } finally { setLoading(false); }
   };
 
-  const handleMarkChange = (studentId: string, field: string, value: string) => {
-    setMarks(prev => ({
+  const handleEntryChange = (studentId: string, slot: ManualEntrySlot, value: string) => {
+    setEntryValues((prev) => ({
       ...prev,
-      [studentId]: { ...prev[studentId], [field]: value },
+      [studentId]: { ...prev[studentId], [slot]: value },
     }));
   };
 
   const handleBulkSubmit = async () => {
-    if (!selectedExam || examStudents.length === 0) return;
-    setLoading(true);
+    if (!selectedCourseId || !roster || roster.students.length === 0) return;
+    setSaving(true);
     setError('');
     setMessage('');
     try {
-      const resultsArray = examStudents.map(s => ({
-        student: s._id,
-        marksObtained: marks[s._id]?.status === 'absent' ? 0 : Number(marks[s._id]?.obtained || 0),
-        totalMarks: selectedExamObj?.totalMarks,
-        remarks: marks[s._id]?.remarks || '',
-        feedback: marks[s._id]?.feedback || '',
-        status: marks[s._id]?.status || 'present',
-      }));
+      const entries: { studentId: string; slot: ManualEntrySlot; score: number }[] = [];
+      roster.students.forEach((s) => {
+        MANUAL_ENTRY_SLOTS.forEach(({ slot }) => {
+          if (!roster.slots[slot]) return; // course has no category for this slot
+          const raw = entryValues[s.studentId]?.[slot];
+          if (raw === undefined || raw === '') return;
+          const score = Number(raw);
+          if (!Number.isNaN(score)) entries.push({ studentId: s.studentId, slot, score });
+        });
+      });
 
-      await api.post('/results/bulk', { exam: selectedExam, results: resultsArray });
-      setMessage(`✅ Results saved for ${examStudents.length} students!`);
+      if (entries.length === 0) {
+        setError('Enter at least one score before saving.');
+        return;
+      }
+
+      const { data } = await api.post(`/gradebook/${selectedCourseId}/manual-entry-roster/bulk`, { entries });
+      setMessage(`✅ Saved ${data.data?.saved ?? entries.length} score${(data.data?.saved ?? entries.length) === 1 ? '' : 's'}!`);
       fetchOverview();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to save results');
-    } finally { setLoading(false); }
-  };
-
-  const handleTogglePublish = async () => {
-    if (!selectedExamObj) return;
-    setPublishing(true);
-    setError('');
-    try {
-      const nextPublished = !selectedExamObj.resultsPublished;
-      await api.patch(`/exams/${selectedExamObj._id}/publish-results`, { published: nextPublished });
-      setSelectedExamObj({ ...selectedExamObj, resultsPublished: nextPublished });
-      setExams(prev => prev.map(e => (e._id === selectedExamObj._id ? { ...e, resultsPublished: nextPublished } : e)));
-      setMessage(nextPublished ? '✅ Results published — students can now see their marks.' : 'Results hidden from students.');
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to update publish status');
-    } finally { setPublishing(false); }
+    } finally { setSaving(false); }
   };
 
   // ── Dynamic stats from the current gradebook overview ──
@@ -412,147 +376,105 @@ export function ResultsManage() {
           </>
         )}
 
-        {/* ── Enter Results Tab ── */}
+        {/* ── Enter Results Tab — course-centric manual entry sheet ── */}
         {tab === 'enter' && (
           <div className="space-y-4">
             <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Select Exam</label>
-              <select value={selectedExam} onChange={e => loadExamForEntry(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm">
-                <option value="">Choose an exam...</option>
-                {exams.map(e => (
-                  <option key={e._id} value={e._id}>{e.title} — {e.course?.title?.en} ({formatExamDate(e)})</option>
+              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Select Course</label>
+              <select value={selectedCourseId} onChange={e => loadCourseForEntry(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm">
+                <option value="">Choose a course...</option>
+                {courses.map(c => (
+                  <option key={c._id} value={c._id}>{c.title?.en}{c.class ? ` · ${c.class.title} (${c.class.section})` : ''}</option>
                 ))}
               </select>
-              {selectedExamObj && (
+              {roster && (
                 <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">
-                  Total Marks: <strong>{selectedExamObj.totalMarks}</strong> | Passing: <strong>{selectedExamObj.passingMarks}</strong> ({Math.round((selectedExamObj.passingMarks / selectedExamObj.totalMarks) * 100)}%)
+                  {roster.organization}{roster.organization && roster.courseClass ? ' · ' : ''}{roster.courseClass} | Passing: <strong>{roster.passingScore}%</strong>
                 </p>
+              )}
+              {courses.length === 0 && (
+                <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">No courses have Grading Rules configured yet — set one up first.</p>
               )}
             </div>
 
             {loading && <div className="flex justify-center py-10"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>}
 
-            {selectedExam && examStudents.length > 0 && !loading && (
-              <>
-                <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm table-fixed">
-                      <colgroup>
-                        <col style={{ width: '20%' }} />
-                        <col className="hidden sm:table-column" style={{ width: '14%' }} />
-                        <col className="hidden md:table-column" style={{ width: '18%' }} />
-                        <col className="hidden md:table-column" style={{ width: '10%' }} />
-                        <col style={{ width: '10%' }} />
-                        <col style={{ width: '12%' }} />
-                        <col className="hidden lg:table-column" style={{ width: '16%' }} />
-                      </colgroup>
-                      <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
-                        <tr>
-                          <th className="text-left px-4 py-1.5 font-semibold">Student Name / ID</th>
-                          <th className="text-left px-4 py-1.5 font-semibold hidden sm:table-cell">Organization / Department</th>
-                          <th className="text-left px-4 py-1.5 font-semibold hidden md:table-cell">Course / Class</th>
-                          <th className="text-left px-4 py-1.5 font-semibold hidden md:table-cell">Exam Type</th>
-                          <th className="text-left px-4 py-1.5 font-semibold">Marks</th>
-                          <th className="text-left px-4 py-1.5 font-semibold">Attendance</th>
-                          <th className="text-left px-4 py-1.5 font-semibold hidden lg:table-cell">Feedback</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {examStudents.map((s, i) => {
-                          const fullName = `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim() || 'Unknown Student';
-                          const classLabel = s.class ? `${s.class.title} (${s.class.section})` : '';
-                          const examClass = selectedExamObj?.course?.class;
-                          const orgLabel = selectedExamObj?.school?.name || '';
-                          const deptLabel = examClass?.department?.name || s.department || '';
-                          const courseLabel = selectedExamObj?.course?.title?.en || '';
-                          const courseClassLabel = examClass ? `${examClass.title} (${examClass.section})` : classLabel;
-                          return (
-                            <tr key={s._id} className={`border-b border-[var(--color-border-subtle)] ${i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/40' : ''}`}>
-                              <td className="px-4 py-1">
-                                <div className="flex items-center gap-2">
-                                  <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white ${avatarColor(s._id)}`}>
-                                    {initials(s.profile?.firstName, s.profile?.lastName)}
-                                  </span>
-                                  <div className="min-w-0">
-                                    <p className="font-medium truncate leading-tight">{fullName}</p>
-                                    <code className="text-[10px] text-[var(--color-text-tertiary)]">{s.studentId}</code>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-4 py-1 hidden sm:table-cell text-xs text-[var(--color-text-secondary)] truncate">
-                                {orgLabel}{orgLabel && deptLabel ? ' · ' : ''}{deptLabel}
-                              </td>
-                              <td className="px-4 py-1 hidden md:table-cell text-xs text-[var(--color-text-secondary)] whitespace-normal break-words leading-tight">
-                                {courseLabel}{courseLabel && courseClassLabel ? ' · ' : ''}{courseClassLabel}
-                              </td>
-                              <td className="px-4 py-1 hidden md:table-cell text-xs text-[var(--color-text-secondary)] truncate" dir="auto">{selectedExamObj?.title || ''}</td>
-                              <td className="px-4 py-1">
+            {selectedCourseId && roster && roster.students.length > 0 && !loading && (
+              <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm table-fixed">
+                    <colgroup>
+                      <col style={{ width: '26%' }} />
+                      <col className="hidden sm:table-column" style={{ width: '18%' }} />
+                      <col style={{ width: '14%' }} />
+                      <col style={{ width: '14%' }} />
+                      <col style={{ width: '14%' }} />
+                      <col style={{ width: '14%' }} />
+                    </colgroup>
+                    <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
+                      <tr>
+                        <th className="text-left px-4 py-1.5 font-semibold">Student Name / ID</th>
+                        <th className="text-left px-4 py-1.5 font-semibold hidden sm:table-cell">Organization / Department</th>
+                        {MANUAL_ENTRY_SLOTS.map(({ slot, label }) => (
+                          <th key={slot} className="text-left px-4 py-1.5 font-semibold">{label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {roster.students.map((s, i) => (
+                        <tr key={s.studentId} className={`border-b border-[var(--color-border-subtle)] ${i % 2 === 1 ? 'bg-slate-50 dark:bg-slate-800/40' : ''}`}>
+                          <td className="px-4 py-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white ${avatarColor(s.studentId)}`}>
+                                {initials(s.studentName.split(' ')[0], s.studentName.split(' ').slice(1).join(' '))}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="font-medium truncate leading-tight">{s.studentName || 'Unknown Student'}</p>
+                                <code className="text-[10px] text-[var(--color-text-tertiary)]">{s.studentCode}</code>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-1 hidden sm:table-cell text-xs text-[var(--color-text-secondary)] truncate">
+                            {roster.organization}{roster.organization && s.department ? ' · ' : ''}{s.department}
+                          </td>
+                          {MANUAL_ENTRY_SLOTS.map(({ slot }) => {
+                            const active = !!roster.slots[slot];
+                            return (
+                              <td className="px-4 py-1" key={slot}>
                                 <input
                                   type="number"
                                   min={0}
-                                  max={selectedExamObj?.totalMarks || 100}
-                                  value={marks[s._id]?.obtained || ''}
-                                  onChange={e => handleMarkChange(s._id, 'obtained', e.target.value)}
-                                  disabled={marks[s._id]?.status === 'absent'}
+                                  max={100}
+                                  value={entryValues[s.studentId]?.[slot] || ''}
+                                  onChange={e => handleEntryChange(s.studentId, slot, e.target.value)}
+                                  disabled={!active}
                                   style={{ textAlign: 'left' }}
                                   className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-30 placeholder:text-slate-500 dark:placeholder:text-slate-400"
-                                  placeholder={`/ ${selectedExamObj?.totalMarks || 100}`}
+                                  placeholder={active ? '/ 100' : '— not set up'}
                                 />
                               </td>
-                              <td className="px-4 py-1">
-                                <select value={marks[s._id]?.status || 'present'} onChange={e => handleMarkChange(s._id, 'status', e.target.value)} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium text-left cursor-pointer">
-                                  <option value="present">Present</option>
-                                  <option value="absent">Absent</option>
-                                  <option value="late">Late</option>
-                                  <option value="excused">Excused</option>
-                                </select>
-                              </td>
-                              <td className="px-4 py-1 hidden lg:table-cell">
-                                <input type="text" value={marks[s._id]?.feedback || ''} onChange={e => handleMarkChange(s._id, 'feedback', e.target.value)} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-1 text-xs text-left placeholder:text-slate-500 dark:placeholder:text-slate-400" placeholder="Shown to student" />
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="p-4 border-t border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] flex items-center justify-between">
-                    <p className="text-xs text-[var(--color-text-tertiary)]">{examStudents.length} students</p>
-                    <div className="flex items-center gap-2">
-                      {selectedExamObj && (
-                        <button
-                          onClick={handleTogglePublish}
-                          disabled={publishing}
-                          className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
-                            selectedExamObj.resultsPublished
-                              ? 'border-2 border-green-600 text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-950/30'
-                              : 'border-2 border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
-                          }`}
-                        >
-                          {selectedExamObj.resultsPublished ? '✅ Published to Students' : '🔓 Publish to Students'}
-                        </button>
-                      )}
-                      <button onClick={handleBulkSubmit} disabled={loading} className="rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors shadow-md">
-                        {loading ? 'Saving...' : '💾 Save All Results'}
-                      </button>
-                    </div>
-                  </div>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-
-                {existingResults.length > 0 && (
-                  <div className="text-xs text-[var(--color-text-tertiary)] text-center">
-                    ℹ️ Existing results are pre-filled. Saving will update them.
-                  </div>
-                )}
-              </>
+                <div className="p-4 border-t border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] flex items-center justify-between">
+                  <p className="text-xs text-[var(--color-text-tertiary)]">{roster.students.length} students</p>
+                  <button onClick={handleBulkSubmit} disabled={saving} className="rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors shadow-md">
+                    {saving ? 'Saving...' : '💾 Save All Results'}
+                  </button>
+                </div>
+              </div>
             )}
 
-            {selectedExam && examStudents.length === 0 && !loading && (
+            {selectedCourseId && roster && roster.students.length === 0 && !loading && (
               <div className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg">No students enrolled in this course.</p></div>
             )}
 
-            {!selectedExam && (
-              <div className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg">👆 Select an exam above to enter results</p></div>
+            {!selectedCourseId && (
+              <div className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg">👆 Select a course above to enter results</p></div>
             )}
           </div>
         )}

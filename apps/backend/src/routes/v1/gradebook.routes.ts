@@ -24,6 +24,8 @@ router.put('/scheme', asyncHandler(gradebookController.saveScheme));
 router.get('/grades', asyncHandler(gradebookController.getClassGrades));
 router.get('/grades/:studentId', asyncHandler(gradebookController.getStudentGrade));
 router.put('/manual/:studentId', asyncHandler(gradebookController.setManualGrade));
+router.get('/manual-entry-roster', asyncHandler(gradebookController.getManualEntryRoster));
+router.post('/manual-entry-roster/bulk', asyncHandler(gradebookController.bulkSetManualGrades));
 router.get('/export', asyncHandler(gradebookController.exportClassGrades as any));
 
 export default router;

@@ -10,7 +10,7 @@ import Course from '../models/course.model';
 import Student from '../models/student.model';
 import School from '../models/school.model';
 import Exam from '../models/exam.model';
-import GradingScheme from '../models/grading-scheme.model';
+import GradingScheme, { IGradingCategory } from '../models/grading-scheme.model';
 import ManualGradeEntry from '../models/manual-grade-entry.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
@@ -189,6 +189,134 @@ export const setManualGrade = async (req: Request, res: Response): Promise<Respo
   );
 
   return ApiResponse.success(res, entry, 'Grade entry saved');
+};
+
+// ---------------------------------------------------------------------------
+// "Enter Results" bulk manual-entry sheet — fixed 4 UI columns (Mid Exam,
+// Mid Activity, Final, Final Activity) matched onto whichever categories a
+// course's own GradingScheme actually defines with those labels, same
+// matching heuristic the "View Results" table uses (sourceType 'exam' +
+// label keyword = the exam-graded column; any other sourceType + the same
+// keyword = the "activity" column). A slot with no matching category is
+// simply not returned/writable for that course — there's nothing to save it
+// against.
+// ---------------------------------------------------------------------------
+const MANUAL_ENTRY_SLOTS = ['midExam', 'midActivity', 'final', 'finalActivity'] as const;
+type ManualEntrySlot = (typeof MANUAL_ENTRY_SLOTS)[number];
+
+function matchCategoryForSlot(categories: IGradingCategory[], slot: ManualEntrySlot): IGradingCategory | undefined {
+  const hasKeyword = (label: string, keyword: string) => (label || '').toLowerCase().includes(keyword);
+  if (slot === 'midExam') return categories.find((c) => c.sourceType === 'exam' && hasKeyword(c.label, 'mid'));
+  if (slot === 'midActivity') return categories.find((c) => c.sourceType !== 'exam' && hasKeyword(c.label, 'mid'));
+  if (slot === 'final') return categories.find((c) => c.sourceType === 'exam' && hasKeyword(c.label, 'final'));
+  return categories.find((c) => c.sourceType !== 'exam' && hasKeyword(c.label, 'final')); // finalActivity
+}
+
+// ---------------------------------------------------------------------------
+// GET /gradebook/:courseId/manual-entry-roster
+// ---------------------------------------------------------------------------
+export const getManualEntryRoster = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId } = req.params;
+  await loadCourseAndAssertAccess(req, courseId);
+
+  const course = await Course.findById(courseId)
+    .select('title school class')
+    .populate('school', 'name attendanceType')
+    .populate({ path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } })
+    .lean();
+  if (!course) throw new NotFoundError('Course');
+
+  const scheme = await GradingScheme.findOne({ course: courseId }).lean();
+  const categories: IGradingCategory[] = scheme?.categories || [];
+
+  const slotCategory: Record<ManualEntrySlot, { key: string; label: string } | null> = {
+    midExam: null, midActivity: null, final: null, finalActivity: null,
+  };
+  for (const slot of MANUAL_ENTRY_SLOTS) {
+    const match = matchCategoryForSlot(categories, slot);
+    if (match) slotCategory[slot] = { key: match.key, label: match.label };
+  }
+
+  const isClassBased = (course as any).school?.attendanceType === 'class_based' && !!(course as any).class;
+  const students = await Student.find(isClassBased ? { class: (course as any).class._id } : { enrolledCourses: courseId })
+    .populate('profile', 'firstName lastName')
+    .select('profile studentId department')
+    .lean();
+
+  const activeKeys = MANUAL_ENTRY_SLOTS.map((s) => slotCategory[s]?.key).filter(Boolean) as string[];
+  const entries = activeKeys.length
+    ? await ManualGradeEntry.find({ course: courseId, categoryKey: { $in: activeKeys } }).select('student categoryKey score').lean()
+    : [];
+  const entryMap = new Map(entries.map((e: any) => [`${e.student.toString()}_${e.categoryKey}`, e.score]));
+
+  const orgLabel = (course as any).school?.name || '';
+  const deptLabel = (course as any).class?.department?.name || '';
+  const courseClassLabel = (course as any).class
+    ? `${(course as any).title?.en || ''} · ${(course as any).class.title} (${(course as any).class.section})`
+    : (course as any).title?.en || '';
+
+  const roster = (students as any[]).map((s) => {
+    const scores: Record<ManualEntrySlot, number | null> = { midExam: null, midActivity: null, final: null, finalActivity: null };
+    for (const slot of MANUAL_ENTRY_SLOTS) {
+      const cat = slotCategory[slot];
+      if (!cat) continue;
+      const v = entryMap.get(`${s._id.toString()}_${cat.key}`);
+      scores[slot] = v !== undefined ? v : null;
+    }
+    return {
+      studentId: s._id,
+      studentCode: s.studentId,
+      studentName: `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim(),
+      department: deptLabel || s.department || '',
+      scores,
+    };
+  });
+
+  return ApiResponse.success(res, {
+    slots: slotCategory,
+    organization: orgLabel,
+    courseClass: courseClassLabel,
+    passingScore: scheme?.passingScore ?? 60,
+    students: roster,
+  });
+};
+
+// ---------------------------------------------------------------------------
+// POST /gradebook/:courseId/manual-entry-roster/bulk
+// body: { entries: [{ studentId, slot: 'midExam'|'midActivity'|'final'|'finalActivity', score: number }] }
+// ---------------------------------------------------------------------------
+export const bulkSetManualGrades = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId } = req.params;
+  await loadCourseAndAssertAccess(req, courseId);
+
+  const { entries } = req.body as { entries?: { studentId: string; slot: ManualEntrySlot; score: number }[] };
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new BadRequestError('At least one entry is required.');
+  }
+
+  const scheme = await GradingScheme.findOne({ course: courseId }).lean();
+  const categories: IGradingCategory[] = scheme?.categories || [];
+  const slotKey: Partial<Record<ManualEntrySlot, string>> = {};
+  for (const slot of MANUAL_ENTRY_SLOTS) {
+    const match = matchCategoryForSlot(categories, slot);
+    if (match) slotKey[slot] = match.key;
+  }
+
+  let saved = 0;
+  for (const entry of entries) {
+    const categoryKey = slotKey[entry.slot];
+    if (!categoryKey) continue; // course has no category configured for this slot
+    if (typeof entry.score !== 'number' || entry.score < 0 || entry.score > 100) continue;
+
+    await ManualGradeEntry.findOneAndUpdate(
+      { course: courseId, student: entry.studentId, categoryKey },
+      { score: entry.score, enteredBy: req.user!.userId },
+      { upsert: true, runValidators: true }
+    );
+    saved++;
+  }
+
+  return ApiResponse.success(res, { saved }, 'Results saved');
 };
 
 // ---------------------------------------------------------------------------

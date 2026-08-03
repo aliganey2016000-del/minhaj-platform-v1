@@ -101,6 +101,13 @@ async function computeManualPercent(courseId: string, studentId: string, categor
   return { percent: (entry as any).score, detail: 'Manually entered' };
 }
 
+/** Same lookup as computeManualPercent, but returns null (instead of a 0% placeholder) when no override exists, so callers can fall back to the category's own automatic source. */
+async function computeManualOverride(courseId: string, studentId: string, categoryKey: string): Promise<{ percent: number; detail: string } | null> {
+  const entry = await ManualGradeEntry.findOne({ course: courseId, student: studentId, categoryKey }).select('score').lean();
+  if (!entry) return null;
+  return { percent: (entry as any).score, detail: 'Manually entered (override)' };
+}
+
 export async function computeCourseGrade(courseId: string, studentId: string): Promise<CourseGradeResult> {
   const scheme = await GradingScheme.findOne({ course: courseId }).lean();
   const categories: IGradingCategory[] = scheme?.categories || [];
@@ -112,7 +119,17 @@ export async function computeCourseGrade(courseId: string, studentId: string): P
   for (const cat of categories) {
     let percent = 0;
     let detail = '';
-    if (cat.sourceType === 'attendance') {
+    // A manual entry always wins over the category's configured automatic
+    // source, regardless of sourceType — this is what lets an admin/teacher
+    // directly key in a score (e.g. from the "Enter Results" bulk sheet) for
+    // ANY category, including 'exam'-sourced ones, without needing a real
+    // Exam+Result document behind it. 'manual' sourceType categories already
+    // worked this way (computeManualPercent did this same lookup); this just
+    // generalizes it to every sourceType.
+    const override = cat.sourceType === 'manual' ? null : await computeManualOverride(courseId, studentId, cat.key);
+    if (override) {
+      ({ percent, detail } = override);
+    } else if (cat.sourceType === 'attendance') {
       ({ percent, detail } = await computeAttendancePercent(courseId, studentId));
     } else if (cat.sourceType === 'assignments') {
       ({ percent, detail } = await computeAssignmentsPercent(courseId, studentId, latePenaltyPercent));
