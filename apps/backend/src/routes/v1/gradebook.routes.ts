@@ -4,10 +4,13 @@
  */
 
 import { Router } from 'express';
+import multer from 'multer';
 import * as gradebookController from '../../controllers/gradebook.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = Router({ mergeParams: true });
 
@@ -26,6 +29,8 @@ router.get('/grades/:studentId', asyncHandler(gradebookController.getStudentGrad
 router.put('/manual/:studentId', asyncHandler(gradebookController.setManualGrade));
 router.get('/manual-entry-roster', asyncHandler(gradebookController.getManualEntryRoster));
 router.post('/manual-entry-roster/bulk', asyncHandler(gradebookController.bulkSetManualGrades));
+router.get('/manual-entry-roster/template', asyncHandler(gradebookController.exportManualEntryTemplate as any));
+router.post('/manual-entry-roster/import', upload.single('file'), asyncHandler(gradebookController.importManualEntryRoster));
 router.get('/export', asyncHandler(gradebookController.exportClassGrades as any));
 
 export default router;

@@ -19,6 +19,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/', adminOrTeacher, asyncHandler(gradebookController.listCourseGradingStatus));
+router.get('/entry-summary', adminOrTeacher, asyncHandler(gradebookController.getEntrySummary));
 
 router.use(adminOnly);
 router.get('/overview', asyncHandler(gradebookController.getOrgGradebookOverview));

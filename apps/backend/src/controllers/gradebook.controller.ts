@@ -254,13 +254,27 @@ async function ensureManualEntryCategories(courseId: string, scheme: any): Promi
   ).lean();
 }
 
-// ---------------------------------------------------------------------------
-// GET /gradebook/:courseId/manual-entry-roster
-// ---------------------------------------------------------------------------
-export const getManualEntryRoster = async (req: Request, res: Response): Promise<Response> => {
-  const { courseId } = req.params;
-  await loadCourseAndAssertAccess(req, courseId);
+/** A slot's point cap for entry purposes — its category's weight, or 100 when the weight is 0. Mirrors the frontend's own entryMax (results-entry.tsx). */
+function entryMaxForWeight(weight: number | undefined): number {
+  return weight && weight > 0 ? weight : 100;
+}
+/** Stored value (0-100 percent-of-category) -> raw points out of the category's weight, for the downloadable template. */
+function percentToPointsServer(percent: number, weight: number | undefined): number {
+  if (!weight || weight <= 0) return percent;
+  return Math.round((percent / 100) * weight);
+}
+/** Raw points typed/imported -> stored value (0-100 percent-of-category). */
+function pointsToPercentServer(points: number, weight: number | undefined): number {
+  if (!weight || weight <= 0) return Math.min(100, points);
+  return Math.min(100, Math.round((points / weight) * 100 * 100) / 100);
+}
 
+// ---------------------------------------------------------------------------
+// Shared roster builder — used by the JSON roster endpoint, the downloadable
+// bulk-import template, and (implicitly, by re-deriving slot categories) the
+// file import handler below.
+// ---------------------------------------------------------------------------
+async function buildManualEntryRoster(req: Request, courseId: string) {
   const course = await Course.findById(courseId)
     .select('title school class')
     .populate('school', 'name attendanceType')
@@ -321,13 +335,24 @@ export const getManualEntryRoster = async (req: Request, res: Response): Promise
     };
   });
 
-  return ApiResponse.success(res, {
+  return {
     slots: slotCategory,
     organization: orgLabel,
     courseClass: courseClassLabel,
+    courseTitle: (course as any).title?.en || '',
     passingScore: scheme?.passingScore ?? 60,
     students: roster,
-  });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GET /gradebook/:courseId/manual-entry-roster
+// ---------------------------------------------------------------------------
+export const getManualEntryRoster = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId } = req.params;
+  await loadCourseAndAssertAccess(req, courseId);
+  const roster = await buildManualEntryRoster(req, courseId);
+  return ApiResponse.success(res, roster);
 };
 
 // ---------------------------------------------------------------------------
@@ -544,7 +569,8 @@ export const listCourseGradingStatus = async (req: Request, res: Response): Prom
       select: 'profile',
       populate: { path: 'profile', select: 'firstName lastName' },
     })
-    .populate('class', 'title section')
+    .populate('school', 'name')
+    .populate({ path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } })
     .sort({ 'title.en': 1 })
     .lean();
 
@@ -563,7 +589,9 @@ export const listCourseGradingStatus = async (req: Request, res: Response): Prom
       category: c.category,
       status: c.status,
       teacher: c.teacher ? { name: `${c.teacher.profile?.firstName || ''} ${c.teacher.profile?.lastName || ''}`.trim() } : null,
-      class: c.class ? { title: c.class.title, section: c.class.section } : null,
+      class: c.class ? { _id: c.class._id, title: c.class.title, section: c.class.section } : null,
+      organization: c.school ? { _id: c.school._id, name: c.school.name } : null,
+      department: c.class?.department ? { _id: c.class.department._id, name: c.class.department.name } : null,
       configured: !!scheme,
       categoriesCount: scheme?.categories?.length || 0,
       passingScore: scheme?.passingScore ?? null,
@@ -649,4 +677,235 @@ export const getOrgGradebookOverview = async (req: Request, res: Response): Prom
   );
 
   return ApiResponse.success(res, rowsByCourse.flat());
+};
+
+// ---------------------------------------------------------------------------
+// GET /gradebook/:courseId/manual-entry-roster/template — download an XLSX
+// pre-filled with this course's roster and any scores already entered (as
+// raw points, same convention as the Enter Results sheet itself), so a
+// teacher who prepared scores offline can fill in the blanks and re-upload
+// via /manual-entry-roster/import instead of typing each student one at a
+// time in the browser.
+// ---------------------------------------------------------------------------
+export const exportManualEntryTemplate = async (req: Request, res: Response): Promise<void> => {
+  const { courseId } = req.params;
+  const course = await loadCourseAndAssertAccess(req, courseId);
+  const roster = await buildManualEntryRoster(req, courseId);
+
+  const headers = [
+    'Student Code',
+    'Student Name',
+    ...MANUAL_ENTRY_SLOTS.map((slot) => {
+      const cat = roster.slots[slot];
+      const label = MANUAL_ENTRY_SLOT_LABELS[slot];
+      return cat ? `${label} (out of ${entryMaxForWeight(cat.weight)})` : `${label} (not set up)`;
+    }),
+  ];
+
+  const rows = roster.students.map((s: any) => [
+    s.studentCode,
+    s.studentName,
+    ...MANUAL_ENTRY_SLOTS.map((slot) => {
+      const cat = roster.slots[slot];
+      const percent = s.scores[slot];
+      if (!cat || percent === null) return '';
+      return percentToPointsServer(percent, cat.weight);
+    }),
+  ]);
+
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  sheet['!cols'] = [{ wch: 16 }, { wch: 26 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Enter Results');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+  const filename = `enter-results-${(roster.courseTitle || (course as any).title?.en || courseId).replace(/\s+/g, '-')}`;
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=${filename}.xlsx`);
+  res.end(buffer);
+};
+
+// ---------------------------------------------------------------------------
+// POST /gradebook/:courseId/manual-entry-roster/import — bulk-upload scores
+// from an Excel/CSV file matching the /template download's columns (Student
+// Code, Student Name, then the 4 slot columns in a fixed order). Rows are
+// matched to students by Student Code (case-insensitive, trimmed); a code
+// that doesn't match this course's roster is skipped and reported back
+// rather than failing the whole import, same tolerant behavior as the
+// Content Blocks import.
+// ---------------------------------------------------------------------------
+export const importManualEntryRoster = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId } = req.params;
+  await loadCourseAndAssertAccess(req, courseId);
+  if (!req.file) throw new BadRequestError('An Excel or CSV file is required (field name "file").');
+
+  const roster = await buildManualEntryRoster(req, courseId);
+  const studentByCode = new Map(roster.students.map((s: any) => [String(s.studentCode).trim().toLowerCase(), s]));
+
+  const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new BadRequestError('The uploaded file has no sheets.');
+  const rows: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
+  const dataRows = rows.slice(1); // first row is the header
+  if (dataRows.length === 0) throw new BadRequestError('The file has no data rows.');
+
+  const entries: { studentId: string; slot: ManualEntrySlot; score: number }[] = [];
+  const notFound: string[] = [];
+
+  for (const row of dataRows) {
+    const code = String(row[0] ?? '').trim();
+    if (!code) continue;
+    const student = studentByCode.get(code.toLowerCase()) as any;
+    if (!student) { notFound.push(code); continue; }
+
+    MANUAL_ENTRY_SLOTS.forEach((slot, i) => {
+      const cat = roster.slots[slot];
+      if (!cat) return;
+      const raw = row[2 + i];
+      if (raw === '' || raw === undefined || raw === null) return;
+      const points = Number(raw);
+      if (Number.isNaN(points) || points < 0) return;
+      const max = entryMaxForWeight(cat.weight);
+      entries.push({ studentId: student.studentId, slot, score: pointsToPercentServer(Math.min(points, max), cat.weight) });
+    });
+  }
+
+  if (entries.length === 0) {
+    throw new BadRequestError(
+      notFound.length > 0
+        ? `No matching students found — check that the Student Code column matches this course's roster (${notFound.length} unmatched code${notFound.length === 1 ? '' : 's'}).`
+        : 'No scores found in the file to import.'
+    );
+  }
+
+  let scheme = await GradingScheme.findOne({ course: courseId }).lean();
+  scheme = await ensureManualEntryCategories(courseId, scheme);
+  const categories: IGradingCategory[] = scheme?.categories || [];
+  const isTeacher = req.user?.role === 'teacher';
+  const slotKey: Partial<Record<ManualEntrySlot, string>> = {};
+  for (const slot of MANUAL_ENTRY_SLOTS) {
+    const match = matchCategoryForSlot(categories, slot);
+    if (match && !(isTeacher && match.teacherVisible === false)) slotKey[slot] = match.key;
+  }
+
+  let saved = 0;
+  for (const entry of entries) {
+    const categoryKey = slotKey[entry.slot];
+    if (!categoryKey) continue;
+    await ManualGradeEntry.findOneAndUpdate(
+      { course: courseId, student: entry.studentId, categoryKey },
+      { score: entry.score, enteredBy: req.user!.userId },
+      { upsert: true, runValidators: true }
+    );
+    saved++;
+  }
+
+  return ApiResponse.success(
+    res,
+    { saved, notFound },
+    `Imported ${saved} score${saved === 1 ? '' : 's'}.${notFound.length > 0 ? ` ${notFound.length} student code${notFound.length === 1 ? '' : 's'} didn't match this course's roster.` : ''}`
+  );
+};
+
+// ---------------------------------------------------------------------------
+// GET /gradebook-courses/entry-summary — quick-glance progress metrics for
+// the Enter Results landing screen (before an admin/teacher has picked a
+// course): how many courses have every enrolled student fully scored across
+// all 4 manual-entry slots vs still pending, and the students-graded count
+// underneath. Fixed query count regardless of how many courses/students are
+// in scope — same batching approach as computeCourseGradesBulk, since this
+// runs on every page load rather than on demand.
+// ---------------------------------------------------------------------------
+export const getEntrySummary = async (req: Request, res: Response): Promise<Response> => {
+  const filter: Record<string, unknown> = {};
+  let scopedFilter = applyOrgFilter(req, filter, 'school');
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    scopedFilter = { ...scopedFilter, teacher: teacher?._id ?? null };
+  }
+
+  const courses = await Course.find(scopedFilter)
+    .select('school class')
+    .populate('school', 'attendanceType')
+    .populate('class', 'department')
+    .lean();
+
+  if (courses.length === 0) {
+    return ApiResponse.success(res, { coursesTotal: 0, coursesCompleted: 0, coursesPending: 0, studentsGraded: 0, studentsTotal: 0 });
+  }
+
+  const courseIds = courses.map((c: any) => c._id);
+  const schemes = await GradingScheme.find({ course: { $in: courseIds } }).select('course categories').lean();
+  const schemeByCourse = new Map(schemes.map((s: any) => [s.course.toString(), s]));
+  const isTeacher = req.user?.role === 'teacher';
+
+  const classBasedCourses = (courses as any[]).filter((c) => c.school?.attendanceType === 'class_based' && c.class);
+  const enrollBasedCourses = (courses as any[]).filter((c) => !(c.school?.attendanceType === 'class_based' && c.class));
+  const classIds = classBasedCourses.map((c) => c.class._id);
+  const enrollCourseIds = enrollBasedCourses.map((c) => c._id);
+
+  const [classStudents, enrollStudents] = await Promise.all([
+    classIds.length ? Student.find({ class: { $in: classIds } }).select('class').lean() : Promise.resolve([]),
+    enrollCourseIds.length ? Student.find({ enrolledCourses: { $in: enrollCourseIds } }).select('enrolledCourses').lean() : Promise.resolve([]),
+  ]);
+
+  const studentsByClass = new Map<string, string[]>();
+  for (const s of classStudents as any[]) {
+    const cid = s.class?.toString();
+    if (!cid) continue;
+    if (!studentsByClass.has(cid)) studentsByClass.set(cid, []);
+    studentsByClass.get(cid)!.push(s._id.toString());
+  }
+
+  const rosterByCourse = new Map<string, string[]>();
+  for (const c of classBasedCourses) rosterByCourse.set(c._id.toString(), studentsByClass.get(c.class._id.toString()) || []);
+  for (const c of enrollBasedCourses) {
+    const cid = c._id.toString();
+    const roster = (enrollStudents as any[])
+      .filter((s) => s.enrolledCourses?.some((id: any) => id.toString() === cid))
+      .map((s) => s._id.toString());
+    rosterByCourse.set(cid, roster);
+  }
+
+  const entries = await ManualGradeEntry.find({ course: { $in: courseIds } }).select('course student categoryKey').lean();
+  const filledByCourseStudent = new Map<string, Set<string>>();
+  for (const e of entries as any[]) {
+    const k = `${e.course.toString()}_${e.student.toString()}`;
+    if (!filledByCourseStudent.has(k)) filledByCourseStudent.set(k, new Set());
+    filledByCourseStudent.get(k)!.add(e.categoryKey);
+  }
+
+  let coursesCompleted = 0;
+  let studentsGraded = 0;
+  let studentsTotal = 0;
+
+  for (const c of courses as any[]) {
+    const cid = c._id.toString();
+    const roster = rosterByCourse.get(cid) || [];
+    studentsTotal += roster.length;
+    if (roster.length === 0) continue;
+
+    const categories: IGradingCategory[] = schemeByCourse.get(cid)?.categories || [];
+    const activeSlotKeys = MANUAL_ENTRY_SLOTS.map((slot) => matchCategoryForSlot(categories, slot))
+      .filter((cat) => cat && !(isTeacher && cat.teacherVisible === false))
+      .map((cat) => cat!.key);
+    if (activeSlotKeys.length === 0) continue; // never opened yet — nothing entered, correctly pending
+
+    let studentsGradedInCourse = 0;
+    for (const sid of roster) {
+      const filled = filledByCourseStudent.get(`${cid}_${sid}`);
+      const filledCount = filled ? activeSlotKeys.filter((k) => filled.has(k)).length : 0;
+      if (filledCount === activeSlotKeys.length) studentsGradedInCourse++;
+    }
+    studentsGraded += studentsGradedInCourse;
+    if (studentsGradedInCourse === roster.length) coursesCompleted++;
+  }
+
+  return ApiResponse.success(res, {
+    coursesTotal: courses.length,
+    coursesCompleted,
+    coursesPending: courses.length - coursesCompleted,
+    studentsGraded,
+    studentsTotal,
+  });
 };
