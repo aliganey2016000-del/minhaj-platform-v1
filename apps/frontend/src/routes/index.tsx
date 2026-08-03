@@ -427,6 +427,7 @@ export const router = createBrowserRouter([
       { path: 'lessons', element: L(<TeacherLessons />) },
       { path: 'gradebook', element: L(<TeacherGradebook />) },
       { path: 'gradebook/review', element: L(<TeacherGradebook />) },
+      { path: 'results/enter', element: L(<ResultsEntry backFallback="/teacher" />) },
       { path: 'students', element: L(<TeacherStudents />) },
       { path: 'activity', element: L(<TeacherActivity basePath="/teacher" />) },
       { path: 'gamification', element: L(<TeacherStudents />) },

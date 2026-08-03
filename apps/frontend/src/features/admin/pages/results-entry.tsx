@@ -3,12 +3,15 @@
  *
  * Course-centric bulk score entry: pick a course, then key in every
  * enrolled student's Mid Exam / Mid Activity / Final / Final Activity score
- * in one sheet. Each column is matched onto whichever category a course's
- * own Grading Rules define with that label (same heuristic "View Results"
- * uses) and disabled when the course has no matching category — there's
- * nothing configured to save it against. Multi-tenant: every endpoint here
- * is scoped server-side to the caller's organization and, for teachers, to
- * their own courses.
+ * in one sheet. Every course is selectable — if a course has no Grading
+ * Rules category matching one of the 4 columns yet, the backend
+ * auto-provisions it the moment this page loads that course (see
+ * ensureManualEntryCategories in gradebook.controller.ts), so all 4 columns
+ * are always fillable. A column an admin marked hidden from teachers
+ * (teacherVisible: false on that category) shows as "not set up" for a
+ * teacher, same as a genuinely missing category. Multi-tenant: every
+ * endpoint here is scoped server-side to the caller's organization and, for
+ * teachers, to only the courses they teach.
  *
  * Rebuilt from scratch as its own page (previously a tab inside a combined
  * "Manage Results" page), so entering scores never shares loading/error
@@ -34,7 +37,6 @@ interface CourseBrief {
   _id: string;
   title: { en: string };
   class?: { title: string; section: string } | null;
-  configured: boolean;
 }
 
 type ManualEntrySlot = 'midExam' | 'midActivity' | 'final' | 'finalActivity';
@@ -61,7 +63,12 @@ interface ManualEntryRoster {
   students: ManualEntryRosterStudent[];
 }
 
-export function ResultsEntry() {
+interface ResultsEntryProps {
+  /** BackButton's fallback route — defaults to the admin exams hub; the teacher portal passes '/teacher'. */
+  backFallback?: string;
+}
+
+export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProps) {
   const [courses, setCourses] = useState<CourseBrief[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [roster, setRoster] = useState<ManualEntryRoster | null>(null);
@@ -75,7 +82,7 @@ export function ResultsEntry() {
     (async () => {
       try {
         const { data } = await api.get('/gradebook-courses');
-        setCourses((data.data || []).filter((c: CourseBrief) => c.configured));
+        setCourses(data.data || []);
       } catch { /* course list stays empty; the empty-state below handles it */ }
     })();
   }, []);
@@ -147,7 +154,7 @@ export function ResultsEntry() {
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-none space-y-6">
         <div>
-          <BackButton fallback="/admin/exams" />
+          <BackButton fallback={backFallback} />
           <div className="mt-1 flex items-center gap-3">
             <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
               <ClipboardEdit className="h-5 w-5" strokeWidth={2} />
@@ -179,7 +186,7 @@ export function ResultsEntry() {
             </p>
           )}
           {courses.length === 0 && (
-            <p className="mt-2.5 text-xs text-[var(--color-text-tertiary)]">No courses have Grading Rules configured yet — set one up first under Grading Rules.</p>
+            <p className="mt-2.5 text-xs text-[var(--color-text-tertiary)]">No courses found.</p>
           )}
         </div>
 

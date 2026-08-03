@@ -49,6 +49,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
         children: [
           { path: '/teacher/gradebook',           label: 'Submissions',         icon: '📬' },
           { path: '/teacher/gradebook/review',    label: 'Review Queue',        icon: '🔍' },
+          { path: '/teacher/results/enter',       label: 'Enter Results',       icon: '📝' },
         ],
       },
     ],

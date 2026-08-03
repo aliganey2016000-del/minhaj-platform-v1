@@ -212,6 +212,48 @@ function matchCategoryForSlot(categories: IGradingCategory[], slot: ManualEntryS
   return categories.find((c) => c.sourceType !== 'exam' && hasKeyword(c.label, 'final')); // finalActivity
 }
 
+const MANUAL_ENTRY_SLOT_LABELS: Record<ManualEntrySlot, string> = {
+  midExam: 'Mid Exam',
+  midActivity: 'Mid Activity',
+  final: 'Final',
+  finalActivity: 'Final Activity',
+};
+
+/**
+ * Guarantees a course's GradingScheme has all 4 standard categories (Mid
+ * Exam, Mid Activity, Final, Final Activity), so the "Enter Results" sheet's
+ * 4 columns are always fillable for ANY course — not just ones an admin
+ * already hand-configured in Grading Rules. Missing categories are added as
+ * sourceType 'manual': if the scheme didn't exist at all, at 25% each (sums
+ * to exactly 100); if some categories already exist, any missing ones are
+ * added at 0% weight so existing weights are never silently redistributed —
+ * the admin can raise a new category's weight later from Grading Rules if
+ * they want it to actually count toward the student's total.
+ */
+async function ensureManualEntryCategories(courseId: string, scheme: any): Promise<any> {
+  const categories: IGradingCategory[] = scheme?.categories ? [...scheme.categories] : [];
+  const missingSlots = MANUAL_ENTRY_SLOTS.filter((slot) => !matchCategoryForSlot(categories, slot));
+  if (missingSlots.length === 0) return scheme;
+
+  const isBrandNew = categories.length === 0;
+  const newCategories: IGradingCategory[] = missingSlots.map((slot) => ({
+    key: `${slot}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    label: MANUAL_ENTRY_SLOT_LABELS[slot],
+    weight: isBrandNew ? Math.round(100 / MANUAL_ENTRY_SLOTS.length) : 0,
+    sourceType: 'manual',
+  }));
+
+  return GradingScheme.findOneAndUpdate(
+    { course: courseId },
+    {
+      course: courseId,
+      categories: [...categories, ...newCategories],
+      $setOnInsert: { passingScore: 60, latePenaltyPercent: 0, bonusCapPercent: 0, dropLowestQuiz: false },
+    },
+    { new: true, upsert: true }
+  ).lean();
+}
+
 // ---------------------------------------------------------------------------
 // GET /gradebook/:courseId/manual-entry-roster
 // ---------------------------------------------------------------------------
@@ -226,15 +268,22 @@ export const getManualEntryRoster = async (req: Request, res: Response): Promise
     .lean();
   if (!course) throw new NotFoundError('Course');
 
-  const scheme = await GradingScheme.findOne({ course: courseId }).lean();
+  let scheme = await GradingScheme.findOne({ course: courseId }).lean();
+  scheme = await ensureManualEntryCategories(courseId, scheme);
   const categories: IGradingCategory[] = scheme?.categories || [];
 
+  // A teacher never sees/edits a category the admin marked teacherVisible:
+  // false (e.g. an official invigilated exam score they shouldn't be able to
+  // touch) — org_admin/admin always see every slot.
+  const isTeacher = req.user?.role === 'teacher';
   const slotCategory: Record<ManualEntrySlot, { key: string; label: string } | null> = {
     midExam: null, midActivity: null, final: null, finalActivity: null,
   };
   for (const slot of MANUAL_ENTRY_SLOTS) {
     const match = matchCategoryForSlot(categories, slot);
-    if (match) slotCategory[slot] = { key: match.key, label: match.label };
+    if (match && !(isTeacher && match.teacherVisible === false)) {
+      slotCategory[slot] = { key: match.key, label: match.label };
+    }
   }
 
   const isClassBased = (course as any).school?.attendanceType === 'class_based' && !!(course as any).class;
@@ -294,12 +343,14 @@ export const bulkSetManualGrades = async (req: Request, res: Response): Promise<
     throw new BadRequestError('At least one entry is required.');
   }
 
-  const scheme = await GradingScheme.findOne({ course: courseId }).lean();
+  let scheme = await GradingScheme.findOne({ course: courseId }).lean();
+  scheme = await ensureManualEntryCategories(courseId, scheme);
   const categories: IGradingCategory[] = scheme?.categories || [];
+  const isTeacher = req.user?.role === 'teacher';
   const slotKey: Partial<Record<ManualEntrySlot, string>> = {};
   for (const slot of MANUAL_ENTRY_SLOTS) {
     const match = matchCategoryForSlot(categories, slot);
-    if (match) slotKey[slot] = match.key;
+    if (match && !(isTeacher && match.teacherVisible === false)) slotKey[slot] = match.key;
   }
 
   let saved = 0;
@@ -468,8 +519,10 @@ export const bulkApplyScheme = async (req: Request, res: Response): Promise<Resp
 // GET /gradebook-courses — every course in the caller's organization, with
 // its grading-scheme status, so an org_admin can jump straight into any
 // course's Grading Rules editor without hunting through Course Builder one
-// course at a time. Admin/org_admin only (teachers keep using the existing
-// per-course Gradebook link inside their own Course Builder).
+// course at a time. Admin/org_admin see every course in scope; a teacher
+// calling this (e.g. from Enter Results) only ever gets courses THEY teach —
+// applyOrgFilter doesn't scope the 'teacher' role at all, so that has to be
+// applied here explicitly.
 // ---------------------------------------------------------------------------
 export const listCourseGradingStatus = async (req: Request, res: Response): Promise<Response> => {
   const { search, status } = req.query;
@@ -478,7 +531,11 @@ export const listCourseGradingStatus = async (req: Request, res: Response): Prom
   if (status && ['draft', 'published', 'archived'].includes(status as string)) filter.status = status;
   if (search) filter['title.en'] = { $regex: search as string, $options: 'i' };
 
-  const scopedFilter = applyOrgFilter(req, filter, 'school');
+  let scopedFilter = applyOrgFilter(req, filter, 'school');
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    scopedFilter = { ...scopedFilter, teacher: teacher?._id ?? null };
+  }
 
   const courses = await Course.find(scopedFilter)
     .select('title slug category status teacher class school')

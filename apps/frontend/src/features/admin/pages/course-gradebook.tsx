@@ -16,6 +16,8 @@ interface Category {
   weight: number;
   sourceType: SourceType;
   examId?: string;
+  /** Admin-controlled: when false, a teacher entering results for this course can't see or fill in this category. Undefined counts as visible (server default). */
+  teacherVisible?: boolean;
 }
 
 interface Scheme {
@@ -196,12 +198,15 @@ export function CourseGradebook({ basePath = '/admin' }: CourseGradebookProps) {
                   <h3 className="text-sm font-bold text-[var(--color-text-primary)]">Grading Categories</h3>
                   <span className={`text-xs font-semibold ${Math.abs(totalWeight - 100) < 0.01 ? 'text-green-600' : 'text-red-500'}`}>Total: {totalWeight}% {Math.abs(totalWeight - 100) < 0.01 ? '✓' : '(must equal 100%)'}</span>
                 </div>
+                {basePath !== '/teacher' && (
+                  <p className="text-[11px] text-[var(--color-text-tertiary)] mb-2">The 👁 checkbox controls whether a teacher can see/fill in that category when entering results themselves.</p>
+                )}
                 <div className="space-y-2">
                   {scheme.categories.map((cat, idx) => (
                     <div key={cat.key} className="grid grid-cols-12 gap-2 items-center rounded-xl border border-[var(--color-border-default)] p-2.5">
                       <input className={`${ic} col-span-3`} placeholder="Category name" value={cat.label} onChange={(e) => updateCategory(idx, { label: e.target.value })} />
                       <input type="number" className={`${ic} col-span-2`} placeholder="Weight %" value={cat.weight} onChange={(e) => updateCategory(idx, { weight: Number(e.target.value) })} />
-                      <select className={`${ic} col-span-4`} value={cat.sourceType} onChange={(e) => updateCategory(idx, { sourceType: e.target.value as SourceType, examId: undefined })}>
+                      <select className={`${ic} col-span-3`} value={cat.sourceType} onChange={(e) => updateCategory(idx, { sourceType: e.target.value as SourceType, examId: undefined })}>
                         {SOURCE_TYPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                       </select>
                       {cat.sourceType === 'exam' ? (
@@ -210,6 +215,11 @@ export function CourseGradebook({ basePath = '/admin' }: CourseGradebookProps) {
                           {exams.map((ex) => <option key={ex._id} value={ex._id}>{ex.title}</option>)}
                         </select>
                       ) : <div className="col-span-2" />}
+                      {basePath !== '/teacher' ? (
+                        <label title="Visible to teacher when entering results" className="col-span-1 flex items-center justify-center cursor-pointer">
+                          <input type="checkbox" checked={cat.teacherVisible !== false} onChange={(e) => updateCategory(idx, { teacherVisible: e.target.checked })} />
+                        </label>
+                      ) : <div className="col-span-1" />}
                       <button onClick={() => removeCategory(idx)} className="col-span-1 text-red-500 hover:text-red-700 text-xs font-semibold">✕</button>
                     </div>
                   ))}

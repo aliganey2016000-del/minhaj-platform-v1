@@ -30,6 +30,10 @@ export interface IGradingCategory {
   weight: number;        // 0-100, all categories on a scheme must sum to 100
   sourceType: GradeCategorySourceType;
   examId?: mongoose.Types.ObjectId; // required when sourceType === 'exam'
+  /** Admin-controlled: when false, a teacher entering results for this course
+   *  cannot see or submit a score for this category (org_admin/admin still can).
+   *  Defaults to true — most categories are fine for a teacher to fill in. */
+  teacherVisible?: boolean;
 }
 
 export interface IGradingScheme extends Document {
@@ -51,6 +55,7 @@ const gradingCategorySchema = new Schema<IGradingCategory>(
     weight: { type: Number, required: true, min: 0, max: 100 },
     sourceType: { type: String, required: true, enum: ['attendance', 'assignments', 'quizzes', 'exam', 'manual'] },
     examId: { type: Schema.Types.ObjectId, ref: 'Exam' },
+    teacherVisible: { type: Boolean, default: true },
   },
   { _id: false }
 );
