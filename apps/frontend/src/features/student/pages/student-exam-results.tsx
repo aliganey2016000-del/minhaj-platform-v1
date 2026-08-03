@@ -130,8 +130,7 @@ function FinalGradeCard({ grade }: { grade: CourseGrade }) {
           <thead>
             <tr className="text-[10px] uppercase tracking-wide text-[var(--color-text-tertiary)] border-b border-[var(--color-border-default)]">
               <th className="text-left px-4 py-2 font-semibold">Category</th>
-              <th className="text-center px-4 py-2 font-semibold">Weight</th>
-              <th className="text-center px-4 py-2 font-semibold">Score</th>
+              <th className="text-center px-4 py-2 font-semibold">Score / Weight</th>
             </tr>
           </thead>
           <tbody>
@@ -145,8 +144,10 @@ function FinalGradeCard({ grade }: { grade: CourseGrade }) {
                       {cat.label}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-center text-xs text-[var(--color-text-tertiary)]">{cat.weight}%</td>
-                  <td className="px-4 py-2 text-center font-semibold text-[var(--color-text-primary)]">{cat.earnedPercent}%</td>
+                  <td className="px-4 py-2 text-center">
+                    <span className="font-semibold text-[var(--color-text-primary)]">{cat.earnedPercent}</span>
+                    <span className="text-xs text-[var(--color-text-tertiary)]">/{cat.weight}%</span>
+                  </td>
                 </tr>
               );
             })}
@@ -157,7 +158,6 @@ function FinalGradeCard({ grade }: { grade: CourseGrade }) {
                     <Star className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} /> Bonus
                   </span>
                 </td>
-                <td className="px-4 py-2 text-center text-xs text-[var(--color-text-tertiary)]">—</td>
                 <td className="px-4 py-2 text-center font-semibold text-amber-600 dark:text-amber-400">+{grade.bonusApplied}%</td>
               </tr>
             )}
@@ -165,7 +165,6 @@ function FinalGradeCard({ grade }: { grade: CourseGrade }) {
           <tfoot>
             <tr className="border-t-2 border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]">
               <td className="px-4 py-2.5 font-bold text-[var(--color-text-primary)]">Final Grade</td>
-              <td className="px-4 py-2.5 text-center text-xs text-[var(--color-text-tertiary)]">100%</td>
               <td className={`px-4 py-2.5 text-center font-bold ${passed ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{finalGrade}%</td>
             </tr>
           </tfoot>
