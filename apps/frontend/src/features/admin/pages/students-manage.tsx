@@ -8,7 +8,7 @@
 import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { GraduationCap, Users, Building2, BookOpen, School, Pencil, Trash2, Layers, CheckCircle2, Clock, XCircle, MoreVertical, type LucideIcon } from 'lucide-react';
+import { GraduationCap, Users, Building2, BookOpen, School, Pencil, Trash2, Layers, CheckCircle2, Clock, XCircle, MoreVertical, Mail, ShieldCheck, Wallet, AlertTriangle, CalendarDays, Activity, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -267,12 +267,129 @@ function ApproveModal({ student, schools, onClose, onDone }: { student: Student;
 // View Details Modal
 // ---------------------------------------------------------------------------
 
-function ViewModal({ student, onClose }: { student: Student; onClose: () => void }) {
-  return (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}><div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}><div className="flex items-center justify-between mb-4"><h2 className="text-xl font-bold">🎓 Student Details</h2><button onClick={onClose} className="text-2xl leading-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]">&times;</button></div><div className="space-y-3"><div className="text-center pb-3 border-b border-[var(--color-border-subtle)]"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-2xl font-bold text-primary-600 mb-2">{student.profile?.firstName?.[0]}{student.profile?.lastName?.[0]}</div><p className="text-lg font-bold">{student.profile?.firstName} {student.profile?.lastName}</p><p className="text-sm text-[var(--color-text-tertiary)]">{student.studentId}</p></div><DR label="Email" value={student.user?.email} /><DR label="Approval" value={<ApprovalBadge status={student.approvalStatus} />} /><DR label="Status" value={<StatusBadge status={student.status} />} /><DR label="Gender" value={student.profile?.gender || '—'} /><DR label="Organization" value={student.school?.name || '—'} /><DR label="Class" value={student.class ? `${student.class.title} — Section ${student.class.section}` : '—'} /><DR label="Department" value={student.department || '—'} /><DR label="Shift" value={student.shiftMode || '—'} /><DR label="Grade" value={student.grade || '—'} /><DR label="Enrolled" value={new Date(student.enrollmentDate).toLocaleDateString()} /><DR label="Courses" value={student.enrolledCourses?.length ? `${student.enrolledCourses.length} course(s)` : 'None'} /><DR label="Attendance" value={student.attendancePercentage != null ? `${student.attendancePercentage}%` : '—'} /><DR label="GPA" value={student.gpa != null ? student.gpa.toFixed(1) : '—'} /><DR label="Fees Paid" value={student.totalFeesPaid != null ? `$${student.totalFeesPaid.toLocaleString()}` : '—'} /><DR label="Fees Due" value={student.totalFeesDue != null ? `$${student.totalFeesDue.toLocaleString()}` : '—'} /><DR label="Medical Notes" value={student.medicalNotes || '—'} /><DR label="Verified" value={student.user?.isVerified ? '✅ Yes' : '❌ No'} /><DR label="Active" value={student.user?.isActive ? '✅ Yes' : '❌ No'} /></div><button onClick={onClose} className="mt-5 w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Close</button></div></div>);
+function InfoCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-3 rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-4">
+      <p className="mb-2.5 text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">{title}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">{children}</div>
+    </div>
+  );
 }
 
-function DR({ label, value }: { label: string; value: React.ReactNode }) {
-  return <div className="flex justify-between items-center py-1.5 border-b border-[var(--color-border-subtle)] last:border-0"><span className="text-sm text-[var(--color-text-tertiary)]">{label}</span><span className="text-sm font-medium text-[var(--color-text-primary)] text-right max-w-[60%]">{value}</span></div>;
+function InfoRow({ icon: Icon, label, value, tone = 'default' }: {
+  icon: LucideIcon; label: string; value: React.ReactNode; tone?: 'default' | 'good' | 'bad' | 'muted';
+}) {
+  const toneClass = {
+    default: 'text-[var(--color-text-primary)]',
+    good: 'text-green-600 dark:text-green-400',
+    bad: 'text-red-600 dark:text-red-400',
+    muted: 'text-[var(--color-text-tertiary)]',
+  }[tone];
+  return (
+    <div className="flex items-center justify-between gap-3 min-w-0">
+      <span className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+        <Icon className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} />
+        {label}
+      </span>
+      <span className={`text-sm font-semibold text-right truncate ${toneClass}`}>{value}</span>
+    </div>
+  );
+}
+
+function DetailStatTile({ label, value, tone }: { label: string; value: React.ReactNode; tone: 'emerald' | 'sky' | 'violet' }) {
+  const toneClass = {
+    emerald: 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300',
+    sky: 'bg-sky-50 dark:bg-sky-950/20 text-sky-700 dark:text-sky-300',
+    violet: 'bg-violet-50 dark:bg-violet-950/20 text-violet-700 dark:text-violet-300',
+  }[tone];
+  return (
+    <div className={`flex-1 rounded-xl p-3 text-center ${toneClass}`}>
+      <p className="text-lg font-bold leading-tight">{value}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{label}</p>
+    </div>
+  );
+}
+
+function ViewModal({ student, onClose }: { student: Student; onClose: () => void }) {
+  const fullName = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || 'Unknown Student';
+  const initials = `${student.profile?.firstName?.[0] || ''}${student.profile?.lastName?.[0] || ''}`.toUpperCase();
+  const feesDue = student.totalFeesDue ?? 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-[var(--color-surface-primary)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        {/* Banner */}
+        <div className="relative rounded-t-2xl bg-gradient-to-br from-primary-500 to-primary-700 px-6 pt-5 pb-12">
+          <button onClick={onClose} className="absolute top-4 right-4 rounded-lg p-1.5 text-white/80 hover:bg-white/10 hover:text-white transition-colors">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+          <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-white/70">
+            <GraduationCap className="h-3.5 w-3.5" strokeWidth={2} /> Student Details
+          </p>
+        </div>
+
+        <div className="px-6 -mt-9 pb-6">
+          {/* Avatar + name */}
+          <div className="flex items-end gap-4 mb-4">
+            <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-2xl bg-[var(--color-surface-primary)] text-2xl font-bold text-primary-600 shadow-lg ring-4 ring-[var(--color-surface-primary)]">
+              {initials || <GraduationCap className="h-8 w-8" strokeWidth={1.75} />}
+            </div>
+            <div className="min-w-0 pb-1">
+              <p className="text-lg font-bold text-[var(--color-text-primary)] truncate">{fullName}</p>
+              <p className="text-xs font-mono text-[var(--color-text-tertiary)]">{student.studentId}</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 mb-4">
+            <ApprovalBadge status={student.approvalStatus} />
+            <StatusBadge status={student.status} />
+          </div>
+
+          {/* Headline stats */}
+          <div className="flex gap-2 mb-4">
+            <DetailStatTile label="Attendance" value={student.attendancePercentage != null ? `${student.attendancePercentage}%` : '—'} tone="emerald" />
+            <DetailStatTile label="GPA" value={student.gpa != null ? student.gpa.toFixed(1) : '—'} tone="sky" />
+            <DetailStatTile label="Courses" value={student.enrolledCourses?.length || 0} tone="violet" />
+          </div>
+
+          <InfoCard title="Academic">
+            <InfoRow icon={Building2} label="Organization" value={student.school?.name || '—'} />
+            <InfoRow icon={School} label="Class" value={student.class ? `${student.class.title} — ${student.class.section}` : '—'} />
+            <InfoRow icon={Layers} label="Department" value={student.department || '—'} />
+            <InfoRow icon={Clock} label="Shift" value={student.shiftMode || '—'} />
+            <InfoRow icon={GraduationCap} label="Grade" value={student.grade || '—'} />
+            <InfoRow icon={Users} label="Gender" value={student.profile?.gender || '—'} />
+            <InfoRow icon={CalendarDays} label="Enrolled" value={new Date(student.enrollmentDate).toLocaleDateString()} />
+          </InfoCard>
+
+          <InfoCard title="Account">
+            <InfoRow icon={Mail} label="Email" value={student.user?.email || '—'} />
+            <InfoRow icon={ShieldCheck} label="Verified" value={student.user?.isVerified ? 'Yes' : 'No'} tone={student.user?.isVerified ? 'good' : 'muted'} />
+            <InfoRow icon={Activity} label="Account Active" value={student.user?.isActive ? 'Yes' : 'No'} tone={student.user?.isActive ? 'good' : 'bad'} />
+          </InfoCard>
+
+          <InfoCard title="Fees">
+            <InfoRow icon={Wallet} label="Paid" value={student.totalFeesPaid != null ? `$${student.totalFeesPaid.toLocaleString()}` : '—'} tone="good" />
+            <InfoRow icon={Wallet} label="Due" value={student.totalFeesDue != null ? `$${student.totalFeesDue.toLocaleString()}` : '—'} tone={feesDue > 0 ? 'bad' : 'muted'} />
+          </InfoCard>
+
+          {student.medicalNotes && (
+            <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-3.5 flex items-start gap-2.5">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5 text-amber-500" strokeWidth={2} />
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400 mb-0.5">Medical Notes</p>
+                <p className="text-sm text-amber-800 dark:text-amber-300">{student.medicalNotes}</p>
+              </div>
+            </div>
+          )}
+
+          <button onClick={onClose} className="mt-4 w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
