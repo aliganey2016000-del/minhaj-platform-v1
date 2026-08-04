@@ -37,6 +37,11 @@ export function jitsiRoomName(courseId: string): string {
   return `MinhajEdu-${courseId}`;
 }
 
+/** Same idea for a Forum thread's voice/video call — every participant who opens the call from that thread lands in the same room, no link to share. */
+export function jitsiForumRoomName(threadId: string): string {
+  return `MinhajForum-${threadId}`;
+}
+
 let scriptLoadPromise: Promise<void> | null = null;
 
 function loadJitsiScript(): Promise<void> {

@@ -15,9 +15,12 @@ import {
   Trash2,
   Users,
   Inbox,
+  Phone,
 } from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
 import api from '../../../lib/axios';
+import { JitsiCallModal } from '../../../components/shared/jitsi-call-modal';
+import { jitsiForumRoomName } from '../../../components/shared/jitsi-room';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -173,6 +176,7 @@ export function ForumPage() {
   const [msgLoading, setMsgLoading] = useState(false);
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [showCall, setShowCall] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // -------------------------------------------------------------------------
@@ -381,12 +385,21 @@ export function ForumPage() {
                     {activeThread.type === 'public' ? `${activeThread.participantCount} participants` : `With ${activeThread.participants.filter((p) => p._id !== userId).map((p) => p.email).join(', ')}`}
                   </p>
                 </div>
-                {activeThread.createdBy._id === userId && (
-                  <button onClick={() => handleDeleteThread(activeThread._id)} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-950/30">
-                    <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                    Delete
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowCall(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+                  >
+                    <Phone className="h-3.5 w-3.5" strokeWidth={2} />
+                    Call
                   </button>
-                )}
+                  {activeThread.createdBy._id === userId && (
+                    <button onClick={() => handleDeleteThread(activeThread._id)} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-950/30">
+                      <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+                      Delete
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4 lg:px-6">
@@ -545,6 +558,20 @@ export function ForumPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Voice/Video Call — everyone who opens this thread and hits Call lands
+          in the same Jitsi room, no link to share. No single "teacher" role
+          here (peers in a conversation), so everyone joins as a moderator
+          with audio on by default. */}
+      {showCall && activeThread && (
+        <JitsiCallModal
+          roomName={jitsiForumRoomName(activeThread._id)}
+          displayName={user?.email || 'You'}
+          isModerator
+          title={activeThread.title || 'Private Conversation'}
+          onClose={() => setShowCall(false)}
+        />
       )}
     </div>
   );
