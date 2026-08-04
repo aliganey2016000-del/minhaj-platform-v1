@@ -152,6 +152,19 @@ export const getStats = async (req: Request, res: Response): Promise<Response> =
     scopedFilter.enrolledCourses = { $in: teacherCourseIds };
   }
 
+  // applyOrgFilter puts an org_admin's organizationId in as the plain string
+  // pulled off the JWT. Student.find()/countDocuments() auto-cast that
+  // through Mongoose's query layer, but a raw .aggregate() $match does NOT —
+  // an uncast string never equals the stored ObjectId, so every breakdown
+  // below would silently match zero students for an org_admin while `total`
+  // (countDocuments) still reported the real count. Cast explicitly for the
+  // aggregation pipelines only.
+  const aggregateMatch: Record<string, unknown> = { ...scopedFilter };
+  const schoolFilter = aggregateMatch.school as { $in?: unknown[] } | undefined;
+  if (schoolFilter && Array.isArray(schoolFilter.$in)) {
+    aggregateMatch.school = { $in: schoolFilter.$in.map((v) => (v ? new mongoose.Types.ObjectId(v as string) : null)) };
+  }
+
   const [
     statusCounts,
     genderCounts,
@@ -161,29 +174,29 @@ export const getStats = async (req: Request, res: Response): Promise<Response> =
     total,
   ] = await Promise.all([
     Student.aggregate([
-      { $match: scopedFilter },
+      { $match: aggregateMatch },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]),
     Student.aggregate([
-      { $match: scopedFilter },
+      { $match: aggregateMatch },
       { $lookup: { from: 'profiles', localField: 'profile', foreignField: '_id', as: 'profile' } },
       { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
       { $group: { _id: '$profile.gender', count: { $sum: 1 } } },
     ]),
     Student.aggregate([
-      { $match: scopedFilter },
+      { $match: aggregateMatch },
       { $lookup: { from: 'classes', localField: 'class', foreignField: '_id', as: 'class' } },
       { $unwind: { path: '$class', preserveNullAndEmptyArrays: true } },
       { $group: { _id: '$class._id', title: { $first: '$class.title' }, section: { $first: '$class.section' }, count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]),
     Student.aggregate([
-      { $match: scopedFilter },
+      { $match: aggregateMatch },
       { $group: { _id: '$department', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]),
     Student.aggregate([
-      { $match: scopedFilter },
+      { $match: aggregateMatch },
       { $lookup: { from: 'schools', localField: 'school', foreignField: '_id', as: 'school' } },
       { $unwind: { path: '$school', preserveNullAndEmptyArrays: true } },
       { $group: { _id: '$school._id', name: { $first: '$school.name' }, count: { $sum: 1 } } },
