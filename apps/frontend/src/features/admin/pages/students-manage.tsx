@@ -276,8 +276,8 @@ function InfoCard({ title, children }: { title: string; children: React.ReactNod
   );
 }
 
-function InfoRow({ icon: Icon, label, value, tone = 'default' }: {
-  icon: LucideIcon; label: string; value: React.ReactNode; tone?: 'default' | 'good' | 'bad' | 'muted';
+function InfoRow({ icon: Icon, label, value, tone = 'default', wide = false }: {
+  icon: LucideIcon; label: string; value: React.ReactNode; tone?: 'default' | 'good' | 'bad' | 'muted'; wide?: boolean;
 }) {
   const toneClass = {
     default: 'text-[var(--color-text-primary)]',
@@ -285,6 +285,22 @@ function InfoRow({ icon: Icon, label, value, tone = 'default' }: {
     bad: 'text-red-600 dark:text-red-400',
     muted: 'text-[var(--color-text-tertiary)]',
   }[tone];
+
+  // Long values (emails, etc.) get their own full-width row with the value
+  // wrapped underneath the label instead of squeezed into a half-width
+  // column and truncated — nothing important should ever be cut off here.
+  if (wide) {
+    return (
+      <div className="sm:col-span-2 min-w-0">
+        <span className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
+          <Icon className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} />
+          {label}
+        </span>
+        <p className={`mt-0.5 text-sm font-semibold break-all ${toneClass}`}>{value}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center justify-between gap-3 min-w-0">
       <span className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
@@ -318,32 +334,32 @@ function ViewModal({ student, onClose }: { student: Student; onClose: () => void
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-[var(--color-surface-primary)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        {/* Banner */}
-        <div className="relative rounded-t-2xl bg-gradient-to-br from-primary-500 to-primary-700 px-6 pt-5 pb-12">
+        {/* Banner — avatar, name and badges live inside it, not overlapping into the card below */}
+        <div className="relative rounded-t-2xl bg-gradient-to-br from-primary-500 to-primary-700 px-6 pt-5 pb-6">
           <button onClick={onClose} className="absolute top-4 right-4 rounded-lg p-1.5 text-white/80 hover:bg-white/10 hover:text-white transition-colors">
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
-          <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-white/70">
+          <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-white/70 mb-4">
             <GraduationCap className="h-3.5 w-3.5" strokeWidth={2} /> Student Details
           </p>
-        </div>
 
-        <div className="px-6 -mt-9 pb-6">
-          {/* Avatar + name */}
-          <div className="flex items-end gap-4 mb-4">
-            <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-2xl bg-[var(--color-surface-primary)] text-2xl font-bold text-primary-600 shadow-lg ring-4 ring-[var(--color-surface-primary)]">
-              {initials || <GraduationCap className="h-8 w-8" strokeWidth={1.75} />}
+          <div className="flex items-center gap-4">
+            <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-white/15 text-xl font-bold text-white ring-2 ring-white/30">
+              {initials || <GraduationCap className="h-7 w-7" strokeWidth={1.75} />}
             </div>
-            <div className="min-w-0 pb-1">
-              <p className="text-lg font-bold text-[var(--color-text-primary)] truncate">{fullName}</p>
-              <p className="text-xs font-mono text-[var(--color-text-tertiary)]">{student.studentId}</p>
+            <div className="min-w-0">
+              <p className="text-lg font-bold text-white truncate">{fullName}</p>
+              <p className="text-xs font-mono text-white/70">{student.studentId}</p>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 mb-4">
+          <div className="flex flex-wrap gap-2 mt-4">
             <ApprovalBadge status={student.approvalStatus} />
             <StatusBadge status={student.status} />
           </div>
+        </div>
+
+        <div className="px-6 pt-5 pb-6">
 
           {/* Headline stats */}
           <div className="flex gap-2 mb-4">
@@ -363,7 +379,7 @@ function ViewModal({ student, onClose }: { student: Student; onClose: () => void
           </InfoCard>
 
           <InfoCard title="Account">
-            <InfoRow icon={Mail} label="Email" value={student.user?.email || '—'} />
+            <InfoRow icon={Mail} label="Email" value={student.user?.email || '—'} wide />
             <InfoRow icon={ShieldCheck} label="Verified" value={student.user?.isVerified ? 'Yes' : 'No'} tone={student.user?.isVerified ? 'good' : 'muted'} />
             <InfoRow icon={Activity} label="Account Active" value={student.user?.isActive ? 'Yes' : 'No'} tone={student.user?.isActive ? 'good' : 'bad'} />
           </InfoCard>
