@@ -13,7 +13,7 @@ import { ColumnFilterHeader, useColumnFilters } from '../components/column-filte
 // Types
 // ---------------------------------------------------------------------------
 
-interface SchoolBrief { _id: string; name: string; }
+interface SchoolBrief { _id: string; name: string; orgId?: string; }
 
 interface DepartmentItem {
   _id: string;
@@ -37,6 +37,8 @@ interface ClassItem {
   endTime?: string;
   meetingLink?: string;
   status: 'active' | 'inactive' | 'completed';
+  graduationYear?: number;
+  batch?: string;
   createdAt: string;
 }
 
@@ -47,9 +49,23 @@ interface ClassForm {
   section: string;
   room: string;
   shiftMode: string;
+  graduationYear: string;
+  batch: string;
 }
 
-const emptyForm: ClassForm = { school: '', department: '', title: '', section: '', room: '', shiftMode: 'Morning' };
+const emptyForm: ClassForm = { school: '', department: '', title: '', section: '', room: '', shiftMode: 'Morning', graduationYear: '', batch: '' };
+
+// A cohort's batch code is `<Organization ID><2-digit graduation year>`
+// (e.g. org "100" + graduating 2026 → "10026") — permanent once a class is
+// created, so students keep the same batch as they're promoted grade to
+// grade. Offer the current year through 15 years out as graduation options.
+const GRADUATION_YEAR_OPTIONS = Array.from({ length: 16 }, (_, i) => new Date().getFullYear() + i);
+
+function computeBatch(school: SchoolBrief | undefined, graduationYear: string): string {
+  if (!school || !graduationYear) return '';
+  const orgId = (school.orgId || '').trim() || '0';
+  return `${orgId}${graduationYear.slice(-2)}`;
+}
 
 // ---------------------------------------------------------------------------
 // Badges
@@ -76,10 +92,19 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
 
 function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: ClassItem; schools: SchoolBrief[]; departments: DepartmentItem[]; onClose: () => void; onSaved: () => void }) {
   const isEdit = !!cls;
-  const [form, setForm] = useState<ClassForm>(cls ? { school: cls.school?._id || '', department: cls.departmentId || cls.department || '', title: cls.title || '', section: cls.section || '', room: cls.room || '', shiftMode: cls.shiftMode || 'Morning' } : emptyForm);
+  const [form, setForm] = useState<ClassForm>(cls ? { school: cls.school?._id || '', department: cls.departmentId || cls.department || '', title: cls.title || '', section: cls.section || '', room: cls.room || '', shiftMode: cls.shiftMode || 'Morning', graduationYear: cls.graduationYear ? String(cls.graduationYear) : '', batch: cls.batch || '' } : emptyForm);
   const [errors, setErrors] = useState<Partial<Record<keyof ClassForm, string>>>({});
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
+
+  // The batch code is permanent once a class exists — only auto-derive it
+  // live from Organization + Graduation Year while creating a new class.
+  useEffect(() => {
+    if (isEdit) return;
+    const selectedSchool = schools.find(s => s._id === form.school);
+    const batch = computeBatch(selectedSchool, form.graduationYear);
+    setForm(p => (p.batch === batch ? p : { ...p, batch }));
+  }, [isEdit, schools, form.school, form.graduationYear]);
 
   const validate = (): boolean => {
     const errs: Partial<Record<keyof ClassForm, string>> = {};
@@ -88,6 +113,7 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
     if (!form.title.trim()) errs.title = 'Class name is required';
     if (!form.section.trim()) errs.section = 'Section is required';
     if (!form.room.trim()) errs.room = 'Room is required';
+    if (!isEdit && !form.graduationYear) errs.graduationYear = 'Graduation year is required';
     setErrors(errs); return Object.keys(errs).length === 0;
   };
 
@@ -100,7 +126,8 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
     e.preventDefault(); if (!validate()) return;
     setLoading(true); setApiError('');
     try {
-      const payload = { school: form.school, department: form.department, title: form.title.trim(), section: form.section.trim(), room: form.room.trim(), shiftMode: form.shiftMode };
+      const payload: Record<string, unknown> = { school: form.school, department: form.department, title: form.title.trim(), section: form.section.trim(), room: form.room.trim(), shiftMode: form.shiftMode };
+      if (!isEdit) payload.graduationYear = Number(form.graduationYear);
       if (isEdit) await api.patch(`/classes/${cls._id}`, payload); else await api.post('/classes', payload);
       onSaved(); onClose();
     } catch (err: any) { setApiError(err.response?.data?.message || err.message || 'Failed to save class'); } finally { setLoading(false); }
@@ -115,6 +142,24 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
         {apiError && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 px-4 py-2.5 text-sm text-red-600 dark:text-red-400">{apiError}</div>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div><label htmlFor="school" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Organization <span className="text-red-500">*</span></label><select id="school" name="school" value={form.school} onChange={handleChange} className={ic('school')}><option value="">Select an organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>{errors.school && <p className="mt-1 text-xs text-red-500">{errors.school}</p>}</div>
+          {!isEdit && (
+            <div>
+              <label htmlFor="graduationYear" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Graduation Year <span className="text-red-500">*</span></label>
+              <select id="graduationYear" name="graduationYear" value={form.graduationYear} onChange={handleChange} className={ic('graduationYear')}>
+                <option value="">Select graduation year...</option>
+                {GRADUATION_YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              {errors.graduationYear && <p className="mt-1 text-xs text-red-500">{errors.graduationYear}</p>}
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">The cohort's expected graduation year — used to generate its permanent Batch code below.</p>
+            </div>
+          )}
+          {(isEdit || form.batch) && (
+            <div>
+              <label htmlFor="batch" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Batch</label>
+              <input id="batch" name="batch" type="text" value={form.batch} readOnly disabled className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)] cursor-not-allowed" />
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">🔒 Auto-generated from Organization + Graduation Year. Permanent — stays the same as students are promoted to the next grade.</p>
+            </div>
+          )}
           <div><label htmlFor="department" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Department <span className="text-red-500">*</span></label><select id="department" name="department" value={form.department} onChange={handleChange} className={ic('department')}><option value="">Select a department...</option>{departments.map((dept) => (<option key={dept._id} value={dept._id}>{dept.name}{dept.code ? ` (${dept.code})` : ''}</option>))}</select>{errors.department && <p className="mt-1 text-xs text-red-500">{errors.department}</p>}</div>
           <div><label htmlFor="title" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Class Name <span className="text-red-500">*</span></label><input id="title" name="title" type="text" value={form.title} onChange={handleChange} placeholder="e.g. Grade 3" className={ic('title')} />{errors.title && <p className="mt-1 text-xs text-red-500">{errors.title}</p>}</div>
           <div><label htmlFor="section" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Section <span className="text-red-500">*</span></label><input id="section" name="section" type="text" value={form.section} onChange={handleChange} placeholder="e.g. A" className={ic('section')} />{errors.section && <p className="mt-1 text-xs text-red-500">{errors.section}</p>}</div>
