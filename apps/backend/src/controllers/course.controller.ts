@@ -617,48 +617,40 @@ export const selfUnenroll = async (req: Request, res: Response): Promise<Respons
 // Available Courses (Student catalog with enrollment status)
 // ---------------------------------------------------------------------------
 
-// A course is scoped to a (organization, department, class) slot — NEVER
-// to a batch/cohort or a specific academic year's class document. "Grade
-// 2 - A in Department X" is the same slot every year; a course assigned
-// to it belongs to whichever cohort currently fills that seat, not to one
-// year's Class document. So eligibility has two parts:
+// A course is scoped to (organization, department, grade level) — NEVER to
+// a section, a batch/cohort, or one specific academic year's Class
+// document. "Grade 2 in Department X" is the same curriculum slot every
+// year; a course assigned to it belongs to whichever cohort currently
+// fills that grade, not to the one Class document that existed when the
+// course was created. A student who has reached grade N has, by
+// definition, also already passed through every grade below N, so their
+// eligible classes are simply every class in their own department with
+// gradeLevel <= their current one — regardless of section, academicYear,
+// or batch, and regardless of whether THIS student's own promotion chain
+// happens to have a recorded predecessor at every grade (test/seed data
+// can have gaps; a plain numeric comparison doesn't depend on that chain
+// being unbroken the way walking `promotedTo` backward would).
 //
-//  1. Walk `promotedTo` backward from the student's current class to find
-//     every class they were promoted FROM (so earlier-grade material they
-//     already passed through stays reachable) — bounded defensively in
-//     case bad data ever forms a cycle, though a real promotion chain
-//     should never be anywhere near this long.
-//  2. For every grade in that lineage, pull in every "sibling" class
-//     sharing the same (department, gradeLevel, section) regardless of
-//     academicYear/batch, since that's the same slot under a different
-//     year's Class document.
-//
-// A grade the student hasn't reached yet never enters the lineage (the
-// walk only ever goes backward), so it's still correctly excluded.
+// A grade the student hasn't reached yet is excluded by construction
+// (gradeLevel > current never matches).
 async function resolveEligibleClassIds(currentClassId: mongoose.Types.ObjectId | string | null | undefined, schoolId: unknown): Promise<mongoose.Types.ObjectId[]> {
   if (!currentClassId) return [];
 
-  const lineage: any[] = [];
-  let cursor = new mongoose.Types.ObjectId(currentClassId);
-  for (let i = 0; i < 50; i++) {
-    const cls: any = await ClassModel.findById(cursor).select('department gradeLevel section').lean();
-    if (!cls) break;
-    lineage.push(cls);
-    const predecessor = await ClassModel.findOne({ promotedTo: cursor }).select('_id').lean();
-    if (!predecessor) break;
-    cursor = predecessor._id;
+  const currentClass = await ClassModel.findById(currentClassId).select('department gradeLevel').lean();
+  if (!currentClass) return [];
+  if (currentClass.gradeLevel === null || currentClass.gradeLevel === undefined) {
+    // No grade level set on this class — can't safely compare "at or
+    // before" without one, so fall back to exact-class matching only.
+    return [new mongoose.Types.ObjectId(currentClassId)];
   }
 
-  const ids = new Set<string>(lineage.map((cls) => String(cls._id)));
-  for (const cls of lineage) {
-    if (cls.gradeLevel === null || cls.gradeLevel === undefined || !cls.section) continue;
-    const siblings = await ClassModel.find({
-      school: schoolId, department: cls.department, gradeLevel: cls.gradeLevel, section: cls.section,
-    }).select('_id').lean();
-    for (const s of siblings) ids.add(String(s._id));
-  }
+  const eligible = await ClassModel.find({
+    school: schoolId,
+    department: currentClass.department,
+    gradeLevel: { $lte: currentClass.gradeLevel, $ne: null },
+  }).select('_id').lean();
 
-  return Array.from(ids).map((id) => new mongoose.Types.ObjectId(id));
+  return eligible.map((c) => c._id);
 }
 
 export const getAvailableCourses = async (req: Request, res: Response): Promise<Response> => {
