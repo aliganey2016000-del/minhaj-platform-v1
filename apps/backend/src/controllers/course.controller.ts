@@ -617,6 +617,26 @@ export const selfUnenroll = async (req: Request, res: Response): Promise<Respons
 // Available Courses (Student catalog with enrollment status)
 // ---------------------------------------------------------------------------
 
+// A student should keep access to courses from every class they were
+// promoted FROM to reach their current one (so earlier-grade material
+// stays reachable), but never a class further ahead they haven't gotten to
+// yet. Walk `promotedTo` backward from the student's current class to
+// build that lineage — bounded defensively in case bad data ever forms a
+// cycle, though a real promotion chain should never be anywhere near this
+// long.
+async function resolveClassLineage(currentClassId: mongoose.Types.ObjectId | string | null | undefined): Promise<mongoose.Types.ObjectId[]> {
+  if (!currentClassId) return [];
+  const ids: mongoose.Types.ObjectId[] = [new mongoose.Types.ObjectId(currentClassId)];
+  let cursor: mongoose.Types.ObjectId = ids[0];
+  for (let i = 0; i < 50; i++) {
+    const predecessor = await ClassModel.findOne({ promotedTo: cursor }).select('_id').lean();
+    if (!predecessor) break;
+    ids.push(predecessor._id);
+    cursor = predecessor._id;
+  }
+  return ids;
+}
+
 export const getAvailableCourses = async (req: Request, res: Response): Promise<Response> => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.max(1, Math.min(50, parseInt(req.query.limit as string) || 12));
@@ -648,7 +668,8 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
   }
   if (student) {
     filter.school = (student as any).school || null;
-    filter.class = { $in: [(student as any).class || null, null] };
+    const classLineage = await resolveClassLineage((student as any).class || null);
+    filter.class = { $in: [...classLineage, null] };
   }
 
   const [courses, total] = await Promise.all([
