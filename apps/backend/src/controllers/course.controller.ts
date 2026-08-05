@@ -716,22 +716,34 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
     }
   }
 
-  const [courses, total] = await Promise.all([
-    Course.find(filter)
-      .populate({
-        path: 'teacher',
-        select: 'teacherId profile',
-        populate: { path: 'profile', select: 'firstName lastName' },
-      })
-      .populate('school', 'name')
-      .populate({ path: 'class', select: 'title section gradeLevel' })
-      .select('title slug description category level duration fee teacher maxStudents enrolledStudents thumbnail status startDate school class')
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean(),
-    Course.countDocuments(filter),
-  ]);
+  // `class` is a reference, so its gradeLevel can't be sorted on directly
+  // via `.find().sort()`. When earlier grades are included, courses should
+  // read as a natural progression (Grade 1, then 2, then 3...) rather than
+  // creation-date order, which jumbles every grade together. Resolve the
+  // full matching ID list ordered by grade first (electives with no class
+  // sort last), THEN paginate that ordered list, so ordering stays correct
+  // across pages instead of only within whatever page happened to load.
+  const orderedMatches = await Course.find(filter).select('_id class').populate('class', 'gradeLevel').sort({ createdAt: -1 }).lean();
+  orderedMatches.sort((a: any, b: any) => {
+    const gA = a.class?.gradeLevel ?? Number.MAX_SAFE_INTEGER;
+    const gB = b.class?.gradeLevel ?? Number.MAX_SAFE_INTEGER;
+    return gA - gB;
+  });
+  const total = orderedMatches.length;
+  const pageIds = orderedMatches.slice((page - 1) * limit, (page - 1) * limit + limit).map((c: any) => c._id);
+  const pageOrder = new Map(pageIds.map((id, i) => [String(id), i]));
+
+  const coursesUnordered = await Course.find({ _id: { $in: pageIds } })
+    .populate({
+      path: 'teacher',
+      select: 'teacherId profile',
+      populate: { path: 'profile', select: 'firstName lastName' },
+    })
+    .populate('school', 'name')
+    .populate({ path: 'class', select: 'title section gradeLevel' })
+    .select('title slug description category level duration fee teacher maxStudents enrolledStudents thumbnail status startDate school class')
+    .lean();
+  const courses = coursesUnordered.sort((a: any, b: any) => (pageOrder.get(String(a._id)) ?? 0) - (pageOrder.get(String(b._id)) ?? 0));
 
   const enrolledIds: string[] = student
     ? (student.enrolledCourses || []).map((id: any) => id.toString())
