@@ -39,6 +39,8 @@ interface HeaderData {
 interface DashboardHeaderProps {
   /** When true the entire header block is hidden (e.g. full-screen learn page). */
   hidden?: boolean;
+  /** Full "Welcome back, {name}" greeting + role badge — only the portal's own dashboard route passes true. Every other page gets the compact org-name-only bar, so the greeting isn't repeated on every single page. */
+  showGreeting?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +116,7 @@ function QuickActions() {
 // Component
 // ---------------------------------------------------------------------------
 
-export function DashboardHeader({ hidden }: DashboardHeaderProps) {
+export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeaderProps) {
   const { user } = useAuth();
   const [data, setData] = useState<HeaderData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -195,15 +197,23 @@ export function DashboardHeader({ hidden }: DashboardHeaderProps) {
             </span>
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight truncate">
-              Welcome back, <span className="text-primary-600 dark:text-primary-400">{data.firstName}</span>
-            </p>
-            <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] truncate">
-              {data.orgName}
-              <span className={`inline-flex items-center rounded-full px-1.5 py-0 text-[10px] font-medium ${badge.color}`}>
-                {badge.label}
-              </span>
-            </p>
+            {showGreeting ? (
+              <>
+                <p className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight truncate">
+                  Welcome back, <span className="text-primary-600 dark:text-primary-400">{data.firstName}</span>
+                </p>
+                <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] truncate">
+                  {data.orgName}
+                  <span className={`inline-flex items-center rounded-full px-1.5 py-0 text-[10px] font-medium ${badge.color}`}>
+                    {badge.label}
+                  </span>
+                </p>
+              </>
+            ) : (
+              <p className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight truncate">
+                {data.orgName}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2.5 w-full sm:w-auto">

@@ -93,30 +93,38 @@ const tabs: { key: TabKey; label: string; icon: LucideIcon }[] = [
 // ---------------------------------------------------------------------------
 
 const STATUS_COLORS: Record<string, string> = {
-  active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-  inactive: 'bg-gray-100 text-gray-600 dark:bg-gray-900/30 dark:text-gray-400',
-  graduated: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-  suspended: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  active: 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/50',
+  inactive: 'bg-slate-50 text-slate-600 border border-slate-200 dark:bg-slate-900/30 dark:text-slate-400 dark:border-slate-800',
+  graduated: 'bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/30 dark:text-sky-300 dark:border-sky-900/50',
+  suspended: 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-900/50',
 };
 
 const STATUS_DOT_COLORS: Record<string, string> = {
-  active: 'bg-green-500',
-  inactive: 'bg-gray-400',
-  graduated: 'bg-blue-500',
+  active: 'bg-emerald-500',
+  inactive: 'bg-slate-400',
+  graduated: 'bg-sky-500',
   suspended: 'bg-red-500',
 };
+
+const STATUS_OPTIONS: { value: Student['status']; label: string; icon: LucideIcon }[] = [
+  { value: 'active', label: 'Set Active', icon: CheckCircle2 },
+  { value: 'inactive', label: 'Set Inactive', icon: XCircle },
+  { value: 'graduated', label: 'Set Graduated', icon: GraduationCap },
+  { value: 'suspended', label: 'Set Suspended', icon: AlertTriangle },
+];
 
 function StatusBadge({ status }: { status: string }) {
   return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[status] || STATUS_COLORS.inactive}`}>{status}</span>;
 }
 
+const APPROVAL_COLORS: Record<string, string> = {
+  approved: 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/50',
+  pending: 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-900/50',
+  rejected: 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-900/50',
+};
+
 function ApprovalBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    approved: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-    pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
-    rejected: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-  };
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[status] || colors.pending}`}>{status}</span>;
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${APPROVAL_COLORS[status] || APPROVAL_COLORS.pending}`}>{status}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -747,6 +755,24 @@ export function StudentsManage() {
   const handleReject = async (id: string) => { if (!window.confirm('Reject this student?')) return; try { await api.patch(`/students/${id}/reject`); fetchStudents(page); fetchStats(); } catch (err: any) { alert(err.response?.data?.message || 'Failed to reject'); } };
   const totalPages = Math.ceil(total / limit);
 
+  // Row actions — status changes, Edit, and Deactivate all live in one kebab
+  // menu instead of a separate inline status <select> next to it.
+  const buildRowActions = (st: Student): RowAction[] => {
+    if (st.approvalStatus === 'pending') {
+      return [
+        { label: 'Approve', icon: CheckCircle2, onClick: () => setApprovingStudent(st), tone: 'success' },
+        { label: 'Reject', icon: XCircle, onClick: () => handleReject(st._id), tone: 'danger' },
+      ];
+    }
+    return [
+      { label: 'Edit', icon: Pencil, onClick: () => setEditingStudent(st), tone: 'default' },
+      ...STATUS_OPTIONS.filter((o) => o.value !== st.status).map((o) => ({
+        label: o.label, icon: o.icon, onClick: () => handleStatusChange(st._id, o.value), tone: 'default' as const,
+      })),
+      { label: 'Deactivate', icon: Trash2, onClick: () => handleDelete(st._id), tone: 'danger' },
+    ];
+  };
+
   // ───────────────────────────────────────────────────────────────────────
   // Import Modal Logic
   // ───────────────────────────────────────────────────────────────────────
@@ -826,14 +852,14 @@ export function StudentsManage() {
         )}
 
         {/* ═══════════════════════════════════════════════════════════════
-            Tabs + Filters + Table (existing)
+            Unified control panel — status tabs, search/filters, and active-
+            filter chips all in one card above the table (was 2 separate bars).
            ═══════════════════════════════════════════════════════════════ */}
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {tabs.map(t => (<button key={t.key} onClick={() => { setActiveTab(t.key); setHasFetched(false); }} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === t.key ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-primary)] border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}><t.icon className="h-4 w-4" strokeWidth={1.75} /> {t.label}</button>))}
-        </div>
-
         <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-4 shadow-sm space-y-3">
+          <div className="flex gap-2 overflow-x-auto pb-1 -mt-1">
+            {tabs.map(t => (<button key={t.key} onClick={() => { setActiveTab(t.key); setHasFetched(false); }} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === t.key ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}><t.icon className="h-4 w-4" strokeWidth={1.75} /> {t.label}</button>))}
+          </div>
           <div className="flex flex-col sm:flex-row gap-3">
             {isOrgAdmin ? (<div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">{schools[0]?.name || 'Your Organization'}</div>) : (<select value={filterSchool} onChange={e => { setFilterSchool(e.target.value); setHasFetched(false); }} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">{isSuperAdmin ? 'Select an Organization...' : 'Select Organization...'}</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>)}
             <input type="text" placeholder="Search by name, email, or student ID..." value={search} onChange={e => { setSearch(e.target.value); setHasFetched(false); }} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" onKeyDown={e => { if (e.key === 'Enter') handleApplyFilters(); }} />
@@ -870,13 +896,7 @@ export function StudentsManage() {
         {!loading && hasFetched && students.length > 0 && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="sticky top-0 z-10 bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr><th className="text-left px-5 py-3 font-semibold">Student</th><th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Class</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Department</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Shift</th><th className="text-center px-5 py-3 font-semibold">Approval</th><th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Status</th><th className="text-center px-5 py-3 font-semibold">Actions</th></tr></thead>
-              <tbody>{students.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="relative flex-shrink-0"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--color-surface-primary)] ${STATUS_DOT_COLORS[st.status] || STATUS_DOT_COLORS.inactive}`} title={st.status} /></div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-5 py-4 hidden lg:table-cell">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-5 py-4 text-center"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-5 py-4 text-center hidden md:table-cell" onClick={e => e.stopPropagation()}><select value={st.status} onChange={e => handleStatusChange(st._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30"><option value="active">Active</option><option value="inactive">Inactive</option><option value="graduated">Graduated</option><option value="suspended">Suspended</option></select></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><RowActionsMenu actions={st.approvalStatus === 'pending' ? [
-                { label: 'Approve', icon: CheckCircle2, onClick: () => setApprovingStudent(st), tone: 'success' },
-                { label: 'Reject', icon: XCircle, onClick: () => handleReject(st._id), tone: 'danger' },
-              ] : [
-                { label: 'Edit', icon: Pencil, onClick: () => setEditingStudent(st), tone: 'default' },
-                { label: 'Deactivate', icon: Trash2, onClick: () => handleDelete(st._id), tone: 'danger' },
-              ]} /></td></tr>))}</tbody></table></div>
+              <tbody>{students.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="relative flex-shrink-0"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--color-surface-primary)] ${STATUS_DOT_COLORS[st.status] || STATUS_DOT_COLORS.inactive}`} title={st.status} /></div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-5 py-4 hidden lg:table-cell">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-5 py-4 text-center"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-5 py-4 text-center hidden md:table-cell"><StatusBadge status={st.status} /></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><RowActionsMenu actions={buildRowActions(st)} /></td></tr>))}</tbody></table></div>
           </div>
         )}
 

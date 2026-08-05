@@ -16,6 +16,7 @@ const LEARN_ROUTE_RE = /^\/student\/courses\/[^/]+\/learn/;
 export function StudentLayout() {
   const { pathname } = useLocation();
   const isLearnPage = LEARN_ROUTE_RE.test(pathname);
+  const isDashboardRoot = pathname === '/student' || pathname === '/student/';
 
   return (
     <div className="min-h-screen bg-[var(--color-surface-secondary)]">
@@ -23,7 +24,7 @@ export function StudentLayout() {
       {/* Main content area — offset by sidebar width on desktop (unless on learn page) */}
       <div className={`${isLearnPage ? '' : 'lg:ms-64'} min-h-screen`}>
         {/* Hide the shared header on the full-screen course learning page */}
-        <DashboardHeader hidden={isLearnPage} />
+        <DashboardHeader hidden={isLearnPage} showGreeting={isDashboardRoot} />
         <Outlet />
       </div>
     </div>
