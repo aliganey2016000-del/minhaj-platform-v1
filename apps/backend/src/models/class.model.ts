@@ -14,7 +14,6 @@ export interface IClass extends Document {
   meetingLink?: string;
   teacher?: mongoose.Types.ObjectId;
   status: 'active' | 'inactive' | 'completed';
-  graduationYear?: number;
   batch?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -35,14 +34,12 @@ const classSchema = new Schema<IClass>(
     meetingLink: { type: String, default: '' },
     teacher: { type: Schema.Types.ObjectId, ref: 'Teacher', default: null, index: true },
     status: { type: String, enum: ['active', 'inactive', 'completed'], default: 'active', index: true },
-    // The cohort's permanent graduation year — set once at class creation
-    // and never recomputed, since `batch` (derived from it) must stay fixed
-    // as students promote through grades. Not `required` at the schema
-    // level so pre-existing classes without one remain valid.
-    graduationYear: { type: Number, min: 2000, max: 2100, default: null },
-    // Auto-derived as `${organization.orgId}${YY}` at creation time (see
-    // class.controller.ts `create`) — permanent, server-controlled, and
-    // stripped from every `update` request so it can never drift.
+    // The cohort's permanent batch code — typed once by an admin at class
+    // creation (e.g. Organization ID + 2-digit graduation year) and locked
+    // from then on, since it must stay fixed as students promote through
+    // grades. Not `required` at the schema level so pre-existing classes
+    // without one remain valid; the update endpoint strips it from every
+    // PATCH so it can never be changed after creation (class.controller.ts).
     batch: { type: String, trim: true, maxlength: 20, default: '', index: true },
   },
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }

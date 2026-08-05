@@ -80,23 +80,10 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const schoolId = resolveOrgIdForCreate(req, req.body.school);
-
-  // The batch code is always derived server-side from the organization's
-  // orgId + graduation year — never trust a client-submitted `batch`, since
-  // it's meant to be a permanent, tamper-proof cohort label.
-  const payload: Record<string, unknown> = { ...req.body, school: schoolId };
-  delete payload.batch;
-  const graduationYear = req.body.graduationYear ? Number(req.body.graduationYear) : undefined;
-  if (graduationYear) {
-    const org = schoolId ? await School.findById(schoolId).select('orgId').lean() : null;
-    const orgId = (org?.orgId || '').trim() || '0';
-    payload.graduationYear = graduationYear;
-    payload.batch = `${orgId}${String(graduationYear).slice(-2)}`;
-  } else {
-    delete payload.graduationYear;
-  }
-
+  const payload = {
+    ...req.body,
+    school: resolveOrgIdForCreate(req, req.body.school),
+  };
   const cls = await ClassModel.create(payload);
   const populated = await ClassModel.findById(cls._id)
     .populate('school', 'name')
@@ -125,11 +112,9 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const updates = { ...req.body };
   // org_admin can never move a class to a different organization.
   if (req.user?.role === 'org_admin') delete updates.school;
-  // batch/graduationYear are permanent once set at creation — a class
-  // promoted from one grade to the next must keep its original cohort
-  // batch code, so neither field can ever be changed via update.
+  // The batch code is permanent once set at creation — a class promoted
+  // from one grade to the next must keep its original cohort batch code.
   delete updates.batch;
-  delete updates.graduationYear;
 
   const cls = await ClassModel.findByIdAndUpdate(req.params.id, updates, {
     new: true,
