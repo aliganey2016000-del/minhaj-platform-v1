@@ -170,79 +170,50 @@ export function DashboardHeader({ hidden }: DashboardHeaderProps) {
   });
 
   const badge = roleBadge[data?.role || ''] || roleBadge.student;
-  const fullName =
-    data?.firstName && data?.lastName
-      ? `${data.firstName} ${data.lastName}`
-      : data?.email || '';
   const canQuickAct = data?.role === 'admin' || data?.role === 'org_admin';
 
   if (hidden) return null;
 
   // Skeleton while loading
   if (loading) {
-    return (
-      <div className="animate-pulse">
-        <div className="h-16 bg-[var(--color-surface-primary)] border-b border-slate-100 dark:border-slate-800" />
-        <div className="mx-auto max-w-6xl px-6 pt-6 pb-6">
-          <div className="h-28 rounded-2xl bg-[var(--color-surface-primary)] border border-slate-100 dark:border-slate-800" />
-        </div>
-      </div>
-    );
+    return <div className="h-16 bg-[var(--color-surface-primary)] border-b border-[var(--color-border-subtle)] animate-pulse" />;
   }
 
   if (!data) return null;
 
+  // One condensed bar instead of a separate top bar + oversized welcome
+  // card below it — the greeting, org identity, and role badge all live in
+  // the same row as search/notifications/theme, so every page keeps more
+  // content above the fold.
   return (
-    <>
-      {/* ── Top Bar ── */}
-      <div className="relative bg-[var(--color-surface-primary)] border-b border-slate-100 dark:border-slate-800 shadow-sm">
-        <div className="relative mx-auto max-w-6xl px-6 py-3.5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {/* Organization Avatar */}
-            <div className="flex-shrink-0 flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 dark:bg-primary-950/40 border border-primary-100 dark:border-primary-900">
-              <span className="text-sm font-bold text-primary-600 dark:text-primary-400">
-                {data.orgInitial}
+    <div className="relative bg-[var(--color-surface-primary)] border-b border-[var(--color-border-subtle)] shadow-sm">
+      <div className="relative mx-auto max-w-6xl px-6 py-3 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0" title={dateStr}>
+          <div className="flex-shrink-0 flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 dark:bg-primary-950/40 border border-primary-100 dark:border-primary-900">
+            <span className="text-sm font-bold text-primary-600 dark:text-primary-400">
+              {data.orgInitial}
+            </span>
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight truncate">
+              Welcome back, <span className="text-primary-600 dark:text-primary-400">{data.firstName}</span>
+            </p>
+            <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] truncate">
+              {data.orgName}
+              <span className={`inline-flex items-center rounded-full px-1.5 py-0 text-[10px] font-medium ${badge.color}`}>
+                {badge.label}
               </span>
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight">
-                {data.orgName}
-              </h2>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5 w-full sm:w-auto">
-            <GlobalSearchBar />
-            <NotificationBell />
-            <ThemeToggle />
-            {canQuickAct && <QuickActions />}
+            </p>
           </div>
         </div>
-      </div>
-
-      {/* ── Welcome Card ── */}
-      <div className="mx-auto max-w-6xl px-6 pt-6 pb-6">
-        <div className="rounded-2xl bg-[var(--color-surface-primary)] border border-slate-100 dark:border-slate-800 p-6 lg:p-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-text-tertiary)] mb-2">
-                {dateStr}
-              </p>
-              <h1 className="text-2xl lg:text-3xl font-bold text-[var(--color-text-primary)]">
-                Welcome back, <span className="text-primary-600 dark:text-primary-400">{data.firstName}</span>
-              </h1>
-              <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-                {fullName}{' '}
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.color}`}
-                >
-                  {badge.label}
-                </span>
-              </p>
-            </div>
-          </div>
+        <div className="flex items-center gap-2.5 w-full sm:w-auto">
+          <GlobalSearchBar />
+          <NotificationBell />
+          <ThemeToggle />
+          {canQuickAct && <QuickActions />}
         </div>
       </div>
-    </>
+    </div>
   );
 }
 

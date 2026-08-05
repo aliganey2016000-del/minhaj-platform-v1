@@ -9,6 +9,7 @@ import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEv
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { GraduationCap, Users, Building2, BookOpen, School, Pencil, Trash2, Layers, CheckCircle2, Clock, XCircle, MoreVertical, Mail, ShieldCheck, Wallet, AlertTriangle, CalendarDays, Activity, type LucideIcon } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip } from 'recharts';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -91,14 +92,22 @@ const tabs: { key: TabKey; label: string; icon: LucideIcon }[] = [
 // Badges
 // ---------------------------------------------------------------------------
 
+const STATUS_COLORS: Record<string, string> = {
+  active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  inactive: 'bg-gray-100 text-gray-600 dark:bg-gray-900/30 dark:text-gray-400',
+  graduated: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  suspended: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+};
+
+const STATUS_DOT_COLORS: Record<string, string> = {
+  active: 'bg-green-500',
+  inactive: 'bg-gray-400',
+  graduated: 'bg-blue-500',
+  suspended: 'bg-red-500',
+};
+
 function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-    inactive: 'bg-gray-100 text-gray-600 dark:bg-gray-900/30 dark:text-gray-400',
-    graduated: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-    suspended: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-  };
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[status] || colors.inactive}`}>{status}</span>;
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[status] || STATUS_COLORS.inactive}`}>{status}</span>;
 }
 
 function ApprovalBadge({ status }: { status: string }) {
@@ -471,10 +480,30 @@ function foldTop(rows: { label: string; count: number }[], max = 7): { label: st
 
 function StatTile({ label, value, colorVar }: { label: string; value: number; colorVar: string }) {
   return (
-    <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card flex flex-col gap-1">
+    <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-4 shadow-sm flex flex-col gap-1">
       <span className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider truncate">{label}</span>
       <span className="text-2xl font-bold tabular-nums" style={{ color: `var(${colorVar})` }}>{value.toLocaleString()}</span>
     </div>
+  );
+}
+
+/** Slice color for index i — same fixed-order formula the legend rows below use, so a slice and its legend row are always the same hue. */
+function seriesColor(label: string, i: number, colorOffset: number): string {
+  return label === 'Other' ? 'var(--color-text-tertiary)' : `var(--series-${((i + colorOffset) % 8) + 1})`;
+}
+
+function BreakdownDonut({ items, colorOffset, size = 92 }: { items: { label: string; count: number }[]; colorOffset: number; size?: number }) {
+  const data = items.map((item, i) => ({ name: item.label, value: item.count, fill: seriesColor(item.label, i, colorOffset) }));
+  return (
+    <PieChart width={size} height={size} className="flex-shrink-0">
+      <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={size * 0.32} outerRadius={size * 0.48} paddingAngle={data.length > 1 ? 2 : 0} strokeWidth={2} stroke="var(--color-surface-primary)" isAnimationActive={false}>
+        {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
+      </Pie>
+      <RechartsTooltip
+        formatter={(value, name) => [typeof value === 'number' ? value.toLocaleString() : String(value ?? ''), String(name)]}
+        contentStyle={{ fontSize: 12, borderRadius: 8, background: 'var(--color-surface-elevated)', border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
+      />
+    </PieChart>
   );
 }
 
@@ -483,7 +512,7 @@ function BarList({ title, icon: Icon, items, colorOffset = 0, emptyLabel }: {
 }) {
   const max = Math.max(1, ...items.map(i => i.count));
   return (
-    <div className="viz-root rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
+    <div className="viz-root rounded-2xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-5 shadow-sm">
       <h3 className="flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)] mb-4">
         <Icon className="h-[18px] w-[18px] text-[var(--color-text-tertiary)]" strokeWidth={1.75} />
         {title}
@@ -491,22 +520,25 @@ function BarList({ title, icon: Icon, items, colorOffset = 0, emptyLabel }: {
       {items.length === 0 ? (
         <p className="text-xs text-[var(--color-text-tertiary)]">{emptyLabel || 'No data yet'}</p>
       ) : (
-        <div className="space-y-2.5">
-          {items.map((item, i) => {
-            const isOther = item.label === 'Other';
-            const colorVar = isOther ? '--color-text-tertiary' : `--series-${((i + colorOffset) % 8) + 1}`;
-            return (
-              <div key={item.label + i}>
-                <div className="flex items-center justify-between mb-1 gap-2">
-                  <span className="text-xs font-medium text-[var(--color-text-secondary)] truncate">{item.label}</span>
-                  <span className="text-xs font-semibold text-[var(--color-text-primary)] tabular-nums flex-shrink-0">{item.count.toLocaleString()}</span>
+        <div className="flex items-center gap-4">
+          {items.length > 1 && <BreakdownDonut items={items} colorOffset={colorOffset} />}
+          <div className="flex-1 min-w-0 space-y-2.5">
+            {items.map((item, i) => {
+              const colorVar = seriesColor(item.label, i, colorOffset);
+              return (
+                <div key={item.label + i}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: colorVar }} />
+                    <span className="text-xs font-medium text-[var(--color-text-secondary)] truncate flex-1">{item.label}</span>
+                    <span className="text-xs font-semibold text-[var(--color-text-primary)] tabular-nums flex-shrink-0">{item.count.toLocaleString()}</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden" title={`${item.label}: ${item.count}`}>
+                    <div className="h-full rounded-full transition-all duration-300" style={{ width: `${Math.max(3, (item.count / max) * 100)}%`, backgroundColor: colorVar }} />
+                  </div>
                 </div>
-                <div className="h-2 w-full rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden" title={`${item.label}: ${item.count}`}>
-                  <div className="h-full rounded-full transition-all duration-300" style={{ width: `${Math.max(3, (item.count / max) * 100)}%`, backgroundColor: `var(${colorVar})` }} />
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -660,8 +692,40 @@ export function StudentsManage() {
   // ── Load schools on mount ──
   useEffect(() => { (async () => { try { const { data } = await api.get('/schools', { params: { limit: '100' } }); setSchools(data.data || []); } catch { /* ignore */ } })(); }, []);
 
-  // ── Fetch students ──
-  const fetchStudents = useCallback(async (pageNum = 1) => { setLoading(true); setError(''); try { const params: any = { page: String(pageNum), limit: String(limit) }; if (search) params.search = search; if (statusFilter) params.status = statusFilter; if (activeTab === 'pending') params.approvalStatus = 'pending'; else if (activeTab === 'approved') params.approvalStatus = 'approved'; else if (activeTab === 'rejected') params.approvalStatus = 'rejected'; if (filterSchool) params.school = filterSchool; const { data } = await api.get('/students', { params }); setStudents(data.data || []); setTotal(data.meta?.total || 0); setHasFetched(true); } catch (err: any) { setError(err.response?.data?.message || 'Failed to load students'); } finally { setLoading(false); } }, [search, statusFilter, activeTab, filterSchool]);
+  // ── Fetch students — overrides let a filter chip's "✕" apply its own
+  // clearing immediately instead of waiting a render for state to settle
+  // before reading it back out of the closure. ──
+  const fetchStudents = useCallback(async (pageNum = 1, overrides?: { search?: string; statusFilter?: string; filterSchool?: string }) => {
+    setLoading(true); setError('');
+    try {
+      const s = overrides?.search !== undefined ? overrides.search : search;
+      const st = overrides?.statusFilter !== undefined ? overrides.statusFilter : statusFilter;
+      const sc = overrides?.filterSchool !== undefined ? overrides.filterSchool : filterSchool;
+      const params: any = { page: String(pageNum), limit: String(limit) };
+      if (s) params.search = s;
+      if (st) params.status = st;
+      if (activeTab === 'pending') params.approvalStatus = 'pending';
+      else if (activeTab === 'approved') params.approvalStatus = 'approved';
+      else if (activeTab === 'rejected') params.approvalStatus = 'rejected';
+      if (sc) params.school = sc;
+      const { data } = await api.get('/students', { params });
+      setStudents(data.data || []);
+      setTotal(data.meta?.total || 0);
+      setHasFetched(true);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to load students');
+    } finally {
+      setLoading(false);
+    }
+  }, [search, statusFilter, activeTab, filterSchool]);
+
+  const clearFilter = (key: 'search' | 'statusFilter' | 'filterSchool') => {
+    if (key === 'search') setSearch('');
+    if (key === 'statusFilter') setStatusFilter('');
+    if (key === 'filterSchool') setFilterSchool('');
+    setPage(1);
+    fetchStudents(1, { [key]: '' });
+  };
 
   // ── Fetch stats ──
   const fetchStats = useCallback(async () => {
@@ -769,13 +833,33 @@ export function StudentsManage() {
           {tabs.map(t => (<button key={t.key} onClick={() => { setActiveTab(t.key); setHasFetched(false); }} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === t.key ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-primary)] border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}><t.icon className="h-4 w-4" strokeWidth={1.75} /> {t.label}</button>))}
         </div>
 
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card space-y-3">
+        <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-4 shadow-sm space-y-3">
           <div className="flex flex-col sm:flex-row gap-3">
             {isOrgAdmin ? (<div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">{schools[0]?.name || 'Your Organization'}</div>) : (<select value={filterSchool} onChange={e => { setFilterSchool(e.target.value); setHasFetched(false); }} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">{isSuperAdmin ? 'Select an Organization...' : 'Select Organization...'}</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>)}
             <input type="text" placeholder="Search by name, email, or student ID..." value={search} onChange={e => { setSearch(e.target.value); setHasFetched(false); }} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" onKeyDown={e => { if (e.key === 'Enter') handleApplyFilters(); }} />
             <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setHasFetched(false); }} className="flex-1 sm:flex-none sm:w-40 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="graduated">Graduated</option><option value="suspended">Suspended</option></select>
             <button onClick={handleApplyFilters} className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors whitespace-nowrap">🔍 Apply Filters</button>
           </div>
+          {hasFetched && (filterSchool || search || statusFilter) && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <span className="text-xs font-medium text-[var(--color-text-tertiary)]">Active filters:</span>
+              {filterSchool && (
+                <button onClick={() => clearFilter('filterSchool')} className="inline-flex items-center gap-1 rounded-full bg-primary-50 dark:bg-primary-950/30 px-2.5 py-1 text-xs font-medium text-primary-700 dark:text-primary-300 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors">
+                  {schools.find(s => s._id === filterSchool)?.name || 'Organization'} ✕
+                </button>
+              )}
+              {search && (
+                <button onClick={() => clearFilter('search')} className="inline-flex items-center gap-1 rounded-full bg-primary-50 dark:bg-primary-950/30 px-2.5 py-1 text-xs font-medium text-primary-700 dark:text-primary-300 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors">
+                  "{search}" ✕
+                </button>
+              )}
+              {statusFilter && (
+                <button onClick={() => clearFilter('statusFilter')} className="inline-flex items-center gap-1 rounded-full bg-primary-50 dark:bg-primary-950/30 px-2.5 py-1 text-xs font-medium text-primary-700 dark:text-primary-300 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors capitalize">
+                  {statusFilter} ✕
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-red-600 text-sm mb-2">{error}</p><button onClick={() => handleApplyFilters()} className="text-primary-600 font-medium text-sm hover:underline">Retry</button></div>}
@@ -785,8 +869,8 @@ export function StudentsManage() {
 
         {!loading && hasFetched && students.length > 0 && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr><th className="text-left px-5 py-3 font-semibold">Student</th><th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Class</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Department</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Shift</th><th className="text-center px-5 py-3 font-semibold">Approval</th><th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Status</th><th className="text-center px-5 py-3 font-semibold">Actions</th></tr></thead>
-              <tbody>{students.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-5 py-4 hidden lg:table-cell">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-5 py-4 text-center"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-5 py-4 text-center hidden md:table-cell" onClick={e => e.stopPropagation()}><select value={st.status} onChange={e => handleStatusChange(st._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30"><option value="active">Active</option><option value="inactive">Inactive</option><option value="graduated">Graduated</option><option value="suspended">Suspended</option></select></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><RowActionsMenu actions={st.approvalStatus === 'pending' ? [
+            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="sticky top-0 z-10 bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr><th className="text-left px-5 py-3 font-semibold">Student</th><th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Class</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Department</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Shift</th><th className="text-center px-5 py-3 font-semibold">Approval</th><th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Status</th><th className="text-center px-5 py-3 font-semibold">Actions</th></tr></thead>
+              <tbody>{students.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="relative flex-shrink-0"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--color-surface-primary)] ${STATUS_DOT_COLORS[st.status] || STATUS_DOT_COLORS.inactive}`} title={st.status} /></div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-5 py-4 hidden lg:table-cell">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-5 py-4 text-center"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-5 py-4 text-center hidden md:table-cell" onClick={e => e.stopPropagation()}><select value={st.status} onChange={e => handleStatusChange(st._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30"><option value="active">Active</option><option value="inactive">Inactive</option><option value="graduated">Graduated</option><option value="suspended">Suspended</option></select></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><RowActionsMenu actions={st.approvalStatus === 'pending' ? [
                 { label: 'Approve', icon: CheckCircle2, onClick: () => setApprovingStudent(st), tone: 'success' },
                 { label: 'Reject', icon: XCircle, onClick: () => handleReject(st._id), tone: 'danger' },
               ] : [
