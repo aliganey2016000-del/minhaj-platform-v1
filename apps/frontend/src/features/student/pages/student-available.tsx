@@ -4,14 +4,18 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BookOpen } from 'lucide-react';
+import {
+  BookOpen, Search, GraduationCap, School, Clock, Users, Sparkles,
+  CheckCircle2, Lock, X, ChevronLeft, ChevronRight, ChevronDown, SlidersHorizontal,
+  Inbox, AlertCircle, XCircle, FilterX,
+} from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface TeacherBrief { _id: string; teacherId: string; profile?: { firstName: string; lastName: string }; }
 interface Course {
   _id: string; title: { en: string; so: string; ar: string }; slug: string; description: { en: string }; category: string; level: string; duration: number; fee: number;
   teacher?: TeacherBrief; maxStudents: number; enrolledStudents: number; thumbnail?: string; status: string; startDate?: string; isEnrolled: boolean;
-  class?: { _id: string; title: string; section: string } | null;
+  class?: { _id: string; title: string; section: string; gradeLevel?: number } | null;
 }
 interface Category { value: string; label: { en: string }; }
 
@@ -52,6 +56,11 @@ export function StudentAvailable() {
   const [brokenThumbnails, setBrokenThumbnails] = useState<Set<string>>(new Set());
   const markThumbnailBroken = (id: string) => setBrokenThumbnails((prev) => new Set(prev).add(id));
   const [myClass, setMyClass] = useState<{ title: string; section: string } | null>(null);
+  // Default view is scoped to the student's CURRENT grade only — a Grade
+  // 12 student shouldn't be handed 40+ courses spanning every grade they
+  // ever passed through. This reveals the rest on demand.
+  const [includeEarlierGrades, setIncludeEarlierGrades] = useState(false);
+  const [earlierGradesCount, setEarlierGradesCount] = useState(0);
   const limit = 12;
 
   const fetchCourses = useCallback(async () => {
@@ -59,10 +68,12 @@ export function StudentAvailable() {
     try {
       const params: any = { page: String(page), limit: String(limit) };
       if (search) params.search = search; if (category) params.category = category; if (level) params.level = level;
+      if (includeEarlierGrades) params.includeEarlierGrades = 'true';
       const { data } = await api.get('/courses/available', { params });
       setCourses(data.data || []); setTotal(data.meta?.total || 0);
+      if (typeof data.meta?.earlierGradesCount === 'number') setEarlierGradesCount(data.meta.earlierGradesCount);
     } catch (err: any) { setError(err.response?.data?.message || t('error_occurred')); } finally { setLoading(false); }
-  }, [page, search, category, level, t]);
+  }, [page, search, category, level, includeEarlierGrades, t]);
 
   useEffect(() => { fetchCourses(); api.get('/courses/categories').then(r => setCategories(r.data.data || [])).catch(() => {}); }, [fetchCourses]);
   useEffect(() => { api.get('/students/my/dashboard').then(r => setMyClass(r.data.data?.class || null)).catch(() => {}); }, []);
@@ -81,46 +92,93 @@ export function StudentAvailable() {
   const getTitle = (c: Course) => { if(lang==='so'&&c.title.so)return c.title.so; if(lang==='ar'&&c.title.ar)return c.title.ar; return c.title.en; };
   const getCat = (c: string) => catLabels[c]?.[lang] || c;
   const getLevel = (l: string) => levelLabels[l]?.[lang] || l;
+  const getFee = (fee: number) => fee > 0 ? `$${fee}` : lang === 'so' ? 'Bilaash' : lang === 'ar' ? 'مجاني' : 'Free';
   const isFull = (c: Course) => c.enrolledStudents >= c.maxStudents;
+  const seatRatio = (c: Course) => Math.min((c.enrolledStudents / c.maxStudents) * 100, 100);
   const totalPages = Math.ceil(total / limit);
+  const hasActiveFilters = !!(search || category || level);
+  const clearFilters = () => { setSearch(''); setCategory(''); setLevel(''); setPage(1); };
+  const clearFiltersLabel = lang === 'so' ? 'Nadiifi Shaandhada' : lang === 'ar' ? 'مسح الفلاتر' : 'Clear filters';
+  const rangeStart = total === 0 ? 0 : (page - 1) * limit + 1;
+  const rangeEnd = Math.min(page * limit, total);
 
   if (loading && courses.length === 0) return <div className="flex min-h-[400px] items-center justify-center"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>;
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-7xl space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🆕 {t('browse_courses')}</h1>
-          <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} {t('published_courses')}</p>
-          {myClass && (
-            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary-50 dark:bg-primary-900/30 px-3 py-1 text-xs font-medium text-primary-700 dark:text-primary-300">
-              <BookOpen className="h-3.5 w-3.5" strokeWidth={1.75} /> Your Class: {myClass.title} — {myClass.section}
-            </span>
-          )}
+        {/* Hero header */}
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary-700 via-primary-600 to-emerald-600 p-6 text-white shadow-lg lg:p-8">
+          <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-24 left-1/4 h-56 w-56 rounded-full bg-black/10 blur-3xl" />
+          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ring-1 ring-white/25 backdrop-blur-sm">
+                <Sparkles className="h-3 w-3" strokeWidth={2} /> {lang === 'so' ? 'Cusub' : lang === 'ar' ? 'جديد' : 'New'}
+              </span>
+              <h1 className="mt-3 text-2xl font-bold tracking-tight lg:text-3xl">{t('browse_courses')}</h1>
+              <p className="mt-1.5 text-sm text-white/80">{total} {t('published_courses')}</p>
+              {myClass && (
+                <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium ring-1 ring-white/25 backdrop-blur-sm">
+                  <BookOpen className="h-3.5 w-3.5" strokeWidth={1.75} /> {lang === 'so' ? 'Fasalkaaga' : lang === 'ar' ? 'صفك' : 'Your Class'}: {myClass.title} — {myClass.section}
+                </span>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <div className="min-w-[92px] rounded-2xl bg-white/10 px-4 py-3 text-center ring-1 ring-white/15 backdrop-blur-sm">
+                <p className="text-xl font-bold">{total}</p>
+                <p className="text-[10px] uppercase tracking-wide text-white/70">{lang === 'so' ? 'Koorsooyin' : lang === 'ar' ? 'الدورات' : 'Courses'}</p>
+              </div>
+              <div className="min-w-[92px] rounded-2xl bg-white/10 px-4 py-3 text-center ring-1 ring-white/15 backdrop-blur-sm">
+                <p className="text-xl font-bold">{categories.length}</p>
+                <p className="text-[10px] uppercase tracking-wide text-white/70">{lang === 'so' ? 'Qaybaha' : lang === 'ar' ? 'الفئات' : 'Categories'}</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {message && (
-          <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 flex items-center justify-between">
-            <span>{message}</span><button onClick={() => setMessage('')} className="text-xs underline">Dismiss</button>
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-400">
+            <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 flex-shrink-0" strokeWidth={2} /> {message}</span>
+            <button onClick={() => setMessage('')} className="flex-shrink-0 text-xs underline underline-offset-2 hover:no-underline">Dismiss</button>
           </div>
         )}
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600 flex items-center justify-between">
-            <span>{error}</span><button onClick={() => setError('')} className="text-xs underline">Dismiss</button>
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+            <span className="flex items-center gap-2"><AlertCircle className="h-4 w-4 flex-shrink-0" strokeWidth={2} /> {error}</span>
+            <button onClick={() => setError('')} className="flex-shrink-0 text-xs underline underline-offset-2 hover:no-underline">Dismiss</button>
           </div>
         )}
 
-        {/* Filters */}
-        <div className="flex flex-col gap-4">
-          <input
-            type="text"
-            placeholder={t('search_courses')}
-            value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1); }}
-            className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-          />
-          <div className="flex flex-wrap gap-2">
+        {/* Filters toolbar */}
+        <div className="space-y-4 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" strokeWidth={2} />
+              <input
+                type="text"
+                placeholder={t('search_courses')}
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1); }}
+                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] py-3 pl-10 pr-4 text-sm transition-colors focus:border-primary-500 focus:bg-[var(--color-surface-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+              />
+            </div>
+            <div className="relative sm:w-56">
+              <SlidersHorizontal className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" strokeWidth={2} />
+              <select
+                value={level}
+                onChange={e => { setLevel(e.target.value); setPage(1); }}
+                className="w-full appearance-none rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] py-3 pl-10 pr-9 text-sm transition-colors focus:border-primary-500 focus:bg-[var(--color-surface-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+              >
+                <option value="">{t('all_levels')}</option>
+                <option value="beginner">{levelLabels.beginner[lang]}</option>
+                <option value="intermediate">{levelLabels.intermediate[lang]}</option>
+                <option value="advanced">{levelLabels.advanced[lang]}</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" strokeWidth={2} />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => { setCategory(''); setPage(1); }} className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${!category ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
               {t('all_categories')}
             </button>
@@ -129,31 +187,68 @@ export function StudentAvailable() {
                 {catLabels[cat.value]?.[lang] || cat.label?.en || cat.value}
               </button>
             ))}
-          </div>
-          <div className="flex gap-2">
-            <select
-              value={level}
-              onChange={e => { setLevel(e.target.value); setPage(1); }}
-              className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2 text-sm"
-            >
-              <option value="">{t('all_levels')}</option>
-              <option value="beginner">{levelLabels.beginner[lang]}</option>
-              <option value="intermediate">{levelLabels.intermediate[lang]}</option>
-              <option value="advanced">{levelLabels.advanced[lang]}</option>
-            </select>
-            <span className="text-xs text-[var(--color-text-tertiary)] self-center ml-2">{total} results</span>
+            <div className="ml-auto flex items-center gap-3">
+              {hasActiveFilters && (
+                <button onClick={clearFilters} className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-tertiary)] hover:text-red-600 transition-colors">
+                  <FilterX className="h-3.5 w-3.5" strokeWidth={2} /> {clearFiltersLabel}
+                </button>
+              )}
+              <span className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
+                {loading && <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary-300 border-t-primary-600" />}
+                {total} results
+              </span>
+            </div>
           </div>
         </div>
 
+        {/* Earlier-grades toggle — default view only shows the student's
+            current grade; this reveals/hides material from grades already
+            passed through. */}
+        {!includeEarlierGrades && earlierGradesCount > 0 && (
+          <button
+            onClick={() => { setIncludeEarlierGrades(true); setPage(1); }}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950/30 px-4 py-3 text-left transition-colors hover:bg-primary-100 dark:hover:bg-primary-900/40"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium text-primary-700 dark:text-primary-300">
+              <BookOpen className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />
+              {lang === 'so' ? `${earlierGradesCount} course oo ka socda fasalladii hore ayaa jira` : lang === 'ar' ? `${earlierGradesCount} دورة من الصفوف السابقة متاحة` : `${earlierGradesCount} course${earlierGradesCount === 1 ? '' : 's'} from earlier grades available`}
+            </span>
+            <span className="flex-shrink-0 text-xs font-semibold text-primary-600 dark:text-primary-400 underline underline-offset-2">
+              {lang === 'so' ? 'Tus' : lang === 'ar' ? 'إظهار' : 'Show'}
+            </span>
+          </button>
+        )}
+        {includeEarlierGrades && (
+          <button
+            onClick={() => { setIncludeEarlierGrades(false); setPage(1); }}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-3 text-left transition-colors hover:bg-[var(--color-surface-tertiary)]"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-secondary)]">
+              <BookOpen className="h-4 w-4 flex-shrink-0 opacity-60" strokeWidth={1.75} />
+              {lang === 'so' ? 'Waxaa la muujinayaa course-yada fasalladii hore sidoo kale' : lang === 'ar' ? 'يتم عرض دورات الصفوف السابقة أيضًا' : 'Showing courses from earlier grades too'}
+            </span>
+            <span className="flex-shrink-0 text-xs font-semibold text-[var(--color-text-tertiary)] underline underline-offset-2">
+              {lang === 'so' ? 'Qari' : lang === 'ar' ? 'إخفاء' : 'Hide'}
+            </span>
+          </button>
+        )}
+
         {/* Course Cards Grid */}
         {courses.length === 0 ? (
-          <div className="text-center py-16 text-[var(--color-text-tertiary)]">
-            <p className="text-5xl mb-4">📚</p>
-            <p className="text-lg">{t('no_courses_found')}</p>
-            <p className="text-sm">Try adjusting your filters.</p>
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--color-border-default)] py-20 text-center">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-surface-tertiary)]">
+              <Inbox className="h-8 w-8 text-[var(--color-text-tertiary)]" strokeWidth={1.5} />
+            </div>
+            <p className="text-lg font-semibold text-[var(--color-text-primary)]">{t('no_courses_found')}</p>
+            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Try adjusting your search or filters.</p>
+            {hasActiveFilters && (
+              <button onClick={clearFilters} className="mt-5 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 transition-colors">
+                {clearFiltersLabel}
+              </button>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          <div className={`grid grid-cols-1 gap-5 transition-opacity duration-200 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
             {courses.map(c => (
               <div
                 key={c._id}
@@ -175,6 +270,8 @@ export function StudentAvailable() {
                       <BookOpen className="h-12 w-12 text-emerald-600/40" strokeWidth={1.5} />
                     </div>
                   )}
+                  {/* Subtle bottom gradient for badge legibility */}
+                  <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/40 to-transparent" />
                   {/* Category badge */}
                   <div className="absolute top-2.5 left-2.5">
                     <span className="rounded-full bg-black/60 backdrop-blur-md px-2.5 py-0.5 text-[10px] font-semibold text-white tracking-wide">
@@ -183,18 +280,18 @@ export function StudentAvailable() {
                   </div>
                   {/* Enrolled / Full badges */}
                   {c.isEnrolled && (
-                    <div className="absolute top-2.5 right-2.5 rounded-full bg-green-500 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
-                      ✅ Enrolled
+                    <div className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-green-500 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
+                      <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} /> Enrolled
                     </div>
                   )}
                   {isFull(c) && !c.isEnrolled && (
-                    <div className="absolute top-2.5 right-2.5 rounded-full bg-red-500 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
-                      {t('class_full')}
+                    <div className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-red-500 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
+                      <Lock className="h-3 w-3" strokeWidth={2.5} /> {t('class_full')}
                     </div>
                   )}
                   {/* Price badge */}
                   <div className="absolute bottom-2.5 right-2.5 rounded-full bg-black/60 backdrop-blur-md px-3 py-0.5 text-xs font-bold text-white">
-                    {c.fee > 0 ? `$${c.fee}` : lang === 'so' ? 'Bilaash' : lang === 'ar' ? 'مجاني' : 'Free'}
+                    {getFee(c.fee)}
                   </div>
                   {/* Level pill — bottom left */}
                   <div className="absolute bottom-2.5 left-2.5 rounded-full bg-white/90 dark:bg-black/40 backdrop-blur-md px-2.5 py-0.5 text-[10px] font-semibold text-[var(--color-text-primary)]">
@@ -211,26 +308,28 @@ export function StudentAvailable() {
 
                   {/* Teacher */}
                   {c.teacher?.profile && (
-                    <p className="text-xs text-[var(--color-text-tertiary)] truncate">
-                      👨‍🏫 {c.teacher.profile.firstName} {c.teacher.profile.lastName}
+                    <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] truncate">
+                      <GraduationCap className="h-3.5 w-3.5 flex-shrink-0 opacity-60" strokeWidth={1.75} />
+                      {c.teacher.profile.firstName} {c.teacher.profile.lastName}
                     </p>
                   )}
 
                   {/* Class */}
                   {c.class && (
-                    <p className="text-xs text-[var(--color-text-tertiary)] truncate">
-                      🏫 {c.class.title} ({c.class.section})
+                    <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] truncate">
+                      <School className="h-3.5 w-3.5 flex-shrink-0 opacity-60" strokeWidth={1.75} />
+                      {c.class.title} ({c.class.section})
                     </p>
                   )}
 
                   {/* Meta row */}
                   <div className="flex items-center gap-3 text-xs text-[var(--color-text-tertiary)]">
                     <span className="inline-flex items-center gap-1">
-                      <svg className="w-3.5 h-3.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <Clock className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
                       {c.duration} {lang === 'so' ? 'usbuuc' : lang === 'ar' ? 'أسبوع' : 'w'}
                     </span>
                     <span className="inline-flex items-center gap-1">
-                      <svg className="w-3.5 h-3.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      <Users className="h-3.5 w-3.5 opacity-60" strokeWidth={2} />
                       {c.enrolledStudents}/{c.maxStudents}
                     </span>
                   </div>
@@ -238,8 +337,8 @@ export function StudentAvailable() {
                   {/* Progress bar */}
                   <div className="w-full h-1 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all duration-500 ${c.enrolledStudents >= c.maxStudents ? 'bg-red-500' : 'bg-primary-500'}`}
-                      style={{ width: `${Math.min((c.enrolledStudents / c.maxStudents) * 100, 100)}%` }}
+                      className={`h-full rounded-full transition-all duration-500 ${isFull(c) ? 'bg-red-500' : seatRatio(c) >= 80 ? 'bg-amber-500' : 'bg-primary-500'}`}
+                      style={{ width: `${seatRatio(c)}%` }}
                     />
                   </div>
 
@@ -278,22 +377,27 @@ export function StudentAvailable() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-3 pt-2">
-            <button
-              disabled={page <= 1}
-              onClick={() => setPage(p => p - 1)}
-              className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              ← Prev
-            </button>
-            <span className="text-sm text-[var(--color-text-tertiary)]">Page {page} of {totalPages}</span>
-            <button
-              disabled={page >= totalPages}
-              onClick={() => setPage(p => p + 1)}
-              className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              Next →
-            </button>
+          <div className="flex flex-col items-center justify-between gap-3 pt-2 sm:flex-row">
+            <span className="text-xs text-[var(--color-text-tertiary)]">
+              {lang === 'so' ? `Muujinaya ${rangeStart}–${rangeEnd} ee ${total}` : lang === 'ar' ? `عرض ${rangeStart}–${rangeEnd} من ${total}` : `Showing ${rangeStart}–${rangeEnd} of ${total}`}
+            </span>
+            <div className="flex items-center gap-3">
+              <button
+                disabled={page <= 1}
+                onClick={() => setPage(p => p - 1)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" strokeWidth={2} /> {lang === 'so' ? 'Hore' : lang === 'ar' ? 'السابق' : 'Prev'}
+              </button>
+              <span className="text-sm text-[var(--color-text-tertiary)]">{page} / {totalPages}</span>
+              <button
+                disabled={page >= totalPages}
+                onClick={() => setPage(p => p + 1)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                {lang === 'so' ? 'Xiga' : lang === 'ar' ? 'التالي' : 'Next'} <ChevronRight className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -302,35 +406,78 @@ export function StudentAvailable() {
       {selectedCourse && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setSelectedCourse(null)}>
           <div
-            className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto"
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-[var(--color-surface-primary)] shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">{getTitle(selectedCourse)}</h2>
-              <button onClick={() => setSelectedCourse(null)} className="text-2xl leading-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]">&times;</button>
-            </div>
-            <div className="space-y-3">
-              <div className="flex gap-2">
-                <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-3 py-1 text-xs font-medium text-primary-700">{getCat(selectedCourse.category)}</span>
-                <span className="rounded-full bg-gray-100 dark:bg-gray-800 px-3 py-1 text-xs font-medium">{getLevel(selectedCourse.level)}</span>
-                <span className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-3 py-1 text-xs font-medium text-amber-700">{selectedCourse.fee > 0 ? `$${selectedCourse.fee}` : lang === 'so' ? 'Bilaash' : lang === 'ar' ? 'مجاني' : 'Free'}</span>
-              </div>
-              {selectedCourse.description?.en && <p className="text-sm text-[var(--color-text-secondary)]">{selectedCourse.description.en}</p>}
-              <div className="flex justify-between py-1.5 border-b"><span className="text-xs text-[var(--color-text-tertiary)]">Duration</span><span className="text-sm font-medium">{selectedCourse.duration} weeks</span></div>
-              <div className="flex justify-between py-1.5 border-b"><span className="text-xs text-[var(--color-text-tertiary)]">Teacher</span><span className="text-sm font-medium">{selectedCourse.teacher?.profile ? `${selectedCourse.teacher.profile.firstName} ${selectedCourse.teacher.profile.lastName}` : 'TBA'}</span></div>
-              {selectedCourse.class && <div className="flex justify-between py-1.5 border-b"><span className="text-xs text-[var(--color-text-tertiary)]">Class</span><span className="text-sm font-medium">{selectedCourse.class.title} ({selectedCourse.class.section})</span></div>}
-              <div className="flex justify-between py-1.5 border-b"><span className="text-xs text-[var(--color-text-tertiary)]">Capacity</span><span className="text-sm font-medium">{selectedCourse.enrolledStudents}/{selectedCourse.maxStudents}</span></div>
-              <div className="flex justify-between py-1.5"><span className="text-xs text-[var(--color-text-tertiary)]">Status</span><span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${selectedCourse.isEnrolled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{selectedCourse.isEnrolled ? '✅ Enrolled' : 'Not enrolled'}</span></div>
-            </div>
-            <div className="mt-5 flex gap-2" onClick={e => e.stopPropagation()}>
-              {selectedCourse.isEnrolled ? (
-                <button onClick={() => { handleUnenroll(selectedCourse._id); setSelectedCourse(null); }} className="flex-1 rounded-xl border border-red-300 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50">{t('unenroll')}</button>
+            {/* Thumbnail */}
+            <div className="relative aspect-video w-full overflow-hidden rounded-t-2xl bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-900/40 dark:to-primary-800/30">
+              {selectedCourse.thumbnail && !brokenThumbnails.has(selectedCourse._id) ? (
+                <img
+                  src={selectedCourse.thumbnail}
+                  alt={selectedCourse.title.en}
+                  className="h-full w-full object-cover"
+                  onError={() => markThumbnailBroken(selectedCourse._id)}
+                />
               ) : (
-                <button onClick={() => { handleEnroll(selectedCourse._id); setSelectedCourse(null); }} disabled={isFull(selectedCourse)} className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
-                  {isFull(selectedCourse) ? t('class_full') : t('enroll_now')}
-                </button>
+                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-emerald-500/10 to-teal-500/10">
+                  <BookOpen className="h-14 w-14 text-emerald-600/40" strokeWidth={1.5} />
+                </div>
               )}
-              <button onClick={() => setSelectedCourse(null)} className="flex-1 rounded-xl border border-[var(--color-border-default)] py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)]">Close</button>
+              <button
+                onClick={() => setSelectedCourse(null)}
+                className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md transition-colors hover:bg-black/70"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" strokeWidth={2.5} />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-[var(--color-text-primary)]">{getTitle(selectedCourse)}</h2>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-3 py-1 text-xs font-medium text-primary-700 dark:text-primary-300">{getCat(selectedCourse.category)}</span>
+                <span className="rounded-full bg-gray-100 dark:bg-gray-800 px-3 py-1 text-xs font-medium text-[var(--color-text-secondary)]">{getLevel(selectedCourse.level)}</span>
+                <span className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-3 py-1 text-xs font-medium text-amber-700 dark:text-amber-400">{getFee(selectedCourse.fee)}</span>
+              </div>
+              {selectedCourse.description?.en && <p className="mt-4 text-sm text-[var(--color-text-secondary)]">{selectedCourse.description.en}</p>}
+
+              <div className="mt-4 divide-y divide-[var(--color-border-default)] rounded-xl border border-[var(--color-border-default)] px-4">
+                <div className="flex items-center justify-between py-3">
+                  <span className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><Clock className="h-3.5 w-3.5" strokeWidth={1.75} /> Duration</span>
+                  <span className="text-sm font-medium text-[var(--color-text-primary)]">{selectedCourse.duration} weeks</span>
+                </div>
+                <div className="flex items-center justify-between py-3">
+                  <span className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><GraduationCap className="h-3.5 w-3.5" strokeWidth={1.75} /> Teacher</span>
+                  <span className="text-sm font-medium text-[var(--color-text-primary)]">{selectedCourse.teacher?.profile ? `${selectedCourse.teacher.profile.firstName} ${selectedCourse.teacher.profile.lastName}` : 'TBA'}</span>
+                </div>
+                {selectedCourse.class && (
+                  <div className="flex items-center justify-between py-3">
+                    <span className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><School className="h-3.5 w-3.5" strokeWidth={1.75} /> Class</span>
+                    <span className="text-sm font-medium text-[var(--color-text-primary)]">{selectedCourse.class.title} ({selectedCourse.class.section})</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between py-3">
+                  <span className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><Users className="h-3.5 w-3.5" strokeWidth={1.75} /> Capacity</span>
+                  <span className="text-sm font-medium text-[var(--color-text-primary)]">{selectedCourse.enrolledStudents}/{selectedCourse.maxStudents}</span>
+                </div>
+                <div className="flex items-center justify-between py-3">
+                  <span className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">{selectedCourse.isEnrolled ? <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} /> : <XCircle className="h-3.5 w-3.5" strokeWidth={1.75} />} Status</span>
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${selectedCourse.isEnrolled ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}>
+                    {selectedCourse.isEnrolled ? 'Enrolled' : 'Not enrolled'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-5 flex gap-2" onClick={e => e.stopPropagation()}>
+                {selectedCourse.isEnrolled ? (
+                  <button onClick={() => { handleUnenroll(selectedCourse._id); setSelectedCourse(null); }} className="flex-1 rounded-xl border border-red-300 dark:border-red-800 py-2.5 text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">{t('unenroll')}</button>
+                ) : (
+                  <button onClick={() => { handleEnroll(selectedCourse._id); setSelectedCourse(null); }} disabled={isFull(selectedCourse)} className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">
+                    {isFull(selectedCourse) ? t('class_full') : t('enroll_now')}
+                  </button>
+                )}
+                <button onClick={() => setSelectedCourse(null)} className="flex-1 rounded-xl border border-[var(--color-border-default)] py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Close</button>
+              </div>
             </div>
           </div>
         </div>

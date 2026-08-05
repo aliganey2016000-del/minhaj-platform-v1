@@ -12,6 +12,7 @@ export interface PaginationMeta {
   totalPages: number;
   hasNextPage: boolean;
   hasPrevPage: boolean;
+  earlierGradesCount?: number;
 }
 
 export interface ApiResponseBody<T = unknown> {
@@ -82,7 +83,8 @@ class ApiResponse {
     res: Response,
     data: T[],
     pagination: { page: number; limit: number; total: number },
-    message = 'Data retrieved successfully'
+    message = 'Data retrieved successfully',
+    extraMeta?: Partial<PaginationMeta>
   ): Response {
     const { page, limit, total } = pagination;
     const totalPages = Math.ceil(total / limit);
@@ -94,6 +96,7 @@ class ApiResponse {
       totalPages,
       hasNextPage: page < totalPages,
       hasPrevPage: page > 1,
+      ...extraMeta,
     });
   }
 

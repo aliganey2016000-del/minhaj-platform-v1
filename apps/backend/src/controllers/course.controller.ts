@@ -624,16 +624,24 @@ export const selfUnenroll = async (req: Request, res: Response): Promise<Respons
 // fills that grade, not to the one Class document that existed when the
 // course was created. A student who has reached grade N has, by
 // definition, also already passed through every grade below N, so their
-// eligible classes are simply every class in their own department with
+// eligible classes are every class in their own department with
 // gradeLevel <= their current one — regardless of section, academicYear,
 // or batch, and regardless of whether THIS student's own promotion chain
 // happens to have a recorded predecessor at every grade (test/seed data
 // can have gaps; a plain numeric comparison doesn't depend on that chain
 // being unbroken the way walking `promotedTo` backward would).
 //
-// A grade the student hasn't reached yet is excluded by construction
+// By default Browse Courses only shows the student's CURRENT grade — a
+// student in Grade 12 shouldn't be handed 40+ courses spanning Grade 1
+// through 12 on every visit. `includeEarlierGrades` widens the scope to
+// every earlier grade too, for the explicit "show earlier grades" toggle.
+// A grade the student hasn't reached yet is excluded either way
 // (gradeLevel > current never matches).
-async function resolveEligibleClassIds(currentClassId: mongoose.Types.ObjectId | string | null | undefined, schoolId: unknown): Promise<mongoose.Types.ObjectId[]> {
+async function resolveEligibleClassIds(
+  currentClassId: mongoose.Types.ObjectId | string | null | undefined,
+  schoolId: unknown,
+  includeEarlierGrades: boolean
+): Promise<mongoose.Types.ObjectId[]> {
   if (!currentClassId) return [];
 
   const currentClass = await ClassModel.findById(currentClassId).select('department gradeLevel').lean();
@@ -647,10 +655,25 @@ async function resolveEligibleClassIds(currentClassId: mongoose.Types.ObjectId |
   const eligible = await ClassModel.find({
     school: schoolId,
     department: currentClass.department,
-    gradeLevel: { $lte: currentClass.gradeLevel, $ne: null },
+    gradeLevel: includeEarlierGrades ? { $lte: currentClass.gradeLevel, $ne: null } : currentClass.gradeLevel,
   }).select('_id').lean();
 
   return eligible.map((c) => c._id);
+}
+
+// Lets the frontend label the "show earlier grades" toggle with an
+// accurate count up front, without fetching those courses first.
+async function countEarlierGradeCourses(currentClassId: mongoose.Types.ObjectId | string | null | undefined, schoolId: unknown): Promise<number> {
+  if (!currentClassId) return 0;
+  const currentClass = await ClassModel.findById(currentClassId).select('department gradeLevel').lean();
+  if (!currentClass || currentClass.gradeLevel === null || currentClass.gradeLevel === undefined) return 0;
+
+  const earlierClassIds = await ClassModel.find({
+    school: schoolId, department: currentClass.department, gradeLevel: { $lt: currentClass.gradeLevel, $ne: null },
+  }).select('_id').lean();
+  if (earlierClassIds.length === 0) return 0;
+
+  return Course.countDocuments({ school: schoolId, status: 'published', class: { $in: earlierClassIds.map((c) => c._id) } });
 }
 
 export const getAvailableCourses = async (req: Request, res: Response): Promise<Response> => {
@@ -659,6 +682,7 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
   const category = req.query.category as string | undefined;
   const level = req.query.level as string | undefined;
   const search = req.query.search as string | undefined;
+  const includeEarlierGrades = req.query.includeEarlierGrades === 'true';
 
   // Resolve the student's own org/class first — a student must only ever
   // see courses offered to their organization, and (when the course is
@@ -682,10 +706,14 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
       { 'description.en': { $regex: search, $options: 'i' } },
     ];
   }
+  let earlierGradesCount: number | undefined;
   if (student) {
     filter.school = (student as any).school || null;
-    const eligibleClassIds = await resolveEligibleClassIds((student as any).class || null, filter.school);
+    const eligibleClassIds = await resolveEligibleClassIds((student as any).class || null, filter.school, includeEarlierGrades);
     filter.class = { $in: [...eligibleClassIds, null] };
+    if (!includeEarlierGrades) {
+      earlierGradesCount = await countEarlierGradeCourses((student as any).class || null, filter.school);
+    }
   }
 
   const [courses, total] = await Promise.all([
@@ -696,7 +724,7 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
         populate: { path: 'profile', select: 'firstName lastName' },
       })
       .populate('school', 'name')
-      .populate({ path: 'class', select: 'title section' })
+      .populate({ path: 'class', select: 'title section gradeLevel' })
       .select('title slug description category level duration fee teacher maxStudents enrolledStudents thumbnail status startDate school class')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -710,7 +738,7 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
     : [];
 
   const coursesWithStatus = courses.map((c: any) => ({ ...c, isEnrolled: enrolledIds.includes(c._id.toString()) }));
-  return ApiResponse.paginated(res, coursesWithStatus, { page, limit, total });
+  return ApiResponse.paginated(res, coursesWithStatus, { page, limit, total }, undefined, { earlierGradesCount });
 };
 
 // ---------------------------------------------------------------------------
