@@ -392,6 +392,9 @@ function nextAcademicYear(): string {
 export const getPromotionPreview = async (req: Request, res: Response): Promise<Response> => {
   const schoolId = resolveOrgIdForCreate(req, req.query.schoolId) as string | undefined;
   if (!schoolId) throw new BadRequestError('An organization must be selected');
+  // Testing-only override (see promoteAll below) — normally an
+  // already-promoted class is reported as skipped rather than promotable.
+  const allowRepromote = req.query.allowRepromote === 'true';
 
   const suggestedAcademicYear = nextAcademicYear();
 
@@ -408,13 +411,13 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
   // next grade) group so every section previews the same merged target.
   const targetTitleByKey = new Map<string, string>();
   for (const cls of classes as any[]) {
-    if (cls.promotedAt || cls.isGraduatingGrade || cls.gradeLevel === null || cls.gradeLevel === undefined) continue;
+    if ((cls.promotedAt && !allowRepromote) || cls.isGraduatingGrade || cls.gradeLevel === null || cls.gradeLevel === undefined) continue;
     const key = `${cls.department}::${cls.gradeLevel + 1}`;
     if (!targetTitleByKey.has(key)) targetTitleByKey.set(key, bumpTitleGrade(cls.title, cls.gradeLevel + 1));
   }
 
   for (const cls of classes as any[]) {
-    if (cls.promotedAt) {
+    if (cls.promotedAt && !allowRepromote) {
       groups.push({ classId: cls._id, title: cls.title, section: cls.section, action: 'already-promoted' });
       continue;
     }
@@ -465,8 +468,15 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
   if (!schoolId) throw new BadRequestError('An organization must be selected');
   const targetAcademicYear = String(req.body.targetAcademicYear || '').trim();
   if (!targetAcademicYear) throw new BadRequestError('Target academic year is required');
+  // Testing-only override — normally a class already promoted this cycle
+  // (`promotedAt` set) is excluded so a cohort can never be moved twice.
+  // The frontend only sends this when the admin explicitly checks the
+  // "testing" box in the Promote All dialog; it must stay off by default.
+  const allowRepromote = req.body.allowRepromote === true;
 
-  const classes = await ClassModel.find({ school: schoolId, status: 'active', promotedAt: null }).sort({ gradeLevel: 1 });
+  const classFilter: Record<string, unknown> = { school: schoolId, status: 'active' };
+  if (!allowRepromote) classFilter.promotedAt = null;
+  const classes = await ClassModel.find(classFilter).sort({ gradeLevel: 1 });
 
   const results: Record<string, unknown>[] = [];
 

@@ -773,14 +773,14 @@ export function SchoolsManage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]">
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap"><ColumnFilterHeader label="Organization Name" colKey="name" allValues={schools.map(schoolColumnAccessors.name)} currentSelected={schoolColumnFilters.name ?? null} currentSort={schoolSortCol === 'name' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden md:table-cell"><ColumnFilterHeader label="Address" colKey="address" allValues={schools.map(schoolColumnAccessors.address)} currentSelected={schoolColumnFilters.address ?? null} currentSort={schoolSortCol === 'address' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden lg:table-cell"><ColumnFilterHeader label="Phone" colKey="phone" allValues={schools.map(schoolColumnAccessors.phone)} currentSelected={schoolColumnFilters.phone ?? null} currentSort={schoolSortCol === 'phone' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden xl:table-cell"><ColumnFilterHeader label="Email" colKey="email" allValues={schools.map(schoolColumnAccessors.email)} currentSelected={schoolColumnFilters.email ?? null} currentSort={schoolSortCol === 'email' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap"><ColumnFilterHeader label="Principal" colKey="principal" allValues={schools.map(schoolColumnAccessors.principal)} currentSelected={schoolColumnFilters.principal ?? null} currentSort={schoolSortCol === 'principal' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden lg:table-cell"><ColumnFilterHeader label="Est." colKey="established" allValues={schools.map(schoolColumnAccessors.established)} currentSelected={schoolColumnFilters.established ?? null} currentSort={schoolSortCol === 'established' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap"><ColumnFilterHeader label="Status" colKey="status" allValues={schools.map(schoolColumnAccessors.status)} currentSelected={schoolColumnFilters.status ?? null} currentSort={schoolSortCol === 'status' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">Actions</th>
+                  <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[180px]"><ColumnFilterHeader label="Organization Name" colKey="name" allValues={schools.map(schoolColumnAccessors.name)} currentSelected={schoolColumnFilters.name ?? null} currentSort={schoolSortCol === 'name' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden md:table-cell min-w-[200px]"><ColumnFilterHeader label="Address" colKey="address" allValues={schools.map(schoolColumnAccessors.address)} currentSelected={schoolColumnFilters.address ?? null} currentSort={schoolSortCol === 'address' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden lg:table-cell min-w-[130px]"><ColumnFilterHeader label="Phone" colKey="phone" allValues={schools.map(schoolColumnAccessors.phone)} currentSelected={schoolColumnFilters.phone ?? null} currentSort={schoolSortCol === 'phone' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden xl:table-cell min-w-[180px]"><ColumnFilterHeader label="Email" colKey="email" allValues={schools.map(schoolColumnAccessors.email)} currentSelected={schoolColumnFilters.email ?? null} currentSort={schoolSortCol === 'email' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[140px]"><ColumnFilterHeader label="Principal" colKey="principal" allValues={schools.map(schoolColumnAccessors.principal)} currentSelected={schoolColumnFilters.principal ?? null} currentSort={schoolSortCol === 'principal' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden lg:table-cell min-w-[90px]"><ColumnFilterHeader label="Est." colKey="established" allValues={schools.map(schoolColumnAccessors.established)} currentSelected={schoolColumnFilters.established ?? null} currentSort={schoolSortCol === 'established' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Status" colKey="status" allValues={schools.map(schoolColumnAccessors.status)} currentSelected={schoolColumnFilters.status ?? null} currentSort={schoolSortCol === 'status' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[80px]">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -821,15 +821,15 @@ export function SchoolsManage() {
                       key={school._id}
                       className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
                     >
-                      <td className="px-6 py-4 font-medium text-[var(--color-text-primary)]">{school.name}</td>
-                      <td className="px-6 py-4 text-[var(--color-text-secondary)] hidden md:table-cell max-w-[200px] truncate" title={school.address}>
+                      <td className="px-4 py-3 whitespace-nowrap font-medium text-[var(--color-text-primary)]">{school.name}</td>
+                      <td className="px-4 py-3 text-[var(--color-text-secondary)] hidden md:table-cell max-w-[200px] truncate" title={school.address}>
                         {school.address}
                       </td>
-                      <td className="px-6 py-4 text-[var(--color-text-secondary)] hidden lg:table-cell">{school.phone}</td>
-                      <td className="px-6 py-4 text-[var(--color-text-secondary)] hidden xl:table-cell">{school.email}</td>
-                      <td className="px-6 py-4 text-[var(--color-text-secondary)]">{school.principalName}</td>
-                      <td className="px-6 py-4 text-[var(--color-text-secondary)] hidden lg:table-cell">{school.establishedYear}</td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] hidden lg:table-cell">{school.phone}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] hidden xl:table-cell">{school.email}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)]">{school.principalName}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] hidden lg:table-cell">{school.establishedYear}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
                             school.status === 'active'
@@ -840,7 +840,7 @@ export function SchoolsManage() {
                           {school.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <RowActionsMenu
                           onEdit={() => openEdit(school)}
                           onDelete={isSuperAdmin ? () => setDeleteTarget(school) : undefined}

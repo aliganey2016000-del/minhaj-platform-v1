@@ -224,12 +224,17 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState('');
   const [result, setResult] = useState<{ results: PromotionResult[]; promoted: number; graduated: number; skipped: number; studentsMoved: number } | null>(null);
+  // Testing-only override — normally an already-promoted class is skipped so
+  // a cohort never gets moved twice. Checking this lets QA re-run "Promote
+  // All" repeatedly against the same test classes; leave it OFF in
+  // production so the double-promotion guard stays enforced.
+  const [allowRepromote, setAllowRepromote] = useState(false);
 
   useEffect(() => {
     if (!schoolId) { setGroups([]); setMissingGradeLevel([]); return; }
     let cancelled = false;
     setLoadingPreview(true); setPreviewError('');
-    api.get('/classes/promotion-preview', { params: { schoolId } })
+    api.get('/classes/promotion-preview', { params: { schoolId, allowRepromote: allowRepromote ? 'true' : undefined } })
       .then(({ data }) => {
         if (cancelled) return;
         setGroups(data.data?.groups || []);
@@ -239,7 +244,7 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
       .catch((err: any) => { if (!cancelled) setPreviewError(err.response?.data?.message || 'Failed to load promotion preview'); })
       .finally(() => { if (!cancelled) setLoadingPreview(false); });
     return () => { cancelled = true; };
-  }, [schoolId]);
+  }, [schoolId, allowRepromote]);
 
   const promotable = groups.filter(g => g.action === 'promote-new' || g.action === 'promote-existing' || g.action === 'graduate');
   const alreadyPromoted = groups.filter(g => g.action === 'already-promoted');
@@ -249,7 +254,7 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
     if (!schoolId || !targetAcademicYear.trim()) return;
     setConfirming(true); setConfirmError('');
     try {
-      const { data } = await api.post('/classes/promote-all', { schoolId, targetAcademicYear: targetAcademicYear.trim() });
+      const { data } = await api.post('/classes/promote-all', { schoolId, targetAcademicYear: targetAcademicYear.trim(), allowRepromote });
       setResult(data.data);
       onDone();
     } catch (err: any) { setConfirmError(err.response?.data?.message || err.message || 'Promotion failed'); } finally { setConfirming(false); }
@@ -295,6 +300,15 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
                 <label htmlFor="targetAcademicYear" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Target Academic Year</label>
                 <input id="targetAcademicYear" type="text" value={targetAcademicYear} onChange={e => setTargetAcademicYear(e.target.value)} placeholder="e.g. 2026-2027" className="w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
+            )}
+
+            {schoolId && (
+              <label className="flex items-start gap-2 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 cursor-pointer">
+                <input type="checkbox" checked={allowRepromote} onChange={e => setAllowRepromote(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500/30" />
+                <span className="text-xs text-amber-800 dark:text-amber-300">
+                  <span className="font-semibold">Testing only:</span> allow re-promoting classes already promoted this cycle. Leave this unchecked in production — it disables the safeguard that stops a cohort from being moved twice.
+                </span>
+              </label>
             )}
 
             {loadingPreview && <div className="flex justify-center py-8"><div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>}
@@ -854,37 +868,37 @@ export function ClassesManage() {
             <table className="w-full text-sm">
               <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                 <tr>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
+                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[140px]">
                     <ColumnFilterHeader label="Class" colKey="title" allValues={classes.map(columnAccessors.title)} currentSelected={columnFilters.title ?? null} currentSort={sortCol === 'title' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
+                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[90px]">
                     <ColumnFilterHeader label="Section" colKey="section" allValues={classes.map(columnAccessors.section)} currentSelected={columnFilters.section ?? null} currentSort={sortCol === 'section' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell whitespace-nowrap">
+                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell whitespace-nowrap min-w-[140px]">
                     <ColumnFilterHeader label="Organization" colKey="organization" allValues={classes.map(columnAccessors.organization)} currentSelected={columnFilters.organization ?? null} currentSort={sortCol === 'organization' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
+                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[120px]">
                     <ColumnFilterHeader label="Department" colKey="department" allValues={classes.map(columnAccessors.department)} currentSelected={columnFilters.department ?? null} currentSort={sortCol === 'department' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
+                  <th className="text-center px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[110px]">
                     <ColumnFilterHeader label="Grade Level" colKey="gradeLevel" allValues={classes.map(columnAccessors.gradeLevel)} currentSelected={columnFilters.gradeLevel ?? null} currentSort={sortCol === 'gradeLevel' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
+                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[90px]">
                     <ColumnFilterHeader label="Room" colKey="room" allValues={classes.map(columnAccessors.room)} currentSelected={columnFilters.room ?? null} currentSort={sortCol === 'room' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
+                  <th className="text-center px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[110px]">
                     <ColumnFilterHeader label="Shift / Mode" colKey="shiftMode" allValues={classes.map(columnAccessors.shiftMode)} currentSelected={columnFilters.shiftMode ?? null} currentSort={sortCol === 'shiftMode' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
+                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[130px]">
                     <ColumnFilterHeader label="Academic Year" colKey="academicYear" allValues={classes.map(columnAccessors.academicYear)} currentSelected={columnFilters.academicYear ?? null} currentSort={sortCol === 'academicYear' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
+                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[110px]">
                     <ColumnFilterHeader label="Batch" colKey="batch" allValues={classes.map(columnAccessors.batch)} currentSelected={columnFilters.batch ?? null} currentSort={sortCol === 'batch' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
+                  <th className="text-center px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[110px]">
                     <ColumnFilterHeader label="Status" colKey="status" allValues={classes.map(columnAccessors.status)} currentSelected={columnFilters.status ?? null} currentSort={sortCol === 'status' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
                   </th>
-                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">Actions</th>
+                  <th className="text-center px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[80px]">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -893,16 +907,16 @@ export function ClassesManage() {
                 ) : (
                   displayedClasses.map(c => (
                     <tr key={c._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
-                      <td className="px-5 py-4"><p className="font-semibold text-[var(--color-text-primary)]">{c.title}</p></td>
-                      <td className="px-5 py-4"><span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{c.section}</span></td>
-                      <td className="px-5 py-4 hidden md:table-cell text-[var(--color-text-secondary)] text-sm">{c.school?.name || '—'}</td>
-                      <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm">{c.department || 'Primary'}</td>
-                      <td className="px-5 py-4 text-center text-[var(--color-text-secondary)] text-sm">{c.gradeLevel !== undefined && c.gradeLevel !== null ? c.gradeLevel : '—'}</td>
-                      <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm">{c.room}</td>
-                      <td className="px-5 py-4 text-center"><ShiftBadge mode={c.shiftMode || 'Morning'} /></td>
-                      <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm">{c.academicYear || '—'}</td>
-                      <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm font-mono">{c.batch || '—'}</td>
-                      <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}>
+                      <td className="px-4 py-3 whitespace-nowrap"><p className="font-semibold text-[var(--color-text-primary)]">{c.title}</p></td>
+                      <td className="px-4 py-3 whitespace-nowrap"><span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{c.section}</span></td>
+                      <td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.school?.name || '—'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.department || 'Primary'}</td>
+                      <td className="px-4 py-3 text-center whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.gradeLevel !== undefined && c.gradeLevel !== null ? c.gradeLevel : '—'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.room}</td>
+                      <td className="px-4 py-3 text-center whitespace-nowrap"><ShiftBadge mode={c.shiftMode || 'Morning'} /></td>
+                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.academicYear || '—'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] text-sm font-mono">{c.batch || '—'}</td>
+                      <td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
                         <span className="relative inline-flex items-center">
                           <select value={c.status} onChange={e => handleStatusChange(c._id, e.target.value)} className={`appearance-none rounded-full border-0 pl-3 pr-7 py-1 text-xs font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${STATUS_PILL_STYLES[c.status] || STATUS_PILL_STYLES.inactive}`}>
                             <option value="active">Active</option>
@@ -912,7 +926,7 @@ export function ClassesManage() {
                           <ChevronDown className="pointer-events-none absolute right-2 h-3 w-3 opacity-60" strokeWidth={2.5} />
                         </span>
                       </td>
-                      <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingClass(c)} onDelete={() => handleDelete(c._id)} /></div></td>
+                      <td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingClass(c)} onDelete={() => handleDelete(c._id)} /></div></td>
                     </tr>
                   ))
                 )}

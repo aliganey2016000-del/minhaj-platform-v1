@@ -534,44 +534,44 @@ export function UsersManage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]">
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]"><ColumnFilterHeader label="Name" colKey="name" allValues={users.map(userColumnAccessors.name)} currentSelected={userColumnFilters.name ?? null} currentSort={userSortCol === 'name' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]"><ColumnFilterHeader label="Email" colKey="email" allValues={users.map(userColumnAccessors.email)} currentSelected={userColumnFilters.email ?? null} currentSort={userSortCol === 'email' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]"><ColumnFilterHeader label="Role" colKey="role" allValues={users.map(userColumnAccessors.role)} currentSelected={userColumnFilters.role ?? null} currentSort={userSortCol === 'role' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell"><ColumnFilterHeader label="Organization" colKey="organization" allValues={users.map(userColumnAccessors.organization)} currentSelected={userColumnFilters.organization ?? null} currentSort={userSortCol === 'organization' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]"><ColumnFilterHeader label="Status" colKey="status" allValues={users.map(userColumnAccessors.status)} currentSelected={userColumnFilters.status ?? null} currentSort={userSortCol === 'status' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">Actions</th>
+                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[180px]"><ColumnFilterHeader label="Name" colKey="name" allValues={users.map(userColumnAccessors.name)} currentSelected={userColumnFilters.name ?? null} currentSort={userSortCol === 'name' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
+                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[200px]"><ColumnFilterHeader label="Email" colKey="email" allValues={users.map(userColumnAccessors.email)} currentSelected={userColumnFilters.email ?? null} currentSort={userSortCol === 'email' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
+                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[120px]"><ColumnFilterHeader label="Role" colKey="role" allValues={users.map(userColumnAccessors.role)} currentSelected={userColumnFilters.role ?? null} currentSort={userSortCol === 'role' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
+                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell whitespace-nowrap min-w-[160px]"><ColumnFilterHeader label="Organization" colKey="organization" allValues={users.map(userColumnAccessors.organization)} currentSelected={userColumnFilters.organization ?? null} currentSort={userSortCol === 'organization' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
+                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Status" colKey="status" allValues={users.map(userColumnAccessors.status)} currentSelected={userColumnFilters.status ?? null} currentSort={userSortCol === 'status' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
+                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[80px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--color-border-subtle)]">
                   {displayedUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-5 py-16 text-center text-[var(--color-text-tertiary)]">
+                      <td colSpan={6} className="px-4 py-16 text-center text-[var(--color-text-tertiary)]">
                         <p className="text-lg mb-1">🔍 No users match these column filters</p>
                         <button onClick={clearAllUserColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button>
                       </td>
                     </tr>
                   ) : displayedUsers.map(u => (
                     <tr key={u._id} className="hover:bg-[var(--color-surface-tertiary)]/50 transition-colors">
-                      <td className="px-5 py-3 font-medium text-[var(--color-text-primary)] whitespace-nowrap">
+                      <td className="px-4 py-3 font-medium text-[var(--color-text-primary)] whitespace-nowrap">
                         {fullName(u)}
                       </td>
-                      <td className="px-5 py-3 text-[var(--color-text-secondary)]">
+                      <td className="px-4 py-3 text-[var(--color-text-secondary)] whitespace-nowrap">
                         {u.email}
                       </td>
-                      <td className="px-5 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${roleLabels[u.role]?.color || 'bg-gray-100 text-gray-600'}`}>
                           {roleLabels[u.role]?.label || u.role}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-[var(--color-text-secondary)] hidden md:table-cell">
+                      <td className="px-4 py-3 text-[var(--color-text-secondary)] hidden md:table-cell whitespace-nowrap">
                         {orgName(u)}
                       </td>
-                      <td className="px-5 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${u.isActive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}>
                           {u.isActive ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      <td className="px-5 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <RowActionsMenu
                           onEdit={() => handleEdit(u)}
                           onDeactivate={u.isActive && u._id !== currentUser?.id ? () => handleDelete(u._id) : undefined}
