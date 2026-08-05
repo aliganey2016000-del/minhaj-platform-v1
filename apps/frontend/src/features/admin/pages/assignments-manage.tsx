@@ -212,7 +212,7 @@ function AssignmentFormPage({
     setClassesLoading(true); setDataLoading(true);
     if (!isEdit) setForm((prev) => ({ ...prev, classId: '', course: '' }));
     (async () => {
-      try { const { data } = await api.get('/classes', { params: { schoolId: form.organizationId, limit: '200' } }); setClasses(data.data || []); }
+      try { const { data } = await api.get('/classes', { params: { schoolId: form.organizationId, status: 'active', limit: '200' } }); setClasses(data.data || []); }
       catch { setClasses([]); } finally { setClassesLoading(false); setDataLoading(false); }
     })();
   }, [form.organizationId]); // eslint-disable-line react-hooks/exhaustive-deps

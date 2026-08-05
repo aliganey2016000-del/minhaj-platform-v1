@@ -297,7 +297,7 @@ function CourseModal({
       }
       setClassesLoading(true);
       try {
-        const { data } = await api.get('/classes', { params: { schoolId: form.school, limit: '200' } });
+        const { data } = await api.get('/classes', { params: { schoolId: form.school, status: 'active', limit: '200' } });
         setClasses(data.data || []);
       } catch {
         setClasses([]);

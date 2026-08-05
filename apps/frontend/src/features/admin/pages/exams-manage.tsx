@@ -249,7 +249,7 @@ function ExamModal({
   };
   const fetchClasses = async (dept: string) => {
     try {
-      const { data } = await api.get('/classes', { params: { department: dept, limit: 200 } });
+      const { data } = await api.get('/classes', { params: { department: dept, status: 'active', limit: 200 } });
       setClasses(data.data || []);
     } catch { setClasses([]); }
   };

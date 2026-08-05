@@ -253,7 +253,7 @@ export function SchedulesManage() {
     setClassesLoading(true);
     (async () => {
       try {
-        const { data } = await api.get(`/classes?department=${formDepartment}`);
+        const { data } = await api.get(`/classes?department=${formDepartment}&status=active`);
         setClasses(data.data || []);
       } catch {
         setClasses([]);
