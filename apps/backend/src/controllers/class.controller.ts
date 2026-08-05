@@ -449,8 +449,13 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
 
     const studentCount = await Student.countDocuments({ class: cls._id, status: 'active' });
 
+    // An entry-grade class (e.g. Grade 1) opens a fresh same-grade intake
+    // for the target year regardless of whether it also promotes/graduates
+    // this cycle's cohort — a school needs new Grade 1 seats every year.
+    const opensNewIntake = !!cls.isEntryGrade;
+
     if (cls.isGraduatingGrade) {
-      groups.push({ classId: cls._id, title: cls.title, section: cls.section, batch: cls.batch, gradeLevel: cls.gradeLevel, studentCount, action: 'graduate' });
+      groups.push({ classId: cls._id, title: cls.title, section: cls.section, batch: cls.batch, gradeLevel: cls.gradeLevel, studentCount, action: 'graduate', opensNewIntake });
       continue;
     }
 
@@ -464,6 +469,7 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
       classId: cls._id, title: cls.title, section: cls.section, batch: cls.batch, gradeLevel: cls.gradeLevel, studentCount,
       action: existingTarget ? 'promote-existing' : 'promote-new',
       targetTitle: existingTarget ? (existingTarget as any).title : targetTitleByKey.get(`${cls.department}::${nextGradeLevel}`),
+      opensNewIntake,
     });
   }
 
@@ -516,17 +522,48 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
 
   const results: Record<string, unknown>[] = [];
 
+  let intakesOpened = 0;
+
   for (const cls of classes) {
     if (cls.gradeLevel === null || cls.gradeLevel === undefined) {
       results.push({ classId: cls._id, title: cls.title, action: 'skipped', reason: 'No grade level set' });
       continue;
     }
 
+    // An entry-grade class (e.g. Grade 1) opens a fresh SAME-grade class
+    // for the target year, in addition to whatever happens to this cycle's
+    // cohort below — a school needs new Grade 1 seats every year, not just
+    // a promoted-up Grade 2. Matched by {department, gradeLevel,
+    // academicYear} (no section, same merge rule as normal targets), so
+    // multiple entry-flagged sections share one fresh intake class instead
+    // of creating a duplicate per section. `batch` is left blank — there's
+    // no prior cohort to inherit one from — for the admin to assign once
+    // the new intake actually enrolls.
+    let newIntakeClassId: mongoose.Types.ObjectId | undefined;
+    let newIntakeTitle: string | undefined;
+    if (cls.isEntryGrade) {
+      let intakeClass = await ClassModel.findOne({
+        school: schoolId, department: cls.department,
+        gradeLevel: cls.gradeLevel, academicYear: targetAcademicYear,
+      });
+      if (!intakeClass) {
+        intakeClass = await ClassModel.create({
+          school: cls.school, department: cls.department,
+          title: cls.title, section: cls.section, room: cls.room, shiftMode: cls.shiftMode,
+          teacher: cls.teacher || undefined, status: 'active',
+          gradeLevel: cls.gradeLevel, academicYear: targetAcademicYear, batch: '', isEntryGrade: true,
+        });
+        intakesOpened += 1;
+      }
+      newIntakeClassId = intakeClass._id as mongoose.Types.ObjectId;
+      newIntakeTitle = intakeClass.title;
+    }
+
     if (cls.isGraduatingGrade) {
       const { modifiedCount } = await Student.updateMany({ class: cls._id, status: 'active' }, { $set: { status: 'graduated' } });
       cls.promotedAt = new Date();
       await cls.save();
-      results.push({ classId: cls._id, title: cls.title, action: 'graduated', studentsMoved: modifiedCount });
+      results.push({ classId: cls._id, title: cls.title, action: 'graduated', studentsMoved: modifiedCount, newIntakeClassId, newIntakeTitle });
       continue;
     }
 
@@ -566,6 +603,7 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
     results.push({
       classId: cls._id, title: cls.title, action: 'promoted',
       targetClassId: targetClass._id, targetTitle: targetClass.title, studentsMoved: modifiedCount,
+      newIntakeClassId, newIntakeTitle,
     });
   }
 
@@ -576,7 +614,7 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
 
   return ApiResponse.success(
     res,
-    { results, promoted, graduated, skipped, sameYearSkipped, studentsMoved },
-    `Promoted ${promoted} classes, graduated ${graduated}, moved ${studentsMoved} students`
+    { results, promoted, graduated, skipped, sameYearSkipped, studentsMoved, intakesOpened },
+    `Promoted ${promoted} classes, graduated ${graduated}, moved ${studentsMoved} students` + (intakesOpened > 0 ? `, opened ${intakesOpened} new intake class(es)` : '')
   );
 };

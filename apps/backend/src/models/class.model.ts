@@ -18,6 +18,7 @@ export interface IClass extends Document {
   gradeLevel?: number;
   academicYear?: string;
   isGraduatingGrade?: boolean;
+  isEntryGrade?: boolean;
   promotedAt?: Date;
   promotedTo?: mongoose.Types.ObjectId;
   createdAt: Date;
@@ -54,6 +55,12 @@ const classSchema = new Schema<IClass>(
     // The final grade in a track (e.g. Grade 12) — promoting these marks
     // students `graduated` instead of moving them to a next-grade class.
     isGraduatingGrade: { type: Boolean, default: false },
+    // The entry point of a track (e.g. Grade 1) — promoting these ALSO
+    // opens a fresh same-grade class for the target academic year (batch
+    // left blank for the admin to assign), so a new intake of students has
+    // somewhere to enroll without the admin hand-building "Grade 1" again
+    // from scratch every cycle.
+    isEntryGrade: { type: Boolean, default: false },
     // Set once this class has been promoted, so re-running "Promote All"
     // never double-moves the same cohort. `promotedTo` links to the class
     // its students were moved into, for an audit trail.

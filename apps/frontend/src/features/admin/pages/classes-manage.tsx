@@ -41,6 +41,7 @@ interface ClassItem {
   gradeLevel?: number;
   academicYear?: string;
   isGraduatingGrade?: boolean;
+  isEntryGrade?: boolean;
   promotedAt?: string;
   createdAt: string;
 }
@@ -56,6 +57,7 @@ interface ClassForm {
   gradeLevel: string;
   academicYear: string;
   isGraduatingGrade: boolean;
+  isEntryGrade: boolean;
 }
 
 // The academic year currently in progress — Aug (month index 7) onward
@@ -67,7 +69,7 @@ function defaultAcademicYear(): string {
   return `${startY}-${startY + 1}`;
 }
 
-const emptyForm: ClassForm = { school: '', department: '', title: '', section: '', room: '', shiftMode: 'Morning', batch: '', gradeLevel: '', academicYear: defaultAcademicYear(), isGraduatingGrade: false };
+const emptyForm: ClassForm = { school: '', department: '', title: '', section: '', room: '', shiftMode: 'Morning', batch: '', gradeLevel: '', academicYear: defaultAcademicYear(), isGraduatingGrade: false, isEntryGrade: false };
 
 // ---------------------------------------------------------------------------
 // Badges
@@ -104,7 +106,7 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
     school: cls.school?._id || '', department: cls.departmentId || cls.department || '', title: cls.title || '',
     section: cls.section || '', room: cls.room || '', shiftMode: cls.shiftMode || 'Morning', batch: cls.batch || '',
     gradeLevel: cls.gradeLevel !== undefined && cls.gradeLevel !== null ? String(cls.gradeLevel) : '',
-    academicYear: cls.academicYear || defaultAcademicYear(), isGraduatingGrade: !!cls.isGraduatingGrade,
+    academicYear: cls.academicYear || defaultAcademicYear(), isGraduatingGrade: !!cls.isGraduatingGrade, isEntryGrade: !!cls.isEntryGrade,
   } : emptyForm);
   const [errors, setErrors] = useState<Partial<Record<keyof ClassForm, string>>>({});
   const [loading, setLoading] = useState(false);
@@ -137,7 +139,7 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
       const payload: Record<string, unknown> = {
         school: form.school, department: form.department, title: form.title.trim(), section: form.section.trim(),
         room: form.room.trim(), shiftMode: form.shiftMode, batch: form.batch.trim(),
-        gradeLevel: Number(form.gradeLevel), academicYear: form.academicYear.trim(), isGraduatingGrade: form.isGraduatingGrade,
+        gradeLevel: Number(form.gradeLevel), academicYear: form.academicYear.trim(), isGraduatingGrade: form.isGraduatingGrade, isEntryGrade: form.isEntryGrade,
       };
       if (isEdit) await api.patch(`/classes/${cls._id}`, payload); else await api.post('/classes', payload);
       onSaved(); onClose();
@@ -176,6 +178,10 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
             <input type="checkbox" name="isGraduatingGrade" checked={form.isGraduatingGrade} onChange={handleChange} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" />
             <span className="text-sm text-[var(--color-text-secondary)]">This is the final grade — promoting graduates students instead of moving them to a next class</span>
           </label>
+          <label className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 cursor-pointer">
+            <input type="checkbox" name="isEntryGrade" checked={form.isEntryGrade} onChange={handleChange} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" />
+            <span className="text-sm text-[var(--color-text-secondary)]">This is an entry grade (e.g. Grade 1) — promoting also opens a fresh intake class here for new students, so it doesn't need to be recreated by hand every year</span>
+          </label>
           <div><label htmlFor="department" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Department <span className="text-red-500">*</span></label><select id="department" name="department" value={form.department} onChange={handleChange} className={ic('department')}><option value="">Select a department...</option>{departments.map((dept) => (<option key={dept._id} value={dept._id}>{dept.name}{dept.code ? ` (${dept.code})` : ''}</option>))}</select>{errors.department && <p className="mt-1 text-xs text-red-500">{errors.department}</p>}</div>
           <div><label htmlFor="title" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Class Name <span className="text-red-500">*</span></label><input id="title" name="title" type="text" value={form.title} onChange={handleChange} placeholder="e.g. Grade 3" className={ic('title')} />{errors.title && <p className="mt-1 text-xs text-red-500">{errors.title}</p>}</div>
           <div><label htmlFor="section" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Section <span className="text-red-500">*</span></label><input id="section" name="section" type="text" value={form.section} onChange={handleChange} placeholder="e.g. A" className={ic('section')} />{errors.section && <p className="mt-1 text-xs text-red-500">{errors.section}</p>}</div>
@@ -203,6 +209,7 @@ interface PromotionGroup {
   studentCount?: number;
   action: 'promote-new' | 'promote-existing' | 'graduate' | 'already-promoted';
   targetTitle?: string;
+  opensNewIntake?: boolean;
 }
 
 interface PromotionResult {
@@ -212,6 +219,8 @@ interface PromotionResult {
   targetTitle?: string;
   studentsMoved?: number;
   reason?: string;
+  newIntakeClassId?: string;
+  newIntakeTitle?: string;
 }
 
 function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[]; onClose: () => void; onDone: () => void }) {
@@ -224,7 +233,7 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
   const [previewError, setPreviewError] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState('');
-  const [result, setResult] = useState<{ results: PromotionResult[]; promoted: number; graduated: number; skipped: number; sameYearSkipped: number; studentsMoved: number } | null>(null);
+  const [result, setResult] = useState<{ results: PromotionResult[]; promoted: number; graduated: number; skipped: number; sameYearSkipped: number; studentsMoved: number; intakesOpened: number } | null>(null);
   // Testing-only override — normally an already-promoted class is skipped so
   // a cohort never gets moved twice. Checking this lets QA re-run "Promote
   // All" repeatedly against the same test classes; leave it OFF in
@@ -274,15 +283,18 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
         {result ? (
           <div className="space-y-4">
             <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 dark:text-green-300">
-              ✅ Promoted {result.promoted} classes, graduated {result.graduated}, moved {result.studentsMoved} students{result.skipped > 0 ? `, skipped ${result.skipped}` : ''}{result.sameYearSkipped > 0 ? `, ${result.sameYearSkipped} already in "${targetAcademicYear}" left untouched` : ''}.
+              ✅ Promoted {result.promoted} classes, graduated {result.graduated}, moved {result.studentsMoved} students{result.skipped > 0 ? `, skipped ${result.skipped}` : ''}{result.sameYearSkipped > 0 ? `, ${result.sameYearSkipped} already in "${targetAcademicYear}" left untouched` : ''}{result.intakesOpened > 0 ? `, opened ${result.intakesOpened} new intake class(es)` : ''}.
             </div>
             <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)] max-h-64 overflow-y-auto">
               {result.results.map(r => (
                 <div key={r.classId} className="flex items-center justify-between px-4 py-2.5 text-sm">
                   <span className="text-[var(--color-text-primary)] font-medium">{r.title}</span>
-                  {r.action === 'promoted' && <span className="text-[var(--color-text-secondary)]">→ {r.targetTitle} ({r.studentsMoved} students)</span>}
-                  {r.action === 'graduated' && <span className="text-blue-600 dark:text-blue-400">🎓 Graduated ({r.studentsMoved} students)</span>}
-                  {r.action === 'skipped' && <span className="text-amber-600 dark:text-amber-400">Skipped — {r.reason}</span>}
+                  <span className="text-right">
+                    {r.action === 'promoted' && <span className="text-[var(--color-text-secondary)]">→ {r.targetTitle} ({r.studentsMoved} students)</span>}
+                    {r.action === 'graduated' && <span className="text-blue-600 dark:text-blue-400">🎓 Graduated ({r.studentsMoved} students)</span>}
+                    {r.action === 'skipped' && <span className="text-amber-600 dark:text-amber-400">Skipped — {r.reason}</span>}
+                    {r.newIntakeTitle && <span className="block text-xs text-primary-600 dark:text-primary-400">🆕 New intake: {r.newIntakeTitle}</span>}
+                  </span>
                 </div>
               ))}
             </div>
@@ -330,8 +342,11 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
                   {promotable.map(g => (
                     <div key={g.classId} className="flex items-center justify-between px-4 py-2.5 text-sm">
                       <span className="text-[var(--color-text-primary)]">{g.title} <span className="text-[var(--color-text-tertiary)]">({g.section})</span></span>
-                      <span className="text-[var(--color-text-secondary)]">
-                        {g.action === 'graduate' ? '🎓 Graduate' : `→ ${g.targetTitle}`} <span className="text-xs text-[var(--color-text-tertiary)]">· {g.studentCount} students</span>
+                      <span className="text-right">
+                        <span className="text-[var(--color-text-secondary)]">
+                          {g.action === 'graduate' ? '🎓 Graduate' : `→ ${g.targetTitle}`} <span className="text-xs text-[var(--color-text-tertiary)]">· {g.studentCount} students</span>
+                        </span>
+                        {g.opensNewIntake && <span className="block text-xs text-primary-600 dark:text-primary-400">🆕 + opens a fresh "{g.title}" intake</span>}
                       </span>
                     </div>
                   ))}
