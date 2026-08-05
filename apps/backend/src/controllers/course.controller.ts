@@ -617,24 +617,48 @@ export const selfUnenroll = async (req: Request, res: Response): Promise<Respons
 // Available Courses (Student catalog with enrollment status)
 // ---------------------------------------------------------------------------
 
-// A student should keep access to courses from every class they were
-// promoted FROM to reach their current one (so earlier-grade material
-// stays reachable), but never a class further ahead they haven't gotten to
-// yet. Walk `promotedTo` backward from the student's current class to
-// build that lineage — bounded defensively in case bad data ever forms a
-// cycle, though a real promotion chain should never be anywhere near this
-// long.
-async function resolveClassLineage(currentClassId: mongoose.Types.ObjectId | string | null | undefined): Promise<mongoose.Types.ObjectId[]> {
+// A course is scoped to a (organization, department, class) slot — NEVER
+// to a batch/cohort or a specific academic year's class document. "Grade
+// 2 - A in Department X" is the same slot every year; a course assigned
+// to it belongs to whichever cohort currently fills that seat, not to one
+// year's Class document. So eligibility has two parts:
+//
+//  1. Walk `promotedTo` backward from the student's current class to find
+//     every class they were promoted FROM (so earlier-grade material they
+//     already passed through stays reachable) — bounded defensively in
+//     case bad data ever forms a cycle, though a real promotion chain
+//     should never be anywhere near this long.
+//  2. For every grade in that lineage, pull in every "sibling" class
+//     sharing the same (department, gradeLevel, section) regardless of
+//     academicYear/batch, since that's the same slot under a different
+//     year's Class document.
+//
+// A grade the student hasn't reached yet never enters the lineage (the
+// walk only ever goes backward), so it's still correctly excluded.
+async function resolveEligibleClassIds(currentClassId: mongoose.Types.ObjectId | string | null | undefined, schoolId: unknown): Promise<mongoose.Types.ObjectId[]> {
   if (!currentClassId) return [];
-  const ids: mongoose.Types.ObjectId[] = [new mongoose.Types.ObjectId(currentClassId)];
-  let cursor: mongoose.Types.ObjectId = ids[0];
+
+  const lineage: any[] = [];
+  let cursor = new mongoose.Types.ObjectId(currentClassId);
   for (let i = 0; i < 50; i++) {
+    const cls: any = await ClassModel.findById(cursor).select('department gradeLevel section').lean();
+    if (!cls) break;
+    lineage.push(cls);
     const predecessor = await ClassModel.findOne({ promotedTo: cursor }).select('_id').lean();
     if (!predecessor) break;
-    ids.push(predecessor._id);
     cursor = predecessor._id;
   }
-  return ids;
+
+  const ids = new Set<string>(lineage.map((cls) => String(cls._id)));
+  for (const cls of lineage) {
+    if (cls.gradeLevel === null || cls.gradeLevel === undefined || !cls.section) continue;
+    const siblings = await ClassModel.find({
+      school: schoolId, department: cls.department, gradeLevel: cls.gradeLevel, section: cls.section,
+    }).select('_id').lean();
+    for (const s of siblings) ids.add(String(s._id));
+  }
+
+  return Array.from(ids).map((id) => new mongoose.Types.ObjectId(id));
 }
 
 export const getAvailableCourses = async (req: Request, res: Response): Promise<Response> => {
@@ -668,8 +692,8 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
   }
   if (student) {
     filter.school = (student as any).school || null;
-    const classLineage = await resolveClassLineage((student as any).class || null);
-    filter.class = { $in: [...classLineage, null] };
+    const eligibleClassIds = await resolveEligibleClassIds((student as any).class || null, filter.school);
+    filter.class = { $in: [...eligibleClassIds, null] };
   }
 
   const [courses, total] = await Promise.all([
