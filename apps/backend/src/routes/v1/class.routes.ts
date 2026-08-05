@@ -20,5 +20,7 @@ router.patch('/:id', adminOnly, asyncHandler(classController.update));
 router.delete('/:id', adminOnly, asyncHandler(classController.remove));
 router.patch('/:id/status', adminOnly, asyncHandler(classController.updateStatus));
 router.get('/schedule/:courseId', asyncHandler(classController.getSchedule));
+router.get('/promotion-preview', adminOnly, asyncHandler(classController.getPromotionPreview));
+router.post('/promote-all', adminOnly, asyncHandler(classController.promoteAll));
 
 export default router;

@@ -5,6 +5,7 @@ import ClassModel from '../models/class.model';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Department from '../models/department.model';
 import School from '../models/school.model';
+import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
@@ -357,4 +358,159 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     failed: errors.length,
     errors,
   }, `Imported ${inserted} of ${rows.length} classes`);
+};
+
+// ---------------------------------------------------------------------------
+// Year-end promotion — bump every class's students to the next grade in one
+// action, keeping their cohort `batch` code fixed and every historical
+// record (attendance, results, gradebook) intact on the OLD class document.
+// ---------------------------------------------------------------------------
+
+// Bumps the trailing grade number in a free-text title ("Grade 3" -> "Grade
+// 4"). Titles without a trailing number just get a suffix an admin can fix.
+function bumpTitleGrade(title: string, newGradeLevel: number): string {
+  if (/\d+(?!.*\d)/.test(title)) {
+    return title.replace(/\d+(?!.*\d)/, String(newGradeLevel));
+  }
+  return `${title} (Promoted)`;
+}
+
+// The academic year "one after whichever is currently active" — Aug(month
+// index 7)+ counts as already inside a new academic year.
+function nextAcademicYear(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const startY = now.getMonth() >= 7 ? y : y - 1;
+  return `${startY + 1}-${startY + 2}`;
+}
+
+// ---------------------------------------------------------------------------
+// GET /classes/promotion-preview — dry-run report of what "Promote All"
+// would do for one organization, without changing anything.
+// ---------------------------------------------------------------------------
+
+export const getPromotionPreview = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = resolveOrgIdForCreate(req, req.query.schoolId) as string | undefined;
+  if (!schoolId) throw new BadRequestError('An organization must be selected');
+
+  const suggestedAcademicYear = nextAcademicYear();
+
+  const classes = await ClassModel.find({ school: schoolId, status: 'active' })
+    .sort({ gradeLevel: 1, title: 1 })
+    .lean();
+
+  const groups: Record<string, unknown>[] = [];
+  const missingGradeLevel: Record<string, unknown>[] = [];
+
+  for (const cls of classes as any[]) {
+    if (cls.promotedAt) {
+      groups.push({ classId: cls._id, title: cls.title, section: cls.section, action: 'already-promoted' });
+      continue;
+    }
+    if (cls.gradeLevel === null || cls.gradeLevel === undefined) {
+      missingGradeLevel.push({ classId: cls._id, title: cls.title, section: cls.section });
+      continue;
+    }
+
+    const studentCount = await Student.countDocuments({ class: cls._id, status: 'active' });
+
+    if (cls.isGraduatingGrade) {
+      groups.push({ classId: cls._id, title: cls.title, section: cls.section, batch: cls.batch, gradeLevel: cls.gradeLevel, studentCount, action: 'graduate' });
+      continue;
+    }
+
+    const nextGradeLevel = cls.gradeLevel + 1;
+    const existingTarget = await ClassModel.findOne({
+      school: schoolId, department: cls.department, section: cls.section,
+      gradeLevel: nextGradeLevel, academicYear: suggestedAcademicYear,
+    }).select('title').lean();
+
+    groups.push({
+      classId: cls._id, title: cls.title, section: cls.section, batch: cls.batch, gradeLevel: cls.gradeLevel, studentCount,
+      action: existingTarget ? 'promote-existing' : 'promote-new',
+      targetTitle: existingTarget ? (existingTarget as any).title : bumpTitleGrade(cls.title, nextGradeLevel),
+    });
+  }
+
+  return ApiResponse.success(res, { suggestedAcademicYear, groups, missingGradeLevel });
+};
+
+// ---------------------------------------------------------------------------
+// POST /classes/promote-all — executes the promotion in one shot: for each
+// eligible class, find-or-create its next-grade class (carrying the batch
+// code forward) and bulk-move active students into it; graduating-grade
+// classes instead mark their students `graduated`. The source class is
+// never deleted or mutated beyond `status`/`promotedAt`/`promotedTo`, so
+// every historical record tied to its ID stays intact.
+// ---------------------------------------------------------------------------
+
+export const promoteAll = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = resolveOrgIdForCreate(req, req.body.schoolId) as string | undefined;
+  if (!schoolId) throw new BadRequestError('An organization must be selected');
+  const targetAcademicYear = String(req.body.targetAcademicYear || '').trim();
+  if (!targetAcademicYear) throw new BadRequestError('Target academic year is required');
+
+  const classes = await ClassModel.find({ school: schoolId, status: 'active', promotedAt: null }).sort({ gradeLevel: 1 });
+
+  const results: Record<string, unknown>[] = [];
+
+  for (const cls of classes) {
+    if (cls.gradeLevel === null || cls.gradeLevel === undefined) {
+      results.push({ classId: cls._id, title: cls.title, action: 'skipped', reason: 'No grade level set' });
+      continue;
+    }
+
+    if (cls.isGraduatingGrade) {
+      const { modifiedCount } = await Student.updateMany({ class: cls._id, status: 'active' }, { $set: { status: 'graduated' } });
+      cls.promotedAt = new Date();
+      await cls.save();
+      results.push({ classId: cls._id, title: cls.title, action: 'graduated', studentsMoved: modifiedCount });
+      continue;
+    }
+
+    const nextGradeLevel = cls.gradeLevel + 1;
+    let targetClass = await ClassModel.findOne({
+      school: schoolId, department: cls.department, section: cls.section,
+      gradeLevel: nextGradeLevel, academicYear: targetAcademicYear,
+    });
+
+    if (!targetClass) {
+      targetClass = await ClassModel.create({
+        school: cls.school, department: cls.department,
+        title: bumpTitleGrade(cls.title, nextGradeLevel),
+        section: cls.section, room: cls.room, shiftMode: cls.shiftMode,
+        teacher: cls.teacher || undefined, status: 'active',
+        gradeLevel: nextGradeLevel, academicYear: targetAcademicYear, batch: cls.batch,
+      });
+    }
+
+    const deptDoc = await Department.findById(cls.department).select('name').lean();
+    const deptName = (deptDoc as any)?.name;
+
+    const { modifiedCount } = await Student.updateMany(
+      { class: cls._id, status: 'active' },
+      { $set: { class: targetClass._id, department: deptName, shiftMode: targetClass.shiftMode, grade: targetClass.title } }
+    );
+
+    cls.promotedAt = new Date();
+    cls.promotedTo = targetClass._id as mongoose.Types.ObjectId;
+    cls.status = 'completed';
+    await cls.save();
+
+    results.push({
+      classId: cls._id, title: cls.title, action: 'promoted',
+      targetClassId: targetClass._id, targetTitle: targetClass.title, studentsMoved: modifiedCount,
+    });
+  }
+
+  const promoted = results.filter((r) => r.action === 'promoted').length;
+  const graduated = results.filter((r) => r.action === 'graduated').length;
+  const skipped = results.filter((r) => r.action === 'skipped').length;
+  const studentsMoved = results.reduce((sum: number, r: any) => sum + (r.studentsMoved || 0), 0);
+
+  return ApiResponse.success(
+    res,
+    { results, promoted, graduated, skipped, studentsMoved },
+    `Promoted ${promoted} classes, graduated ${graduated}, moved ${studentsMoved} students`
+  );
 };

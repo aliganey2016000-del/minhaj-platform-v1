@@ -38,6 +38,10 @@ interface ClassItem {
   meetingLink?: string;
   status: 'active' | 'inactive' | 'completed';
   batch?: string;
+  gradeLevel?: number;
+  academicYear?: string;
+  isGraduatingGrade?: boolean;
+  promotedAt?: string;
   createdAt: string;
 }
 
@@ -49,9 +53,21 @@ interface ClassForm {
   room: string;
   shiftMode: string;
   batch: string;
+  gradeLevel: string;
+  academicYear: string;
+  isGraduatingGrade: boolean;
 }
 
-const emptyForm: ClassForm = { school: '', department: '', title: '', section: '', room: '', shiftMode: 'Morning', batch: '' };
+// The academic year currently in progress — Aug (month index 7) onward
+// counts as already inside the new one. Used only as an editable default.
+function defaultAcademicYear(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const startY = now.getMonth() >= 7 ? y : y - 1;
+  return `${startY}-${startY + 1}`;
+}
+
+const emptyForm: ClassForm = { school: '', department: '', title: '', section: '', room: '', shiftMode: 'Morning', batch: '', gradeLevel: '', academicYear: defaultAcademicYear(), isGraduatingGrade: false };
 
 // ---------------------------------------------------------------------------
 // Badges
@@ -78,7 +94,12 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
 
 function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: ClassItem; schools: SchoolBrief[]; departments: DepartmentItem[]; onClose: () => void; onSaved: () => void }) {
   const isEdit = !!cls;
-  const [form, setForm] = useState<ClassForm>(cls ? { school: cls.school?._id || '', department: cls.departmentId || cls.department || '', title: cls.title || '', section: cls.section || '', room: cls.room || '', shiftMode: cls.shiftMode || 'Morning', batch: cls.batch || '' } : emptyForm);
+  const [form, setForm] = useState<ClassForm>(cls ? {
+    school: cls.school?._id || '', department: cls.departmentId || cls.department || '', title: cls.title || '',
+    section: cls.section || '', room: cls.room || '', shiftMode: cls.shiftMode || 'Morning', batch: cls.batch || '',
+    gradeLevel: cls.gradeLevel !== undefined && cls.gradeLevel !== null ? String(cls.gradeLevel) : '',
+    academicYear: cls.academicYear || defaultAcademicYear(), isGraduatingGrade: !!cls.isGraduatingGrade,
+  } : emptyForm);
   const [errors, setErrors] = useState<Partial<Record<keyof ClassForm, string>>>({});
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
@@ -91,11 +112,15 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
     if (!form.section.trim()) errs.section = 'Section is required';
     if (!form.room.trim()) errs.room = 'Room is required';
     if (!form.batch.trim()) errs.batch = 'Batch number is required';
+    if (!form.gradeLevel.trim()) errs.gradeLevel = 'Grade level is required';
+    if (!form.academicYear.trim()) errs.academicYear = 'Academic year is required';
     setErrors(errs); return Object.keys(errs).length === 0;
   };
 
   const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target; setForm(p => ({ ...p, [name]: value }));
+    const { name, value, type } = e.target;
+    const checked = type === 'checkbox' ? (e.target as HTMLInputElement).checked : undefined;
+    setForm(p => ({ ...p, [name]: type === 'checkbox' ? checked : value }));
     if (errors[name as keyof ClassForm]) setErrors(p => { const n = { ...p }; delete n[name as keyof ClassForm]; return n; });
   };
 
@@ -103,7 +128,11 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
     e.preventDefault(); if (!validate()) return;
     setLoading(true); setApiError('');
     try {
-      const payload: Record<string, unknown> = { school: form.school, department: form.department, title: form.title.trim(), section: form.section.trim(), room: form.room.trim(), shiftMode: form.shiftMode, batch: form.batch.trim() };
+      const payload: Record<string, unknown> = {
+        school: form.school, department: form.department, title: form.title.trim(), section: form.section.trim(),
+        room: form.room.trim(), shiftMode: form.shiftMode, batch: form.batch.trim(),
+        gradeLevel: Number(form.gradeLevel), academicYear: form.academicYear.trim(), isGraduatingGrade: form.isGraduatingGrade,
+      };
       if (isEdit) await api.patch(`/classes/${cls._id}`, payload); else await api.post('/classes', payload);
       onSaved(); onClose();
     } catch (err: any) { setApiError(err.response?.data?.message || err.message || 'Failed to save class'); } finally { setLoading(false); }
@@ -124,6 +153,23 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
             {errors.batch && <p className="mt-1 text-xs text-red-500">{errors.batch}</p>}
             <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Suggested format: Organization ID + 2-digit graduation year (e.g. 10026).</p>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="gradeLevel" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Grade Level <span className="text-red-500">*</span></label>
+              <input id="gradeLevel" name="gradeLevel" type="number" min={0} max={30} value={form.gradeLevel} onChange={handleChange} placeholder="e.g. 1" className={ic('gradeLevel')} />
+              {errors.gradeLevel && <p className="mt-1 text-xs text-red-500">{errors.gradeLevel}</p>}
+            </div>
+            <div>
+              <label htmlFor="academicYear" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Academic Year <span className="text-red-500">*</span></label>
+              <input id="academicYear" name="academicYear" type="text" value={form.academicYear} onChange={handleChange} placeholder="e.g. 2026-2027" className={ic('academicYear')} />
+              {errors.academicYear && <p className="mt-1 text-xs text-red-500">{errors.academicYear}</p>}
+            </div>
+          </div>
+          <p className="-mt-2 text-xs text-[var(--color-text-tertiary)]">Grade Level (1, 2, 3...) and Academic Year let "Promote All Classes" automatically find or create next year's class.</p>
+          <label className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 cursor-pointer">
+            <input type="checkbox" name="isGraduatingGrade" checked={form.isGraduatingGrade} onChange={handleChange} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" />
+            <span className="text-sm text-[var(--color-text-secondary)]">This is the final grade — promoting graduates students instead of moving them to a next class</span>
+          </label>
           <div><label htmlFor="department" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Department <span className="text-red-500">*</span></label><select id="department" name="department" value={form.department} onChange={handleChange} className={ic('department')}><option value="">Select a department...</option>{departments.map((dept) => (<option key={dept._id} value={dept._id}>{dept.name}{dept.code ? ` (${dept.code})` : ''}</option>))}</select>{errors.department && <p className="mt-1 text-xs text-red-500">{errors.department}</p>}</div>
           <div><label htmlFor="title" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Class Name <span className="text-red-500">*</span></label><input id="title" name="title" type="text" value={form.title} onChange={handleChange} placeholder="e.g. Grade 3" className={ic('title')} />{errors.title && <p className="mt-1 text-xs text-red-500">{errors.title}</p>}</div>
           <div><label htmlFor="section" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Section <span className="text-red-500">*</span></label><input id="section" name="section" type="text" value={form.section} onChange={handleChange} placeholder="e.g. A" className={ic('section')} />{errors.section && <p className="mt-1 text-xs text-red-500">{errors.section}</p>}</div>
@@ -131,6 +177,169 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
           <div><label htmlFor="shiftMode" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Shift / Learning Mode <span className="text-red-500">*</span></label><select id="shiftMode" name="shiftMode" value={form.shiftMode} onChange={handleChange} className={ic('shiftMode')}><option value="Morning">Morning</option><option value="Afternoon">Afternoon</option><option value="Evening">Evening</option><option value="Virtual">Virtual</option></select></div>
           <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button><button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}{isEdit ? 'Update' : 'Create'}</button></div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Promote All Classes — year-end wizard: preview which classes will move to
+// the next grade (or graduate), confirm once, and the backend does the rest
+// in a single request.
+// ---------------------------------------------------------------------------
+
+interface PromotionGroup {
+  classId: string;
+  title: string;
+  section: string;
+  batch?: string;
+  gradeLevel?: number;
+  studentCount?: number;
+  action: 'promote-new' | 'promote-existing' | 'graduate' | 'already-promoted';
+  targetTitle?: string;
+}
+
+interface PromotionResult {
+  classId: string;
+  title: string;
+  action: 'promoted' | 'graduated' | 'skipped';
+  targetTitle?: string;
+  studentsMoved?: number;
+  reason?: string;
+}
+
+function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[]; onClose: () => void; onDone: () => void }) {
+  const [schoolId, setSchoolId] = useState(schools.length === 1 ? schools[0]._id : '');
+  const [targetAcademicYear, setTargetAcademicYear] = useState('');
+  const [groups, setGroups] = useState<PromotionGroup[]>([]);
+  const [missingGradeLevel, setMissingGradeLevel] = useState<{ classId: string; title: string; section: string }[]>([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState('');
+  const [result, setResult] = useState<{ results: PromotionResult[]; promoted: number; graduated: number; skipped: number; studentsMoved: number } | null>(null);
+
+  useEffect(() => {
+    if (!schoolId) { setGroups([]); setMissingGradeLevel([]); return; }
+    let cancelled = false;
+    setLoadingPreview(true); setPreviewError('');
+    api.get('/classes/promotion-preview', { params: { schoolId } })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setGroups(data.data?.groups || []);
+        setMissingGradeLevel(data.data?.missingGradeLevel || []);
+        setTargetAcademicYear(prev => prev || data.data?.suggestedAcademicYear || '');
+      })
+      .catch((err: any) => { if (!cancelled) setPreviewError(err.response?.data?.message || 'Failed to load promotion preview'); })
+      .finally(() => { if (!cancelled) setLoadingPreview(false); });
+    return () => { cancelled = true; };
+  }, [schoolId]);
+
+  const promotable = groups.filter(g => g.action === 'promote-new' || g.action === 'promote-existing' || g.action === 'graduate');
+  const alreadyPromoted = groups.filter(g => g.action === 'already-promoted');
+  const totalStudents = promotable.reduce((sum, g) => sum + (g.studentCount || 0), 0);
+
+  const handleConfirm = async () => {
+    if (!schoolId || !targetAcademicYear.trim()) return;
+    setConfirming(true); setConfirmError('');
+    try {
+      const { data } = await api.post('/classes/promote-all', { schoolId, targetAcademicYear: targetAcademicYear.trim() });
+      setResult(data.data);
+      onDone();
+    } catch (err: any) { setConfirmError(err.response?.data?.message || err.message || 'Promotion failed'); } finally { setConfirming(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-xl font-bold text-[var(--color-text-primary)]">🎓 Promote All Classes</h2>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+        </div>
+
+        {result ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 dark:text-green-300">
+              ✅ Promoted {result.promoted} classes, graduated {result.graduated}, moved {result.studentsMoved} students{result.skipped > 0 ? `, skipped ${result.skipped}` : ''}.
+            </div>
+            <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)] max-h-64 overflow-y-auto">
+              {result.results.map(r => (
+                <div key={r.classId} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <span className="text-[var(--color-text-primary)] font-medium">{r.title}</span>
+                  {r.action === 'promoted' && <span className="text-[var(--color-text-secondary)]">→ {r.targetTitle} ({r.studentsMoved} students)</span>}
+                  {r.action === 'graduated' && <span className="text-blue-600 dark:text-blue-400">🎓 Graduated ({r.studentsMoved} students)</span>}
+                  {r.action === 'skipped' && <span className="text-amber-600 dark:text-amber-400">Skipped — {r.reason}</span>}
+                </div>
+              ))}
+            </div>
+            <button onClick={onClose} className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors">Done</button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="promoteSchool" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Organization</label>
+              <select id="promoteSchool" value={schoolId} onChange={e => { setSchoolId(e.target.value); setResult(null); }} className="w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500">
+                <option value="">Select an organization...</option>
+                {schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
+              </select>
+            </div>
+
+            {schoolId && (
+              <div>
+                <label htmlFor="targetAcademicYear" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Target Academic Year</label>
+                <input id="targetAcademicYear" type="text" value={targetAcademicYear} onChange={e => setTargetAcademicYear(e.target.value)} placeholder="e.g. 2026-2027" className="w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              </div>
+            )}
+
+            {loadingPreview && <div className="flex justify-center py-8"><div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>}
+            {previewError && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 px-4 py-2.5 text-sm text-red-600 dark:text-red-400">{previewError}</div>}
+
+            {!loadingPreview && schoolId && groups.length === 0 && missingGradeLevel.length === 0 && (
+              <p className="text-sm text-[var(--color-text-tertiary)] text-center py-6">No active classes found for this organization.</p>
+            )}
+
+            {promotable.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Will be promoted ({totalStudents} students total):</p>
+                <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)] max-h-56 overflow-y-auto">
+                  {promotable.map(g => (
+                    <div key={g.classId} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                      <span className="text-[var(--color-text-primary)]">{g.title} <span className="text-[var(--color-text-tertiary)]">({g.section})</span></span>
+                      <span className="text-[var(--color-text-secondary)]">
+                        {g.action === 'graduate' ? '🎓 Graduate' : `→ ${g.targetTitle}`} <span className="text-xs text-[var(--color-text-tertiary)]">· {g.studentCount} students</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {alreadyPromoted.length > 0 && (
+              <p className="text-xs text-[var(--color-text-tertiary)]">{alreadyPromoted.length} class(es) already promoted this cycle — skipped automatically.</p>
+            )}
+
+            {missingGradeLevel.length > 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-3">
+                <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-1">⚠️ {missingGradeLevel.length} class(es) missing a Grade Level — edit them first, then re-open this dialog:</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400">{missingGradeLevel.map(c => `${c.title} (${c.section})`).join(', ')}</p>
+              </div>
+            )}
+
+            {confirmError && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 px-4 py-2.5 text-sm text-red-600 dark:text-red-400">{confirmError}</div>}
+
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
+              <button
+                type="button" onClick={handleConfirm}
+                disabled={confirming || !schoolId || !targetAcademicYear.trim() || promotable.length === 0}
+                className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-2"
+              >
+                {confirming && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+                Confirm & Promote All
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -260,8 +469,8 @@ function DepartmentModal({ open, departments, onClose, onSaved }: { open: boolea
   );
 }
 
-function ActionsDropdown({ onImport, onExport, exporting, label, onManageDepartments, onAddClass }: {
-  onImport: () => void; onExport: () => void; exporting: boolean; label: string; onManageDepartments: () => void; onAddClass: () => void;
+function ActionsDropdown({ onImport, onExport, exporting, label, onManageDepartments, onAddClass, onPromoteAll }: {
+  onImport: () => void; onExport: () => void; exporting: boolean; label: string; onManageDepartments: () => void; onAddClass: () => void; onPromoteAll: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -284,6 +493,8 @@ function ActionsDropdown({ onImport, onExport, exporting, label, onManageDepartm
         <div className="my-1 border-t border-[var(--color-border-subtle)]" />
         <button onClick={() => { setOpen(false); onImport(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">{'\u2191 Import ' + label + ' via Excel'}</button>
         <button onClick={() => { setOpen(false); onExport(); }} disabled={exporting} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50 flex items-center gap-2 transition-colors">{exporting ? <div className="h-3 w-3 animate-spin rounded-full border border-[var(--color-border-default)] border-t-primary-600" /> : '\u2193 Export ' + label + ' to Excel'}</button>
+        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+        <button onClick={() => { setOpen(false); onPromoteAll(); }} className="w-full text-left px-4 py-2.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">🎓 Promote All Classes</button>
       </div>,
       document.body,
     )}
@@ -341,6 +552,7 @@ export function ClassesManage() {
   const [schools, setSchools] = useState<SchoolBrief[]>([]);
   const [departments, setDepartments] = useState<DepartmentItem[]>([]);
   const [showDepartments, setShowDepartments] = useState(false);
+  const [showPromoteAll, setShowPromoteAll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -513,6 +725,7 @@ export function ClassesManage() {
               label="Classes"
               onManageDepartments={() => setShowDepartments(true)}
               onAddClass={() => setShowCreate(true)}
+              onPromoteAll={() => setShowPromoteAll(true)}
             />
           </div>
         </div>
@@ -669,6 +882,7 @@ export function ClassesManage() {
       {showCreate && <ClassModal departments={departments} schools={schools} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchData(); }} />}
       {editingClass && <ClassModal cls={editingClass} departments={departments} schools={schools} onClose={() => setEditingClass(undefined)} onSaved={() => { setEditingClass(undefined); fetchData(); }} />}
       <DepartmentModal open={showDepartments} departments={departments} onClose={() => setShowDepartments(false)} onSaved={() => { setShowDepartments(false); fetchData(); }} />
+      {showPromoteAll && <PromoteAllModal schools={schools} onClose={() => setShowPromoteAll(false)} onDone={fetchData} />}
     </div>
   );
 }
