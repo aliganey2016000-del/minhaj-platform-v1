@@ -569,6 +569,9 @@ export function ClassesManage() {
     department: (r) => r.department || 'Primary',
     room: (r) => r.room,
     shiftMode: (r) => r.shiftMode || 'Morning',
+    gradeLevel: (r) => (r.gradeLevel !== undefined && r.gradeLevel !== null ? String(r.gradeLevel) : '—'),
+    academicYear: (r) => r.academicYear || '—',
+    batch: (r) => r.batch || '—',
     status: (r) => r.status,
   };
   const {
@@ -845,11 +848,20 @@ export function ClassesManage() {
                   <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">
                     <ColumnFilterHeader label="Department" colKey="department" allValues={classes.map(columnAccessors.department)} currentSelected={columnFilters.department ?? null} currentSort={sortCol === 'department' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
+                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                    <ColumnFilterHeader label="Grade Level" colKey="gradeLevel" allValues={classes.map(columnAccessors.gradeLevel)} currentSelected={columnFilters.gradeLevel ?? null} currentSort={sortCol === 'gradeLevel' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
+                  </th>
                   <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">
                     <ColumnFilterHeader label="Room" colKey="room" allValues={classes.map(columnAccessors.room)} currentSelected={columnFilters.room ?? null} currentSort={sortCol === 'room' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
                   <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)]">
                     <ColumnFilterHeader label="Shift / Mode" colKey="shiftMode" allValues={classes.map(columnAccessors.shiftMode)} currentSelected={columnFilters.shiftMode ?? null} currentSort={sortCol === 'shiftMode' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
+                  </th>
+                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                    <ColumnFilterHeader label="Academic Year" colKey="academicYear" allValues={classes.map(columnAccessors.academicYear)} currentSelected={columnFilters.academicYear ?? null} currentSort={sortCol === 'academicYear' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
+                  </th>
+                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                    <ColumnFilterHeader label="Batch" colKey="batch" allValues={classes.map(columnAccessors.batch)} currentSelected={columnFilters.batch ?? null} currentSort={sortCol === 'batch' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
                   <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)]">
                     <ColumnFilterHeader label="Status" colKey="status" allValues={classes.map(columnAccessors.status)} currentSelected={columnFilters.status ?? null} currentSort={sortCol === 'status' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
@@ -859,7 +871,7 @@ export function ClassesManage() {
               </thead>
               <tbody>
                 {displayedClasses.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)]">{classes.length === 0 ? (<><p className="text-lg mb-1">🏫 No classes found</p><p className="text-sm">Click "+ Add Class" to create one.</p></>) : (<><p className="text-lg mb-1">🔍 No classes match these filters</p><button onClick={clearAllColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></>)}</td></tr>
+                  <tr><td colSpan={11} className="text-center py-16 text-[var(--color-text-tertiary)]">{classes.length === 0 ? (<><p className="text-lg mb-1">🏫 No classes found</p><p className="text-sm">Click "+ Add Class" to create one.</p></>) : (<><p className="text-lg mb-1">🔍 No classes match these filters</p><button onClick={clearAllColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></>)}</td></tr>
                 ) : (
                   displayedClasses.map(c => (
                     <tr key={c._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
@@ -867,8 +879,11 @@ export function ClassesManage() {
                       <td className="px-5 py-4"><span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{c.section}</span></td>
                       <td className="px-5 py-4 hidden md:table-cell text-[var(--color-text-secondary)] text-sm">{c.school?.name || '—'}</td>
                       <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm">{c.department || 'Primary'}</td>
+                      <td className="px-5 py-4 text-center text-[var(--color-text-secondary)] text-sm">{c.gradeLevel !== undefined && c.gradeLevel !== null ? c.gradeLevel : '—'}</td>
                       <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm">{c.room}</td>
                       <td className="px-5 py-4 text-center"><ShiftBadge mode={c.shiftMode || 'Morning'} /></td>
+                      <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm">{c.academicYear || '—'}</td>
+                      <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm font-mono">{c.batch || '—'}</td>
                       <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><select value={c.status} onChange={e => handleStatusChange(c._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer text-[var(--color-text-primary)]"><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select></td>
                       <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingClass(c)} onDelete={() => handleDelete(c._id)} /></div></td>
                     </tr>
