@@ -90,7 +90,7 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
     if (!form.title.trim()) errs.title = 'Class name is required';
     if (!form.section.trim()) errs.section = 'Section is required';
     if (!form.room.trim()) errs.room = 'Room is required';
-    if (!isEdit && !form.batch.trim()) errs.batch = 'Batch number is required';
+    if (!form.batch.trim()) errs.batch = 'Batch number is required';
     setErrors(errs); return Object.keys(errs).length === 0;
   };
 
@@ -103,8 +103,7 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
     e.preventDefault(); if (!validate()) return;
     setLoading(true); setApiError('');
     try {
-      const payload: Record<string, unknown> = { school: form.school, department: form.department, title: form.title.trim(), section: form.section.trim(), room: form.room.trim(), shiftMode: form.shiftMode };
-      if (!isEdit) payload.batch = form.batch.trim();
+      const payload: Record<string, unknown> = { school: form.school, department: form.department, title: form.title.trim(), section: form.section.trim(), room: form.room.trim(), shiftMode: form.shiftMode, batch: form.batch.trim() };
       if (isEdit) await api.patch(`/classes/${cls._id}`, payload); else await api.post('/classes', payload);
       onSaved(); onClose();
     } catch (err: any) { setApiError(err.response?.data?.message || err.message || 'Failed to save class'); } finally { setLoading(false); }
@@ -120,15 +119,10 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
         <form onSubmit={handleSubmit} className="space-y-4">
           <div><label htmlFor="school" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Organization <span className="text-red-500">*</span></label><select id="school" name="school" value={form.school} onChange={handleChange} className={ic('school')}><option value="">Select an organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>{errors.school && <p className="mt-1 text-xs text-red-500">{errors.school}</p>}</div>
           <div>
-            <label htmlFor="batch" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Batch Number {!isEdit && <span className="text-red-500">*</span>}</label>
-            <input
-              id="batch" name="batch" type="text" value={form.batch} onChange={handleChange}
-              readOnly={isEdit} disabled={isEdit}
-              placeholder="e.g. 10026"
-              className={isEdit ? 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)] cursor-not-allowed' : ic('batch')}
-            />
+            <label htmlFor="batch" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Batch Number <span className="text-red-500">*</span></label>
+            <input id="batch" name="batch" type="text" value={form.batch} onChange={handleChange} placeholder="e.g. 10026" className={ic('batch')} />
             {errors.batch && <p className="mt-1 text-xs text-red-500">{errors.batch}</p>}
-            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{isEdit ? '🔒 Permanent — stays the same as students are promoted to the next grade.' : 'Suggested format: Organization ID + 2-digit graduation year (e.g. 10026). Permanent once set — cannot be changed later.'}</p>
+            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Suggested format: Organization ID + 2-digit graduation year (e.g. 10026).</p>
           </div>
           <div><label htmlFor="department" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Department <span className="text-red-500">*</span></label><select id="department" name="department" value={form.department} onChange={handleChange} className={ic('department')}><option value="">Select a department...</option>{departments.map((dept) => (<option key={dept._id} value={dept._id}>{dept.name}{dept.code ? ` (${dept.code})` : ''}</option>))}</select>{errors.department && <p className="mt-1 text-xs text-red-500">{errors.department}</p>}</div>
           <div><label htmlFor="title" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Class Name <span className="text-red-500">*</span></label><input id="title" name="title" type="text" value={form.title} onChange={handleChange} placeholder="e.g. Grade 3" className={ic('title')} />{errors.title && <p className="mt-1 text-xs text-red-500">{errors.title}</p>}</div>

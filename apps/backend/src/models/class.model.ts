@@ -34,12 +34,10 @@ const classSchema = new Schema<IClass>(
     meetingLink: { type: String, default: '' },
     teacher: { type: Schema.Types.ObjectId, ref: 'Teacher', default: null, index: true },
     status: { type: String, enum: ['active', 'inactive', 'completed'], default: 'active', index: true },
-    // The cohort's permanent batch code — typed once by an admin at class
-    // creation (e.g. Organization ID + 2-digit graduation year) and locked
-    // from then on, since it must stay fixed as students promote through
-    // grades. Not `required` at the schema level so pre-existing classes
-    // without one remain valid; the update endpoint strips it from every
-    // PATCH so it can never be changed after creation (class.controller.ts).
+    // The cohort's batch code, e.g. Organization ID + 2-digit graduation
+    // year — typed by an admin and editable from the Manage Classes form.
+    // Not `required` at the schema level so pre-existing classes without
+    // one remain valid.
     batch: { type: String, trim: true, maxlength: 20, default: '', index: true },
   },
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }

@@ -112,9 +112,6 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const updates = { ...req.body };
   // org_admin can never move a class to a different organization.
   if (req.user?.role === 'org_admin') delete updates.school;
-  // The batch code is permanent once set at creation — a class promoted
-  // from one grade to the next must keep its original cohort batch code.
-  delete updates.batch;
 
   const cls = await ClassModel.findByIdAndUpdate(req.params.id, updates, {
     new: true,
