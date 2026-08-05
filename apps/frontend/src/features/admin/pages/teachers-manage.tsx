@@ -9,6 +9,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Presentation, Search, MoreVertical } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -165,12 +166,29 @@ function PermissionModal({ teacher, onClose, onSaved }: { teacher: Teacher; onCl
   );
 }
 
-function ThreeDotsMenu({ teacher, onEdit, onDelete }: { teacher: Teacher; onEdit: () => void; onDelete: () => void }) {
+const TEACHER_STATUS_OPTIONS: { value: Teacher['status']; label: string }[] = [
+  { value: 'active', label: 'Set Active' },
+  { value: 'inactive', label: 'Set Inactive' },
+  { value: 'on_leave', label: 'Set On Leave' },
+];
+
+function ThreeDotsMenu({ teacher, onEdit, onDelete, onSetStatus, onPermission }: {
+  teacher: Teacher; onEdit: () => void; onDelete: () => void; onSetStatus: (status: Teacher['status']) => void; onPermission: () => void;
+}) {
   const [open, setOpen] = useState(false); const buttonRef = useRef<HTMLButtonElement>(null); const menuRef = useRef<HTMLDivElement>(null); const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
   useEffect(() => { if (!open) return; const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, [open]);
   const toggle = (e: React.MouseEvent) => { e.stopPropagation(); if (!open && buttonRef.current) { const r = buttonRef.current.getBoundingClientRect(); setMenuStyle({ position: 'fixed', top: r.bottom + 4, left: r.right - 208, zIndex: 100 }); } setOpen(!open); };
   const act = (action: () => void) => { setOpen(false); action(); };
-  return (<><button ref={buttonRef} onClick={toggle} className="p-2 rounded-lg hover:bg-[var(--color-surface-tertiary)] transition-colors" title="Actions"><svg className="h-4 w-4 text-[var(--color-text-secondary)]" fill="currentColor" viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" /></svg></button>{open && createPortal(<div ref={menuRef} style={menuStyle} className="w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1"><button onClick={() => act(onEdit)} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2">✏️ Edit Profile</button><div className="border-t border-[var(--color-border-subtle)] my-1" /><button onClick={() => act(onDelete)} className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center gap-2">🗑️ Delete Teacher</button></div>, document.body)}</>);
+  return (<><button ref={buttonRef} onClick={toggle} className="p-2 rounded-lg hover:bg-[var(--color-surface-tertiary)] transition-colors" title="Actions"><svg className="h-4 w-4 text-[var(--color-text-secondary)]" fill="currentColor" viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" /></svg></button>{open && createPortal(<div ref={menuRef} style={menuStyle} className="w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
+    <button onClick={() => act(onEdit)} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2">✏️ Edit Profile</button>
+    <button onClick={() => act(onPermission)} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2">🔑 Course Permission</button>
+    <div className="border-t border-[var(--color-border-subtle)] my-1" />
+    {TEACHER_STATUS_OPTIONS.filter((o) => o.value !== teacher.status).map((o) => (
+      <button key={o.value} onClick={() => act(() => onSetStatus(o.value))} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2">🔄 {o.label}</button>
+    ))}
+    <div className="border-t border-[var(--color-border-subtle)] my-1" />
+    <button onClick={() => act(onDelete)} className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center gap-2">🗑️ Delete Teacher</button>
+  </div>, document.body)}</>);
 }
 
 // ---------------------------------------------------------------------------
@@ -229,6 +247,7 @@ export function TeachersManage() {
   }, []);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | undefined>(undefined);
   const [viewingTeacher, setViewingTeacher] = useState<Teacher | undefined>(undefined);
+  const [permissioningTeacher, setPermissioningTeacher] = useState<Teacher | undefined>(undefined);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [filterSchool, setFilterSchool] = useState('');
@@ -262,7 +281,22 @@ export function TeachersManage() {
 
   const handleApplyFilters = () => { if (isSuperAdmin && !filterSchool) { setError('Please select an organization to view teachers.'); return; } fetchTeachers(); };
   const handleDelete = async (id: string, name: string) => { if (!window.confirm(`Delete teacher "${name}"?`)) return; try { await api.delete(`/teachers/${id}`); setTeachers(p => p.filter(t => t._id !== id)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
-  const handleStatusToggle = async (id: string, currentStatus: string) => { const ns = currentStatus === 'active' ? 'inactive' : 'active'; try { await api.patch(`/teachers/${id}/status`, { status: ns }); setTeachers(p => p.map(t => t._id === id ? { ...t, status: ns as Teacher['status'] } : t)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
+  const handleSetStatus = async (id: string, ns: Teacher['status']) => { try { await api.patch(`/teachers/${id}/status`, { status: ns }); setTeachers(p => p.map(t => t._id === id ? { ...t, status: ns } : t)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
+  const handleStatusToggle = (id: string, currentStatus: string) => handleSetStatus(id, currentStatus === 'active' ? 'inactive' : 'active');
+
+  // Excel-style column header filters/sort — client-side, over whichever page of results is currently loaded.
+  const teacherColumnAccessors: Record<string, (row: Teacher) => string> = {
+    name: (t) => `${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`.trim() || t.user?.email || '—',
+    organization: (t) => t.school?.name || '—',
+    specialization: (t) => (t.specialization || []).join(', ') || '—',
+    courses: (t) => String(t.courses?.length || 0),
+    status: (t) => t.status,
+  };
+  const {
+    columnFilters: teacherColumnFilters, sortCol: teacherSortCol, sortDir: teacherSortDir,
+    applyColumnCommit: applyTeacherColumnCommit, clearColumnFilter: clearTeacherColumnFilter,
+    clearAll: clearAllTeacherColumnFilters, displayedRows: displayedTeachers, columnFiltersActive: teacherColumnFiltersActive,
+  } = useColumnFilters(teachers, teacherColumnAccessors);
 
   // ───────────────────────────────────────────────────────────────────────
   // Import Modal Logic
@@ -367,11 +401,20 @@ export function TeachersManage() {
         {!loading && hasFetched && teachers.length === 0 && <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card"><p className="text-4xl mb-4">👨‍🏫</p><p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No teachers found</p><p className="text-sm text-[var(--color-text-tertiary)]">Try adjusting your filters or click "+ Add Teacher" to create one.</p></div>}
 
         {!loading && hasFetched && teachers.length > 0 && (<><div className="grid grid-cols-1 sm:grid-cols-3 gap-4"><div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-300">{activeCount}</p><p className="text-xs text-green-600 dark:text-green-400">Active</p></div><div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-4 text-center"><p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{onLeaveCount}</p><p className="text-xs text-amber-600 dark:text-amber-400">On Leave</p></div><div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-2xl font-bold text-red-700 dark:text-red-300">{inactiveCount}</p><p className="text-xs text-red-600 dark:text-red-400">Inactive</p></div></div>
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-visible shadow-card"><div className="overflow-x-auto overflow-y-visible"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr><th className="text-left px-5 py-3 font-semibold">Teacher</th><th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Specialization</th><th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Courses</th><th className="text-center px-5 py-3 font-semibold">Status</th><th className="text-center px-5 py-3 font-semibold">Actions</th></tr></thead><tbody>{teachers.map(t => (<tr key={t._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingTeacher(t)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{t.profile?.firstName?.[0]}{t.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold truncate">{t.profile?.firstName} {t.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{t.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{t.school?.name || '—'}</td><td className="px-5 py-4 hidden lg:table-cell"><div className="flex flex-wrap gap-1">{(t.specialization || []).slice(0, 3).map(s => <span key={s} className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{s}</span>)}{(t.specialization || []).length > 3 && <span className="text-xs text-[var(--color-text-tertiary)]">+{t.specialization.length - 3}</span>}</div></td><td className="px-5 py-4 text-center hidden sm:table-cell"><span className="font-medium">{t.courses?.length || 0}</span></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><button onClick={() => handleStatusToggle(t._id, t.status)} className="cursor-pointer" title="Click to toggle"><StatusBadge status={t.status} /></button></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><ThreeDotsMenu teacher={t} onEdit={() => setEditingTeacher(t)} onDelete={() => handleDelete(t._id, `${t.profile?.firstName} ${t.profile?.lastName}`)} /></td></tr>))}</tbody></table></div></div></>)}
+          {teacherColumnFiltersActive && (<div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><span>Showing {displayedTeachers.length} of {teachers.length} loaded teachers (column filters active)</span><button onClick={clearAllTeacherColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button></div>)}
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr>
+            <th className="text-left px-5 py-3 font-semibold"><ColumnFilterHeader label="Teacher" colKey="name" allValues={teachers.map(teacherColumnAccessors.name)} currentSelected={teacherColumnFilters.name ?? null} currentSort={teacherSortCol === 'name' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} /></th>
+            <th className="text-left px-5 py-3 font-semibold hidden md:table-cell"><ColumnFilterHeader label="Organization" colKey="organization" allValues={teachers.map(teacherColumnAccessors.organization)} currentSelected={teacherColumnFilters.organization ?? null} currentSort={teacherSortCol === 'organization' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} /></th>
+            <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell"><ColumnFilterHeader label="Specialization" colKey="specialization" allValues={teachers.map(teacherColumnAccessors.specialization)} currentSelected={teacherColumnFilters.specialization ?? null} currentSort={teacherSortCol === 'specialization' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} /></th>
+            <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell"><ColumnFilterHeader label="Courses" colKey="courses" allValues={teachers.map(teacherColumnAccessors.courses)} currentSelected={teacherColumnFilters.courses ?? null} currentSort={teacherSortCol === 'courses' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} align="center" /></th>
+            <th className="text-center px-5 py-3 font-semibold"><ColumnFilterHeader label="Status" colKey="status" allValues={teachers.map(teacherColumnAccessors.status)} currentSelected={teacherColumnFilters.status ?? null} currentSort={teacherSortCol === 'status' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} align="center" /></th>
+            <th className="text-center px-5 py-3 font-semibold">Actions</th>
+          </tr></thead><tbody>{displayedTeachers.length === 0 ? (<tr><td colSpan={6} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No teachers match these column filters</p><button onClick={clearAllTeacherColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedTeachers.map(t => (<tr key={t._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingTeacher(t)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{t.profile?.firstName?.[0]}{t.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold truncate">{t.profile?.firstName} {t.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{t.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{t.school?.name || '—'}</td><td className="px-5 py-4 hidden lg:table-cell"><div className="flex flex-wrap gap-1">{(t.specialization || []).slice(0, 3).map(s => <span key={s} className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{s}</span>)}{(t.specialization || []).length > 3 && <span className="text-xs text-[var(--color-text-tertiary)]">+{t.specialization.length - 3}</span>}</div></td><td className="px-5 py-4 text-center hidden sm:table-cell"><span className="font-medium">{t.courses?.length || 0}</span></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><button onClick={() => handleStatusToggle(t._id, t.status)} className="cursor-pointer" title="Click to toggle"><StatusBadge status={t.status} /></button></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><ThreeDotsMenu teacher={t} onEdit={() => setEditingTeacher(t)} onDelete={() => handleDelete(t._id, `${t.profile?.firstName} ${t.profile?.lastName}`)} onSetStatus={(status) => handleSetStatus(t._id, status)} onPermission={() => setPermissioningTeacher(t)} /></td></tr>))}</tbody></table></div></div></>)}
 
         {showCreate && <TeacherModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchTeachers(); }} />}
         {editingTeacher && <TeacherModal teacher={editingTeacher} onClose={() => setEditingTeacher(undefined)} onSaved={() => { setEditingTeacher(undefined); fetchTeachers(); }} />}
         {viewingTeacher && <ViewModal teacher={viewingTeacher} onClose={() => setViewingTeacher(undefined)} />}
+        {permissioningTeacher && <PermissionModal teacher={permissioningTeacher} onClose={() => setPermissioningTeacher(undefined)} onSaved={() => { setPermissioningTeacher(undefined); fetchTeachers(); }} />}
       </div>
     </div>
   );

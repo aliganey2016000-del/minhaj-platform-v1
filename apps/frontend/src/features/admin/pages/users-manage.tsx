@@ -14,6 +14,7 @@ import { createPortal } from 'react-dom';
 import { Users, MoreVertical, Pencil, Ban } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -404,6 +405,20 @@ export function UsersManage() {
       ? (u.organizationId as UserOrg).name
       : '—';
 
+  // Excel-style column header filters/sort — client-side, over whichever page of results is currently loaded.
+  const userColumnAccessors: Record<string, (row: UserRecord) => string> = {
+    name: (u) => fullName(u),
+    email: (u) => u.email,
+    role: (u) => roleLabels[u.role]?.label || u.role,
+    organization: (u) => orgName(u),
+    status: (u) => (u.isActive ? 'Active' : 'Inactive'),
+  };
+  const {
+    columnFilters: userColumnFilters, sortCol: userSortCol, sortDir: userSortDir,
+    applyColumnCommit: applyUserColumnCommit, clearColumnFilter: clearUserColumnFilter,
+    clearAll: clearAllUserColumnFilters, displayedRows: displayedUsers, columnFiltersActive: userColumnFiltersActive,
+  } = useColumnFilters(users, userColumnAccessors);
+
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-7xl space-y-6">
@@ -507,22 +522,35 @@ export function UsersManage() {
               <p className="text-sm">Click "+ Create User" to add one.</p>
             </div>
           </div>
-        ) : (
+        ) : (<>
+          {userColumnFiltersActive && (
+            <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] mb-3">
+              <span>Showing {displayedUsers.length} of {users.length} loaded users (column filters active)</span>
+              <button onClick={clearAllUserColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button>
+            </div>
+          )}
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]">
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">Name</th>
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">Email</th>
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">Role</th>
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell">Organization</th>
-                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">Status</th>
+                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]"><ColumnFilterHeader label="Name" colKey="name" allValues={users.map(userColumnAccessors.name)} currentSelected={userColumnFilters.name ?? null} currentSort={userSortCol === 'name' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
+                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]"><ColumnFilterHeader label="Email" colKey="email" allValues={users.map(userColumnAccessors.email)} currentSelected={userColumnFilters.email ?? null} currentSort={userSortCol === 'email' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
+                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]"><ColumnFilterHeader label="Role" colKey="role" allValues={users.map(userColumnAccessors.role)} currentSelected={userColumnFilters.role ?? null} currentSort={userSortCol === 'role' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
+                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell"><ColumnFilterHeader label="Organization" colKey="organization" allValues={users.map(userColumnAccessors.organization)} currentSelected={userColumnFilters.organization ?? null} currentSort={userSortCol === 'organization' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
+                    <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]"><ColumnFilterHeader label="Status" colKey="status" allValues={users.map(userColumnAccessors.status)} currentSelected={userColumnFilters.status ?? null} currentSort={userSortCol === 'status' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
                     <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--color-border-subtle)]">
-                  {users.map(u => (
+                  {displayedUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-16 text-center text-[var(--color-text-tertiary)]">
+                        <p className="text-lg mb-1">🔍 No users match these column filters</p>
+                        <button onClick={clearAllUserColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button>
+                      </td>
+                    </tr>
+                  ) : displayedUsers.map(u => (
                     <tr key={u._id} className="hover:bg-[var(--color-surface-tertiary)]/50 transition-colors">
                       <td className="px-5 py-3 font-medium text-[var(--color-text-primary)] whitespace-nowrap">
                         {fullName(u)}
@@ -555,7 +583,7 @@ export function UsersManage() {
               </table>
             </div>
           </div>
-        )}
+        </>)}
       </div>
 
       {/* Create Modal */}

@@ -12,6 +12,7 @@ import { GraduationCap, Users, Building2, BookOpen, School, Pencil, Trash2, Laye
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip } from 'recharts';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -755,6 +756,23 @@ export function StudentsManage() {
   const handleReject = async (id: string) => { if (!window.confirm('Reject this student?')) return; try { await api.patch(`/students/${id}/reject`); fetchStudents(page); fetchStats(); } catch (err: any) { alert(err.response?.data?.message || 'Failed to reject'); } };
   const totalPages = Math.ceil(total / limit);
 
+  // Excel-style column header filters/sort — client-side, over whichever
+  // page of results is currently loaded (this table is server-paginated).
+  const studentColumnAccessors: Record<string, (row: Student) => string> = {
+    name: (s) => `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim() || s.user?.email || '—',
+    organization: (s) => s.school?.name || '—',
+    class: (s) => (s.class ? `${s.class.title} — ${s.class.section}` : '—'),
+    department: (s) => s.department || '—',
+    shift: (s) => s.shiftMode || '—',
+    approval: (s) => s.approvalStatus,
+    status: (s) => s.status,
+  };
+  const {
+    columnFilters: studentColumnFilters, sortCol: studentSortCol, sortDir: studentSortDir,
+    applyColumnCommit: applyStudentColumnCommit, clearColumnFilter: clearStudentColumnFilter,
+    clearAll: clearAllStudentColumnFilters, displayedRows: displayedStudents, columnFiltersActive: studentColumnFiltersActive,
+  } = useColumnFilters(students, studentColumnAccessors);
+
   // Row actions — status changes, Edit, and Deactivate all live in one kebab
   // menu instead of a separate inline status <select> next to it.
   const buildRowActions = (st: Student): RowAction[] => {
@@ -895,8 +913,23 @@ export function StudentsManage() {
 
         {!loading && hasFetched && students.length > 0 && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="sticky top-0 z-10 bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr><th className="text-left px-5 py-3 font-semibold">Student</th><th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Class</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Department</th><th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Shift</th><th className="text-center px-5 py-3 font-semibold">Approval</th><th className="text-center px-5 py-3 font-semibold hidden md:table-cell">Status</th><th className="text-center px-5 py-3 font-semibold">Actions</th></tr></thead>
-              <tbody>{students.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="relative flex-shrink-0"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--color-surface-primary)] ${STATUS_DOT_COLORS[st.status] || STATUS_DOT_COLORS.inactive}`} title={st.status} /></div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-5 py-4 hidden lg:table-cell">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-5 py-4 text-center"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-5 py-4 text-center hidden md:table-cell"><StatusBadge status={st.status} /></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><RowActionsMenu actions={buildRowActions(st)} /></td></tr>))}</tbody></table></div>
+            {studentColumnFiltersActive && (
+              <div className="flex items-center gap-2 px-5 py-2 text-xs text-[var(--color-text-tertiary)] border-b border-[var(--color-border-subtle)]">
+                <span>Showing {displayedStudents.length} of {students.length} loaded students (column filters active)</span>
+                <button onClick={clearAllStudentColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button>
+              </div>
+            )}
+            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="sticky top-0 z-10 bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr>
+              <th className="text-left px-5 py-3 font-semibold"><ColumnFilterHeader label="Student" colKey="name" allValues={students.map(studentColumnAccessors.name)} currentSelected={studentColumnFilters.name ?? null} currentSort={studentSortCol === 'name' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
+              <th className="text-left px-5 py-3 font-semibold hidden md:table-cell"><ColumnFilterHeader label="Organization" colKey="organization" allValues={students.map(studentColumnAccessors.organization)} currentSelected={studentColumnFilters.organization ?? null} currentSort={studentSortCol === 'organization' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
+              <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell"><ColumnFilterHeader label="Class" colKey="class" allValues={students.map(studentColumnAccessors.class)} currentSelected={studentColumnFilters.class ?? null} currentSort={studentSortCol === 'class' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
+              <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell"><ColumnFilterHeader label="Department" colKey="department" allValues={students.map(studentColumnAccessors.department)} currentSelected={studentColumnFilters.department ?? null} currentSort={studentSortCol === 'department' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
+              <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell"><ColumnFilterHeader label="Shift" colKey="shift" allValues={students.map(studentColumnAccessors.shift)} currentSelected={studentColumnFilters.shift ?? null} currentSort={studentSortCol === 'shift' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
+              <th className="text-center px-5 py-3 font-semibold"><ColumnFilterHeader label="Approval" colKey="approval" allValues={students.map(studentColumnAccessors.approval)} currentSelected={studentColumnFilters.approval ?? null} currentSort={studentSortCol === 'approval' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} align="center" /></th>
+              <th className="text-center px-5 py-3 font-semibold hidden md:table-cell"><ColumnFilterHeader label="Status" colKey="status" allValues={students.map(studentColumnAccessors.status)} currentSelected={studentColumnFilters.status ?? null} currentSort={studentSortCol === 'status' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} align="center" /></th>
+              <th className="text-center px-5 py-3 font-semibold">Actions</th>
+            </tr></thead>
+              <tbody>{displayedStudents.length === 0 ? (<tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No students match these column filters</p><button onClick={clearAllStudentColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedStudents.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="relative flex-shrink-0"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--color-surface-primary)] ${STATUS_DOT_COLORS[st.status] || STATUS_DOT_COLORS.inactive}`} title={st.status} /></div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-5 py-4 hidden lg:table-cell">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-5 py-4 hidden lg:table-cell text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-5 py-4 text-center"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-5 py-4 text-center hidden md:table-cell"><StatusBadge status={st.status} /></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><RowActionsMenu actions={buildRowActions(st)} /></td></tr>))}</tbody></table></div>
           </div>
         )}
 

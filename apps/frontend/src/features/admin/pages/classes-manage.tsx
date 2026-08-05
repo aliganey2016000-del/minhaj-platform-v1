@@ -3,10 +3,11 @@
  * Fields: School, Class Name, Section, Room, Shift / Learning Mode.
  */
 
-import { useEffect, useState, useCallback, useMemo, useRef, type FormEvent, type ChangeEvent } from 'react';
+import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { School, Pencil, Trash2, MoreVertical, ChevronDown, ArrowUp, ArrowDown, Search, X } from 'lucide-react';
+import { School, Pencil, Trash2, MoreVertical } from 'lucide-react';
 import api from '../../../lib/axios';
+import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -323,166 +324,6 @@ function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: ()
   </>);
 }
 
-// ---------------------------------------------------------------------------
-// Excel-style column header filter — click a column header to get a
-// dropdown with Sort A→Z / Z→A, a search box, and a checkbox list of every
-// unique value in that column (with a "(Select All)" toggle). Selections
-// are staged locally and only take effect on OK, exactly like Excel's own
-// AutoFilter dropdown — Cancel discards, Clear removes any filter/sort on
-// this column.
-// ---------------------------------------------------------------------------
-
-function ColumnFilterHeader({ label, colKey, allValues, currentSelected, currentSort, onCommit, onClear, align = 'left' }: {
-  label: string;
-  colKey: string;
-  allValues: string[];
-  currentSelected: Set<string> | null;
-  currentSort: 'asc' | 'desc' | null;
-  onCommit: (colKey: string, selected: Set<string> | null, sort: 'asc' | 'desc' | null) => void;
-  onClear: (colKey: string) => void;
-  align?: 'left' | 'center';
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [draftSelected, setDraftSelected] = useState<Set<string>>(new Set());
-  const [draftSort, setDraftSort] = useState<'asc' | 'desc' | null>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const uniqueValues = useMemo(
-    () => Array.from(new Set(allValues)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })),
-    [allValues]
-  );
-
-  const openMenu = () => {
-    setDraftSelected(new Set(currentSelected ?? uniqueValues));
-    setDraftSort(currentSort);
-    setQuery('');
-    setOpen(true);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node) && btnRef.current && !btnRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [open]);
-
-  const visibleOptions = uniqueValues.filter((v) => v.toLowerCase().includes(query.toLowerCase()));
-  const allVisibleChecked = visibleOptions.length > 0 && visibleOptions.every((v) => draftSelected.has(v));
-
-  const toggleAllVisible = () => {
-    setDraftSelected((prev) => {
-      const next = new Set(prev);
-      if (allVisibleChecked) visibleOptions.forEach((v) => next.delete(v));
-      else visibleOptions.forEach((v) => next.add(v));
-      return next;
-    });
-  };
-  const toggleOne = (v: string) => {
-    setDraftSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(v)) next.delete(v); else next.add(v);
-      return next;
-    });
-  };
-
-  const commit = () => {
-    const selected = draftSelected.size < uniqueValues.length ? draftSelected : null;
-    onCommit(colKey, selected, draftSort);
-    setOpen(false);
-  };
-
-  const isActive = currentSelected !== null || currentSort !== null;
-
-  return (
-    <span className="relative inline-flex items-center gap-1">
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={() => (open ? setOpen(false) : openMenu())}
-        className={`inline-flex items-center gap-1 rounded px-1 -mx-1 py-0.5 transition-colors ${isActive ? 'text-primary-600 dark:text-primary-400' : 'hover:text-primary-600 dark:hover:text-primary-400'}`}
-      >
-        {label}
-        <ChevronDown className="h-3 w-3 flex-shrink-0" strokeWidth={2.5} />
-        {isActive && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary-500" />}
-      </button>
-
-      {open && btnRef.current && createPortal(
-        <div
-          ref={menuRef}
-          style={{
-            position: 'fixed',
-            top: btnRef.current.getBoundingClientRect().bottom + 4,
-            ...(align === 'center'
-              ? { left: Math.max(8, btnRef.current.getBoundingClientRect().left + btnRef.current.getBoundingClientRect().width / 2 - 128) }
-              : { left: btnRef.current.getBoundingClientRect().left }),
-            zIndex: 100,
-          }}
-          className="w-64 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated overflow-hidden text-left"
-        >
-          <div className="p-1.5 border-b border-[var(--color-border-subtle)]">
-            <button
-              type="button"
-              onClick={() => setDraftSort((s) => (s === 'asc' ? null : 'asc'))}
-              className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${draftSort === 'asc' ? 'bg-primary-50 dark:bg-primary-950/30 text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
-            >
-              <ArrowUp className="h-3.5 w-3.5" strokeWidth={2} /> Sort A → Z
-            </button>
-            <button
-              type="button"
-              onClick={() => setDraftSort((s) => (s === 'desc' ? null : 'desc'))}
-              className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${draftSort === 'desc' ? 'bg-primary-50 dark:bg-primary-950/30 text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
-            >
-              <ArrowDown className="h-3.5 w-3.5" strokeWidth={2} /> Sort Z → A
-            </button>
-          </div>
-
-          <div className="p-2 border-b border-[var(--color-border-subtle)]">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--color-text-tertiary)]" strokeWidth={2} />
-              <input
-                autoFocus
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search..."
-                className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] pl-8 pr-2.5 py-1.5 text-xs text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-              />
-            </div>
-          </div>
-
-          <div className="max-h-48 overflow-y-auto p-2">
-            <label className="flex items-center gap-2 px-1.5 py-1 text-xs font-semibold text-[var(--color-text-primary)] cursor-pointer">
-              <input type="checkbox" checked={allVisibleChecked} onChange={toggleAllVisible} className="h-3.5 w-3.5 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" />
-              (Select All)
-            </label>
-            {visibleOptions.map((v) => (
-              <label key={v} className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-xs text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-surface-tertiary)]">
-                <input type="checkbox" checked={draftSelected.has(v)} onChange={() => toggleOne(v)} className="h-3.5 w-3.5 flex-shrink-0 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" />
-                <span className="truncate">{v || '(Blanks)'}</span>
-              </label>
-            ))}
-            {visibleOptions.length === 0 && <p className="px-1.5 py-2 text-xs text-[var(--color-text-tertiary)]">No matches</p>}
-          </div>
-
-          <div className="flex items-center justify-between gap-2 p-2 border-t border-[var(--color-border-subtle)]">
-            <button type="button" onClick={() => { onClear(colKey); setOpen(false); }} className="inline-flex items-center gap-1 text-xs font-medium text-[var(--color-text-tertiary)] hover:text-red-500 transition-colors">
-              <X className="h-3 w-3" strokeWidth={2} /> Clear
-            </button>
-            <div className="flex gap-1.5">
-              <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
-              <button type="button" onClick={commit} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 transition-colors">OK</button>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </span>
-  );
-}
-
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -499,10 +340,6 @@ export function ClassesManage() {
 
   // Excel-style column header filters/sort — applied client-side on top of
   // whatever the server already returned for the search/status filters above.
-  const [columnFilters, setColumnFilters] = useState<Record<string, Set<string> | null>>({});
-  const [sortCol, setSortCol] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-
   const columnAccessors: Record<string, (row: ClassItem) => string> = {
     title: (r) => r.title,
     section: (r) => r.section,
@@ -512,33 +349,10 @@ export function ClassesManage() {
     shiftMode: (r) => r.shiftMode || 'Morning',
     status: (r) => r.status,
   };
-
-  const applyColumnCommit = (colKey: string, selected: Set<string> | null, sort: 'asc' | 'desc' | null) => {
-    setColumnFilters((prev) => ({ ...prev, [colKey]: selected }));
-    if (sort) { setSortCol(colKey); setSortDir(sort); }
-    else if (sortCol === colKey) { setSortCol(null); }
-  };
-  const clearColumnFilter = (colKey: string) => {
-    setColumnFilters((prev) => ({ ...prev, [colKey]: null }));
-    if (sortCol === colKey) setSortCol(null);
-  };
-
-  const displayedClasses = useMemo(() => {
-    let rows = classes;
-    for (const [colKey, selected] of Object.entries(columnFilters)) {
-      if (!selected) continue;
-      const accessor = columnAccessors[colKey];
-      rows = rows.filter((r) => selected.has(accessor(r)));
-    }
-    if (sortCol) {
-      const accessor = columnAccessors[sortCol];
-      rows = [...rows].sort((a, b) => accessor(a).localeCompare(accessor(b), undefined, { numeric: true, sensitivity: 'base' }) * (sortDir === 'asc' ? 1 : -1));
-    }
-    return rows;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [classes, columnFilters, sortCol, sortDir]);
-
-  const columnFiltersActive = Object.values(columnFilters).some((v) => v !== null && v !== undefined);
+  const {
+    columnFilters, sortCol, sortDir, applyColumnCommit, clearColumnFilter,
+    clearAll: clearAllColumnFilters, displayedRows: displayedClasses, columnFiltersActive,
+  } = useColumnFilters(classes, columnAccessors);
 
   const [showCreate, setShowCreate] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassItem | undefined>(undefined);
@@ -786,7 +600,7 @@ export function ClassesManage() {
         {columnFiltersActive && (
           <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
             <span>Showing {displayedClasses.length} of {classes.length} classes (column filters active — click a column header's ✕ to clear it)</span>
-            <button onClick={() => { setColumnFilters({}); setSortCol(null); }} className="font-medium text-primary-600 hover:underline">Clear all</button>
+            <button onClick={clearAllColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button>
           </div>
         )}
 
@@ -822,7 +636,7 @@ export function ClassesManage() {
               </thead>
               <tbody>
                 {displayedClasses.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)]">{classes.length === 0 ? (<><p className="text-lg mb-1">🏫 No classes found</p><p className="text-sm">Click "+ Add Class" to create one.</p></>) : (<><p className="text-lg mb-1">🔍 No classes match these filters</p><button onClick={() => { setColumnFilters({}); setSortCol(null); }} className="text-sm text-primary-600 hover:underline">Clear column filters</button></>)}</td></tr>
+                  <tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)]">{classes.length === 0 ? (<><p className="text-lg mb-1">🏫 No classes found</p><p className="text-sm">Click "+ Add Class" to create one.</p></>) : (<><p className="text-lg mb-1">🔍 No classes match these filters</p><button onClick={clearAllColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></>)}</td></tr>
                 ) : (
                   displayedClasses.map(c => (
                     <tr key={c._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">

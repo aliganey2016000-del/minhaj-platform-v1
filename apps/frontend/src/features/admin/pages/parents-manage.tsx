@@ -5,9 +5,10 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Users, Search, Pencil, Trash2, MoreVertical } from 'lucide-react';
+import { Users, Search, Pencil, Trash2, MoreVertical, ToggleRight } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,7 +102,9 @@ function ActionsDropdown({ onImport, onExport, exporting, label }: { onImport: (
 // Row Actions — single "⋮" dropdown replacing individual Edit/Delete icons.
 // ---------------------------------------------------------------------------
 
-function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+function RowActionsMenu({ onEdit, onDelete, onToggleStatus, statusLabel }: {
+  onEdit: () => void; onDelete: () => void; onToggleStatus?: () => void; statusLabel?: string;
+}) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -126,11 +129,16 @@ function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: ()
       <div
         ref={menuRef}
         style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }}
-        className="w-40 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-md py-1"
+        className="w-44 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-md py-1"
       >
         <button onClick={(e) => { e.stopPropagation(); setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
           <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
         </button>
+        {onToggleStatus && (
+          <button onClick={(e) => { e.stopPropagation(); setOpen(false); onToggleStatus(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <ToggleRight className="h-3.5 w-3.5" strokeWidth={1.75} /> {statusLabel || 'Toggle Status'}
+          </button>
+        )}
         <button onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
           <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
         </button>
@@ -171,6 +179,19 @@ export function ParentsManage() {
   const handlePageChange = (np: number) => { setPage(np); fetchParents(np); };
   const handleStatusChange = async (id: string, ns: string) => { try { await api.patch(`/parents/${id}/status`, { status: ns }); setParents(p => p.map(x => x._id === id ? { ...x, status: ns as Parent['status'] } : x)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
   const handleDelete = async (id: string) => { if (!window.confirm('Delete this parent? Children will be unlinked.')) return; try { await api.delete(`/parents/${id}`); fetchParents(page); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
+
+  // Excel-style column header filters/sort — client-side, over whichever page of results is currently loaded.
+  const parentColumnAccessors: Record<string, (row: Parent) => string> = {
+    name: (p) => `${p.profile?.firstName || ''} ${p.profile?.lastName || ''}`.trim() || p.user?.email || '—',
+    organization: (p) => (p.organizationNames && p.organizationNames.length > 0 ? p.organizationNames.join(', ') : 'No linked children'),
+    children: (p) => String(p.children?.length || 0),
+    status: (p) => p.status,
+  };
+  const {
+    columnFilters: parentColumnFilters, sortCol: parentSortCol, sortDir: parentSortDir,
+    applyColumnCommit: applyParentColumnCommit, clearColumnFilter: clearParentColumnFilter,
+    clearAll: clearAllParentColumnFilters, displayedRows: displayedParents, columnFiltersActive: parentColumnFiltersActive,
+  } = useColumnFilters(parents, parentColumnAccessors);
 
   // ───────────────────────────────────────────────────────────────────────
   // Import Modal Logic
@@ -248,7 +269,14 @@ export function ParentsManage() {
         {!loading && hasFetched && parents.length === 0 && <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card"><p className="text-4xl mb-4">👨‍👩‍👧‍👦</p><p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No parents found</p><p className="text-sm text-[var(--color-text-tertiary)]">Try adjusting your filters or click "+ Add Parent" to create one.</p></div>}
 
         {!loading && hasFetched && parents.length > 0 && (<><div className="grid grid-cols-1 sm:grid-cols-3 gap-4"><div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-300">{activeCount}</p><p className="text-xs text-green-600 dark:text-green-400">Active</p></div><div className="rounded-xl border border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/30 p-4 text-center"><p className="text-2xl font-bold text-gray-600 dark:text-gray-400">{inactiveCount}</p><p className="text-xs text-gray-500 dark:text-gray-500">Inactive</p></div><div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 p-4 text-center"><p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{totalChildren}</p><p className="text-xs text-blue-600 dark:text-blue-400">Children</p></div></div>
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr><th className="text-left px-5 py-3 font-semibold">Parent</th><th className="text-left px-5 py-3 font-semibold hidden md:table-cell">Organization</th><th className="text-center px-5 py-3 font-semibold hidden sm:table-cell">Children</th><th className="text-center px-5 py-3 font-semibold">Status</th><th className="text-center px-5 py-3 font-semibold">Actions</th></tr></thead><tbody>{parents.map(p => (<tr key={p._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingParent(p)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{p.profile?.firstName?.[0]}{p.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold truncate">{p.profile?.firstName} {p.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{p.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{p.organizationNames && p.organizationNames.length > 0 ? p.organizationNames.join(', ') : <span className="text-[var(--color-text-tertiary)]">No linked children</span>}</td><td className="px-5 py-4 text-center hidden sm:table-cell"><span className="font-medium">{p.children?.length || 0}</span></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><select value={p.status} onChange={e => handleStatusChange(p._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer"><option value="active">Active</option><option value="inactive">Inactive</option></select></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingParent(p)} onDelete={() => handleDelete(p._id)} /></div></td></tr>))}</tbody></table></div></div></>)}
+          {parentColumnFiltersActive && (<div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><span>Showing {displayedParents.length} of {parents.length} loaded parents (column filters active)</span><button onClick={clearAllParentColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button></div>)}
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr>
+            <th className="text-left px-5 py-3 font-semibold"><ColumnFilterHeader label="Parent" colKey="name" allValues={parents.map(parentColumnAccessors.name)} currentSelected={parentColumnFilters.name ?? null} currentSort={parentSortCol === 'name' ? parentSortDir : null} onCommit={applyParentColumnCommit} onClear={clearParentColumnFilter} /></th>
+            <th className="text-left px-5 py-3 font-semibold hidden md:table-cell"><ColumnFilterHeader label="Organization" colKey="organization" allValues={parents.map(parentColumnAccessors.organization)} currentSelected={parentColumnFilters.organization ?? null} currentSort={parentSortCol === 'organization' ? parentSortDir : null} onCommit={applyParentColumnCommit} onClear={clearParentColumnFilter} /></th>
+            <th className="text-center px-5 py-3 font-semibold hidden sm:table-cell"><ColumnFilterHeader label="Children" colKey="children" allValues={parents.map(parentColumnAccessors.children)} currentSelected={parentColumnFilters.children ?? null} currentSort={parentSortCol === 'children' ? parentSortDir : null} onCommit={applyParentColumnCommit} onClear={clearParentColumnFilter} align="center" /></th>
+            <th className="text-center px-5 py-3 font-semibold"><ColumnFilterHeader label="Status" colKey="status" allValues={parents.map(parentColumnAccessors.status)} currentSelected={parentColumnFilters.status ?? null} currentSort={parentSortCol === 'status' ? parentSortDir : null} onCommit={applyParentColumnCommit} onClear={clearParentColumnFilter} align="center" /></th>
+            <th className="text-center px-5 py-3 font-semibold">Actions</th>
+          </tr></thead><tbody>{displayedParents.length === 0 ? (<tr><td colSpan={5} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No parents match these column filters</p><button onClick={clearAllParentColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedParents.map(p => (<tr key={p._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingParent(p)}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{p.profile?.firstName?.[0]}{p.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold truncate">{p.profile?.firstName} {p.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{p.user?.email}</p></div></div></td><td className="px-5 py-4 hidden md:table-cell text-sm text-[var(--color-text-secondary)]">{p.organizationNames && p.organizationNames.length > 0 ? p.organizationNames.join(', ') : <span className="text-[var(--color-text-tertiary)]">No linked children</span>}</td><td className="px-5 py-4 text-center hidden sm:table-cell"><span className="font-medium">{p.children?.length || 0}</span></td><td className="px-5 py-4 text-center"><span className={`rounded-full px-2.5 py-0.5 text-xs font-medium border ${p.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/50' : 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-900/30 dark:text-slate-400 dark:border-slate-800'}`}>{p.status}</span></td><td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingParent(p)} onDelete={() => handleDelete(p._id)} onToggleStatus={() => handleStatusChange(p._id, p.status === 'active' ? 'inactive' : 'active')} statusLabel={p.status === 'active' ? 'Set Inactive' : 'Set Active'} /></div></td></tr>))}</tbody></table></div></div></>)}
 
         {totalPages > 1 && (<div className="flex items-center justify-center gap-3"><button disabled={page <= 1} onClick={() => handlePageChange(page - 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">← Prev</button><span className="text-sm text-[var(--color-text-tertiary)]">Page {page} of {totalPages}</span><button disabled={page >= totalPages} onClick={() => handlePageChange(page + 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">Next →</button></div>)}
       </div>

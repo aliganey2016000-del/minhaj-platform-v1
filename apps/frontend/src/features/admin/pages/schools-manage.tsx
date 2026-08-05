@@ -10,9 +10,10 @@
 
 import { useState, useEffect, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Building2, MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { Building2, MoreVertical, Pencil, Trash2, ToggleRight } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -348,7 +349,7 @@ function StepIndicator({ current }: { current: number }) {
 // matching the pattern established on Manage Teachers.
 // ---------------------------------------------------------------------------
 
-function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete?: () => void }) {
+function RowActionsMenu({ onEdit, onDelete, onToggleStatus, statusLabel }: { onEdit: () => void; onDelete?: () => void; onToggleStatus?: () => void; statusLabel?: string }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -378,6 +379,11 @@ function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete?: (
         <button onClick={() => { setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
           <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
         </button>
+        {onToggleStatus && (
+          <button onClick={() => { setOpen(false); onToggleStatus(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <ToggleRight className="h-3.5 w-3.5" strokeWidth={1.75} /> {statusLabel || 'Toggle Status'}
+          </button>
+        )}
         {onDelete && (
           <button onClick={() => { setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
@@ -692,6 +698,22 @@ export function SchoolsManage() {
     }
   };
 
+  // Excel-style column header filters/sort — client-side, over whichever page of results is currently loaded.
+  const schoolColumnAccessors: Record<string, (row: School) => string> = {
+    name: (s) => s.name,
+    address: (s) => s.address,
+    phone: (s) => s.phone,
+    email: (s) => s.email,
+    principal: (s) => s.principalName,
+    established: (s) => String(s.establishedYear),
+    status: (s) => s.status,
+  };
+  const {
+    columnFilters: schoolColumnFilters, sortCol: schoolSortCol, sortDir: schoolSortDir,
+    applyColumnCommit: applySchoolColumnCommit, clearColumnFilter: clearSchoolColumnFilter,
+    clearAll: clearAllSchoolColumnFilters, displayedRows: displayedSchools, columnFiltersActive: schoolColumnFiltersActive,
+  } = useColumnFilters(schools, schoolColumnAccessors);
+
   // ── Render ──
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
@@ -740,18 +762,24 @@ export function SchoolsManage() {
         </div>
 
         {/* ── Table ── */}
+        {schoolColumnFiltersActive && !dataLoading && schools.length > 0 && (
+          <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] mb-3">
+            <span>Showing {displayedSchools.length} of {schools.length} loaded organizations (column filters active)</span>
+            <button onClick={clearAllSchoolColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button>
+          </div>
+        )}
         <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]">
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">Organization Name</th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden md:table-cell">Address</th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden lg:table-cell">Phone</th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden xl:table-cell">Email</th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">Principal</th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden lg:table-cell">Est.</th>
-                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">Status</th>
+                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap"><ColumnFilterHeader label="Organization Name" colKey="name" allValues={schools.map(schoolColumnAccessors.name)} currentSelected={schoolColumnFilters.name ?? null} currentSort={schoolSortCol === 'name' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden md:table-cell"><ColumnFilterHeader label="Address" colKey="address" allValues={schools.map(schoolColumnAccessors.address)} currentSelected={schoolColumnFilters.address ?? null} currentSort={schoolSortCol === 'address' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden lg:table-cell"><ColumnFilterHeader label="Phone" colKey="phone" allValues={schools.map(schoolColumnAccessors.phone)} currentSelected={schoolColumnFilters.phone ?? null} currentSort={schoolSortCol === 'phone' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden xl:table-cell"><ColumnFilterHeader label="Email" colKey="email" allValues={schools.map(schoolColumnAccessors.email)} currentSelected={schoolColumnFilters.email ?? null} currentSort={schoolSortCol === 'email' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap"><ColumnFilterHeader label="Principal" colKey="principal" allValues={schools.map(schoolColumnAccessors.principal)} currentSelected={schoolColumnFilters.principal ?? null} currentSort={schoolSortCol === 'principal' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden lg:table-cell"><ColumnFilterHeader label="Est." colKey="established" allValues={schools.map(schoolColumnAccessors.established)} currentSelected={schoolColumnFilters.established ?? null} currentSort={schoolSortCol === 'established' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
+                  <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap"><ColumnFilterHeader label="Status" colKey="status" allValues={schools.map(schoolColumnAccessors.status)} currentSelected={schoolColumnFilters.status ?? null} currentSort={schoolSortCol === 'status' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
                   <th className="px-6 py-4 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
@@ -777,8 +805,18 @@ export function SchoolsManage() {
                       </div>
                     </td>
                   </tr>
+                ) : displayedSchools.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-16 text-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <span className="text-4xl">🔍</span>
+                        <p className="text-lg font-medium text-[var(--color-text-primary)]">No organizations match these column filters</p>
+                        <button onClick={clearAllSchoolColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button>
+                      </div>
+                    </td>
+                  </tr>
                 ) : (
-                  schools.map((school) => (
+                  displayedSchools.map((school) => (
                     <tr
                       key={school._id}
                       className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
@@ -792,33 +830,22 @@ export function SchoolsManage() {
                       <td className="px-6 py-4 text-[var(--color-text-secondary)]">{school.principalName}</td>
                       <td className="px-6 py-4 text-[var(--color-text-secondary)] hidden lg:table-cell">{school.establishedYear}</td>
                       <td className="px-6 py-4">
-                        {isSuperAdmin ? (
-                          <button
-                            onClick={() => toggleStatus(school)}
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${
-                              school.status === 'active'
-                                ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
-                                : 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
-                            }`}
-                          >
-                            {school.status}
-                          </button>
-                        ) : (
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                              school.status === 'active'
-                                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                            }`}
-                          >
-                            {school.status}
-                          </span>
-                        )}
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            school.status === 'active'
+                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                              : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                          }`}
+                        >
+                          {school.status}
+                        </span>
                       </td>
                       <td className="px-6 py-4">
                         <RowActionsMenu
                           onEdit={() => openEdit(school)}
                           onDelete={isSuperAdmin ? () => setDeleteTarget(school) : undefined}
+                          onToggleStatus={isSuperAdmin ? () => toggleStatus(school) : undefined}
+                          statusLabel={school.status === 'active' ? 'Set Inactive' : 'Set Active'}
                         />
                       </td>
                     </tr>
