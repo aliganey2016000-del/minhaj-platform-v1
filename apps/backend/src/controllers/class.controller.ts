@@ -397,6 +397,10 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
   const allowRepromote = req.query.allowRepromote === 'true';
 
   const suggestedAcademicYear = nextAcademicYear();
+  // Mirror whatever the admin currently has typed into "Target Academic
+  // Year" so the preview matches what Confirm will actually do; fall back
+  // to the suggestion before they've edited the field.
+  const targetAcademicYear = (req.query.targetAcademicYear as string) || suggestedAcademicYear;
 
   const classes = await ClassModel.find({ school: schoolId, status: 'active' })
     .sort({ gradeLevel: 1, title: 1 })
@@ -404,6 +408,7 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
 
   const groups: Record<string, unknown>[] = [];
   const missingGradeLevel: Record<string, unknown>[] = [];
+  const sameYearSkipped: Record<string, unknown>[] = [];
 
   // Section (A/B/C) is intentionally NOT part of the promotion match — every
   // section of a grade promotes into ONE shared next-grade class, same as
@@ -411,7 +416,7 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
   // next grade) group so every section previews the same merged target.
   const targetTitleByKey = new Map<string, string>();
   for (const cls of classes as any[]) {
-    if ((cls.promotedAt && !allowRepromote) || cls.isGraduatingGrade || cls.gradeLevel === null || cls.gradeLevel === undefined) continue;
+    if ((cls.promotedAt && !allowRepromote) || cls.isGraduatingGrade || cls.gradeLevel === null || cls.gradeLevel === undefined || cls.academicYear === targetAcademicYear) continue;
     const key = `${cls.department}::${cls.gradeLevel + 1}`;
     if (!targetTitleByKey.has(key)) targetTitleByKey.set(key, bumpTitleGrade(cls.title, cls.gradeLevel + 1));
   }
@@ -425,6 +430,17 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
       missingGradeLevel.push({ classId: cls._id, title: cls.title, section: cls.section });
       continue;
     }
+    // A class already tagged with the target year is presumably one of
+    // next year's classes (e.g. set up ahead of time, or a previous
+    // promotion's target) — it must NEVER be treated as a "current year"
+    // class needing promotion in this same run. Skipping this used to be
+    // missing, which let a chain of pre-existing next-grade classes get
+    // cascaded through several grade levels in a single click instead of
+    // moving each grade up exactly once.
+    if (cls.academicYear === targetAcademicYear) {
+      sameYearSkipped.push({ classId: cls._id, title: cls.title, section: cls.section });
+      continue;
+    }
 
     const studentCount = await Student.countDocuments({ class: cls._id, status: 'active' });
 
@@ -436,7 +452,7 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
     const nextGradeLevel = cls.gradeLevel + 1;
     const existingTarget = await ClassModel.findOne({
       school: schoolId, department: cls.department,
-      gradeLevel: nextGradeLevel, academicYear: suggestedAcademicYear,
+      gradeLevel: nextGradeLevel, academicYear: targetAcademicYear,
     }).select('title').lean();
 
     groups.push({
@@ -446,7 +462,7 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
     });
   }
 
-  return ApiResponse.success(res, { suggestedAcademicYear, groups, missingGradeLevel });
+  return ApiResponse.success(res, { suggestedAcademicYear, groups, missingGradeLevel, sameYearSkipped });
 };
 
 // ---------------------------------------------------------------------------
@@ -474,9 +490,23 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
   // "testing" box in the Promote All dialog; it must stay off by default.
   const allowRepromote = req.body.allowRepromote === true;
 
-  const classFilter: Record<string, unknown> = { school: schoolId, status: 'active' };
+  const classFilter: Record<string, unknown> = {
+    school: schoolId, status: 'active',
+    // Never treat a class already tagged with the target year as a
+    // "current year" class needing promotion. Without this, a chain of
+    // pre-existing next-grade classes (set up ahead of time, or matching
+    // by coincidence) gets found as each other's `existingTarget` AND
+    // ALSO appears in this same source list — cascading a single click
+    // through several grade levels instead of moving each grade up by
+    // exactly one.
+    academicYear: { $ne: targetAcademicYear },
+  };
   if (!allowRepromote) classFilter.promotedAt = null;
   const classes = await ClassModel.find(classFilter).sort({ gradeLevel: 1 });
+
+  const sameYearSkipped = await ClassModel.countDocuments({
+    school: schoolId, status: 'active', academicYear: targetAcademicYear, gradeLevel: { $ne: null },
+  });
 
   const results: Record<string, unknown>[] = [];
 
@@ -540,7 +570,7 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
 
   return ApiResponse.success(
     res,
-    { results, promoted, graduated, skipped, studentsMoved },
+    { results, promoted, graduated, skipped, sameYearSkipped, studentsMoved },
     `Promoted ${promoted} classes, graduated ${graduated}, moved ${studentsMoved} students`
   );
 };

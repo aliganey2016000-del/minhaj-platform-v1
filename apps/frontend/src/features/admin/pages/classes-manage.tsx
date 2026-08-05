@@ -219,11 +219,12 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
   const [targetAcademicYear, setTargetAcademicYear] = useState('');
   const [groups, setGroups] = useState<PromotionGroup[]>([]);
   const [missingGradeLevel, setMissingGradeLevel] = useState<{ classId: string; title: string; section: string }[]>([]);
+  const [sameYearSkipped, setSameYearSkipped] = useState<{ classId: string; title: string; section: string }[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState('');
-  const [result, setResult] = useState<{ results: PromotionResult[]; promoted: number; graduated: number; skipped: number; studentsMoved: number } | null>(null);
+  const [result, setResult] = useState<{ results: PromotionResult[]; promoted: number; graduated: number; skipped: number; sameYearSkipped: number; studentsMoved: number } | null>(null);
   // Testing-only override — normally an already-promoted class is skipped so
   // a cohort never gets moved twice. Checking this lets QA re-run "Promote
   // All" repeatedly against the same test classes; leave it OFF in
@@ -231,20 +232,22 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
   const [allowRepromote, setAllowRepromote] = useState(false);
 
   useEffect(() => {
-    if (!schoolId) { setGroups([]); setMissingGradeLevel([]); return; }
+    if (!schoolId) { setGroups([]); setMissingGradeLevel([]); setSameYearSkipped([]); return; }
     let cancelled = false;
     setLoadingPreview(true); setPreviewError('');
-    api.get('/classes/promotion-preview', { params: { schoolId, allowRepromote: allowRepromote ? 'true' : undefined } })
+    api.get('/classes/promotion-preview', { params: { schoolId, allowRepromote: allowRepromote ? 'true' : undefined, targetAcademicYear: targetAcademicYear || undefined } })
       .then(({ data }) => {
         if (cancelled) return;
         setGroups(data.data?.groups || []);
         setMissingGradeLevel(data.data?.missingGradeLevel || []);
+        setSameYearSkipped(data.data?.sameYearSkipped || []);
         setTargetAcademicYear(prev => prev || data.data?.suggestedAcademicYear || '');
       })
       .catch((err: any) => { if (!cancelled) setPreviewError(err.response?.data?.message || 'Failed to load promotion preview'); })
       .finally(() => { if (!cancelled) setLoadingPreview(false); });
     return () => { cancelled = true; };
-  }, [schoolId, allowRepromote]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolId, allowRepromote, targetAcademicYear]);
 
   const promotable = groups.filter(g => g.action === 'promote-new' || g.action === 'promote-existing' || g.action === 'graduate');
   const alreadyPromoted = groups.filter(g => g.action === 'already-promoted');
@@ -271,7 +274,7 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
         {result ? (
           <div className="space-y-4">
             <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 dark:text-green-300">
-              ✅ Promoted {result.promoted} classes, graduated {result.graduated}, moved {result.studentsMoved} students{result.skipped > 0 ? `, skipped ${result.skipped}` : ''}.
+              ✅ Promoted {result.promoted} classes, graduated {result.graduated}, moved {result.studentsMoved} students{result.skipped > 0 ? `, skipped ${result.skipped}` : ''}{result.sameYearSkipped > 0 ? `, ${result.sameYearSkipped} already in "${targetAcademicYear}" left untouched` : ''}.
             </div>
             <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)] max-h-64 overflow-y-auto">
               {result.results.map(r => (
@@ -299,6 +302,7 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
               <div>
                 <label htmlFor="targetAcademicYear" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Target Academic Year</label>
                 <input id="targetAcademicYear" type="text" value={targetAcademicYear} onChange={e => setTargetAcademicYear(e.target.value)} placeholder="e.g. 2026-2027" className="w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Must be different from the current classes' own academic year — otherwise there's nothing to promote into.</p>
               </div>
             )}
 
@@ -343,6 +347,13 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
               <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-3">
                 <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-1">⚠️ {missingGradeLevel.length} class(es) missing a Grade Level — edit them first, then re-open this dialog:</p>
                 <p className="text-xs text-amber-600 dark:text-amber-400">{missingGradeLevel.map(c => `${c.title} (${c.section})`).join(', ')}</p>
+              </div>
+            )}
+
+            {sameYearSkipped.length > 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-3">
+                <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-1">⚠️ {sameYearSkipped.length} class(es) already tagged "{targetAcademicYear}" — skipped so they aren't promoted again into themselves:</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400">{sameYearSkipped.map(c => `${c.title} (${c.section})`).join(', ')}</p>
               </div>
             )}
 
