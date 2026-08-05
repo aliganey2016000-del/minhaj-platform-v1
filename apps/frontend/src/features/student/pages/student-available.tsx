@@ -11,6 +11,7 @@ interface TeacherBrief { _id: string; teacherId: string; profile?: { firstName: 
 interface Course {
   _id: string; title: { en: string; so: string; ar: string }; slug: string; description: { en: string }; category: string; level: string; duration: number; fee: number;
   teacher?: TeacherBrief; maxStudents: number; enrolledStudents: number; thumbnail?: string; status: string; startDate?: string; isEnrolled: boolean;
+  class?: { _id: string; title: string; section: string } | null;
 }
 interface Category { value: string; label: { en: string }; }
 
@@ -215,6 +216,13 @@ export function StudentAvailable() {
                     </p>
                   )}
 
+                  {/* Class */}
+                  {c.class && (
+                    <p className="text-xs text-[var(--color-text-tertiary)] truncate">
+                      🏫 {c.class.title} ({c.class.section})
+                    </p>
+                  )}
+
                   {/* Meta row */}
                   <div className="flex items-center gap-3 text-xs text-[var(--color-text-tertiary)]">
                     <span className="inline-flex items-center gap-1">
@@ -310,6 +318,7 @@ export function StudentAvailable() {
               {selectedCourse.description?.en && <p className="text-sm text-[var(--color-text-secondary)]">{selectedCourse.description.en}</p>}
               <div className="flex justify-between py-1.5 border-b"><span className="text-xs text-[var(--color-text-tertiary)]">Duration</span><span className="text-sm font-medium">{selectedCourse.duration} weeks</span></div>
               <div className="flex justify-between py-1.5 border-b"><span className="text-xs text-[var(--color-text-tertiary)]">Teacher</span><span className="text-sm font-medium">{selectedCourse.teacher?.profile ? `${selectedCourse.teacher.profile.firstName} ${selectedCourse.teacher.profile.lastName}` : 'TBA'}</span></div>
+              {selectedCourse.class && <div className="flex justify-between py-1.5 border-b"><span className="text-xs text-[var(--color-text-tertiary)]">Class</span><span className="text-sm font-medium">{selectedCourse.class.title} ({selectedCourse.class.section})</span></div>}
               <div className="flex justify-between py-1.5 border-b"><span className="text-xs text-[var(--color-text-tertiary)]">Capacity</span><span className="text-sm font-medium">{selectedCourse.enrolledStudents}/{selectedCourse.maxStudents}</span></div>
               <div className="flex justify-between py-1.5"><span className="text-xs text-[var(--color-text-tertiary)]">Status</span><span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${selectedCourse.isEnrolled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{selectedCourse.isEnrolled ? '✅ Enrolled' : 'Not enrolled'}</span></div>
             </div>
