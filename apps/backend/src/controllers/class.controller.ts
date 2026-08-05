@@ -393,7 +393,11 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
   const schoolId = resolveOrgIdForCreate(req, req.query.schoolId) as string | undefined;
   if (!schoolId) throw new BadRequestError('An organization must be selected');
   // Testing-only override (see promoteAll below) — normally an
-  // already-promoted class is reported as skipped rather than promotable.
+  // already-promoted class, or one already tagged with the target year, is
+  // reported as skipped rather than promotable. Checking this in the UI
+  // lifts BOTH guards so QA can repeatedly re-run promotion (including
+  // across several academic years in a row) against the same test data;
+  // production runs must always leave it off so both guards stay active.
   const allowRepromote = req.query.allowRepromote === 'true';
 
   const suggestedAcademicYear = nextAcademicYear();
@@ -416,7 +420,7 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
   // next grade) group so every section previews the same merged target.
   const targetTitleByKey = new Map<string, string>();
   for (const cls of classes as any[]) {
-    if ((cls.promotedAt && !allowRepromote) || cls.isGraduatingGrade || cls.gradeLevel === null || cls.gradeLevel === undefined || cls.academicYear === targetAcademicYear) continue;
+    if ((cls.promotedAt && !allowRepromote) || cls.isGraduatingGrade || cls.gradeLevel === null || cls.gradeLevel === undefined || (cls.academicYear === targetAcademicYear && !allowRepromote)) continue;
     const key = `${cls.department}::${cls.gradeLevel + 1}`;
     if (!targetTitleByKey.has(key)) targetTitleByKey.set(key, bumpTitleGrade(cls.title, cls.gradeLevel + 1));
   }
@@ -433,11 +437,12 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
     // A class already tagged with the target year is presumably one of
     // next year's classes (e.g. set up ahead of time, or a previous
     // promotion's target) — it must NEVER be treated as a "current year"
-    // class needing promotion in this same run. Skipping this used to be
-    // missing, which let a chain of pre-existing next-grade classes get
-    // cascaded through several grade levels in a single click instead of
-    // moving each grade up exactly once.
-    if (cls.academicYear === targetAcademicYear) {
+    // class needing promotion in this same run, or a chain of pre-existing
+    // next-grade classes gets cascaded through several grade levels in a
+    // single click instead of moving each grade up exactly once. The
+    // testing override lifts this too, since a tester may deliberately
+    // want to re-promote through several years of the same fixture data.
+    if (cls.academicYear === targetAcademicYear && !allowRepromote) {
       sameYearSkipped.push({ classId: cls._id, title: cls.title, section: cls.section });
       continue;
     }
@@ -484,27 +489,28 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
   if (!schoolId) throw new BadRequestError('An organization must be selected');
   const targetAcademicYear = String(req.body.targetAcademicYear || '').trim();
   if (!targetAcademicYear) throw new BadRequestError('Target academic year is required');
-  // Testing-only override — normally a class already promoted this cycle
-  // (`promotedAt` set) is excluded so a cohort can never be moved twice.
-  // The frontend only sends this when the admin explicitly checks the
+  // Testing-only override — normally BOTH (a) a class already promoted
+  // this cycle (`promotedAt` set) and (b) a class already tagged with the
+  // target academic year are excluded, so a cohort can never be moved
+  // twice and a chain of pre-existing next-grade classes can never
+  // cascade through several grade levels in one click. Checking this lifts
+  // both guards so QA can repeatedly re-run promotion — including across
+  // several academic years in a row — against the same fixture data. The
+  // frontend only sends this when the admin explicitly checks the
   // "testing" box in the Promote All dialog; it must stay off by default.
   const allowRepromote = req.body.allowRepromote === true;
 
-  const classFilter: Record<string, unknown> = {
-    school: schoolId, status: 'active',
-    // Never treat a class already tagged with the target year as a
-    // "current year" class needing promotion. Without this, a chain of
-    // pre-existing next-grade classes (set up ahead of time, or matching
-    // by coincidence) gets found as each other's `existingTarget` AND
-    // ALSO appears in this same source list — cascading a single click
-    // through several grade levels instead of moving each grade up by
-    // exactly one.
-    academicYear: { $ne: targetAcademicYear },
-  };
-  if (!allowRepromote) classFilter.promotedAt = null;
+  const classFilter: Record<string, unknown> = { school: schoolId, status: 'active' };
+  if (!allowRepromote) {
+    classFilter.promotedAt = null;
+    // See the comment above `getPromotionPreview`'s equivalent check — a
+    // class already tagged with the target year must never be treated as
+    // a "current year" class needing promotion outside of testing.
+    classFilter.academicYear = { $ne: targetAcademicYear };
+  }
   const classes = await ClassModel.find(classFilter).sort({ gradeLevel: 1 });
 
-  const sameYearSkipped = await ClassModel.countDocuments({
+  const sameYearSkipped = allowRepromote ? 0 : await ClassModel.countDocuments({
     school: schoolId, status: 'active', academicYear: targetAcademicYear, gradeLevel: { $ne: null },
   });
 

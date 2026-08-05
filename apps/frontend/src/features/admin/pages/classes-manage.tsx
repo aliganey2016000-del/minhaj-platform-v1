@@ -302,7 +302,7 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
               <div>
                 <label htmlFor="targetAcademicYear" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Target Academic Year</label>
                 <input id="targetAcademicYear" type="text" value={targetAcademicYear} onChange={e => setTargetAcademicYear(e.target.value)} placeholder="e.g. 2026-2027" className="w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Must be different from the current classes' own academic year — otherwise there's nothing to promote into.</p>
+                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{allowRepromote ? 'Testing mode is on, so this can match the classes\' own academic year.' : 'Must be different from the current classes\' own academic year — otherwise there\'s nothing to promote into.'}</p>
               </div>
             )}
 
@@ -310,7 +310,7 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
               <label className="flex items-start gap-2 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 cursor-pointer">
                 <input type="checkbox" checked={allowRepromote} onChange={e => setAllowRepromote(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500/30" />
                 <span className="text-xs text-amber-800 dark:text-amber-300">
-                  <span className="font-semibold">Testing only:</span> allow re-promoting classes already promoted this cycle. Leave this unchecked in production — it disables the safeguard that stops a cohort from being moved twice.
+                  <span className="font-semibold">Testing only:</span> allow re-promoting classes already promoted this cycle, and allow promoting classes already tagged with the target academic year — lets you re-run "Promote All" repeatedly, including across several academic years in a row, against the same test data. Leave this unchecked in production — it disables both safeguards that stop a cohort from being moved twice or a chain of classes cascading through several grades in one click.
                 </span>
               </label>
             )}
