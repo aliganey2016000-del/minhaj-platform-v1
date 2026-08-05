@@ -580,6 +580,7 @@ export const getMyDashboard = async (req: Request, res: Response): Promise<Respo
   await student.populate('enrolledCourses', 'title slug category level status thumbnail');
   await student.populate('school', 'name logo');
   await student.populate('profile', 'firstName lastName avatar gender');
+  await student.populate('class', 'title section');
 
   return ApiResponse.success(res, {
     studentId: (student as any).studentId || 'N/A',
@@ -594,6 +595,7 @@ export const getMyDashboard = async (req: Request, res: Response): Promise<Respo
     discount: (student as any).discount || 0,
     profile: (student as any).profile || null,
     school: (student as any).school || null,
+    class: (student as any).class || null,
   });
 };
 

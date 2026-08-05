@@ -50,6 +50,7 @@ export function StudentAvailable() {
   // gradient placeholder instead of the browser's broken-image icon.
   const [brokenThumbnails, setBrokenThumbnails] = useState<Set<string>>(new Set());
   const markThumbnailBroken = (id: string) => setBrokenThumbnails((prev) => new Set(prev).add(id));
+  const [myClass, setMyClass] = useState<{ title: string; section: string } | null>(null);
   const limit = 12;
 
   const fetchCourses = useCallback(async () => {
@@ -63,6 +64,7 @@ export function StudentAvailable() {
   }, [page, search, category, level, t]);
 
   useEffect(() => { fetchCourses(); api.get('/courses/categories').then(r => setCategories(r.data.data || [])).catch(() => {}); }, [fetchCourses]);
+  useEffect(() => { api.get('/students/my/dashboard').then(r => setMyClass(r.data.data?.class || null)).catch(() => {}); }, []);
 
   const handleEnroll = async (courseId: string) => {
     setEnrollingId(courseId); setMessage(''); setError('');
@@ -90,6 +92,11 @@ export function StudentAvailable() {
         <div>
           <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🆕 {t('browse_courses')}</h1>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} {t('published_courses')}</p>
+          {myClass && (
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary-50 dark:bg-primary-900/30 px-3 py-1 text-xs font-medium text-primary-700 dark:text-primary-300">
+              <BookOpen className="h-3.5 w-3.5" strokeWidth={1.75} /> Your Class: {myClass.title} — {myClass.section}
+            </span>
+          )}
         </div>
 
         {message && (

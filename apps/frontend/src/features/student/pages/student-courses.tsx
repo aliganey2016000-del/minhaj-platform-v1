@@ -85,6 +85,7 @@ export function StudentCourses() {
   // browser's broken-image icon.
   const [brokenThumbnails, setBrokenThumbnails] = useState<Set<string>>(new Set());
   const markThumbnailBroken = (id: string) => setBrokenThumbnails((prev) => new Set(prev).add(id));
+  const [myClass, setMyClass] = useState<{ title: string; section: string } | null>(null);
 
   // -----------------------------------------------------------------------
   // Fetch enrolled courses
@@ -106,6 +107,8 @@ export function StudentCourses() {
   useEffect(() => {
     fetchCourses();
   }, [fetchCourses]);
+
+  useEffect(() => { api.get('/students/my/dashboard').then(r => setMyClass(r.data.data?.class || null)).catch(() => {}); }, []);
 
   // -----------------------------------------------------------------------
   // Client-side filtering
@@ -214,6 +217,11 @@ export function StudentCourses() {
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
             {stats.total} {t('enrolled_courses')}
           </p>
+          {myClass && (
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary-50 dark:bg-primary-900/30 px-3 py-1 text-xs font-medium text-primary-700 dark:text-primary-300">
+              <BookOpen className="h-3.5 w-3.5" strokeWidth={1.75} /> Your Class: {myClass.title} — {myClass.section}
+            </span>
+          )}
         </div>
 
         {/* Statistics Cards — same column breakpoints as the course grid below, so edges line up */}
