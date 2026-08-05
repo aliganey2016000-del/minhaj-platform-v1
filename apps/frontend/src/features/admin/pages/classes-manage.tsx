@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { School, Pencil, Trash2, MoreVertical } from 'lucide-react';
+import { School, Pencil, Trash2, MoreVertical, Search, ChevronDown, CheckCircle2, PauseCircle, Archive } from 'lucide-react';
 import api from '../../../lib/axios';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 
@@ -82,6 +82,12 @@ function ShiftBadge({ mode }: { mode: string }) {
   };
   return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[mode] || 'bg-gray-100 text-gray-600'}`}>{mode}</span>;
 }
+
+const STATUS_PILL_STYLES: Record<string, string> = {
+  active: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
+  inactive: 'bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-400',
+  completed: 'bg-sky-50 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300',
+};
 
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'error'; onClose: () => void }) {
   useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
@@ -810,16 +816,28 @@ export function ClassesManage() {
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-300">{activeCount}</p><p className="text-xs text-green-600 dark:text-green-400">Active</p></div>
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/30 p-4 text-center"><p className="text-2xl font-bold text-gray-600 dark:text-gray-400">{inactiveCount}</p><p className="text-xs text-gray-500 dark:text-gray-500">Inactive</p></div>
-          <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 p-4 text-center"><p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{completedCount}</p><p className="text-xs text-blue-600 dark:text-blue-400">Completed</p></div>
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-100 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 p-4">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40"><CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} /></div>
+            <div><p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">{activeCount}</p><p className="text-xs text-emerald-600 dark:text-emerald-400">Active</p></div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/30 p-4">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-slate-200/70 dark:bg-slate-700/50"><PauseCircle className="h-5 w-5 text-slate-500 dark:text-slate-400" strokeWidth={1.75} /></div>
+            <div><p className="text-2xl font-bold text-slate-600 dark:text-slate-300">{inactiveCount}</p><p className="text-xs text-slate-500 dark:text-slate-400">Inactive</p></div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-sky-100 dark:border-sky-900/50 bg-sky-50 dark:bg-sky-950/30 p-4">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-sky-100 dark:bg-sky-900/40"><Archive className="h-5 w-5 text-sky-600 dark:text-sky-400" strokeWidth={1.75} /></div>
+            <div><p className="text-2xl font-bold text-sky-700 dark:text-sky-300">{completedCount}</p><p className="text-xs text-sky-600 dark:text-sky-400">Completed</p></div>
+          </div>
         </div>
 
         {error && !showImportModal && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-red-600 text-sm mb-2">{error}</p><button onClick={fetchData} className="text-primary-600 font-medium text-sm hover:underline">Retry</button></div>}
 
         {/* Search & Filter */}
         <div className="flex flex-col sm:flex-row gap-3">
-          <input type="text" placeholder="Search by class name, section, room, or organization..." value={search} onChange={e => setSearch(e.target.value)} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary-500" />
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--color-text-tertiary)]" strokeWidth={2} />
+            <input type="text" placeholder="Search by class name, section, room, or organization..." value={search} onChange={e => setSearch(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-10 pr-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary-500" />
+          </div>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500"><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select>
         </div>
 
@@ -836,37 +854,37 @@ export function ClassesManage() {
             <table className="w-full text-sm">
               <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                 <tr>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
                     <ColumnFilterHeader label="Class" colKey="title" allValues={classes.map(columnAccessors.title)} currentSelected={columnFilters.title ?? null} currentSort={sortCol === 'title' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
                     <ColumnFilterHeader label="Section" colKey="section" allValues={classes.map(columnAccessors.section)} currentSelected={columnFilters.section ?? null} currentSort={sortCol === 'section' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell">
+                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell whitespace-nowrap">
                     <ColumnFilterHeader label="Organization" colKey="organization" allValues={classes.map(columnAccessors.organization)} currentSelected={columnFilters.organization ?? null} currentSort={sortCol === 'organization' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
                     <ColumnFilterHeader label="Department" colKey="department" allValues={classes.map(columnAccessors.department)} currentSelected={columnFilters.department ?? null} currentSort={sortCol === 'department' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
                     <ColumnFilterHeader label="Grade Level" colKey="gradeLevel" allValues={classes.map(columnAccessors.gradeLevel)} currentSelected={columnFilters.gradeLevel ?? null} currentSort={sortCol === 'gradeLevel' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
                     <ColumnFilterHeader label="Room" colKey="room" allValues={classes.map(columnAccessors.room)} currentSelected={columnFilters.room ?? null} currentSort={sortCol === 'room' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
                     <ColumnFilterHeader label="Shift / Mode" colKey="shiftMode" allValues={classes.map(columnAccessors.shiftMode)} currentSelected={columnFilters.shiftMode ?? null} currentSort={sortCol === 'shiftMode' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
                     <ColumnFilterHeader label="Academic Year" colKey="academicYear" allValues={classes.map(columnAccessors.academicYear)} currentSelected={columnFilters.academicYear ?? null} currentSort={sortCol === 'academicYear' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                  <th className="text-left px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
                     <ColumnFilterHeader label="Batch" colKey="batch" allValues={classes.map(columnAccessors.batch)} currentSelected={columnFilters.batch ?? null} currentSort={sortCol === 'batch' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
-                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)]">
+                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">
                     <ColumnFilterHeader label="Status" colKey="status" allValues={classes.map(columnAccessors.status)} currentSelected={columnFilters.status ?? null} currentSort={sortCol === 'status' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
                   </th>
-                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)]">Actions</th>
+                  <th className="text-center px-5 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -884,7 +902,16 @@ export function ClassesManage() {
                       <td className="px-5 py-4 text-center"><ShiftBadge mode={c.shiftMode || 'Morning'} /></td>
                       <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm">{c.academicYear || '—'}</td>
                       <td className="px-5 py-4 text-[var(--color-text-secondary)] text-sm font-mono">{c.batch || '—'}</td>
-                      <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><select value={c.status} onChange={e => handleStatusChange(c._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer text-[var(--color-text-primary)]"><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select></td>
+                      <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}>
+                        <span className="relative inline-flex items-center">
+                          <select value={c.status} onChange={e => handleStatusChange(c._id, e.target.value)} className={`appearance-none rounded-full border-0 pl-3 pr-7 py-1 text-xs font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${STATUS_PILL_STYLES[c.status] || STATUS_PILL_STYLES.inactive}`}>
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                            <option value="completed">Completed</option>
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-2 h-3 w-3 opacity-60" strokeWidth={2.5} />
+                        </span>
+                      </td>
                       <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingClass(c)} onDelete={() => handleDelete(c._id)} /></div></td>
                     </tr>
                   ))
