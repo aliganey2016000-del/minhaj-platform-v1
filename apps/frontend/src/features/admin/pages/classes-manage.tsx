@@ -300,7 +300,8 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
 
             {promotable.length > 0 && (
               <div>
-                <p className="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Will be promoted ({totalStudents} students total):</p>
+                <p className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">Will be promoted ({totalStudents} students total):</p>
+                <p className="text-xs text-[var(--color-text-tertiary)] mb-2">Sections (A, B, C...) aren't matched separately — every section of a grade merges into one shared next-grade class.</p>
                 <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)] max-h-56 overflow-y-auto">
                   {promotable.map(g => (
                     <div key={g.classId} className="flex items-center justify-between px-4 py-2.5 text-sm">

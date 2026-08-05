@@ -402,6 +402,17 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
   const groups: Record<string, unknown>[] = [];
   const missingGradeLevel: Record<string, unknown>[] = [];
 
+  // Section (A/B/C) is intentionally NOT part of the promotion match — every
+  // section of a grade promotes into ONE shared next-grade class, same as
+  // promoteAll below. Precompute one auto-generated title per (department,
+  // next grade) group so every section previews the same merged target.
+  const targetTitleByKey = new Map<string, string>();
+  for (const cls of classes as any[]) {
+    if (cls.promotedAt || cls.isGraduatingGrade || cls.gradeLevel === null || cls.gradeLevel === undefined) continue;
+    const key = `${cls.department}::${cls.gradeLevel + 1}`;
+    if (!targetTitleByKey.has(key)) targetTitleByKey.set(key, bumpTitleGrade(cls.title, cls.gradeLevel + 1));
+  }
+
   for (const cls of classes as any[]) {
     if (cls.promotedAt) {
       groups.push({ classId: cls._id, title: cls.title, section: cls.section, action: 'already-promoted' });
@@ -421,14 +432,14 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
 
     const nextGradeLevel = cls.gradeLevel + 1;
     const existingTarget = await ClassModel.findOne({
-      school: schoolId, department: cls.department, section: cls.section,
+      school: schoolId, department: cls.department,
       gradeLevel: nextGradeLevel, academicYear: suggestedAcademicYear,
     }).select('title').lean();
 
     groups.push({
       classId: cls._id, title: cls.title, section: cls.section, batch: cls.batch, gradeLevel: cls.gradeLevel, studentCount,
       action: existingTarget ? 'promote-existing' : 'promote-new',
-      targetTitle: existingTarget ? (existingTarget as any).title : bumpTitleGrade(cls.title, nextGradeLevel),
+      targetTitle: existingTarget ? (existingTarget as any).title : targetTitleByKey.get(`${cls.department}::${nextGradeLevel}`),
     });
   }
 
@@ -442,6 +453,11 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
 // classes instead mark their students `graduated`. The source class is
 // never deleted or mutated beyond `status`/`promotedAt`/`promotedTo`, so
 // every historical record tied to its ID stays intact.
+//
+// Section (A/B/C) is deliberately excluded from the match key — every
+// section of a grade shares ONE next-grade class (department + gradeLevel +
+// academicYear only), so e.g. Grade 1-A, Grade 1-B, and Grade 1-C all merge
+// into a single new Grade 2 class rather than needing per-section targets.
 // ---------------------------------------------------------------------------
 
 export const promoteAll = async (req: Request, res: Response): Promise<Response> => {
@@ -470,11 +486,15 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
 
     const nextGradeLevel = cls.gradeLevel + 1;
     let targetClass = await ClassModel.findOne({
-      school: schoolId, department: cls.department, section: cls.section,
+      school: schoolId, department: cls.department,
       gradeLevel: nextGradeLevel, academicYear: targetAcademicYear,
     });
 
     if (!targetClass) {
+      // First section to reach this grade "wins" the new class's section
+      // label/room/teacher as a starting point — an admin can rename or
+      // reassign it afterward; every other section just merges its
+      // students into whichever class was created here.
       targetClass = await ClassModel.create({
         school: cls.school, department: cls.department,
         title: bumpTitleGrade(cls.title, nextGradeLevel),
