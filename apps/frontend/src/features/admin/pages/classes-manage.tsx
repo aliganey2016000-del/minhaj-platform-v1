@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { School, Pencil, Trash2, MoreVertical, Search, ChevronDown, CheckCircle2, PauseCircle, Archive } from 'lucide-react';
+import { School, Pencil, Trash2, Copy, MoreVertical, Search, ChevronDown, CheckCircle2, PauseCircle, Archive } from 'lucide-react';
 import api from '../../../lib/axios';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 
@@ -551,7 +551,7 @@ function ActionsDropdown({ onImport, onExport, exporting, label, onManageDepartm
 // Row Actions — single "⋮" dropdown replacing individual Edit/Delete icons.
 // ---------------------------------------------------------------------------
 
-function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+function RowActionsMenu({ onEdit, onDuplicate, onDelete }: { onEdit: () => void; onDuplicate: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -580,6 +580,9 @@ function RowActionsMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: ()
       >
         <button onClick={(e) => { e.stopPropagation(); setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
           <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onDuplicate(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+          <Copy className="h-3.5 w-3.5" strokeWidth={1.75} /> Duplicate
         </button>
         <button onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
           <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
@@ -683,6 +686,27 @@ export function ClassesManage() {
     catch (err: any) { setToast({ message: err.response?.data?.message || 'Failed to delete', type: 'error' }); }
   };
 
+  const handleDuplicate = async (cls: ClassItem) => {
+    try {
+      const payload = {
+        school: cls.school?._id,
+        department: cls.departmentId || cls.department,
+        title: `${cls.title} Duplicate`,
+        section: cls.section,
+        room: cls.room,
+        shiftMode: cls.shiftMode,
+        batch: cls.batch,
+        gradeLevel: cls.gradeLevel,
+        academicYear: cls.academicYear,
+        isGraduatingGrade: cls.isGraduatingGrade,
+        isEntryGrade: cls.isEntryGrade,
+      };
+      await api.post('/classes', payload);
+      setToast({ message: 'Class duplicated', type: 'success' });
+      await fetchData();
+    } catch (err: any) { setToast({ message: err.response?.data?.message || 'Failed to duplicate class', type: 'error' }); }
+  };
+
   // ───────────────────────────────────────────────────────────────────────
   // Import Modal Logic
   // ───────────────────────────────────────────────────────────────────────
@@ -759,7 +783,7 @@ export function ClassesManage() {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-screen-2xl space-y-6">
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
         {/* Header + Buttons — stay top-right of the title on every screen size */}
@@ -951,7 +975,7 @@ export function ClassesManage() {
                           <ChevronDown className="pointer-events-none absolute right-2 h-3 w-3 opacity-60" strokeWidth={2.5} />
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingClass(c)} onDelete={() => handleDelete(c._id)} /></div></td>
+                      <td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingClass(c)} onDuplicate={() => handleDuplicate(c)} onDelete={() => handleDelete(c._id)} /></div></td>
                     </tr>
                   ))
                 )}

@@ -4,7 +4,7 @@
  * here instead of being gone immediately; it can be restored or
  * permanently purged.
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -17,6 +17,17 @@ interface TrashItem {
   deletedAt: string;
 }
 
+interface UndoState {
+  item: TrashItem;
+  entityId: string | null;
+}
+
+type ConfirmModalState =
+  | { kind: 'purge-one'; item: TrashItem }
+  | { kind: 'purge-bulk'; ids: string[] }
+  | { kind: 'empty' }
+  | null;
+
 const ENTITY_TYPES: TrashItem['entityType'][] = ['Parent', 'Teacher', 'Class', 'Course', 'School'];
 
 const TYPE_STYLES: Record<string, string> = {
@@ -26,6 +37,13 @@ const TYPE_STYLES: Record<string, string> = {
   Course: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   School: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
 };
+
+// Where to re-delete a just-restored entity if the admin clicks Undo.
+const ENTITY_DELETE_PATH: Record<string, string> = {
+  Parent: '/parents', Teacher: '/teachers', Class: '/classes', Course: '/courses', School: '/schools',
+};
+
+const UNDO_WINDOW_MS = 7000;
 
 export function TrashManage() {
   const { user } = useAuth();
@@ -38,8 +56,13 @@ export function TrashManage() {
   const [entityType, setEntityType] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [emptying, setEmptying] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmTyped, setConfirmTyped] = useState('');
+  const [undo, setUndo] = useState<UndoState | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
   const limit = 20;
 
   const fetchItems = useCallback(async () => {
@@ -54,43 +77,114 @@ export function TrashManage() {
   }, [page, entityType]);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
+  useEffect(() => () => { if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current); }, []);
+
+  const canActOn = (item: TrashItem) => item.entityType !== 'School' || isSuperAdmin;
+  const totalPages = Math.ceil(total / limit);
+
+  // ── Selection ──
+  const toggleSelected = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const selectableItems = items.filter(canActOn);
+  const allSelected = selectableItems.length > 0 && selectableItems.every(i => selected.has(i._id));
+  const toggleSelectAll = () => setSelected(prev => {
+    if (allSelected) return new Set();
+    const n = new Set(prev);
+    selectableItems.forEach(i => n.add(i._id));
+    return n;
+  });
+  useEffect(() => { setSelected(new Set()); }, [page, entityType]);
+
+  // ── Restore (optimistic + undo) ──
+  const dismissUndo = () => {
+    if (undoTimerRef.current) { window.clearTimeout(undoTimerRef.current); undoTimerRef.current = null; }
+    setUndo(null);
+  };
 
   const handleRestore = async (item: TrashItem) => {
-    setBusyId(item._id); setMessage(''); setError('');
+    setItems(prev => prev.filter(i => i._id !== item._id));
+    setTotal(t => Math.max(0, t - 1));
+    setSelected(prev => { const n = new Set(prev); n.delete(item._id); return n; });
+    setError('');
     try {
-      await api.post(`/trash/${item._id}/restore`);
-      setMessage(`✅ "${item.label}" restored successfully`);
-      setItems(prev => prev.filter(i => i._id !== item._id));
-      setTotal(t => Math.max(0, t - 1));
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to restore'); }
-    finally { setBusyId(null); }
+      const { data } = await api.post(`/trash/${item._id}/restore`);
+      dismissUndo();
+      undoTimerRef.current = window.setTimeout(() => setUndo(null), UNDO_WINDOW_MS);
+      setUndo({ item, entityId: data.data?.entityId || null });
+    } catch (err: any) {
+      // Restore failed server-side — the optimistic removal was wrong, put it back.
+      setError(err.response?.data?.message || 'Failed to restore');
+      setItems(prev => [item, ...prev]);
+      setTotal(t => t + 1);
+    }
   };
 
-  const handlePurge = async (item: TrashItem) => {
-    if (!window.confirm(`Permanently delete "${item.label}"? This cannot be undone.`)) return;
-    setBusyId(item._id); setMessage(''); setError('');
+  const handleUndo = async () => {
+    if (!undo) return;
+    const { item, entityId } = undo;
+    dismissUndo();
+    const path = ENTITY_DELETE_PATH[item.entityType];
+    if (!entityId || !path) { setError('Cannot undo — missing reference.'); return; }
+    try {
+      await api.delete(`${path}/${entityId}`);
+      setMessage(`"${item.label}" moved back to Trash`);
+      fetchItems();
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to undo'); }
+  };
+
+  // ── Single purge (confirm modal) ──
+  const confirmPurgeOne = async (item: TrashItem) => {
+    setConfirmBusy(true); setError('');
     try {
       await api.delete(`/trash/${item._id}`);
-      setMessage(`🗑️ "${item.label}" permanently deleted`);
       setItems(prev => prev.filter(i => i._id !== item._id));
       setTotal(t => Math.max(0, t - 1));
+      setSelected(prev => { const n = new Set(prev); n.delete(item._id); return n; });
+      setMessage(`"${item.label}" permanently deleted`);
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to delete'); }
-    finally { setBusyId(null); }
+    finally { setConfirmBusy(false); setConfirmModal(null); }
   };
 
-  const handleEmpty = async () => {
-    if (!window.confirm(`Permanently delete all ${total} item(s) in Trash? This cannot be undone.`)) return;
-    setEmptying(true); setMessage(''); setError('');
+  // ── Bulk actions ──
+  const handleBulkRestore = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setBulkBusy(true); setError('');
     try {
-      const { data } = await api.delete('/trash');
-      setMessage(`🗑️ Permanently deleted ${data.data?.deleted ?? 0} item(s)`);
-      setPage(1); fetchItems();
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to empty trash'); }
-    finally { setEmptying(false); }
+      const { data } = await api.post('/trash/bulk-restore', { ids });
+      const restoredIds = new Set((data.data?.results || []).filter((r: any) => r.success).map((r: any) => r.id));
+      setItems(prev => prev.filter(i => !restoredIds.has(i._id)));
+      setTotal(t => Math.max(0, t - restoredIds.size));
+      setSelected(new Set());
+      setMessage(`Restored ${data.data?.restored ?? 0} of ${ids.length} item(s)`);
+    } catch (err: any) { setError(err.response?.data?.message || 'Bulk restore failed'); }
+    finally { setBulkBusy(false); }
   };
 
-  const totalPages = Math.ceil(total / limit);
-  const canActOn = (item: TrashItem) => item.entityType !== 'School' || isSuperAdmin;
+  const confirmBulkPurge = async (ids: string[]) => {
+    setConfirmBusy(true); setError('');
+    try {
+      const { data } = await api.delete('/trash/bulk', { data: { ids } });
+      const deletedIds = new Set((data.data?.results || []).filter((r: any) => r.success).map((r: any) => r.id));
+      setItems(prev => prev.filter(i => !deletedIds.has(i._id)));
+      setTotal(t => Math.max(0, t - deletedIds.size));
+      setSelected(new Set());
+      setMessage(`Permanently deleted ${data.data?.deleted ?? 0} of ${ids.length} item(s)`);
+    } catch (err: any) { setError(err.response?.data?.message || 'Bulk delete failed'); }
+    finally { setConfirmBusy(false); setConfirmModal(null); }
+  };
+
+  // ── Empty Trash (optimistic — the response already tells us the result) ──
+  const confirmEmpty = async () => {
+    setConfirmBusy(true); setError('');
+    try {
+      const { data } = await api.delete('/trash', { data: { confirm: true } });
+      setItems([]); setTotal(0); setPage(1); setSelected(new Set());
+      setMessage(`Permanently deleted ${data.data?.deleted ?? 0} item(s)`);
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to empty trash'); }
+    finally { setConfirmBusy(false); setConfirmModal(null); setConfirmTyped(''); }
+  };
+
+  const closeConfirm = () => { setConfirmModal(null); setConfirmTyped(''); };
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
@@ -101,11 +195,11 @@ export function TrashManage() {
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} deleted item{total === 1 ? '' : 's'} — restore or permanently delete</p>
           </div>
           <button
-            onClick={handleEmpty}
-            disabled={emptying || total === 0}
+            onClick={() => total > 0 && setConfirmModal({ kind: 'empty' })}
+            disabled={total === 0}
             className="rounded-xl border border-red-300 dark:border-red-800 px-5 py-2.5 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {emptying ? 'Emptying...' : '🗑️ Empty Trash'}
+            🗑️ Empty Trash
           </button>
         </div>
 
@@ -127,6 +221,19 @@ export function TrashManage() {
           </select>
         </div>
 
+        {selected.size > 0 && (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950/30 px-4 py-3">
+            <span className="text-sm font-medium text-primary-700 dark:text-primary-300">{selected.size} selected</span>
+            <button onClick={handleBulkRestore} disabled={bulkBusy} className="rounded-lg border border-primary-300 dark:border-primary-700 bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs font-semibold text-primary-600 dark:text-primary-400 hover:bg-primary-100 dark:hover:bg-primary-900/40 disabled:opacity-50 transition-colors">
+              ↩ Restore Selected
+            </button>
+            <button onClick={() => setConfirmModal({ kind: 'purge-bulk', ids: Array.from(selected) })} disabled={bulkBusy} className="rounded-lg border border-red-300 dark:border-red-700 bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 disabled:opacity-50 transition-colors">
+              Delete Selected
+            </button>
+            <button onClick={() => setSelected(new Set())} className="text-xs text-[var(--color-text-tertiary)] hover:underline ml-auto">Clear selection</button>
+          </div>
+        )}
+
         {loading && <div className="flex justify-center py-10"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>}
 
         {!loading && (
@@ -135,6 +242,9 @@ export function TrashManage() {
               <table className="w-full text-sm">
                 <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                   <tr>
+                    <th className="px-5 py-3 w-10">
+                      <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} disabled={selectableItems.length === 0} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" />
+                    </th>
                     <th className="text-left px-5 py-3 font-semibold whitespace-nowrap">Type</th>
                     <th className="text-left px-5 py-3 font-semibold whitespace-nowrap">Name</th>
                     <th className="text-left px-5 py-3 font-semibold hidden md:table-cell whitespace-nowrap">Organization</th>
@@ -145,9 +255,12 @@ export function TrashManage() {
                 </thead>
                 <tbody>
                   {items.length === 0 ? (
-                    <tr><td colSpan={6} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🗑️ Trash is empty</p><p className="text-sm">Deleted parents, teachers, classes, courses, and organizations will show up here.</p></td></tr>
+                    <tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🗑️ Trash is empty</p><p className="text-sm">Deleted parents, teachers, classes, courses, and organizations will show up here.</p></td></tr>
                   ) : items.map(item => (
                     <tr key={item._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
+                      <td className="px-5 py-4">
+                        <input type="checkbox" checked={selected.has(item._id)} onChange={() => toggleSelected(item._id)} disabled={!canActOn(item)} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30 disabled:opacity-30" />
+                      </td>
                       <td className="px-5 py-4 whitespace-nowrap"><span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${TYPE_STYLES[item.entityType] || 'bg-gray-100 text-gray-600'}`}>{item.entityType}</span></td>
                       <td className="px-5 py-4 whitespace-nowrap font-medium text-[var(--color-text-primary)]">{item.label}</td>
                       <td className="px-5 py-4 hidden md:table-cell whitespace-nowrap text-[var(--color-text-secondary)]">{item.school?.name || '—'}</td>
@@ -156,10 +269,10 @@ export function TrashManage() {
                       <td className="px-5 py-4 text-center whitespace-nowrap">
                         {canActOn(item) ? (
                           <div className="flex items-center justify-center gap-2">
-                            <button onClick={() => handleRestore(item)} disabled={busyId === item._id} className="rounded-lg border border-primary-300 dark:border-primary-800 px-3 py-1.5 text-xs font-semibold text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-950/30 disabled:opacity-50 transition-colors">
+                            <button onClick={() => handleRestore(item)} className="rounded-lg border border-primary-300 dark:border-primary-800 px-3 py-1.5 text-xs font-semibold text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors">
                               ↩ Restore
                             </button>
-                            <button onClick={() => handlePurge(item)} disabled={busyId === item._id} className="rounded-lg border border-red-300 dark:border-red-800 px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50 transition-colors">
+                            <button onClick={() => setConfirmModal({ kind: 'purge-one', item })} className="rounded-lg border border-red-300 dark:border-red-800 px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
                               Delete Forever
                             </button>
                           </div>
@@ -185,6 +298,59 @@ export function TrashManage() {
           </div>
         )}
       </div>
+
+      {/* Undo snackbar */}
+      {undo && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 rounded-xl bg-gray-900 dark:bg-black px-5 py-3 text-sm text-white shadow-2xl">
+          <span>✅ "{undo.item.label}" restored</span>
+          <button onClick={handleUndo} className="font-semibold text-primary-300 hover:text-primary-200 underline underline-offset-2">Undo</button>
+          <button onClick={dismissUndo} className="text-gray-400 hover:text-white text-lg leading-none">&times;</button>
+        </div>
+      )}
+
+      {/* Confirm modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={closeConfirm}>
+          <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            {confirmModal.kind === 'purge-one' && (
+              <>
+                <h2 className="text-lg font-bold text-[var(--color-text-primary)] mb-2">Delete Forever?</h2>
+                <p className="text-sm text-[var(--color-text-secondary)] mb-5">Permanently delete <strong>"{confirmModal.item.label}"</strong>? This cannot be undone.</p>
+                <div className="flex gap-3">
+                  <button onClick={closeConfirm} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
+                  <button onClick={() => confirmPurgeOne(confirmModal.item)} disabled={confirmBusy} className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60 transition-colors">{confirmBusy ? 'Deleting...' : 'Delete Forever'}</button>
+                </div>
+              </>
+            )}
+            {confirmModal.kind === 'purge-bulk' && (
+              <>
+                <h2 className="text-lg font-bold text-[var(--color-text-primary)] mb-2">Delete {confirmModal.ids.length} items forever?</h2>
+                <p className="text-sm text-[var(--color-text-secondary)] mb-5">This cannot be undone.</p>
+                <div className="flex gap-3">
+                  <button onClick={closeConfirm} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
+                  <button onClick={() => confirmBulkPurge(confirmModal.ids)} disabled={confirmBusy} className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60 transition-colors">{confirmBusy ? 'Deleting...' : `Delete ${confirmModal.ids.length} Items`}</button>
+                </div>
+              </>
+            )}
+            {confirmModal.kind === 'empty' && (
+              <>
+                <h2 className="text-lg font-bold text-[var(--color-text-primary)] mb-2">Empty Trash?</h2>
+                <p className="text-sm text-[var(--color-text-secondary)] mb-4">This will permanently delete <strong>all {total} item{total === 1 ? '' : 's'}</strong> in Trash. This cannot be undone.</p>
+                <label className="block text-xs font-medium text-[var(--color-text-tertiary)] mb-1.5">Type <strong className="text-red-600">DELETE</strong> to confirm</label>
+                <input
+                  autoFocus type="text" value={confirmTyped} onChange={e => setConfirmTyped(e.target.value)}
+                  placeholder="DELETE"
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm mb-5 focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <div className="flex gap-3">
+                  <button onClick={closeConfirm} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
+                  <button onClick={confirmEmpty} disabled={confirmBusy || confirmTyped !== 'DELETE'} className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">{confirmBusy ? 'Emptying...' : 'Empty Trash'}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

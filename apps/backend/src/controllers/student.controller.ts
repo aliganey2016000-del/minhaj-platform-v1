@@ -377,11 +377,21 @@ async function syncGuardian(
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
   const {
-    email, password, firstName, lastName, gender, phone, enrollmentDate, school, classId, grade, medicalNotes, parentId, preferredLanguage,
+    studentId, email, password, firstName, lastName, gender, phone, enrollmentDate, school, classId, grade, medicalNotes, parentId, preferredLanguage,
     guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship,
   } = req.body;
 
   const resolvedSchool = resolveOrgIdForCreate(req, school) || undefined;
+
+  // Optional — leave blank to let the model's pre-validate hook auto-generate
+  // one (STU-YYYY-NNNN). If supplied, it only has to be unique within this
+  // organization (see the compound index on Student), not platform-wide.
+  let customStudentId: string | undefined;
+  if (studentId && String(studentId).trim()) {
+    customStudentId = String(studentId).trim().toUpperCase();
+    const duplicate = await Student.findOne({ school: resolvedSchool, studentId: customStudentId }).lean();
+    if (duplicate) throw new ConflictError(`Student ID "${customStudentId}" is already used in this organization.`);
+  }
 
   // No multi-document transaction — this deployment's MongoDB runs as a
   // standalone instance (no replica set), which doesn't support transactions
@@ -417,6 +427,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     user: user._id, profile: profile._id, parent: parentId || undefined,
     school: resolvedSchool, class: classId || undefined, department, shiftMode,
     enrollmentDate: enrollmentDate || new Date(), grade: grade || undefined, medicalNotes: medicalNotes || undefined,
+    studentId: customStudentId,
   });
 
   if (!parentId) {
@@ -424,9 +435,9 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     if (student.isModified('parent')) await student.save();
   }
 
-  const studentId = student._id;
+  const newStudentDocId = student._id;
 
-  const populated = await Student.findById(studentId)
+  const populated = await Student.findById(newStudentDocId)
     .populate('user', 'email role isActive preferredLanguage')
     .populate('profile', 'firstName lastName avatar gender')
     .populate('school', 'name')
@@ -447,9 +458,21 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   assertOwnsOrg(req, student, 'school');
 
   const {
-    firstName, lastName, gender, school, classId, grade, medicalNotes, parent, enrollmentDate, status, attendancePercentage, gpa, totalFeesPaid, totalFeesDue,
+    studentId, firstName, lastName, gender, school, classId, grade, medicalNotes, parent, enrollmentDate, status, attendancePercentage, gpa, totalFeesPaid, totalFeesDue,
     email, password, guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship,
   } = req.body;
+
+  // Admin-editable — a school may want to align this with its own paper
+  // records. Still only has to be unique within the student's organization.
+  if (studentId !== undefined) {
+    const trimmed = String(studentId).trim().toUpperCase();
+    if (!trimmed) throw new BadRequestError('Student ID cannot be empty');
+    if (trimmed !== student.studentId) {
+      const duplicate = await Student.findOne({ school: student.school, studentId: trimmed, _id: { $ne: student._id } }).lean();
+      if (duplicate) throw new ConflictError(`Student ID "${trimmed}" is already used in this organization.`);
+      student.studentId = trimmed;
+    }
+  }
 
   if (firstName || lastName || gender) {
     const profileUpdate: any = {};
@@ -739,7 +762,7 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
     .lean();
 
   const headers = [
-    'First Name', 'Last Name', 'Gender', 'Email', 'Password',
+    'Student ID', 'First Name', 'Last Name', 'Gender', 'Email', 'Password',
     'Organization', 'Grade / Class', 'Enrollment Date', 'Medical Notes',
     'Guardian Name', 'Guardian Email', 'Guardian Phone', 'Relationship',
   ];
@@ -749,6 +772,7 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
       : '';
 
     return [
+      st.studentId || '',
       st.profile?.firstName || '',
       st.profile?.lastName || '',
       st.profile?.gender || '',
@@ -782,12 +806,16 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
 
 export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
   const headers = [
-    'First Name', 'Last Name', 'Gender', 'Email', 'Password',
+    'Student ID', 'First Name', 'Last Name', 'Gender', 'Email', 'Password',
     'Organization', 'Grade / Class', 'Enrollment Date', 'Medical Notes',
     'Guardian Name', 'Guardian Email', 'Guardian Phone', 'Relationship',
   ];
+  // Student ID is optional — leave the column blank and the system
+  // auto-generates one (STU-YYYY-NNNN), or fill in your own to match an
+  // existing numbering scheme (only checked for duplicates within your own
+  // organization).
   const rows = [[
-    'Ahmed', 'Ali', 'male', 'ahmed.ali@example.com', '',
+    '', 'Ahmed', 'Ali', 'male', 'ahmed.ali@example.com', '',
     'Madrasa Al-Noor', 'Quran Beginners A', '2026-01-15', '',
     'Mohamed Ali', 'parent@example.com', '+252612345678', 'Father',
   ]];
@@ -820,7 +848,7 @@ function esc(val: string): string {
 // row 1 (sheet_to_json already strips the real header; this catches a
 // duplicate one buried in pasted data).
 const IMPORT_HEADER_TITLES = new Set([
-  'first name', 'last name', 'gender', 'email', 'password',
+  'student id', 'first name', 'last name', 'gender', 'email', 'password',
   'grade / class', 'grade/class', 'grade', 'enrollment date', 'medical notes',
   'guardian name', 'guardian email', 'guardian phone', 'relationship',
   'school', 'organization',
@@ -868,6 +896,10 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   // existing parents — then build an in-memory phone→parent map.
   const uniquePhones = new Set<string>();
   const seenEmails = new Set<string>();
+  // Custom Student IDs seen so far in this batch, keyed by school — a row's
+  // ID only has to avoid collisions with other students in the SAME
+  // organization, matching the compound unique index on Student.
+  const seenStudentIdsBySchool = new Map<string, Set<string>>();
   const parsedRows: any[] = [];
 
   for (let i = 0; i < rows.length; i++) {
@@ -890,6 +922,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     if (looksLikeHeaderRow(cellValues)) continue;
 
     try {
+      const studentIdRaw = String(getField(row, 'Student ID', 'StudentID', 'Student Id') ?? '').trim().toUpperCase();
       const firstName = String(getField(row, 'First Name') ?? '').trim();
       const lastName = String(getField(row, 'Last Name') ?? '').trim();
       const gender = String(getField(row, 'Gender') ?? 'male').trim().toLowerCase();
@@ -937,6 +970,18 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         schoolId = school._id.toString();
       }
 
+      // Custom Student ID — optional. If given, it only needs to be unique
+      // within this row's own organization (batch-level + DB checks).
+      if (studentIdRaw) {
+        const schoolKey = schoolId || 'global';
+        const seenSet = seenStudentIdsBySchool.get(schoolKey) || new Set<string>();
+        if (seenSet.has(studentIdRaw)) throw new Error(`Student ID "${studentIdRaw}" is duplicated elsewhere in this import`);
+        const dupInDb = await Student.findOne({ school: schoolId, studentId: studentIdRaw }).lean();
+        if (dupInDb) throw new Error(`Student ID "${studentIdRaw}" is already used in this organization`);
+        seenSet.add(studentIdRaw);
+        seenStudentIdsBySchool.set(schoolKey, seenSet);
+      }
+
       // In-memory class lookup
       let classId: mongoose.Types.ObjectId | undefined;
       let department: string | undefined;
@@ -954,7 +999,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const hashedPassword = await bcrypt.hash(finalPassword, 10);
 
       parsedRows.push({
-        rowNum, firstName, lastName, gender: ['male', 'female'].includes(gender) ? gender : 'male',
+        rowNum, studentId: studentIdRaw || undefined, firstName, lastName, gender: ['male', 'female'].includes(gender) ? gender : 'male',
         email, hashedPassword,
         school: schoolId ? new mongoose.Types.ObjectId(schoolId) : undefined,
         classId, department, shiftMode,
@@ -990,18 +1035,37 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     }
   }
 
-  // Assign a real Student ID to every row up front — bulkWrite's raw
-  // insertOne/updateOne documents bypass the schema's studentId-generating
-  // `pre('validate')` hook entirely (that hook only runs for .save()/.create()),
-  // so without this every bulk-imported student would be written with
-  // studentId missing, and the unique index on that field would reject the
+  // Assign a real Student ID to every row that didn't bring its own —
+  // bulkWrite's raw insertOne/updateOne documents bypass the schema's
+  // studentId-generating `pre('validate')` hook entirely (that hook only
+  // runs for .save()/.create()), so without this every such row would be
+  // written with studentId missing, and the unique index would reject the
   // second such row in any batch with a confusing E11000 instead of a clear
-  // per-row error.
-  const studentIdBaseCount = await Student.countDocuments();
+  // per-row error. Counted per-school (like the model hook) so each
+  // organization gets its own independent sequence, and checked against
+  // `seenStudentIdsBySchool` so a generated ID never collides with one a
+  // row in this same batch explicitly requested.
   const currentYear = new Date().getFullYear();
-  parsedRows.forEach((item, idx) => {
-    item.studentId = `STU-${currentYear}-${String(studentIdBaseCount + idx + 1).padStart(4, '0')}`;
-  });
+  const schoolCounterCache = new Map<string, number>();
+  for (const item of parsedRows) {
+    if (item.studentId) continue;
+    const schoolKey = item.school ? item.school.toString() : 'global';
+    if (!schoolCounterCache.has(schoolKey)) {
+      const count = await Student.countDocuments(item.school ? { school: item.school } : {});
+      schoolCounterCache.set(schoolKey, count);
+    }
+    const seenSet = seenStudentIdsBySchool.get(schoolKey) || new Set<string>();
+    let seq = schoolCounterCache.get(schoolKey)! + 1;
+    let candidate = `STU-${currentYear}-${String(seq).padStart(4, '0')}`;
+    while (seenSet.has(candidate)) {
+      seq += 1;
+      candidate = `STU-${currentYear}-${String(seq).padStart(4, '0')}`;
+    }
+    schoolCounterCache.set(schoolKey, seq);
+    seenSet.add(candidate);
+    seenStudentIdsBySchool.set(schoolKey, seenSet);
+    item.studentId = candidate;
+  }
 
   // ── Phase 3: Create each row, per-row isolated, with limited concurrency ──
   // This used to be three separate bulkWrite calls (Users, then Profiles,
@@ -1116,7 +1180,10 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       await Student.deleteOne({ _id: studentId }).catch(() => {});
       await Profile.deleteOne({ _id: profileId }).catch(() => {});
       await User.deleteOne({ _id: userId }).catch(() => {});
-      errors.push({ row: item.rowNum, message: rowErr.message || 'Insert failed' });
+      const message = rowErr.code === 11000
+        ? `Student ID "${item.studentId}" conflicts with an existing record in this organization`
+        : (rowErr.message || 'Insert failed');
+      errors.push({ row: item.rowNum, message });
     }
   }
 

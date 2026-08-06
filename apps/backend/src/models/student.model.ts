@@ -61,10 +61,14 @@ const studentSchema = new Schema<IStudent>(
       required: [true, 'Profile reference is required'],
       unique: true,
     },
+    // Uniqueness is enforced per-organization (see the compound index below),
+    // not globally — two different schools may each run their own "STU-0001"
+    // numbering without colliding. An admin can type a custom value (e.g. to
+    // match a school's existing paper records) or leave it blank and let the
+    // pre-validate hook below auto-generate one.
     studentId: {
       type: String,
       required: [true, 'Student ID is required'],
-      unique: true,
       trim: true,
       uppercase: true,
     },
@@ -193,6 +197,10 @@ studentSchema.index({ status: 1, enrollmentDate: -1 });
 studentSchema.index({ school: 1, department: 1 });
 studentSchema.index({ school: 1, shiftMode: 1 });
 
+// Student ID only needs to be unique WITHIN an organization, not across the
+// whole platform — this replaces the old field-level `unique: true`.
+studentSchema.index({ school: 1, studentId: 1 }, { unique: true });
+
 // ---------------------------------------------------------------------------
 // Auto-generate Student ID Pre-save Hook
 // ---------------------------------------------------------------------------
@@ -200,7 +208,9 @@ studentSchema.index({ school: 1, shiftMode: 1 });
 studentSchema.pre<IStudent>('validate', async function (next) {
   if (this.isNew && !this.studentId) {
     const currentYear = new Date().getFullYear();
-    const count = await mongoose.model('Student').countDocuments();
+    // Scoped to this student's own school so each organization gets its own
+    // independent sequence instead of sharing one platform-wide counter.
+    const count = await mongoose.model('Student').countDocuments(this.school ? { school: this.school } : {});
     const paddedCount = String(count + 1).padStart(4, '0');
     this.studentId = `STU-${currentYear}-${paddedCount}`;
   }

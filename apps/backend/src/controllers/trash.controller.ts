@@ -4,11 +4,11 @@
  * reverses each entity type's original delete.
  */
 import { Request, Response } from 'express';
-import Trash from '../models/trash.model';
+import Trash, { ITrash } from '../models/trash.model';
 import ApiResponse from '../utils/api-response';
-import { NotFoundError, ForbiddenError } from '../utils/api-error';
+import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/api-error';
 import { applyOrgFilter } from '../utils/tenant-scope';
-import { restoreFromTrash } from '../utils/trash';
+import { restoreFromTrash, logTrashActivity } from '../utils/trash';
 
 // ---------------------------------------------------------------------------
 // GET /trash — list, tenant-scoped like everything else in the admin app.
@@ -48,17 +48,17 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
 export const restore = async (req: Request, res: Response): Promise<Response> => {
   const result = await restoreFromTrash(req.params.id, req);
+  void logTrashActivity(req, 'restore', result.entityType, result.entityId || req.params.id, `Restored "${result.label}"`);
   return ApiResponse.success(res, result, `${result.entityType} restored successfully`);
 };
 
 // ---------------------------------------------------------------------------
-// DELETE /trash/:id — permanently purge one item (irreversible)
+// Shared authorization check for purging a single Trash item — an
+// organization-type entry is super-admin-only, and an org_admin can never
+// touch another org's trash. Used by both the single and bulk purge paths.
 // ---------------------------------------------------------------------------
 
-export const purge = async (req: Request, res: Response): Promise<Response> => {
-  const trash = await Trash.findById(req.params.id);
-  if (!trash) throw new NotFoundError('Trash item');
-
+function assertCanPurge(req: Request, trash: ITrash): void {
   if (trash.entityType === 'School' && req.user?.role !== 'admin') {
     throw new ForbiddenError('Only a super admin can permanently delete an organization.');
   }
@@ -68,19 +68,87 @@ export const purge = async (req: Request, res: Response): Promise<Response> => {
       throw new ForbiddenError("You do not have permission to delete another organization's data.");
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /trash/:id — permanently purge one item (irreversible)
+// ---------------------------------------------------------------------------
+
+export const purge = async (req: Request, res: Response): Promise<Response> => {
+  const trash = await Trash.findById(req.params.id);
+  if (!trash) throw new NotFoundError('Trash item');
+  assertCanPurge(req, trash);
 
   await Trash.findByIdAndDelete(req.params.id);
+  void logTrashActivity(req, 'purge', trash.entityType, req.params.id, `Permanently deleted "${trash.label}"`);
   return ApiResponse.noContent(res, 'Permanently deleted');
 };
 
 // ---------------------------------------------------------------------------
-// DELETE /trash — empty everything the caller can see (irreversible)
+// POST /trash/bulk-restore — body: { ids: string[] }
+// ---------------------------------------------------------------------------
+
+export const bulkRestore = async (req: Request, res: Response): Promise<Response> => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String) : [];
+  if (ids.length === 0) throw new BadRequestError('At least one id is required');
+
+  const results: { id: string; success: boolean; label?: string; error?: string }[] = [];
+  for (const id of ids) {
+    try {
+      const result = await restoreFromTrash(id, req);
+      void logTrashActivity(req, 'restore', result.entityType, result.entityId || id, `Restored "${result.label}" (bulk)`);
+      results.push({ id, success: true, label: result.label });
+    } catch (err: any) {
+      results.push({ id, success: false, error: err.message || 'Failed to restore' });
+    }
+  }
+
+  const restored = results.filter((r) => r.success).length;
+  return ApiResponse.success(res, { results, restored }, `Restored ${restored} of ${ids.length} item(s)`);
+};
+
+// ---------------------------------------------------------------------------
+// DELETE /trash/bulk — body: { ids: string[] }
+// ---------------------------------------------------------------------------
+
+export const bulkPurge = async (req: Request, res: Response): Promise<Response> => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String) : [];
+  if (ids.length === 0) throw new BadRequestError('At least one id is required');
+
+  const results: { id: string; success: boolean; error?: string }[] = [];
+  for (const id of ids) {
+    try {
+      const trash = await Trash.findById(id);
+      if (!trash) { results.push({ id, success: false, error: 'Not found' }); continue; }
+      assertCanPurge(req, trash);
+      await Trash.findByIdAndDelete(id);
+      void logTrashActivity(req, 'purge', trash.entityType, id, `Permanently deleted "${trash.label}" (bulk)`);
+      results.push({ id, success: true });
+    } catch (err: any) {
+      results.push({ id, success: false, error: err.message || 'Failed to delete' });
+    }
+  }
+
+  const deleted = results.filter((r) => r.success).length;
+  return ApiResponse.success(res, { results, deleted }, `Permanently deleted ${deleted} of ${ids.length} item(s)`);
+};
+
+// ---------------------------------------------------------------------------
+// DELETE /trash — empty everything the caller can see (irreversible).
+// Requires an explicit { confirm: true } in the body, on top of the
+// frontend's own "type DELETE" modal — a defense-in-depth guard against a
+// stray or scripted call to this uniquely destructive, org-wide endpoint.
 // ---------------------------------------------------------------------------
 
 export const empty = async (req: Request, res: Response): Promise<Response> => {
+  if (req.body?.confirm !== true) {
+    throw new BadRequestError('This action requires explicit confirmation ({ confirm: true }).');
+  }
+
   const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
   if (req.user?.role === 'org_admin') filter.entityType = { $ne: 'School' };
 
   const result = await Trash.deleteMany(filter);
+  void logTrashActivity(req, 'empty', 'Trash', '', `Emptied trash — permanently deleted ${result.deletedCount} item(s)`);
   return ApiResponse.success(res, { deleted: result.deletedCount }, `Permanently deleted ${result.deletedCount} item(s)`);
 };

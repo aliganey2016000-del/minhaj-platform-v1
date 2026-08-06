@@ -16,11 +16,40 @@ import Course from '../models/course.model';
 import School from '../models/school.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
+import ActivityLog from '../models/activity-log.model';
 import { NotFoundError, ForbiddenError } from './api-error';
 
 const MODEL_REGISTRY: Record<string, mongoose.Model<any>> = {
   Student, Parent, Teacher, Class: ClassModel, Course, School, User, Profile,
 };
+
+// Fire-and-forget, never throws — the Trash action it's attached to must
+// always complete even if writing the log entry fails for some reason.
+// Mirrors the existing learning-activity-logger.ts pattern. `ActivityLog`
+// has no 'restore' value in its action enum, so restores are logged as
+// 'update' (closest fit — nothing new is created, an existing record's
+// deleted state is reversed) and purges/empties as 'delete'.
+export async function logTrashActivity(
+  req: Request,
+  action: 'restore' | 'purge' | 'empty',
+  resource: string,
+  resourceId: string,
+  details: string
+): Promise<void> {
+  try {
+    if (!req.user?.userId) return;
+    await ActivityLog.create({
+      user: req.user.userId,
+      action: action === 'restore' ? 'update' : 'delete',
+      resource,
+      resourceId,
+      details,
+      ip: req.ip || '',
+    });
+  } catch {
+    // Logging is best-effort — never let it fail the actual operation.
+  }
+}
 
 export async function moveToTrash(opts: {
   entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School';
@@ -40,7 +69,7 @@ export async function moveToTrash(opts: {
   });
 }
 
-export async function restoreFromTrash(trashId: string, req: Request): Promise<{ entityType: string; label: string }> {
+export async function restoreFromTrash(trashId: string, req: Request): Promise<{ entityType: string; label: string; entityId: string | null }> {
   const trash = await Trash.findById(trashId);
   if (!trash) throw new NotFoundError('Trash item');
 
@@ -92,7 +121,12 @@ export async function restoreFromTrash(trashId: string, req: Request): Promise<{
     }
   }
 
-  const result = { entityType: trash.entityType, label: trash.label };
+  // The "primary" snapshot — the one matching entityType — is the record
+  // Undo needs to know how to re-delete (e.g. which /parents/:id to call).
+  const primarySnap = trash.snapshots.find((s) => s.modelName === trash.entityType);
+  const entityId = primarySnap ? String((primarySnap.data as any)._id) : null;
+
+  const result = { entityType: trash.entityType, label: trash.label, entityId };
   await Trash.findByIdAndDelete(trashId);
   return result;
 }
