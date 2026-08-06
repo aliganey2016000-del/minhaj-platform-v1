@@ -16,6 +16,7 @@ import Teacher from '../models/teacher.model';
 import Parent from '../models/parent.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
+import { moveToTrash } from '../utils/trash';
 
 // ---------------------------------------------------------------------------
 // GET /schools — List all with pagination, search, and filters
@@ -324,6 +325,16 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
       `Cannot delete: this organization still has ${studentCount} student(s), ${teacherCount} teacher(s), and ${parentCount} parent(s) linked. Reassign or remove them first, or deactivate the organization instead of deleting it.`
     );
   }
+
+  const existing = await School.findById(req.params.id);
+  if (!existing) throw new NotFoundError('School not found');
+
+  await moveToTrash({
+    entityType: 'School',
+    label: existing.name,
+    snapshots: [{ modelName: 'School', data: existing.toObject() }],
+    req,
+  });
 
   const school = await School.findByIdAndDelete(req.params.id);
 

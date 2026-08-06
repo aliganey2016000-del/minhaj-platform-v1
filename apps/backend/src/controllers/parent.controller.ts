@@ -16,6 +16,7 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import Student from '../models/student.model';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { moveToTrash } from '../utils/trash';
 
 // ---------------------------------------------------------------------------
 // GET /parents — List all with optional filters
@@ -205,6 +206,25 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   const parent = await Parent.findById(req.params.id);
   if (!parent) throw new NotFoundError('Parent');
   assertOwnsOrg(req, parent, 'school');
+
+  const [userDoc, profileDoc] = await Promise.all([
+    User.findById(parent.user),
+    Profile.findById(parent.profile),
+  ]);
+  const label = profileDoc ? `${profileDoc.firstName} ${profileDoc.lastName}`.trim() || 'Parent' : 'Parent';
+
+  await moveToTrash({
+    entityType: 'Parent',
+    label,
+    school: parent.school,
+    snapshots: [
+      ...(userDoc ? [{ modelName: 'User', data: userDoc.toObject() }] : []),
+      ...(profileDoc ? [{ modelName: 'Profile', data: profileDoc.toObject() }] : []),
+      { modelName: 'Parent', data: parent.toObject() },
+    ],
+    restoreMeta: { childrenIds: parent.children },
+    req,
+  });
 
   // Unlink children
   if (parent.children.length > 0) {

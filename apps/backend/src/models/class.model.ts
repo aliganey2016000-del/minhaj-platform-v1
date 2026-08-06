@@ -4,7 +4,7 @@ export interface IClass extends Document {
   school: mongoose.Types.ObjectId;
   department: mongoose.Types.ObjectId;
   title: string;
-  section: string;
+  section?: string;
   room: string;
   shiftMode: 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
   course?: mongoose.Types.ObjectId;
@@ -30,7 +30,7 @@ const classSchema = new Schema<IClass>(
     school: { type: Schema.Types.ObjectId, ref: 'School', required: true, index: true },
     department: { type: Schema.Types.ObjectId, ref: 'Department', required: true, index: true },
     title: { type: String, required: true, trim: true, maxlength: 200 },
-    section: { type: String, required: true, trim: true, maxlength: 10 },
+    section: { type: String, trim: true, maxlength: 10 },
     room: { type: String, required: true, trim: true, maxlength: 50 },
     shiftMode: { type: String, enum: ['Morning', 'Afternoon', 'Evening', 'Virtual'], default: 'Morning' },
     course: { type: Schema.Types.ObjectId, ref: 'Course', default: null, index: true },

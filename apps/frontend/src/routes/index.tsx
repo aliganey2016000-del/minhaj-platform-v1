@@ -236,6 +236,9 @@ const AnalyticsManage = lazy(() =>
 const ActivityLogsManage = lazy(() =>
   import('../features/admin/pages/activity-logs-manage').then((m) => ({ default: m.ActivityLogsManage }))
 );
+const TrashManage = lazy(() =>
+  import('../features/admin/pages/trash-manage').then((m) => ({ default: m.TrashManage }))
+);
 const ProfileManage = lazy(() =>
   import('../features/admin/pages/profile-manage').then((m) => ({ default: m.ProfileManage }))
 );
@@ -402,6 +405,7 @@ export const router = createBrowserRouter([
       { path: 'settings/org-sidebar', element: L(<OrgAdminSidebarManage />) },
       { path: 'analytics', element: L(<AnalyticsManage />) },
       { path: 'logs', element: L(<ActivityLogsManage />) },
+      { path: 'trash', element: L(<TrashManage />) },
       { path: 'forum', element: L(<ForumPage />) },
       { path: 'profile', element: L(<ProfileManage />) },
     ],

@@ -20,6 +20,7 @@ import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '.
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
+import { moveToTrash } from '../utils/trash';
 
 /**
  * Throws ForbiddenError if the caller is a `teacher` and this course isn't
@@ -449,6 +450,17 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   const existing = await Course.findById(req.params.id);
   if (!existing) throw new NotFoundError('Course');
   assertOwnsOrg(req, existing, 'school');
+
+  const enrolledStudents = await Student.find({ enrolledCourses: existing._id }).select('_id').lean();
+
+  await moveToTrash({
+    entityType: 'Course',
+    label: existing.title?.en || 'Course',
+    school: existing.school,
+    snapshots: [{ modelName: 'Course', data: existing.toObject() }],
+    restoreMeta: { enrolledStudentIds: enrolledStudents.map((s) => s._id) },
+    req,
+  });
 
   const course = await Course.findByIdAndDelete(req.params.id);
 

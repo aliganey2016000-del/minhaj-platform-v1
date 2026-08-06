@@ -15,6 +15,7 @@ import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { moveToTrash } from '../utils/trash';
 
 // ---------------------------------------------------------------------------
 // GET /teachers — List all teachers with optional filters
@@ -179,6 +180,24 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   if (activeCourses > 0) {
     throw new BadRequestError(`Cannot delete teacher. They are assigned to ${activeCourses} active course(s). Reassign or remove courses first.`);
   }
+
+  const [userDoc, profileDoc] = await Promise.all([
+    User.findById(teacher.user),
+    Profile.findById(teacher.profile),
+  ]);
+  const label = profileDoc ? `${profileDoc.firstName} ${profileDoc.lastName}`.trim() || 'Teacher' : 'Teacher';
+
+  await moveToTrash({
+    entityType: 'Teacher',
+    label,
+    school: teacher.school,
+    snapshots: [
+      ...(userDoc ? [{ modelName: 'User', data: userDoc.toObject() }] : []),
+      ...(profileDoc ? [{ modelName: 'Profile', data: profileDoc.toObject() }] : []),
+      { modelName: 'Teacher', data: teacher.toObject() },
+    ],
+    req,
+  });
 
   await Promise.all([
     User.findByIdAndDelete(teacher.user),

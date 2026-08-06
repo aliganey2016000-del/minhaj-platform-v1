@@ -44,7 +44,6 @@ export function StudentAvailable() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('');
   const [level, setLevel] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -67,13 +66,13 @@ export function StudentAvailable() {
     setLoading(true); setError('');
     try {
       const params: any = { page: String(page), limit: String(limit) };
-      if (search) params.search = search; if (category) params.category = category; if (level) params.level = level;
+      if (search) params.search = search; if (level) params.level = level;
       if (includeEarlierGrades) params.includeEarlierGrades = 'true';
       const { data } = await api.get('/courses/available', { params });
       setCourses(data.data || []); setTotal(data.meta?.total || 0);
       if (typeof data.meta?.earlierGradesCount === 'number') setEarlierGradesCount(data.meta.earlierGradesCount);
     } catch (err: any) { setError(err.response?.data?.message || t('error_occurred')); } finally { setLoading(false); }
-  }, [page, search, category, level, includeEarlierGrades, t]);
+  }, [page, search, level, includeEarlierGrades, t]);
 
   useEffect(() => { fetchCourses(); api.get('/courses/categories').then(r => setCategories(r.data.data || [])).catch(() => {}); }, [fetchCourses]);
   useEffect(() => { api.get('/students/my/dashboard').then(r => setMyClass(r.data.data?.class || null)).catch(() => {}); }, []);
@@ -96,8 +95,8 @@ export function StudentAvailable() {
   const isFull = (c: Course) => c.enrolledStudents >= c.maxStudents;
   const seatRatio = (c: Course) => Math.min((c.enrolledStudents / c.maxStudents) * 100, 100);
   const totalPages = Math.ceil(total / limit);
-  const hasActiveFilters = !!(search || category || level);
-  const clearFilters = () => { setSearch(''); setCategory(''); setLevel(''); setPage(1); };
+  const hasActiveFilters = !!(search || level);
+  const clearFilters = () => { setSearch(''); setLevel(''); setPage(1); };
   const clearFiltersLabel = lang === 'so' ? 'Nadiifi Shaandhada' : lang === 'ar' ? 'مسح الفلاتر' : 'Clear filters';
   const rangeStart = total === 0 ? 0 : (page - 1) * limit + 1;
   const rangeEnd = Math.min(page * limit, total);
@@ -178,26 +177,16 @@ export function StudentAvailable() {
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" strokeWidth={2} />
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => { setCategory(''); setPage(1); }} className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${!category ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
-              {t('all_categories')}
-            </button>
-            {categories.map(cat => (
-              <button key={cat.value} onClick={() => { setCategory(cat.value); setPage(1); }} className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${category === cat.value ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
-                {catLabels[cat.value]?.[lang] || cat.label?.en || cat.value}
+          <div className="flex items-center justify-end gap-3">
+            {hasActiveFilters && (
+              <button onClick={clearFilters} className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-tertiary)] hover:text-red-600 transition-colors">
+                <FilterX className="h-3.5 w-3.5" strokeWidth={2} /> {clearFiltersLabel}
               </button>
-            ))}
-            <div className="ml-auto flex items-center gap-3">
-              {hasActiveFilters && (
-                <button onClick={clearFilters} className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-tertiary)] hover:text-red-600 transition-colors">
-                  <FilterX className="h-3.5 w-3.5" strokeWidth={2} /> {clearFiltersLabel}
-                </button>
-              )}
-              <span className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
-                {loading && <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary-300 border-t-primary-600" />}
-                {total} results
-              </span>
-            </div>
+            )}
+            <span className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
+              {loading && <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary-300 border-t-primary-600" />}
+              {total} results
+            </span>
           </div>
         </div>
 

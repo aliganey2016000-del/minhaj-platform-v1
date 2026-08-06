@@ -24,6 +24,7 @@ import {
   PieChart, CreditCard, History, AlertCircle, Award, MessagesSquare, Megaphone,
   Newspaper, PartyPopper, Image, ShieldCheck, Settings, Compass, TrendingUp,
   ScrollText, User, KeyRound, LogOut, Percent, ClipboardEdit, PanelLeftClose, PanelLeftOpen,
+  Trash2,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -114,6 +115,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/settings/sidebar', label: 'Tenant Sidebar Config', icon: Compass },
       { path: '/admin/analytics',    label: 'Analytics',          icon: TrendingUp },
       { path: '/admin/logs',         label: 'Activity Logs',      icon: ScrollText },
+      { path: '/admin/trash',        label: 'Trash',              icon: Trash2 },
       { path: '/admin/profile',      label: 'Profile',            icon: User },
     ],
   },

@@ -1,6 +1,6 @@
 /**
  * Class Management — Admin Full CRUD
- * Fields: School, Class Name, Section, Room, Shift / Learning Mode.
+ * Fields: School, Batch Number, Grade Level, Academic Year, Department, Class Name, Section, Room, Shift / Learning Mode.
  */
 
 import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
@@ -117,7 +117,6 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
     if (!form.school) errs.school = 'Organization is required';
     if (!form.department) errs.department = 'Department is required';
     if (!form.title.trim()) errs.title = 'Class name is required';
-    if (!form.section.trim()) errs.section = 'Section is required';
     if (!form.room.trim()) errs.room = 'Room is required';
     if (!form.batch.trim()) errs.batch = 'Batch number is required';
     if (!form.gradeLevel.trim()) errs.gradeLevel = 'Grade level is required';
@@ -184,7 +183,7 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
           </label>
           <div><label htmlFor="department" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Department <span className="text-red-500">*</span></label><select id="department" name="department" value={form.department} onChange={handleChange} className={ic('department')}><option value="">Select a department...</option>{departments.map((dept) => (<option key={dept._id} value={dept._id}>{dept.name}{dept.code ? ` (${dept.code})` : ''}</option>))}</select>{errors.department && <p className="mt-1 text-xs text-red-500">{errors.department}</p>}</div>
           <div><label htmlFor="title" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Class Name <span className="text-red-500">*</span></label><input id="title" name="title" type="text" value={form.title} onChange={handleChange} placeholder="e.g. Grade 3" className={ic('title')} />{errors.title && <p className="mt-1 text-xs text-red-500">{errors.title}</p>}</div>
-          <div><label htmlFor="section" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Section <span className="text-red-500">*</span></label><input id="section" name="section" type="text" value={form.section} onChange={handleChange} placeholder="e.g. A" className={ic('section')} />{errors.section && <p className="mt-1 text-xs text-red-500">{errors.section}</p>}</div>
+          <div><label htmlFor="section" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Section</label><input id="section" name="section" type="text" value={form.section} onChange={handleChange} placeholder="e.g. A" className={ic('section')} />{errors.section && <p className="mt-1 text-xs text-red-500">{errors.section}</p>}</div>
           <div><label htmlFor="room" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Room <span className="text-red-500">*</span></label><input id="room" name="room" type="text" value={form.room} onChange={handleChange} placeholder="e.g. Room 5" className={ic('room')} />{errors.room && <p className="mt-1 text-xs text-red-500">{errors.room}</p>}</div>
           <div><label htmlFor="shiftMode" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Shift / Learning Mode <span className="text-red-500">*</span></label><select id="shiftMode" name="shiftMode" value={form.shiftMode} onChange={handleChange} className={ic('shiftMode')}><option value="Morning">Morning</option><option value="Afternoon">Afternoon</option><option value="Evening">Evening</option><option value="Virtual">Virtual</option></select></div>
           <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button><button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}{isEdit ? 'Update' : 'Create'}</button></div>
@@ -724,7 +723,7 @@ export function ClassesManage() {
   const submitPasteImport = async () => {
     const rows = parsePastedRows();
     if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; }
-    if (rows[0].length < 5) { setPasteError('Expected 5 columns (Class Name, Section, Room, Department, Shift / Learning Mode). Found ' + rows[0].length + '.'); return; }
+    if (rows.length < 2) { setPasteError('Paste the header row (matching the template columns) plus at least one data row.'); return; }
     const csvContent = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const file = new File([blob], 'pasted-classes.csv', { type: 'text/csv' });
@@ -824,9 +823,9 @@ export function ClassesManage() {
                 {importMode === 'paste' && (
                   <div className="space-y-3">
                     <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
-                      <p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below (tab-separated columns, one row per line):</p>
-                      <p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">Class Name &nbsp; Section &nbsp; Room &nbsp; Shift / Learning Mode</p>
-                      <textarea value={pasteText} onChange={e => { setPasteText(e.target.value); setPasteError(''); }} rows={8} placeholder={"Paste data from Excel here...\n\nExample:\nGrade 3\tA\tRoom 5\tPrimary\tMorning\nGrade 4\tB\tRoom 2\tSecondary\tAfternoon\nQuran Online\tA\tVirtual Room 1\tMiddle School\tVirtual"} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y" />
+                      <p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below, including the header row (tab-separated columns — this is exactly what you get selecting a range in Excel and copying it):</p>
+                      <p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">Organization &nbsp; Batch Number &nbsp; Grade Level &nbsp; Academic Year &nbsp; Final Grade (Yes/No) &nbsp; Entry Grade (Yes/No) &nbsp; Department &nbsp; Class Name &nbsp; Section &nbsp; Room &nbsp; Shift / Learning Mode</p>
+                      <textarea value={pasteText} onChange={e => { setPasteText(e.target.value); setPasteError(''); }} rows={8} placeholder={"Paste data from Excel here, including the header row...\n\nExample:\nOrganization\tBatch Number\tGrade Level\tAcademic Year\tFinal Grade (Yes/No)\tEntry Grade (Yes/No)\tDepartment\tClass Name\tSection\tRoom\tShift / Learning Mode\n\t10026\t3\t2026-2027\tNo\tNo\tPrimary\tGrade 3\tA\tRoom 5\tMorning"} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y" />
                     </div>
                     {pasteError && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{pasteError}</div>}
                     {parsedRows.length > 0 && (

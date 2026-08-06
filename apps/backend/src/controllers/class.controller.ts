@@ -9,6 +9,7 @@ import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
+import { moveToTrash } from '../utils/trash';
 
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -142,6 +143,14 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   if (!existing) throw new NotFoundError('Class');
   assertOwnsOrg(req, existing, 'school');
 
+  await moveToTrash({
+    entityType: 'Class',
+    label: existing.section ? `${existing.title} — ${existing.section}` : existing.title,
+    school: existing.school,
+    snapshots: [{ modelName: 'Class', data: existing.toObject() }],
+    req,
+  });
+
   await ClassModel.findByIdAndDelete(req.params.id);
   return ApiResponse.noContent(res, 'Class deleted');
 };
@@ -204,10 +213,22 @@ export const exportClasses = async (req: Request, res: Response): Promise<void> 
     .sort({ createdAt: -1 })
     .lean();
 
-  const headers = ['Class Name', 'Section', 'Organization', 'Department', 'Room', 'Shift / Learning Mode'];
+  const headers = ['Organization', 'Batch Number', 'Grade Level', 'Academic Year', 'Final Grade (Yes/No)', 'Entry Grade (Yes/No)', 'Department', 'Class Name', 'Section', 'Room', 'Shift / Learning Mode'];
   const rows = classes.map((c: any) => {
     const departmentValue = typeof c.department === 'string' ? c.department : c.department?.name || '';
-    return [c.title || '', c.section || '', c.school?.name || '', departmentValue || 'Primary', c.room || '', c.shiftMode || 'Morning'];
+    return [
+      c.school?.name || '',
+      c.batch || '',
+      c.gradeLevel !== null && c.gradeLevel !== undefined ? String(c.gradeLevel) : '',
+      c.academicYear || '',
+      c.isGraduatingGrade ? 'Yes' : 'No',
+      c.isEntryGrade ? 'Yes' : 'No',
+      departmentValue || 'Primary',
+      c.title || '',
+      c.section || '',
+      c.room || '',
+      c.shiftMode || 'Morning',
+    ];
   });
 
   const buffer = buildXlsxBuffer(headers, rows, 'Classes');
@@ -222,8 +243,8 @@ export const exportClasses = async (req: Request, res: Response): Promise<void> 
 // ---------------------------------------------------------------------------
 
 export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
-  const headers = ['Class Name', 'Section', 'Department', 'Room', 'Shift / Learning Mode'];
-  const rows = [['Grade 3', 'A', 'Primary', 'Room 5', 'Morning']];
+  const headers = ['Organization', 'Batch Number', 'Grade Level', 'Academic Year', 'Final Grade (Yes/No)', 'Entry Grade (Yes/No)', 'Department', 'Class Name', 'Section', 'Room', 'Shift / Learning Mode'];
+  const rows = [['', '10026', '3', '2026-2027', 'No', 'No', 'Primary', 'Grade 3', 'A', 'Room 5', 'Morning']];
   const buffer = buildXlsxBuffer(headers, rows, 'Class Template');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -249,6 +270,10 @@ function esc(val: string): string {
 }
 
 const VALID_SHIFT_MODES = ['Morning', 'Afternoon', 'Evening', 'Virtual'];
+
+function isTruthy(val: unknown): boolean {
+  return /^(y|yes|true|1)$/i.test(String(val ?? '').trim());
+}
 
 // ---------------------------------------------------------------------------
 // POST /classes/import — Transactional bulk import
@@ -283,11 +308,23 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const room = String(getField(row, 'Room') ?? '').trim();
       const departmentRaw = String(getField(row, 'Department') ?? '').trim();
       const shiftRaw = String(getField(row, 'Shift / Learning Mode', 'Shift Mode', 'Shift') ?? 'Morning').trim();
+      const batch = String(getField(row, 'Batch Number', 'Batch') ?? '').trim();
+      const gradeLevelRaw = String(getField(row, 'Grade Level', 'Grade') ?? '').trim();
+      const academicYear = String(getField(row, 'Academic Year', 'Year') ?? '').trim();
+      const isGraduatingGrade = isTruthy(getField(row, 'Final Grade (Yes/No)', 'Final Grade', 'Graduating Grade', 'Is Graduating Grade'));
+      const isEntryGrade = isTruthy(getField(row, 'Entry Grade (Yes/No)', 'Entry Grade', 'Is Entry Grade'));
 
       if (!className) throw new Error('Class Name is required');
-      if (!section) throw new Error('Section is required');
       if (!room) throw new Error('Room is required');
       if (!departmentRaw) throw new Error('Department is required');
+      // These three mirror the required fields on the manual "Add Class"
+      // form — without them a class can't be picked up by "Promote All
+      // Classes" (which matches on department + gradeLevel + academicYear).
+      if (!batch) throw new Error('Batch Number is required');
+      if (!gradeLevelRaw) throw new Error('Grade Level is required');
+      const gradeLevel = Number(gradeLevelRaw);
+      if (!Number.isFinite(gradeLevel) || gradeLevel < 0 || gradeLevel > 30) throw new Error('Grade Level must be a number between 0 and 30');
+      if (!academicYear) throw new Error('Academic Year is required');
 
       const shiftMode = VALID_SHIFT_MODES.includes(shiftRaw) ? shiftRaw : 'Morning';
 
@@ -322,6 +359,11 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         room,
         shiftMode,
         status: 'active',
+        batch,
+        gradeLevel,
+        academicYear,
+        isGraduatingGrade,
+        isEntryGrade,
       });
     } catch (err: any) {
       errors.push({ row: rowNum, message: err.message || 'Unknown error' });
