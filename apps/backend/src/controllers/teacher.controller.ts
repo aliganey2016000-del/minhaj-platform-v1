@@ -182,7 +182,9 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   }
 
   const [userDoc, profileDoc] = await Promise.all([
-    User.findById(teacher.user),
+    // +password: it's `select: false` on the schema, but the snapshot must
+    // carry it or a restore fails Mongoose's `required` validation on User.
+    User.findById(teacher.user).select('+password'),
     Profile.findById(teacher.profile),
   ]);
   const label = profileDoc ? `${profileDoc.firstName} ${profileDoc.lastName}`.trim() || 'Teacher' : 'Teacher';

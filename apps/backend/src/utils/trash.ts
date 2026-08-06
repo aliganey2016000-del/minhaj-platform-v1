@@ -56,13 +56,17 @@ export async function restoreFromTrash(trashId: string, req: Request): Promise<{
 
   // Re-insert every snapshot under its original _id — if something with
   // that ID already exists (e.g. a repeat restore attempt), leave it alone
-  // rather than erroring or duplicating.
+  // rather than erroring or duplicating. This goes through the raw driver
+  // (`.collection.insertOne`), NOT `Model.create()` — a snapshot already
+  // holds fully-processed data (e.g. an already-bcrypt-hashed User
+  // password), and `.create()` would re-run save hooks like the password
+  // hasher against it a second time, corrupting it.
   for (const snap of trash.snapshots) {
     const Model = MODEL_REGISTRY[snap.modelName];
     if (!Model) continue;
     const existing = await Model.findById((snap.data as any)._id).lean();
     if (existing) continue;
-    await Model.create(snap.data);
+    await Model.collection.insertOne(snap.data);
   }
 
   // Reverse whatever side-effects the original delete made beyond removing
