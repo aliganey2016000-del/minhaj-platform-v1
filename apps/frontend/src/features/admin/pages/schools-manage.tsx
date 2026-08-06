@@ -717,7 +717,7 @@ export function SchoolsManage() {
   // ── Render ──
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto max-w-screen-2xl">
         {/* ── Toast ── */}
         {toast.type && (
           <Toast message={toast.message} type={toast.type as 'success' | 'error'} onClose={() => setToast({ message: '', type: null })} />

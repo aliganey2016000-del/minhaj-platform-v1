@@ -687,7 +687,7 @@ export function AttendanceManage() {
 
   return (
     <div className={`p-6 lg:p-10 pt-20 lg:pt-10 ${showStickySaveBar ? 'pb-28' : ''}`}>
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-screen-2xl space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -1035,7 +1035,7 @@ export function AttendanceManage() {
             screens (matches admin-layout's lg:ml-72), full-width below that. */}
         {showStickySaveBar && (
           <div className="fixed bottom-0 left-0 right-0 lg:left-72 z-30 border-t border-[var(--color-border-default)] bg-[var(--color-surface-primary)]/95 backdrop-blur-sm shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
-            <div className="mx-auto max-w-6xl px-6 lg:px-10 py-3 flex items-center justify-between gap-4">
+            <div className="mx-auto max-w-screen-2xl px-6 lg:px-10 py-3 flex items-center justify-between gap-4">
               <p className="text-xs text-[var(--color-text-tertiary)] hidden sm:block">{students.length} students &middot; {presentCount} present / {absentCount} absent / {lateCount} late / {excusedCount} excused</p>
               <div className="flex items-center gap-3 ml-auto">
                 {savedFlash && (

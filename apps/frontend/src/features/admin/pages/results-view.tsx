@@ -134,7 +134,7 @@ export function ResultsView() {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto max-w-screen-2xl space-y-6">
         <div>
           <BackButton fallback="/admin/exams" />
           <div className="mt-1 flex items-center gap-3">

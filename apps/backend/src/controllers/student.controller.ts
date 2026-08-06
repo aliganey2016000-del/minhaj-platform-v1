@@ -761,10 +761,14 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
     .sort({ createdAt: -1 })
     .lean();
 
+  // Column-for-column with the Add/Edit Student form and the import
+  // template — "Class Name" + "Section" are the two halves of the same
+  // "Class *" dropdown there (a Class is only unique by title+section), and
+  // "Grade" is the separate free-text field, not a stand-in for Class.
   const headers = [
     'Student ID', 'First Name', 'Last Name', 'Gender', 'Email', 'Password',
-    'Organization', 'Grade / Class', 'Enrollment Date', 'Medical Notes',
-    'Guardian Name', 'Guardian Email', 'Guardian Phone', 'Relationship',
+    'Organization', 'Class Name', 'Section', 'Grade', 'Enrollment Date', 'Medical Notes',
+    'Guardian Name', 'Guardian Email', 'Guardian Password', 'Guardian Phone', 'Relationship',
   ];
   const rows = students.map((st: any) => {
     const guardianName = st.parent?.profile
@@ -779,11 +783,14 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
       st.user?.email || '',
       '',
       st.school?.name || '',
-      st.class ? `${st.class.title} ${st.class.section || ''}`.trim() : (st.grade || ''),
+      st.class?.title || '',
+      st.class?.section || '',
+      st.grade || '',
       st.enrollmentDate ? new Date(st.enrollmentDate).toISOString().slice(0, 10) : '',
       st.medicalNotes || '',
       guardianName,
       st.parent?.user?.email || '',
+      '',
       st.parent?.user?.phone || '',
       st.parent?.relationship || '',
     ];
@@ -805,19 +812,25 @@ export const exportStudents = async (req: Request, res: Response): Promise<void>
 // ---------------------------------------------------------------------------
 
 export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
+  // Column-for-column with the Add/Edit Student form, so a completed
+  // template needs no follow-up manual editing per student: "Class Name" +
+  // "Section" together identify the exact Class (the same "Class *"
+  // dropdown there is only unique by title+section — matching a row on
+  // title alone could silently land it in the wrong section), and "Grade"
+  // is the separate free-text field, not a stand-in for Class.
   const headers = [
     'Student ID', 'First Name', 'Last Name', 'Gender', 'Email', 'Password',
-    'Organization', 'Grade / Class', 'Enrollment Date', 'Medical Notes',
-    'Guardian Name', 'Guardian Email', 'Guardian Phone', 'Relationship',
+    'Organization', 'Class Name', 'Section', 'Grade', 'Enrollment Date', 'Medical Notes',
+    'Guardian Name', 'Guardian Email', 'Guardian Password', 'Guardian Phone', 'Relationship',
   ];
-  // Student ID is optional — leave the column blank and the system
-  // auto-generates one (STU-YYYY-NNNN), or fill in your own to match an
-  // existing numbering scheme (only checked for duplicates within your own
-  // organization).
+  // Student ID, Guardian Password and Grade are optional — Student ID left
+  // blank auto-generates (STU-YYYY-NNNN); Guardian Password left blank
+  // defaults to "guardian123"; Class Name + Section are required (a row
+  // without a matching Class is rejected, same as the form).
   const rows = [[
     '', 'Ahmed', 'Ali', 'male', 'ahmed.ali@example.com', '',
-    'Madrasa Al-Noor', 'Quran Beginners A', '2026-01-15', '',
-    'Mohamed Ali', 'parent@example.com', '+252612345678', 'Father',
+    'Madrasa Al-Noor', 'Grade 3', 'A', '', '2026-01-15', '',
+    'Mohamed Ali', 'parent@example.com', '', '+252612345678', 'Father',
   ]];
   const buffer = buildXlsxBuffer(headers, rows, 'Student Template');
 
@@ -849,8 +862,8 @@ function esc(val: string): string {
 // duplicate one buried in pasted data).
 const IMPORT_HEADER_TITLES = new Set([
   'student id', 'first name', 'last name', 'gender', 'email', 'password',
-  'grade / class', 'grade/class', 'grade', 'enrollment date', 'medical notes',
-  'guardian name', 'guardian email', 'guardian phone', 'relationship',
+  'class name', 'section', 'grade / class', 'grade/class', 'grade', 'enrollment date', 'medical notes',
+  'guardian name', 'guardian email', 'guardian password', 'guardian phone', 'relationship',
   'school', 'organization',
 ]);
 
@@ -876,20 +889,29 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   const ownOrgId = (resolveOrgIdForCreate(req) as string | undefined) || undefined;
   const errors: { row: number; message: string }[] = [];
 
-  // ── Phase 1: Pre-fetch all Classes under the target tenant into an
-  // in-memory map (keyed by lowercased title), so every row lookup is O(1).
-  let classMap: Map<string, { classId: mongoose.Types.ObjectId; department?: string; shiftMode?: string }> = new Map();
-  if (ownOrgId) {
-    const allClasses = await ClassModel.find({ school: ownOrgId }).populate('department', 'name').lean();
-    for (const cls of allClasses) {
-      const dept = (cls as any).department;
-      const deptName = typeof dept === 'string' ? dept : dept?.name || undefined;
-      classMap.set((cls as any).title.toLowerCase(), {
-        classId: cls._id,
-        department: deptName,
-        shiftMode: cls.shiftMode,
-      });
+  // ── Phase 1: Class lookups — keyed by "title::section" (a Class is only
+  // unique by that pair; matching on title alone could silently land a
+  // student in the wrong section when a grade has more than one). Fetched
+  // once per organization and cached, since a super-admin file can span
+  // several different schools across its rows.
+  const classMapByOrg = new Map<string, Map<string, { classId: mongoose.Types.ObjectId; department?: string; shiftMode?: string }>>();
+  async function getClassMap(orgId: string) {
+    let map = classMapByOrg.get(orgId);
+    if (!map) {
+      map = new Map();
+      const allClasses = await ClassModel.find({ school: orgId }).populate('department', 'name').lean();
+      for (const cls of allClasses) {
+        const dept = (cls as any).department;
+        const deptName = typeof dept === 'string' ? dept : dept?.name || undefined;
+        map.set(`${(cls as any).title.toLowerCase()}::${(cls.section || '').toLowerCase()}`, {
+          classId: cls._id,
+          department: deptName,
+          shiftMode: cls.shiftMode,
+        });
+      }
+      classMapByOrg.set(orgId, map);
     }
+    return map;
   }
 
   // ── Phase 2: Collect all unique guardian phones and batch-lookup
@@ -928,11 +950,14 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const gender = String(getField(row, 'Gender') ?? 'male').trim().toLowerCase();
       const email = String(getField(row, 'Email') ?? '').trim().toLowerCase();
       const password = String(getField(row, 'Password') ?? '').trim();
-      const gradeClass = String(getField(row, 'Grade / Class', 'Grade/Class', 'Grade') ?? '').trim();
+      const className = String(getField(row, 'Class Name', 'Class') ?? '').trim();
+      const section = String(getField(row, 'Section') ?? '').trim();
+      const gradeRaw = String(getField(row, 'Grade') ?? '').trim();
       const enrollmentDateRaw = String(getField(row, 'Enrollment Date') ?? '').trim();
       const medicalNotes = String(getField(row, 'Medical Notes') ?? '').trim();
       const guardianName = String(getField(row, 'Guardian Name') ?? '').trim();
       const guardianEmail = String(getField(row, 'Guardian Email') ?? '').trim().toLowerCase();
+      const guardianPasswordRaw = String(getField(row, 'Guardian Password') ?? '').trim();
       const guardianPhone = String(getField(row, 'Guardian Phone') ?? '').trim();
       const relationship = String(getField(row, 'Relationship') ?? 'Father').trim();
 
@@ -945,6 +970,10 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
       if (!firstName || !lastName) throw new Error('First Name and Last Name are required');
       if (!email) throw new Error('Email is required');
+      if (password && password.length < 8) throw new Error('Password must be at least 8 characters');
+      if (guardianPasswordRaw && guardianPasswordRaw.length < 8) throw new Error('Guardian Password must be at least 8 characters');
+      if (!className) throw new Error('Class Name is required');
+      if (!section) throw new Error('Section is required');
 
       // Reject a duplicate email BEFORE it reaches the bulkWrite stage —
       // without this check, a single already-registered email (extremely
@@ -982,18 +1011,17 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         seenStudentIdsBySchool.set(schoolKey, seenSet);
       }
 
-      // In-memory class lookup
-      let classId: mongoose.Types.ObjectId | undefined;
-      let department: string | undefined;
-      let shiftMode: string | undefined;
-      if (gradeClass && schoolId) {
-        const clsEntry = classMap.get(gradeClass.toLowerCase());
-        if (clsEntry) {
-          classId = clsEntry.classId;
-          department = clsEntry.department;
-          shiftMode = clsEntry.shiftMode;
-        }
-      }
+      // Class lookup — required, same as the "Class *" dropdown on the Add
+      // Student form. A row that names a class which doesn't exist yet is
+      // rejected outright rather than silently creating the student without
+      // one (the old behavior here is exactly what forced admins to open
+      // every imported student afterward and assign a class by hand).
+      const clsMap = await getClassMap(schoolId);
+      const clsEntry = clsMap.get(`${className.toLowerCase()}::${section.toLowerCase()}`);
+      if (!clsEntry) throw new Error(`Class "${className} — Section ${section}" not found in this organization`);
+      const classId = clsEntry.classId;
+      const department = clsEntry.department;
+      const shiftMode = clsEntry.shiftMode;
 
       const finalPassword = password || 'changeme123';
       const hashedPassword = await bcrypt.hash(finalPassword, 10);
@@ -1002,12 +1030,12 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         rowNum, studentId: studentIdRaw || undefined, firstName, lastName, gender: ['male', 'female'].includes(gender) ? gender : 'male',
         email, hashedPassword,
         school: schoolId ? new mongoose.Types.ObjectId(schoolId) : undefined,
-        classId, department, shiftMode,
+        classId, department, shiftMode, grade: gradeRaw || undefined,
         enrollmentDate,
         medicalNotes: medicalNotes || undefined,
         guardianName,
         guardianEmail,
-        guardianPassword: guardianEmail ? 'guardian123' : undefined,
+        guardianPassword: guardianEmail ? (guardianPasswordRaw || 'guardian123') : undefined,
         guardianPhone: guardianPhone || undefined,
         relationship: ['Father', 'Mother', 'Guardian', 'Other'].includes(relationship) ? relationship : 'Father',
       });
@@ -1163,7 +1191,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         }),
         Student.create({
           _id: studentId, studentId: item.studentId, user: userId, profile: profileId,
-          school: item.school, class: item.classId,
+          school: item.school, class: item.classId, grade: item.grade,
           department: item.department, shiftMode: item.shiftMode,
           enrollmentDate: item.enrollmentDate, medicalNotes: item.medicalNotes,
           approvalStatus: 'approved', status: 'active',

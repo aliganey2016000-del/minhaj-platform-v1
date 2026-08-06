@@ -173,7 +173,7 @@ export function CourseGradebook({ basePath = '/admin' }: CourseGradebookProps) {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-screen-2xl space-y-6">
         <div>
           <button onClick={() => navigate(`${basePath}/courses`)} className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] mb-1">← Back to Courses</button>
           <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">📐 Gradebook</h1>

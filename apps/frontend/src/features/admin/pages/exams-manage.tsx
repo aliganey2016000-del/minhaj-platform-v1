@@ -694,7 +694,7 @@ export function ExamsManage() {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-screen-2xl space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>

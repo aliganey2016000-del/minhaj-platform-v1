@@ -82,7 +82,7 @@ export function PaymentsHistory() {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-screen-2xl space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">📋 Payment History</h1>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} transaction{total === 1 ? '' : 's'}</p>

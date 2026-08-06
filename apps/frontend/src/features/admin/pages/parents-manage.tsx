@@ -214,7 +214,7 @@ export function ParentsManage() {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-screen-2xl space-y-6">
 
         {/* Header + Buttons — stay top-right of the title on every screen size */}
         <div className="flex items-start justify-between gap-3">

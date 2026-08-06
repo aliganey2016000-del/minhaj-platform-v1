@@ -196,7 +196,7 @@ export function ExamPapersManage() {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-screen-2xl space-y-6">
         <div>
           <BackButton fallback="/admin/exams" />
           <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)] mt-1">📄 Papers & Approval</h1>

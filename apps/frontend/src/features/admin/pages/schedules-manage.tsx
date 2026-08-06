@@ -596,7 +596,7 @@ export function SchedulesManage() {
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto w-full max-w-7xl px-0 sm:px-2 space-y-6">
+      <div className="mx-auto w-full max-w-screen-2xl px-0 sm:px-2 space-y-6">
 
         {/* ── Action Bar ── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
