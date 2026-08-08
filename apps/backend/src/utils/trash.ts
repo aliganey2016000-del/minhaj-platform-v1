@@ -52,7 +52,7 @@ export async function logTrashActivity(
 }
 
 export async function moveToTrash(opts: {
-  entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School';
+  entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School' | 'Student';
   label: string;
   school?: unknown;
   snapshots: ITrashSnapshot[];
@@ -67,6 +67,31 @@ export async function moveToTrash(opts: {
     restoreMeta: opts.restoreMeta || null,
     deletedBy: opts.req.user?.userId || null,
   });
+}
+
+// Batch version of moveToTrash — one insertMany instead of N sequential
+// creates. Needed for bulk-delete flows (e.g. Students) where looping the
+// single-item version one row at a time made a few-hundred-row batch slow
+// enough to hit the browser/proxy request timeout.
+export async function moveManyToTrash(
+  entries: {
+    entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School' | 'Student';
+    label: string;
+    school?: unknown;
+    snapshots: ITrashSnapshot[];
+    restoreMeta?: Record<string, unknown>;
+  }[],
+  req: Request
+): Promise<void> {
+  if (entries.length === 0) return;
+  await Trash.insertMany(entries.map((e) => ({
+    entityType: e.entityType,
+    label: e.label,
+    school: e.school || null,
+    snapshots: e.snapshots,
+    restoreMeta: e.restoreMeta || null,
+    deletedBy: req.user?.userId || null,
+  })));
 }
 
 export async function restoreFromTrash(trashId: string, req: Request): Promise<{ entityType: string; label: string; entityId: string | null }> {
@@ -117,6 +142,16 @@ export async function restoreFromTrash(trashId: string, req: Request): Promise<{
       await Student.updateMany(
         { _id: { $in: (trash.restoreMeta as any).enrolledStudentIds } },
         { $addToSet: { enrolledCourses: courseId } }
+      );
+    }
+  }
+  if (trash.entityType === 'Student' && (trash.restoreMeta as any)?.parentId) {
+    const studentSnap = trash.snapshots.find((s) => s.modelName === 'Student');
+    const studentId = studentSnap ? (studentSnap.data as any)._id : null;
+    if (studentId) {
+      await Parent.updateMany(
+        { _id: (trash.restoreMeta as any).parentId },
+        { $addToSet: { children: studentId } }
       );
     }
   }

@@ -66,12 +66,12 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/exams/papers', label: 'Papers & Approval', section: 'Academic' },
   { key: 'admin/results', label: 'Results Management', section: 'Academic' },
   { key: 'admin/exams/compliance', label: 'Compliances & Issues', section: 'Academic' },
-  { key: 'group:payments', label: 'Payments (entire menu)', section: 'Academic' },
-  { key: 'admin/payments', label: 'Payments Overview', section: 'Academic' },
-  { key: 'admin/payments/record', label: 'Payment Center', section: 'Academic' },
-  { key: 'admin/payments/history', label: 'Payment History', section: 'Academic' },
-  { key: 'admin/payments/outstanding', label: 'Outstanding Dues', section: 'Academic' },
   { key: 'admin/certificates', label: 'Certificates', section: 'Academic' },
+
+  { key: 'admin/payments', label: 'Payments Overview', section: 'Payments' },
+  { key: 'admin/payments/record', label: 'Payment Center', section: 'Payments' },
+  { key: 'admin/payments/history', label: 'Payment History', section: 'Payments' },
+  { key: 'admin/payments/outstanding', label: 'Outstanding Dues', section: 'Payments' },
 
   { key: 'admin/forum', label: 'Forum', section: 'Communication' },
 

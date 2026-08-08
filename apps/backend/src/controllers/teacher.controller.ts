@@ -167,8 +167,8 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 // DELETE /teachers/:id — Delete teacher (also removes User + Profile)
 // ---------------------------------------------------------------------------
 
-export const remove = async (req: Request, res: Response): Promise<Response> => {
-  const teacher = await Teacher.findById(req.params.id);
+async function deleteTeacherToTrash(teacherId: string, req: Request): Promise<void> {
+  const teacher = await Teacher.findById(teacherId);
   if (!teacher) throw new NotFoundError('Teacher');
   assertOwnsOrg(req, teacher, 'school');
 
@@ -206,8 +206,67 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
     Profile.findByIdAndDelete(teacher.profile),
     Teacher.findByIdAndDelete(teacher._id),
   ]);
+}
 
+export const remove = async (req: Request, res: Response): Promise<Response> => {
+  await deleteTeacherToTrash(req.params.id, req);
   return ApiResponse.noContent(res, 'Teacher deleted successfully');
+};
+
+// ---------------------------------------------------------------------------
+// DELETE /teachers/bulk — body: { ids: string[] } or { selectAll: true, filters }
+// Each teacher is its own Trash entry, so this loops per id — a failure on
+// one (e.g. still assigned to active courses) doesn't abort the rest.
+// ---------------------------------------------------------------------------
+
+export const bulkRemove = async (req: Request, res: Response): Promise<Response> => {
+  let ids: string[];
+
+  if (req.body?.selectAll === true) {
+    const filters = (req.body?.filters || {}) as { status?: string; search?: string; school?: string };
+    const filter: any = {};
+    if (filters.status && ['active', 'inactive', 'on_leave'].includes(filters.status)) filter.status = filters.status;
+    if (filters.school && req.user?.role !== 'org_admin') filter.school = filters.school;
+    const scopedFilter = applyOrgFilter(req, filter, 'school');
+
+    const matches = await Teacher.find(scopedFilter)
+      .select('_id teacherId')
+      .populate('profile', 'firstName lastName')
+      .populate('user', 'email')
+      .lean();
+
+    let candidates = matches as any[];
+    if (filters.search) {
+      const s = filters.search.toLowerCase();
+      candidates = candidates.filter((t) => {
+        const fullName = `${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`.toLowerCase();
+        const email = (t.user?.email || '').toLowerCase();
+        const tid = (t.teacherId || '').toLowerCase();
+        return fullName.includes(s) || email.includes(s) || tid.includes(s);
+      });
+    }
+    ids = candidates.map((t) => String(t._id));
+
+    if (ids.length === 0) {
+      return ApiResponse.success(res, { moved: 0, matched: 0 }, 'No matching teachers to delete');
+    }
+  } else {
+    ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String) : [];
+    if (ids.length === 0) throw new BadRequestError('At least one teacher id is required');
+  }
+
+  const results: { id: string; success: boolean; error?: string }[] = [];
+  for (const id of ids) {
+    try {
+      await deleteTeacherToTrash(id, req);
+      results.push({ id, success: true });
+    } catch (err: any) {
+      results.push({ id, success: false, error: err.message || 'Failed to delete' });
+    }
+  }
+
+  const moved = results.filter((r) => r.success).length;
+  return ApiResponse.success(res, { results, moved }, `Moved ${moved} of ${ids.length} teacher(s) to Trash`);
 };
 
 // ---------------------------------------------------------------------------

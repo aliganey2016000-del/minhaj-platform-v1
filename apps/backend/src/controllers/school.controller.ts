@@ -309,15 +309,15 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
 // DELETE /schools/:id — Remove a school
 // ---------------------------------------------------------------------------
 
-export const remove = async (req: Request, res: Response): Promise<Response> => {
+async function deleteSchoolToTrash(schoolId: string, req: Request): Promise<void> {
   // This is a hard delete with no undo — refuse it while the organization
   // still has real people in it, so it can't wipe out an org's data by
   // mistake. Deactivate the org (PATCH /:id/status) instead if the goal is
   // to disable it without destroying anything.
   const [studentCount, teacherCount, parentCount] = await Promise.all([
-    Student.countDocuments({ school: req.params.id }),
-    Teacher.countDocuments({ school: req.params.id }),
-    Parent.countDocuments({ school: req.params.id }),
+    Student.countDocuments({ school: schoolId }),
+    Teacher.countDocuments({ school: schoolId }),
+    Parent.countDocuments({ school: schoolId }),
   ]);
   const total = studentCount + teacherCount + parentCount;
   if (total > 0) {
@@ -326,7 +326,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
     );
   }
 
-  const existing = await School.findById(req.params.id);
+  const existing = await School.findById(schoolId);
   if (!existing) throw new NotFoundError('School not found');
 
   await moveToTrash({
@@ -336,11 +336,64 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
     req,
   });
 
-  const school = await School.findByIdAndDelete(req.params.id);
+  const school = await School.findByIdAndDelete(schoolId);
+  if (!school) throw new NotFoundError('School not found');
+}
 
-  if (!school) {
-    throw new NotFoundError('School not found');
+export const remove = async (req: Request, res: Response): Promise<Response> => {
+  await deleteSchoolToTrash(req.params.id, req);
+  return ApiResponse.success(res, null, 'School deleted successfully');
+};
+
+// ---------------------------------------------------------------------------
+// DELETE /schools/bulk — body: { ids: string[] } or { selectAll: true, filters }
+// Each org is its own Trash entry, so this loops per id — an org that still
+// has linked people (the same guard `remove` enforces) is skipped, not
+// allowed to abort the rest of the batch.
+// ---------------------------------------------------------------------------
+
+export const bulkRemove = async (req: Request, res: Response): Promise<Response> => {
+  let ids: string[];
+
+  if (req.body?.selectAll === true) {
+    const filters = (req.body?.filters || {}) as { status?: string; search?: string };
+    const filter: Record<string, unknown> = {};
+    if (filters.status && ['active', 'inactive'].includes(filters.status)) filter.status = filters.status;
+    if (req.user?.role === 'org_admin') filter._id = req.user.organizationId || null;
+
+    const matches = await School.find(filter).select('_id name email principalName address').lean();
+
+    let candidates = matches as any[];
+    if (filters.search) {
+      const s = filters.search.toLowerCase();
+      candidates = candidates.filter((item) => {
+        const name = (item.name || '').toLowerCase();
+        const email = (item.email || '').toLowerCase();
+        const principal = (item.principalName || '').toLowerCase();
+        const address = (item.address || '').toLowerCase();
+        return name.includes(s) || email.includes(s) || principal.includes(s) || address.includes(s);
+      });
+    }
+    ids = candidates.map((item) => String(item._id));
+
+    if (ids.length === 0) {
+      return ApiResponse.success(res, { deleted: 0, matched: 0 }, 'No matching organizations to delete');
+    }
+  } else {
+    ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String) : [];
+    if (ids.length === 0) throw new BadRequestError('At least one organization id is required');
   }
 
-  return ApiResponse.success(res, null, 'School deleted successfully');
+  const results: { id: string; success: boolean; error?: string }[] = [];
+  for (const id of ids) {
+    try {
+      await deleteSchoolToTrash(id, req);
+      results.push({ id, success: true });
+    } catch (err: any) {
+      results.push({ id, success: false, error: err.message || 'Failed to delete' });
+    }
+  }
+
+  const deleted = results.filter((r) => r.success).length;
+  return ApiResponse.success(res, { results, deleted }, `Deleted ${deleted} of ${ids.length} organization(s)`);
 };

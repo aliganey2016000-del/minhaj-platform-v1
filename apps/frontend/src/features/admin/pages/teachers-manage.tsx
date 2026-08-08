@@ -6,7 +6,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Presentation, Search, MoreVertical } from 'lucide-react';
+import { Presentation, Search, MoreVertical, Trash2 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
@@ -197,7 +197,7 @@ function ThreeDotsMenu({ teacher, onEdit, onDelete, onSetStatus, onPermission }:
 // Three-Dot Actions Dropdown
 // ---------------------------------------------------------------------------
 
-function ActionsDropdown({ onImport, onExport, exporting, label }: { onImport: () => void; onExport: () => void; exporting: boolean; label: string }) {
+function ActionsDropdown({ onImport, onExport, exporting, label, onBulkDelete, selectedCount }: { onImport: () => void; onExport: () => void; exporting: boolean; label: string; onBulkDelete: () => void; selectedCount: number }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -214,10 +214,43 @@ function ActionsDropdown({ onImport, onExport, exporting, label }: { onImport: (
       <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
         <button onClick={() => { setOpen(false); onImport(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">{'\u2191 Import ' + label + ' via Excel'}</button>
         <button onClick={() => { setOpen(false); onExport(); }} disabled={exporting} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50 flex items-center gap-2 transition-colors">{exporting ? <div className="h-3 w-3 animate-spin rounded-full border border-[var(--color-border-default)] border-t-primary-600" /> : '\u2193 Export ' + label + ' to Excel'}</button>
+        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+        <button onClick={() => { setOpen(false); onBulkDelete(); }} disabled={selectedCount === 0} className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors">
+          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Bulk Delete{selectedCount > 0 ? ` (${selectedCount})` : ''}
+        </button>
       </div>,
       document.body,
     )}
   </>);
+}
+
+// ---------------------------------------------------------------------------
+// Bulk Delete Confirm Modal
+// ---------------------------------------------------------------------------
+
+function BulkDeleteModal({ count, loading, onCancel, onConfirm }: { count: number; loading: boolean; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onCancel}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/30 text-red-600">
+            <Trash2 className="h-5 w-5" strokeWidth={1.75} />
+          </div>
+          <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Bulk Delete Teachers</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-5">
+          You're about to delete <strong>{count}</strong> teacher{count !== 1 ? 's' : ''}. Teachers still assigned to active courses will be skipped. This can be reversed later from Trash.
+        </p>
+        <div className="flex gap-2">
+          <button type="button" onClick={onCancel} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={onConfirm} disabled={loading} className="flex-1 rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">
+            {loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+            Delete {count}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // Main Component
@@ -253,6 +286,11 @@ export function TeachersManage() {
   const [filterSchool, setFilterSchool] = useState('');
   const [hasFetched, setHasFetched] = useState(false);
 
+  // ── Bulk selection / delete state ──
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   // Import / Export state
   const [showImportModal, setShowImportModal] = useState(false);
   const [importMode, setImportMode] = useState<'upload' | 'paste'>('upload');
@@ -272,7 +310,7 @@ export function TeachersManage() {
     try {
       const params: any = {}; if (search) params.search = search; if (statusFilter) params.status = statusFilter; if (filterSchool) params.school = filterSchool;
       const { data } = await api.get('/teachers', { params });
-      setTeachers(data.data || []); setHasFetched(true);
+      setTeachers(data.data || []); setHasFetched(true); setSelected(new Set());
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to load teachers'); }
     finally { setLoading(false); }
   }, [search, statusFilter, filterSchool]);
@@ -283,6 +321,22 @@ export function TeachersManage() {
   const handleDelete = async (id: string, name: string) => { if (!window.confirm(`Delete teacher "${name}"?`)) return; try { await api.delete(`/teachers/${id}`); setTeachers(p => p.filter(t => t._id !== id)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
   const handleSetStatus = async (id: string, ns: Teacher['status']) => { try { await api.patch(`/teachers/${id}/status`, { status: ns }); setTeachers(p => p.map(t => t._id === id ? { ...t, status: ns } : t)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
   const handleStatusToggle = (id: string, currentStatus: string) => handleSetStatus(id, currentStatus === 'active' ? 'inactive' : 'active');
+
+  // ── Bulk selection / delete ──
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
+    try {
+      const { data } = await api.delete('/teachers/bulk', { data: { ids: Array.from(selected) } });
+      setMessage(data?.message || `Deleted ${selected.size} teacher(s)`);
+      setSelected(new Set());
+      setShowBulkDeleteModal(false);
+      fetchTeachers();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to bulk delete teachers');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   // Excel-style column header filters/sort — client-side, over whichever page of results is currently loaded.
   const teacherColumnAccessors: Record<string, (row: Teacher) => string> = {
@@ -297,6 +351,10 @@ export function TeachersManage() {
     applyColumnCommit: applyTeacherColumnCommit, clearColumnFilter: clearTeacherColumnFilter,
     clearAll: clearAllTeacherColumnFilters, displayedRows: displayedTeachers, columnFiltersActive: teacherColumnFiltersActive,
   } = useColumnFilters(teachers, teacherColumnAccessors);
+
+  const allOnPageSelected = displayedTeachers.length > 0 && displayedTeachers.every(t => selected.has(t._id));
+  const toggleSelectAll = () => setSelected(allOnPageSelected ? new Set() : new Set(displayedTeachers.map(t => t._id)));
+  const toggleSelectOne = (id: string) => setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
 
   // ───────────────────────────────────────────────────────────────────────
   // Import Modal Logic
@@ -342,7 +400,7 @@ export function TeachersManage() {
           <div className="min-w-0"><h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]"><Presentation className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />Manage Teachers</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{hasFetched ? `${teachers.length} total — ${activeCount} active, ${inactiveCount} inactive, ${onLeaveCount} on leave` : 'Apply a filter to view teachers'}</p></div>
           <div className="flex gap-2 sm:gap-3 flex-shrink-0">
             <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={e => { const f = e.target.files?.[0]; if (f) { setSelectedFile(f); submitFileImport(); } }} className="hidden" />
-            <ActionsDropdown onImport={openImportModal} onExport={handleExport} exporting={exporting} label="Teachers" />
+            <ActionsDropdown onImport={openImportModal} onExport={handleExport} exporting={exporting} label="Teachers" onBulkDelete={() => setShowBulkDeleteModal(true)} selectedCount={selected.size} />
             <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-3 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm whitespace-nowrap">+ Add Teacher</button>
           </div>
         </div>
@@ -403,18 +461,20 @@ export function TeachersManage() {
         {!loading && hasFetched && teachers.length > 0 && (<><div className="grid grid-cols-1 sm:grid-cols-3 gap-4"><div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-300">{activeCount}</p><p className="text-xs text-green-600 dark:text-green-400">Active</p></div><div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-4 text-center"><p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{onLeaveCount}</p><p className="text-xs text-amber-600 dark:text-amber-400">On Leave</p></div><div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-2xl font-bold text-red-700 dark:text-red-300">{inactiveCount}</p><p className="text-xs text-red-600 dark:text-red-400">Inactive</p></div></div>
           {teacherColumnFiltersActive && (<div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><span>Showing {displayedTeachers.length} of {teachers.length} loaded teachers (column filters active)</span><button onClick={clearAllTeacherColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button></div>)}
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr>
+            <th className="px-4 py-3 w-10"><input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAll} aria-label="Select all teachers" className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></th>
             <th className="text-left px-4 py-3 font-semibold whitespace-nowrap min-w-[200px]"><ColumnFilterHeader label="Teacher" colKey="name" allValues={teachers.map(teacherColumnAccessors.name)} currentSelected={teacherColumnFilters.name ?? null} currentSort={teacherSortCol === 'name' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} /></th>
             <th className="text-left px-4 py-3 font-semibold hidden md:table-cell whitespace-nowrap min-w-[140px]"><ColumnFilterHeader label="Organization" colKey="organization" allValues={teachers.map(teacherColumnAccessors.organization)} currentSelected={teacherColumnFilters.organization ?? null} currentSort={teacherSortCol === 'organization' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} /></th>
             <th className="text-left px-4 py-3 font-semibold hidden lg:table-cell whitespace-nowrap min-w-[180px]"><ColumnFilterHeader label="Specialization" colKey="specialization" allValues={teachers.map(teacherColumnAccessors.specialization)} currentSelected={teacherColumnFilters.specialization ?? null} currentSort={teacherSortCol === 'specialization' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} /></th>
             <th className="text-center px-4 py-3 font-semibold hidden sm:table-cell whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Courses" colKey="courses" allValues={teachers.map(teacherColumnAccessors.courses)} currentSelected={teacherColumnFilters.courses ?? null} currentSort={teacherSortCol === 'courses' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} align="center" /></th>
             <th className="text-center px-4 py-3 font-semibold whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Status" colKey="status" allValues={teachers.map(teacherColumnAccessors.status)} currentSelected={teacherColumnFilters.status ?? null} currentSort={teacherSortCol === 'status' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} align="center" /></th>
             <th className="text-center px-4 py-3 font-semibold whitespace-nowrap min-w-[80px]">Actions</th>
-          </tr></thead><tbody>{displayedTeachers.length === 0 ? (<tr><td colSpan={6} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No teachers match these column filters</p><button onClick={clearAllTeacherColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedTeachers.map(t => (<tr key={t._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingTeacher(t)}><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{t.profile?.firstName?.[0]}{t.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold truncate">{t.profile?.firstName} {t.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{t.user?.email}</p></div></div></td><td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{t.school?.name || '—'}</td><td className="px-4 py-3 hidden lg:table-cell"><div className="flex flex-wrap gap-1">{(t.specialization || []).slice(0, 3).map(s => <span key={s} className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{s}</span>)}{(t.specialization || []).length > 3 && <span className="text-xs text-[var(--color-text-tertiary)]">+{t.specialization.length - 3}</span>}</div></td><td className="px-4 py-3 text-center hidden sm:table-cell whitespace-nowrap"><span className="font-medium">{t.courses?.length || 0}</span></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><button onClick={() => handleStatusToggle(t._id, t.status)} className="cursor-pointer" title="Click to toggle"><StatusBadge status={t.status} /></button></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><ThreeDotsMenu teacher={t} onEdit={() => setEditingTeacher(t)} onDelete={() => handleDelete(t._id, `${t.profile?.firstName} ${t.profile?.lastName}`)} onSetStatus={(status) => handleSetStatus(t._id, status)} onPermission={() => setPermissioningTeacher(t)} /></td></tr>))}</tbody></table></div></div></>)}
+          </tr></thead><tbody>{displayedTeachers.length === 0 ? (<tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No teachers match these column filters</p><button onClick={clearAllTeacherColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedTeachers.map(t => (<tr key={t._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingTeacher(t)}><td className="px-4 py-3" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(t._id)} onChange={() => toggleSelectOne(t._id)} aria-label={`Select ${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></td><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{t.profile?.firstName?.[0]}{t.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold truncate">{t.profile?.firstName} {t.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{t.user?.email}</p></div></div></td><td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{t.school?.name || '—'}</td><td className="px-4 py-3 hidden lg:table-cell"><div className="flex flex-wrap gap-1">{(t.specialization || []).slice(0, 3).map(s => <span key={s} className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{s}</span>)}{(t.specialization || []).length > 3 && <span className="text-xs text-[var(--color-text-tertiary)]">+{t.specialization.length - 3}</span>}</div></td><td className="px-4 py-3 text-center hidden sm:table-cell whitespace-nowrap"><span className="font-medium">{t.courses?.length || 0}</span></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><button onClick={() => handleStatusToggle(t._id, t.status)} className="cursor-pointer" title="Click to toggle"><StatusBadge status={t.status} /></button></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><ThreeDotsMenu teacher={t} onEdit={() => setEditingTeacher(t)} onDelete={() => handleDelete(t._id, `${t.profile?.firstName} ${t.profile?.lastName}`)} onSetStatus={(status) => handleSetStatus(t._id, status)} onPermission={() => setPermissioningTeacher(t)} /></td></tr>))}</tbody></table></div></div></>)}
 
         {showCreate && <TeacherModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchTeachers(); }} />}
         {editingTeacher && <TeacherModal teacher={editingTeacher} onClose={() => setEditingTeacher(undefined)} onSaved={() => { setEditingTeacher(undefined); fetchTeachers(); }} />}
         {viewingTeacher && <ViewModal teacher={viewingTeacher} onClose={() => setViewingTeacher(undefined)} />}
         {permissioningTeacher && <PermissionModal teacher={permissioningTeacher} onClose={() => setPermissioningTeacher(undefined)} onSaved={() => { setPermissioningTeacher(undefined); fetchTeachers(); }} />}
+        {showBulkDeleteModal && <BulkDeleteModal count={selected.size} loading={bulkDeleting} onCancel={() => setShowBulkDeleteModal(false)} onConfirm={handleBulkDelete} />}
       </div>
     </div>
   );

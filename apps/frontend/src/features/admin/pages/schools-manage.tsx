@@ -425,6 +425,12 @@ export function SchoolsManage() {
   const [deleteTarget, setDeleteTarget] = useState<School | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // ── Bulk selection / delete state ──
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   // ── Toast state ──
   const [toast, setToast] = useState<{ message: string; type: ToastType }>({ message: '', type: null });
 
@@ -446,6 +452,8 @@ export function SchoolsManage() {
         if (data.pagination) {
           setPagination((prev) => ({ ...prev, ...data.pagination }));
         }
+        setSelected(new Set());
+        setSelectAllMatching(false);
       }
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Failed to fetch schools', 'error');
@@ -684,6 +692,28 @@ export function SchoolsManage() {
     }
   };
 
+  // ── Bulk selection / delete ──
+  const totalPages = Math.ceil(pagination.total / pagination.limit) || 1;
+  const selectedCount = selectAllMatching ? pagination.total : selected.size;
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
+    try {
+      const payload = selectAllMatching
+        ? { selectAll: true, filters: { search: search.trim() || undefined, status: statusFilter || undefined } }
+        : { ids: Array.from(selected) };
+      const { data } = await api.delete('/schools/bulk', { data: payload });
+      showToast(data?.message || `Deleted ${selectedCount} organization(s)`, 'success');
+      setSelected(new Set());
+      setSelectAllMatching(false);
+      setShowBulkDeleteConfirm(false);
+      fetchSchools();
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Failed to bulk delete organizations', 'error');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   // ── Toggle status ──
   const toggleStatus = async (school: School) => {
     const newStatus = school.status === 'active' ? 'inactive' : 'active';
@@ -713,6 +743,16 @@ export function SchoolsManage() {
     applyColumnCommit: applySchoolColumnCommit, clearColumnFilter: clearSchoolColumnFilter,
     clearAll: clearAllSchoolColumnFilters, displayedRows: displayedSchools, columnFiltersActive: schoolColumnFiltersActive,
   } = useColumnFilters(schools, schoolColumnAccessors);
+
+  const allOnPageSelected = displayedSchools.length > 0 && displayedSchools.every(s => selected.has(s._id));
+  const toggleSelectAll = () => {
+    if (selectAllMatching) { setSelectAllMatching(false); setSelected(new Set()); return; }
+    setSelected(allOnPageSelected ? new Set() : new Set(displayedSchools.map(s => s._id)));
+  };
+  const toggleSelectOne = (id: string) => {
+    if (selectAllMatching) { setSelectAllMatching(false); setSelected(new Set(displayedSchools.map(s => s._id).filter(sid => sid !== id))); return; }
+    setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  };
 
   // ── Render ──
   return (
@@ -759,9 +799,30 @@ export function SchoolsManage() {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+          {isSuperAdmin && selectedCount > 0 && (
+            <button
+              onClick={() => setShowBulkDeleteConfirm(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors whitespace-nowrap"
+            >
+              <Trash2 className="h-4 w-4" strokeWidth={1.75} /> Bulk Delete ({selectedCount})
+            </button>
+          )}
         </div>
 
         {/* ── Table ── */}
+        {selectAllMatching ? (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-5 py-2.5 mb-3 text-xs rounded-xl bg-primary-50 dark:bg-primary-950/30 border border-primary-100 dark:border-primary-900/50 text-primary-700 dark:text-primary-300">
+            <span>All <strong>{pagination.total}</strong> organizations matching your filters are selected{totalPages > 1 ? ` (across ${totalPages} pages)` : ''}.</span>
+            <button onClick={() => { setSelectAllMatching(false); setSelected(new Set(displayedSchools.map(s => s._id))); }} className="font-semibold underline hover:no-underline">Select only this page ({displayedSchools.length})</button>
+            <span className="text-primary-300 dark:text-primary-700">·</span>
+            <button onClick={() => { setSelectAllMatching(false); setSelected(new Set()); }} className="font-semibold underline hover:no-underline">Clear selection</button>
+          </div>
+        ) : (isSuperAdmin && !schoolColumnFiltersActive && allOnPageSelected && pagination.total > displayedSchools.length && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-5 py-2.5 mb-3 text-xs rounded-xl bg-[var(--color-surface-secondary)] border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)]">
+            <span>All {displayedSchools.length} organizations on this page are selected.</span>
+            <button onClick={() => setSelectAllMatching(true)} className="font-semibold text-primary-600 hover:underline">Select all {pagination.total} organizations across {totalPages} page{totalPages !== 1 ? 's' : ''}</button>
+          </div>
+        ))}
         {schoolColumnFiltersActive && !dataLoading && schools.length > 0 && (
           <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] mb-3">
             <span>Showing {displayedSchools.length} of {schools.length} loaded organizations (column filters active)</span>
@@ -773,6 +834,9 @@ export function SchoolsManage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]">
+                  {isSuperAdmin && (
+                    <th className="px-4 py-3 w-10"><input type="checkbox" checked={selectAllMatching || allOnPageSelected} onChange={toggleSelectAll} aria-label="Select all organizations on this page" className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></th>
+                  )}
                   <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[180px]"><ColumnFilterHeader label="Organization Name" colKey="name" allValues={schools.map(schoolColumnAccessors.name)} currentSelected={schoolColumnFilters.name ?? null} currentSort={schoolSortCol === 'name' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
                   <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden md:table-cell min-w-[200px]"><ColumnFilterHeader label="Address" colKey="address" allValues={schools.map(schoolColumnAccessors.address)} currentSelected={schoolColumnFilters.address ?? null} currentSort={schoolSortCol === 'address' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
                   <th className="px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap hidden lg:table-cell min-w-[130px]"><ColumnFilterHeader label="Phone" colKey="phone" allValues={schools.map(schoolColumnAccessors.phone)} currentSelected={schoolColumnFilters.phone ?? null} currentSort={schoolSortCol === 'phone' ? schoolSortDir : null} onCommit={applySchoolColumnCommit} onClear={clearSchoolColumnFilter} /></th>
@@ -786,7 +850,7 @@ export function SchoolsManage() {
               <tbody>
                 {dataLoading ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-16 text-center">
+                    <td colSpan={isSuperAdmin ? 9 : 8} className="px-6 py-16 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
                         <p className="text-sm text-[var(--color-text-tertiary)]">Loading organizations...</p>
@@ -795,7 +859,7 @@ export function SchoolsManage() {
                   </tr>
                 ) : schools.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-16 text-center">
+                    <td colSpan={isSuperAdmin ? 9 : 8} className="px-6 py-16 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <span className="text-4xl">🏛️</span>
                         <p className="text-lg font-medium text-[var(--color-text-primary)]">No organizations registered yet</p>
@@ -807,7 +871,7 @@ export function SchoolsManage() {
                   </tr>
                 ) : displayedSchools.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-16 text-center">
+                    <td colSpan={isSuperAdmin ? 9 : 8} className="px-6 py-16 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <span className="text-4xl">🔍</span>
                         <p className="text-lg font-medium text-[var(--color-text-primary)]">No organizations match these column filters</p>
@@ -821,6 +885,9 @@ export function SchoolsManage() {
                       key={school._id}
                       className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
                     >
+                      {isSuperAdmin && (
+                        <td className="px-4 py-3"><input type="checkbox" checked={selectAllMatching || selected.has(school._id)} onChange={() => toggleSelectOne(school._id)} aria-label={`Select ${school.name}`} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></td>
+                      )}
                       <td className="px-4 py-3 whitespace-nowrap font-medium text-[var(--color-text-primary)]">{school.name}</td>
                       <td className="px-4 py-3 text-[var(--color-text-secondary)] hidden md:table-cell max-w-[200px] truncate" title={school.address}>
                         {school.address}
@@ -1066,6 +1133,16 @@ export function SchoolsManage() {
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
         loading={deleting}
+      />
+
+      {/* ── Bulk Delete Confirm Dialog ── */}
+      <ConfirmDialog
+        open={showBulkDeleteConfirm}
+        title="Bulk Delete Organizations"
+        message={`You're about to delete ${selectedCount} organization${selectedCount !== 1 ? 's' : ''}${selectAllMatching ? ' — every organization matching your current filters, across all pages' : ''}. Organizations with linked students, teachers, or parents will be skipped.`}
+        onConfirm={handleBulkDelete}
+        onCancel={() => setShowBulkDeleteConfirm(false)}
+        loading={bulkDeleting}
       />
     </div>
   );

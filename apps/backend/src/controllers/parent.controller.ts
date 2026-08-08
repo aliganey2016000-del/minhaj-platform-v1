@@ -202,8 +202,8 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 // DELETE /parents/:id — Delete parent
 // ---------------------------------------------------------------------------
 
-export const remove = async (req: Request, res: Response): Promise<Response> => {
-  const parent = await Parent.findById(req.params.id);
+async function deleteParentToTrash(parentId: string, req: Request): Promise<void> {
+  const parent = await Parent.findById(parentId);
   if (!parent) throw new NotFoundError('Parent');
   assertOwnsOrg(req, parent, 'school');
 
@@ -241,8 +241,65 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
     Profile.findByIdAndDelete(parent.profile),
     Parent.findByIdAndDelete(parent._id),
   ]);
+}
 
+export const remove = async (req: Request, res: Response): Promise<Response> => {
+  await deleteParentToTrash(req.params.id, req);
   return ApiResponse.noContent(res, 'Parent deleted successfully');
+};
+
+// ---------------------------------------------------------------------------
+// DELETE /parents/bulk — body: { ids: string[] } or { selectAll: true, filters }
+// ---------------------------------------------------------------------------
+
+export const bulkRemove = async (req: Request, res: Response): Promise<Response> => {
+  let ids: string[];
+
+  if (req.body?.selectAll === true) {
+    const filters = (req.body?.filters || {}) as { status?: string; search?: string; school?: string };
+    const filter: any = {};
+    if (filters.status && ['active', 'inactive'].includes(filters.status)) filter.status = filters.status;
+    if (filters.school && req.user?.role !== 'org_admin') filter.school = filters.school;
+    const scopedFilter = applyOrgFilter(req, filter, 'school');
+
+    const matches = await Parent.find(scopedFilter)
+      .select('_id parentId')
+      .populate('profile', 'firstName lastName')
+      .populate('user', 'email')
+      .lean();
+
+    let candidates = matches as any[];
+    if (filters.search) {
+      const s = filters.search.toLowerCase();
+      candidates = candidates.filter((p) => {
+        const fullName = `${p.profile?.firstName || ''} ${p.profile?.lastName || ''}`.toLowerCase();
+        const email = (p.user?.email || '').toLowerCase();
+        const pid = (p.parentId || '').toLowerCase();
+        return fullName.includes(s) || email.includes(s) || pid.includes(s);
+      });
+    }
+    ids = candidates.map((p) => String(p._id));
+
+    if (ids.length === 0) {
+      return ApiResponse.success(res, { moved: 0, matched: 0 }, 'No matching parents to delete');
+    }
+  } else {
+    ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String) : [];
+    if (ids.length === 0) throw new BadRequestError('At least one parent id is required');
+  }
+
+  const results: { id: string; success: boolean; error?: string }[] = [];
+  for (const id of ids) {
+    try {
+      await deleteParentToTrash(id, req);
+      results.push({ id, success: true });
+    } catch (err: any) {
+      results.push({ id, success: false, error: err.message || 'Failed to delete' });
+    }
+  }
+
+  const moved = results.filter((r) => r.success).length;
+  return ApiResponse.success(res, { results, moved }, `Moved ${moved} of ${ids.length} parent(s) to Trash`);
 };
 
 // ---------------------------------------------------------------------------

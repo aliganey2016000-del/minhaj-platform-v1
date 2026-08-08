@@ -1,7 +1,7 @@
 /**
  * Trash — app-wide soft-delete recovery. Anything deleted from Manage
- * Parents, Teachers, Classes, Courses, or Organization Management lands
- * here instead of being gone immediately; it can be restored or
+ * Students, Parents, Teachers, Classes, Courses, or Organization Management
+ * lands here instead of being gone immediately; it can be restored or
  * permanently purged.
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -10,7 +10,7 @@ import { useAuth } from '../../../store/auth-context';
 
 interface TrashItem {
   _id: string;
-  entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School';
+  entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School' | 'Student';
   label: string;
   school?: { _id: string; name: string } | null;
   deletedBy?: { _id: string; email: string } | null;
@@ -28,9 +28,10 @@ type ConfirmModalState =
   | { kind: 'empty' }
   | null;
 
-const ENTITY_TYPES: TrashItem['entityType'][] = ['Parent', 'Teacher', 'Class', 'Course', 'School'];
+const ENTITY_TYPES: TrashItem['entityType'][] = ['Student', 'Parent', 'Teacher', 'Class', 'Course', 'School'];
 
 const TYPE_STYLES: Record<string, string> = {
+  Student: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
   Parent: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
   Teacher: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
   Class: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
@@ -40,7 +41,7 @@ const TYPE_STYLES: Record<string, string> = {
 
 // Where to re-delete a just-restored entity if the admin clicks Undo.
 const ENTITY_DELETE_PATH: Record<string, string> = {
-  Parent: '/parents', Teacher: '/teachers', Class: '/classes', Course: '/courses', School: '/schools',
+  Student: '/students', Parent: '/parents', Teacher: '/teachers', Class: '/classes', Course: '/courses', School: '/schools',
 };
 
 const UNDO_WINDOW_MS = 7000;
@@ -255,7 +256,7 @@ export function TrashManage() {
                 </thead>
                 <tbody>
                   {items.length === 0 ? (
-                    <tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🗑️ Trash is empty</p><p className="text-sm">Deleted parents, teachers, classes, courses, and organizations will show up here.</p></td></tr>
+                    <tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🗑️ Trash is empty</p><p className="text-sm">Deleted students, parents, teachers, classes, courses, and organizations will show up here.</p></td></tr>
                   ) : items.map(item => (
                     <tr key={item._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
                       <td className="px-5 py-4">

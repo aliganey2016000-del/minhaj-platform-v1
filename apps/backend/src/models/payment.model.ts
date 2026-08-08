@@ -11,6 +11,7 @@ export interface IPayment extends Document {
   notes: string;
   recordedBy: mongoose.Types.ObjectId;
   dueDate?: Date;
+  invoice?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -27,6 +28,7 @@ const paymentSchema = new Schema<IPayment>(
     notes: { type: String, default: '' },
     recordedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     dueDate: { type: Date, default: null },
+    invoice: { type: Schema.Types.ObjectId, ref: 'Invoice', default: null, index: true },
   },
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );

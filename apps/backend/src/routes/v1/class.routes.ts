@@ -16,6 +16,8 @@ router.post('/', adminOnly, asyncHandler(classController.create));
 router.post('/import', adminOnly, upload.single('file'), asyncHandler(classController.bulkImport));
 router.get('/export', adminOnly, asyncHandler(classController.exportClasses as any));
 router.get('/template', adminOnly, asyncHandler(classController.downloadTemplate as any));
+// Registered before /:id so "bulk" is never swallowed as an id param.
+router.delete('/bulk', adminOnly, asyncHandler(classController.bulkRemove));
 router.patch('/:id', adminOnly, asyncHandler(classController.update));
 router.delete('/:id', adminOnly, asyncHandler(classController.remove));
 router.patch('/:id/status', adminOnly, asyncHandler(classController.updateStatus));

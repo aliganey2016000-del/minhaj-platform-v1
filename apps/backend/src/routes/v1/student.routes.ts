@@ -8,10 +8,13 @@
  *   GET    /:id              — Get student by ID
  *   POST   /                 — Create student
  *   PATCH  /:id              — Update student
- *   DELETE /:id              — Soft delete student
+ *   DELETE /:id              — Delete student (moves to Trash)
+ *   DELETE /bulk              — Bulk delete students (moves to Trash)
  *   POST   /import           — Bulk import students (transactional)
  *   GET    /export           — Export students (XLSX)
  *   GET    /template         — Download student import template (XLSX)
+ *   GET    /stats            — Aggregate breakdowns for reporting
+ *   GET    /report/export    — Export the analytics report (XLSX)
  *
  * Student (own data) + Parent (children data) + Admin/Teacher:
  *   GET    /:id/courses       — Get student's enrolled courses
@@ -61,6 +64,13 @@ router.get(
   asyncHandler(studentController.getStats)
 );
 
+// GET /api/v1/students/report/export — Excel export of the analytics report
+router.get(
+  '/report/export',
+  adminOnly,
+  asyncHandler(studentController.exportReport as any)
+);
+
 // POST /api/v1/students — Create student (admin only)
 router.post(
   '/',
@@ -88,6 +98,14 @@ router.get(
   '/template',
   adminOnly,
   asyncHandler(studentController.downloadTemplate as any)
+);
+
+// DELETE /api/v1/students/bulk — Bulk delete students (moves each to Trash).
+// Registered before /:id so "bulk" is never swallowed as an id param.
+router.delete(
+  '/bulk',
+  adminOnly,
+  asyncHandler(studentController.bulkRemove)
 );
 
 // GET /api/v1/students/my/dashboard — Student self-service dashboard
@@ -130,7 +148,7 @@ router.patch(
   asyncHandler(studentController.update)
 );
 
-// DELETE /api/v1/students/:id — Soft delete student (admin only)
+// DELETE /api/v1/students/:id — Delete student, moves to Trash (admin only)
 router.delete(
   '/:id',
   adminOnly,

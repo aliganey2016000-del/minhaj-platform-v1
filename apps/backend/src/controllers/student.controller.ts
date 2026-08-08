@@ -23,6 +23,7 @@ import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
 import Course from '../models/course.model';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, assertCanAccessStudent, getOwnTeacherRecord } from '../utils/tenant-scope';
+import { moveToTrash, moveManyToTrash } from '../utils/trash';
 
 // Nested-populate the guardian's actual email/phone/name — a shallow
 // `.populate(PARENT_POPULATE)` leaves those as raw ObjectIds, which
@@ -37,16 +38,20 @@ const PARENT_POPULATE = {
 };
 
 // ---------------------------------------------------------------------------
-// List Students (Admin & Teacher only)
+// Shared "which students match the current list filters" scoping — used by
+// both getAll (paginated list) and bulkRemove's selectAll path (must resolve
+// the exact same set the list screen shows, so "select all" never diverges
+// from what's on screen). Only the Mongo-level filter is shared; matching
+// against populated user/profile fields (search-by-name/email) still needs
+// a second in-memory pass at each call site, since those aren't stored on
+// the Student document itself.
 // ---------------------------------------------------------------------------
 
-export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
-  const status = req.query.status as string | undefined;
-  const approvalStatus = req.query.approvalStatus as string | undefined;
-  const search = req.query.search as string | undefined;
-
+async function buildStudentScopedFilter(
+  req: Request,
+  params: { status?: string; approvalStatus?: string; search?: string; school?: string }
+): Promise<Record<string, unknown>> {
+  const { status, approvalStatus, search, school } = params;
   const filter: Record<string, unknown> = {};
 
   if (status && ['active', 'inactive', 'graduated', 'suspended'].includes(status)) {
@@ -81,12 +86,26 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   // org_admin can never widen the filter to another org via ?school=; their
   // own organization always wins (applied below, after the client's value).
-  const school = req.query.school as string | undefined;
   if (school && req.user?.role !== 'org_admin') {
     filter.school = school;
   }
 
-  const scopedFilter = applyOrgFilter(req, filter, 'school');
+  return applyOrgFilter(req, filter, 'school');
+}
+
+// ---------------------------------------------------------------------------
+// List Students (Admin & Teacher only)
+// ---------------------------------------------------------------------------
+
+export const getAll = async (req: Request, res: Response): Promise<Response> => {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
+  const status = req.query.status as string | undefined;
+  const approvalStatus = req.query.approvalStatus as string | undefined;
+  const search = req.query.search as string | undefined;
+  const school = req.query.school as string | undefined;
+
+  const scopedFilter = await buildStudentScopedFilter(req, { status, approvalStatus, search, school });
 
   let allStudents: any[];
   let total: number;
@@ -143,7 +162,20 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 // the same tenant rules as getAll, via applyOrgFilter.
 // ---------------------------------------------------------------------------
 
-export const getStats = async (req: Request, res: Response): Promise<Response> => {
+interface StudentStatsResult {
+  total: number;
+  byStatus: { active: number; inactive: number; graduated: number; suspended: number };
+  byGender: { gender: string; count: number }[];
+  byClass: { classId: string | null; label: string; count: number }[];
+  byDepartment: { department: string; count: number }[];
+  byOrganization: { schoolId: string | null; name: string; count: number }[];
+  byShift: { shift: string; count: number }[];
+  enrollmentTrend: { month: string; count: number }[];
+}
+
+// Shared by getStats (Manage Students summary) and the analytics report
+// page's Excel export, so the two can never quietly report different numbers.
+async function computeStudentStats(req: Request): Promise<StudentStatsResult> {
   const scopedFilter = applyOrgFilter(req, {}, 'school') as Record<string, unknown>;
 
   if (req.user?.role === 'teacher') {
@@ -165,12 +197,22 @@ export const getStats = async (req: Request, res: Response): Promise<Response> =
     aggregateMatch.school = { $in: schoolFilter.$in.map((v) => (v ? new mongoose.Types.ObjectId(v as string) : null)) };
   }
 
+  // Enrollment trend covers the trailing 12 months (inclusive of the
+  // current one) so the report's line chart has a fixed, predictable
+  // x-axis regardless of how sparse a given month's enrollments are.
+  const trendStart = new Date();
+  trendStart.setMonth(trendStart.getMonth() - 11);
+  trendStart.setDate(1);
+  trendStart.setHours(0, 0, 0, 0);
+
   const [
     statusCounts,
     genderCounts,
     classCounts,
     departmentCounts,
     organizationCounts,
+    shiftCounts,
+    enrollmentTrendRows,
     total,
   ] = await Promise.all([
     Student.aggregate([
@@ -202,16 +244,37 @@ export const getStats = async (req: Request, res: Response): Promise<Response> =
       { $group: { _id: '$school._id', name: { $first: '$school.name' }, count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]),
+    Student.aggregate([
+      { $match: aggregateMatch },
+      { $group: { _id: '$shiftMode', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]),
+    Student.aggregate([
+      { $match: { ...aggregateMatch, enrollmentDate: { $gte: trendStart } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m', date: '$enrollmentDate' } }, count: { $sum: 1 } } },
+    ]),
     Student.countDocuments(scopedFilter),
   ]);
 
-  const asStatusMap = (rows: any[]) => {
-    const map: Record<string, number> = { active: 0, inactive: 0, graduated: 0, suspended: 0 };
-    rows.forEach((r) => { if (r._id && r._id in map) map[r._id] = r.count; });
+  const asStatusMap = (rows: any[]): StudentStatsResult['byStatus'] => {
+    const map = { active: 0, inactive: 0, graduated: 0, suspended: 0 };
+    rows.forEach((r) => { if (r._id && r._id in map) map[r._id as keyof typeof map] = r.count; });
     return map;
   };
 
-  return ApiResponse.success(res, {
+  // Fill every trailing month with 0 so the chart never has gaps for months
+  // with no enrollments — the aggregation above only returns months that
+  // actually have at least one matching student.
+  const trendByMonth = new Map<string, number>(enrollmentTrendRows.map((r: any) => [r._id as string, r.count as number]));
+  const enrollmentTrend: { month: string; count: number }[] = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(trendStart);
+    d.setMonth(d.getMonth() + i);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    enrollmentTrend.push({ month: key, count: trendByMonth.get(key) || 0 });
+  }
+
+  return {
     total,
     byStatus: asStatusMap(statusCounts),
     byGender: genderCounts.map((r: any) => ({ gender: r._id || 'unspecified', count: r.count })),
@@ -226,7 +289,42 @@ export const getStats = async (req: Request, res: Response): Promise<Response> =
       name: r.name || 'Unassigned',
       count: r.count,
     })),
-  });
+    byShift: shiftCounts.map((r: any) => ({ shift: r._id || 'Unspecified', count: r.count })),
+    enrollmentTrend,
+  };
+}
+
+export const getStats = async (req: Request, res: Response): Promise<Response> => {
+  const stats = await computeStudentStats(req);
+  return ApiResponse.success(res, stats);
+};
+
+// ---------------------------------------------------------------------------
+// GET /students/report/export — Excel export of the analytics report (the
+// aggregated breakdowns), distinct from GET /students/export which exports
+// the raw per-student roster.
+// ---------------------------------------------------------------------------
+
+export const exportReport = async (req: Request, res: Response): Promise<void> => {
+  const stats = await computeStudentStats(req);
+
+  const headers = ['Category', 'Label', 'Count'];
+  const rows: (string | number)[][] = [
+    ['Total', 'Total Students', stats.total],
+    ...Object.entries(stats.byStatus).map(([status, count]) => ['Status', status[0].toUpperCase() + status.slice(1), count]),
+    ...stats.byGender.map((r) => ['Gender', r.gender, r.count]),
+    ...stats.byDepartment.map((r) => ['Department', r.department, r.count]),
+    ...stats.byClass.map((r) => ['Class', r.label, r.count]),
+    ...stats.byOrganization.map((r) => ['Organization', r.name, r.count]),
+    ...stats.byShift.map((r) => ['Shift', r.shift, r.count]),
+    ...stats.enrollmentTrend.map((r) => ['Enrollment Trend', r.month, r.count]),
+  ];
+
+  const buffer = buildXlsxBuffer(headers, rows, 'Student Report');
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=student-analytics-report-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  res.end(buffer);
 };
 
 // ---------------------------------------------------------------------------
@@ -579,19 +677,166 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
 };
 
 // ---------------------------------------------------------------------------
-// Delete Student (soft delete)
+// Delete Student — moves the Student + their User + Profile into Trash
+// (same app-wide pattern as Parent/Teacher/Class/Course/School), then
+// removes them from the live collections. Restorable from the Trash page.
+// Unlinks from the parent's `children` list on delete; restore re-links it.
 // ---------------------------------------------------------------------------
 
-export const remove = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findById(req.params.id);
+async function deleteStudentToTrash(studentId: string, req: Request): Promise<void> {
+  const student = await Student.findById(studentId);
   if (!student) throw new NotFoundError('Student');
   assertOwnsOrg(req, student, 'school');
 
-  await User.findByIdAndUpdate(student.user, { isActive: false });
-  student.status = 'inactive';
-  await student.save();
+  const [userDoc, profileDoc] = await Promise.all([
+    // +password: `select: false` on the schema, but the snapshot must carry
+    // it or a restore fails Mongoose's `required` validation on User.
+    student.user ? User.findById(student.user).select('+password') : null,
+    student.profile ? Profile.findById(student.profile) : null,
+  ]);
+  const label = profileDoc ? `${profileDoc.firstName} ${profileDoc.lastName}`.trim() || student.studentId : student.studentId;
 
-  return ApiResponse.noContent(res, 'Student deleted (deactivated) successfully');
+  await moveToTrash({
+    entityType: 'Student',
+    label,
+    school: student.school,
+    snapshots: [
+      ...(userDoc ? [{ modelName: 'User', data: userDoc.toObject() }] : []),
+      ...(profileDoc ? [{ modelName: 'Profile', data: profileDoc.toObject() }] : []),
+      { modelName: 'Student', data: student.toObject() },
+    ],
+    restoreMeta: { parentId: student.parent || null },
+    req,
+  });
+
+  if (student.parent) {
+    await Parent.updateMany({ _id: student.parent }, { $pull: { children: student._id } });
+  }
+
+  await Promise.all([
+    student.user ? User.findByIdAndDelete(student.user) : null,
+    student.profile ? Profile.findByIdAndDelete(student.profile) : null,
+    Student.findByIdAndDelete(student._id),
+  ]);
+}
+
+export const remove = async (req: Request, res: Response): Promise<Response> => {
+  await deleteStudentToTrash(req.params.id, req);
+  return ApiResponse.noContent(res, 'Student moved to Trash');
+};
+
+// ---------------------------------------------------------------------------
+// DELETE /students/bulk — body: { ids: string[] } or { selectAll: true, filters }
+// Resolves every matching student in ONE query, then does a single Trash
+// insertMany + parent-unlink updateMany + three deleteMany calls, instead of
+// looping deleteStudentToTrash per id. A few-hundred-row batch through the
+// per-id loop (several sequential round trips each) was slow enough against
+// the remote Atlas cluster to blow past the browser/proxy request timeout;
+// this collapses it to a handful of queries regardless of batch size.
+// ---------------------------------------------------------------------------
+
+export const bulkRemove = async (req: Request, res: Response): Promise<Response> => {
+  let ids: string[];
+
+  if (req.body?.selectAll === true) {
+    // "Select all matching filters" — resolve the same set the list screen
+    // shows, server-side, instead of requiring the client to enumerate ids.
+    const filters = (req.body?.filters || {}) as { status?: string; approvalStatus?: string; search?: string; school?: string };
+    const scopedFilter = await buildStudentScopedFilter(req, filters);
+
+    if (filters.search) {
+      const candidates = await Student.find(scopedFilter)
+        .select('_id studentId')
+        .populate('profile', 'firstName lastName')
+        .populate('user', 'email')
+        .lean();
+      const s = filters.search.toLowerCase();
+      ids = (candidates as any[]).filter((st) => {
+        const fullName = `${st.profile?.firstName || ''} ${st.profile?.lastName || ''}`.toLowerCase();
+        const email = (st.user?.email || '').toLowerCase();
+        const sid = (st.studentId || '').toLowerCase();
+        return fullName.includes(s) || email.includes(s) || sid.includes(s);
+      }).map((st) => String(st._id));
+    } else {
+      const matches = await Student.find(scopedFilter).select('_id').lean();
+      ids = matches.map((m) => String(m._id));
+    }
+
+    if (ids.length === 0) {
+      return ApiResponse.success(res, { moved: 0, matched: 0 }, 'No matching students to delete');
+    }
+  } else {
+    ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String) : [];
+    if (ids.length === 0) throw new BadRequestError('At least one student id is required');
+  }
+
+  const students = await Student.find({ _id: { $in: ids } });
+  const foundIds = new Set(students.map((s) => String(s._id)));
+  const notFoundIds = ids.filter((id) => !foundIds.has(id));
+
+  const allowed: (typeof students)[number][] = [];
+  const forbiddenIds: string[] = [];
+  for (const s of students) {
+    try {
+      assertOwnsOrg(req, s, 'school');
+      allowed.push(s);
+    } catch {
+      forbiddenIds.push(String(s._id));
+    }
+  }
+
+  const results: { id: string; success: boolean; error?: string }[] = [
+    ...notFoundIds.map((id) => ({ id, success: false, error: 'Not found' })),
+    ...forbiddenIds.map((id) => ({ id, success: false, error: 'Not permitted' })),
+  ];
+
+  if (allowed.length > 0) {
+    const userIds = allowed.map((s) => s.user).filter(Boolean);
+    const profileIds = allowed.map((s) => s.profile).filter(Boolean);
+    const [users, profiles] = await Promise.all([
+      // +password: `select: false` on the schema, but the snapshot must
+      // carry it or a restore fails Mongoose's `required` validation on User.
+      User.find({ _id: { $in: userIds } }).select('+password'),
+      Profile.find({ _id: { $in: profileIds } }),
+    ]);
+    const userById = new Map(users.map((u) => [String(u._id), u]));
+    const profileById = new Map(profiles.map((p) => [String(p._id), p]));
+
+    const trashEntries = allowed.map((s) => {
+      const userDoc = s.user ? userById.get(String(s.user)) : undefined;
+      const profileDoc = s.profile ? profileById.get(String(s.profile)) : undefined;
+      const label = profileDoc ? `${profileDoc.firstName} ${profileDoc.lastName}`.trim() || s.studentId : s.studentId;
+      return {
+        entityType: 'Student' as const,
+        label,
+        school: s.school,
+        snapshots: [
+          ...(userDoc ? [{ modelName: 'User', data: userDoc.toObject() }] : []),
+          ...(profileDoc ? [{ modelName: 'Profile', data: profileDoc.toObject() }] : []),
+          { modelName: 'Student', data: s.toObject() },
+        ],
+        restoreMeta: { parentId: s.parent || null },
+      };
+    });
+
+    await moveManyToTrash(trashEntries, req);
+
+    const parentIds = allowed.map((s) => s.parent).filter(Boolean);
+    const allowedStudentIds = allowed.map((s) => s._id);
+    await Promise.all([
+      parentIds.length > 0
+        ? Parent.updateMany({ _id: { $in: parentIds } }, { $pull: { children: { $in: allowedStudentIds } } })
+        : Promise.resolve(null),
+      userIds.length > 0 ? User.deleteMany({ _id: { $in: userIds } }) : Promise.resolve(null),
+      profileIds.length > 0 ? Profile.deleteMany({ _id: { $in: profileIds } }) : Promise.resolve(null),
+      Student.deleteMany({ _id: { $in: allowedStudentIds } }),
+    ]);
+
+    results.push(...allowed.map((s) => ({ id: String(s._id), success: true })));
+  }
+
+  const moved = allowed.length;
+  return ApiResponse.success(res, { results, moved }, `Moved ${moved} of ${ids.length} student(s) to Trash`);
 };
 
 // ---------------------------------------------------------------------------

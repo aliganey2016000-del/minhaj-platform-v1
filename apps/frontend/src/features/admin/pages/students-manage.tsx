@@ -8,8 +8,7 @@
 import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { GraduationCap, Users, Building2, BookOpen, School, Pencil, Trash2, Layers, CheckCircle2, Clock, XCircle, MoreVertical, Mail, ShieldCheck, Wallet, AlertTriangle, CalendarDays, Activity, type LucideIcon } from 'lucide-react';
-import { PieChart, Pie, Cell, Tooltip as RechartsTooltip } from 'recharts';
+import { GraduationCap, Users, Building2, School, Pencil, Trash2, Layers, CheckCircle2, Clock, XCircle, MoreVertical, Mail, ShieldCheck, Wallet, AlertTriangle, CalendarDays, Activity, BarChart3, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
@@ -29,15 +28,6 @@ interface GuardianInfo {
   relationship?: string;
   user?: { email: string; phone?: string };
   profile?: { firstName: string; lastName: string };
-}
-
-interface StudentStats {
-  total: number;
-  byStatus: { active: number; inactive: number; graduated: number; suspended: number };
-  byGender: { gender: string; count: number }[];
-  byClass: { classId: string | null; label: string; count: number }[];
-  byDepartment: { department: string; count: number }[];
-  byOrganization: { schoolId: string | null; name: string; count: number }[];
 }
 
 interface Student {
@@ -439,7 +429,7 @@ function ViewModal({ student, onClose }: { student: Student; onClose: () => void
 // Three-Dot Actions Dropdown
 // ---------------------------------------------------------------------------
 
-function ActionsDropdown({ onImport, onExport, exporting }: { onImport: () => void; onExport: () => void; exporting: boolean }) {
+function ActionsDropdown({ onImport, onExport, exporting, onBulkDelete, selectedCount, onViewReport }: { onImport: () => void; onExport: () => void; exporting: boolean; onBulkDelete: () => void; selectedCount: number; onViewReport: () => void }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -458,6 +448,14 @@ function ActionsDropdown({ onImport, onExport, exporting }: { onImport: () => vo
       <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
         <button onClick={() => { setOpen(false); onImport(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">↑ Import via Excel</button>
         <button onClick={() => { setOpen(false); onExport(); }} disabled={exporting} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50 flex items-center gap-2 transition-colors">{exporting ? <div className="h-3 w-3 animate-spin rounded-full border border-[var(--color-border-default)] border-t-primary-600" /> : '↓ Export to Excel'}</button>
+        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+        <button onClick={() => { setOpen(false); onViewReport(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">
+          <BarChart3 className="h-3.5 w-3.5" strokeWidth={1.75} /> View Detailed Analytics/Report
+        </button>
+        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+        <button onClick={() => { setOpen(false); onBulkDelete(); }} disabled={selectedCount === 0} className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors">
+          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Bulk Delete{selectedCount > 0 ? ` (${selectedCount})` : ''}
+        </button>
       </div>,
       document.body,
     )}
@@ -465,135 +463,29 @@ function ActionsDropdown({ onImport, onExport, exporting }: { onImport: () => vo
 }
 
 // ---------------------------------------------------------------------------
-// Stats / Analytics Section
+// Bulk Delete Confirm Modal
 // ---------------------------------------------------------------------------
 
-// Fixed categorical order (never cycled per-entity) — series-1..8 map to the
-// validated 8-hue palette (light + dark steps declared once in .viz-root below).
-const VIZ_STYLE = `
-  .viz-root {
-    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
-    --series-5: #e87ba4; --series-6: #008300; --series-7: #4a3aa7; --series-8: #e34948;
-    --status-good: #0ca30c; --status-warning: #fab219; --status-serious: #ec835a; --status-critical: #d03b3b;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme="light"])) .viz-root {
-      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
-      --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
-    }
-  }
-  :root[data-theme="dark"] .viz-root {
-    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
-    --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
-  }
-`;
-
-function foldTop(rows: { label: string; count: number }[], max = 7): { label: string; count: number }[] {
-  const sorted = [...rows].filter(r => r.count > 0).sort((a, b) => b.count - a.count);
-  const head = sorted.slice(0, max);
-  const restCount = sorted.slice(max).reduce((s, r) => s + r.count, 0);
-  if (restCount > 0) head.push({ label: 'Other', count: restCount });
-  return head;
-}
-
-function StatTile({ label, value, colorVar }: { label: string; value: number; colorVar: string }) {
+function BulkDeleteModal({ count, allMatching, loading, onCancel, onConfirm }: { count: number; allMatching?: boolean; loading: boolean; onCancel: () => void; onConfirm: () => void }) {
   return (
-    <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-4 shadow-sm flex flex-col gap-1">
-      <span className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider truncate">{label}</span>
-      <span className="text-2xl font-bold tabular-nums" style={{ color: `var(${colorVar})` }}>{value.toLocaleString()}</span>
-    </div>
-  );
-}
-
-/** Slice color for index i — same fixed-order formula the legend rows below use, so a slice and its legend row are always the same hue. */
-function seriesColor(label: string, i: number, colorOffset: number): string {
-  return label === 'Other' ? 'var(--color-text-tertiary)' : `var(--series-${((i + colorOffset) % 8) + 1})`;
-}
-
-function BreakdownDonut({ items, colorOffset, size = 92 }: { items: { label: string; count: number }[]; colorOffset: number; size?: number }) {
-  const data = items.map((item, i) => ({ name: item.label, value: item.count, fill: seriesColor(item.label, i, colorOffset) }));
-  return (
-    <PieChart width={size} height={size} className="flex-shrink-0">
-      <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={size * 0.32} outerRadius={size * 0.48} paddingAngle={data.length > 1 ? 2 : 0} strokeWidth={2} stroke="var(--color-surface-primary)" isAnimationActive={false}>
-        {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
-      </Pie>
-      <RechartsTooltip
-        formatter={(value, name) => [typeof value === 'number' ? value.toLocaleString() : String(value ?? ''), String(name)]}
-        contentStyle={{ fontSize: 12, borderRadius: 8, background: 'var(--color-surface-elevated)', border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
-      />
-    </PieChart>
-  );
-}
-
-function BarList({ title, icon: Icon, items, colorOffset = 0, emptyLabel }: {
-  title: string; icon: LucideIcon; items: { label: string; count: number }[]; colorOffset?: number; emptyLabel?: string;
-}) {
-  const max = Math.max(1, ...items.map(i => i.count));
-  return (
-    <div className="viz-root rounded-2xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-5 shadow-sm">
-      <h3 className="flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)] mb-4">
-        <Icon className="h-[18px] w-[18px] text-[var(--color-text-tertiary)]" strokeWidth={1.75} />
-        {title}
-      </h3>
-      {items.length === 0 ? (
-        <p className="text-xs text-[var(--color-text-tertiary)]">{emptyLabel || 'No data yet'}</p>
-      ) : (
-        <div className="flex items-center gap-4">
-          {items.length > 1 && <BreakdownDonut items={items} colorOffset={colorOffset} />}
-          <div className="flex-1 min-w-0 space-y-2.5">
-            {items.map((item, i) => {
-              const colorVar = seriesColor(item.label, i, colorOffset);
-              return (
-                <div key={item.label + i}>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: colorVar }} />
-                    <span className="text-xs font-medium text-[var(--color-text-secondary)] truncate flex-1">{item.label}</span>
-                    <span className="text-xs font-semibold text-[var(--color-text-primary)] tabular-nums flex-shrink-0">{item.count.toLocaleString()}</span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden" title={`${item.label}: ${item.count}`}>
-                    <div className="h-full rounded-full transition-all duration-300" style={{ width: `${Math.max(3, (item.count / max) * 100)}%`, backgroundColor: colorVar }} />
-                  </div>
-                </div>
-              );
-            })}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onCancel}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/30 text-red-600">
+            <Trash2 className="h-5 w-5" strokeWidth={1.75} />
           </div>
+          <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Bulk Delete Students</h2>
         </div>
-      )}
-    </div>
-  );
-}
-
-function StatsSection({ stats, loading }: { stats: StudentStats | null; loading: boolean }) {
-  if (loading && !stats) {
-    return <div className="flex justify-center py-8"><div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" /></div>;
-  }
-  if (!stats) return null;
-
-  const genderLabels: Record<string, string> = { male: 'Male', female: 'Female' };
-  const genderRows = foldTop(stats.byGender.map(g => ({ label: genderLabels[g.gender] || 'Unspecified', count: g.count })), 8);
-  const classRows = foldTop(stats.byClass.map(c => ({ label: c.label, count: c.count })));
-  const deptRows = foldTop(stats.byDepartment.map(d => ({ label: d.department, count: d.count })));
-  const orgRows = foldTop(stats.byOrganization.map(o => ({ label: o.name, count: o.count })));
-
-  return (
-    <div className="viz-root space-y-4">
-      <style>{VIZ_STYLE}</style>
-
-      {/* Stat tiles — Total / Active / Inactive / Graduated / Suspended */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatTile label="Total Students" value={stats.total} colorVar="--series-1" />
-        <StatTile label="Active" value={stats.byStatus.active} colorVar="--status-good" />
-        <StatTile label="Inactive" value={stats.byStatus.inactive} colorVar="--color-text-tertiary" />
-        <StatTile label="Graduated" value={stats.byStatus.graduated} colorVar="--series-1" />
-        <StatTile label="Suspended" value={stats.byStatus.suspended} colorVar="--status-critical" />
-      </div>
-
-      {/* Breakdown charts */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <BarList title="By Gender" icon={Users} items={genderRows} />
-        <BarList title="By Department" icon={Building2} items={deptRows} colorOffset={2} emptyLabel="No department data" />
-        <BarList title="By Class" icon={BookOpen} items={classRows} colorOffset={4} emptyLabel="No class data" />
-        <BarList title="By Organization" icon={School} items={orgRows} colorOffset={6} emptyLabel="No organization data" />
+        <p className="text-sm text-[var(--color-text-secondary)] mb-5">
+          You're about to delete <strong>{count}</strong> student{count !== 1 ? 's' : ''}{allMatching ? ' — every student matching your current filters, across all pages' : ''}. They'll be moved to Trash and removed from this list — restorable later from Manage &gt; System &gt; Trash.
+        </p>
+        <div className="flex gap-2">
+          <button type="button" onClick={onCancel} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={onConfirm} disabled={loading} className="flex-1 rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">
+            {loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+            Delete {count}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -675,6 +567,10 @@ export function StudentsManage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [filterSchool, setFilterSchool] = useState('');
   const [activeTab, setActiveTab] = useState<TabKey>('all');
+  // Single source of truth for the tab→approvalStatus mapping — shared by
+  // the list fetch and the bulk-delete "select all matching filters"
+  // payload, so the two can never quietly diverge on what "matches".
+  const activeApprovalStatus = activeTab === 'pending' ? 'pending' : activeTab === 'approved' ? 'approved' : activeTab === 'rejected' ? 'rejected' : undefined;
   const [hasFetched, setHasFetched] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const location = useLocation();
@@ -691,9 +587,17 @@ export function StudentsManage() {
   const [editingStudent, setEditingStudent] = useState<Student | undefined>(undefined);
   const [viewingStudent, setViewingStudent] = useState<Student | undefined>(undefined);
   const [approvingStudent, setApprovingStudent] = useState<Student | undefined>(undefined);
-  const [stats, setStats] = useState<StudentStats | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
   const limit = 15;
+
+  // ── Bulk selection / delete state ──
+  // `selected` holds explicitly-checked rows on the loaded page(s).
+  // `selectAllMatching` is a separate "every record matching the current
+  // server-side filters, across every page" mode — entered via the banner
+  // upsell, not implied by ticking every row on one page.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // ── Import / Export state ──
   const [showImportModal, setShowImportModal] = useState(false);
@@ -722,14 +626,14 @@ export function StudentsManage() {
       const params: any = { page: String(pageNum), limit: String(limit) };
       if (s) params.search = s;
       if (st) params.status = st;
-      if (activeTab === 'pending') params.approvalStatus = 'pending';
-      else if (activeTab === 'approved') params.approvalStatus = 'approved';
-      else if (activeTab === 'rejected') params.approvalStatus = 'rejected';
+      if (activeApprovalStatus) params.approvalStatus = activeApprovalStatus;
       if (sc) params.school = sc;
       const { data } = await api.get('/students', { params });
       setStudents(data.data || []);
       setTotal(data.meta?.total || 0);
       setHasFetched(true);
+      setSelected(new Set());
+      setSelectAllMatching(false);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load students');
     } finally {
@@ -745,25 +649,35 @@ export function StudentsManage() {
     fetchStudents(1, { [key]: '' });
   };
 
-  // ── Fetch stats ──
-  const fetchStats = useCallback(async () => {
-    setStatsLoading(true);
-    try {
-      const params: any = {};
-      if (filterSchool) params.school = filterSchool;
-      const { data } = await api.get('/students/stats', { params });
-      setStats(data.data);
-    } catch { /* non-critical — leave prior stats in place */ } finally { setStatsLoading(false); }
-  }, [filterSchool]);
+  useEffect(() => { if (isOrgAdmin) { fetchStudents(1); } }, [isOrgAdmin]);
 
-  useEffect(() => { if (isOrgAdmin) { fetchStudents(1); fetchStats(); } }, [isOrgAdmin]);
-
-  const handleApplyFilters = () => { if (isSuperAdmin && !filterSchool) { setError('Please select an organization to view students.'); return; } setPage(1); fetchStudents(1); fetchStats(); };
+  const handleApplyFilters = () => { if (isSuperAdmin && !filterSchool) { setError('Please select an organization to view students.'); return; } setPage(1); fetchStudents(1); };
   const handlePageChange = (newPage: number) => { setPage(newPage); fetchStudents(newPage); };
-  const handleStatusChange = async (id: string, newStatus: string) => { try { await api.patch(`/students/${id}/status`, { status: newStatus }); setStudents(p => p.map(s => s._id === id ? { ...s, status: newStatus as Student['status'] } : s)); fetchStats(); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
-  const handleDelete = async (id: string) => { if (!window.confirm('Deactivate this student?')) return; try { await api.delete(`/students/${id}`); fetchStudents(page); fetchStats(); } catch (err: any) { alert(err.response?.data?.message || 'Failed to deactivate'); } };
-  const handleReject = async (id: string) => { if (!window.confirm('Reject this student?')) return; try { await api.patch(`/students/${id}/reject`); fetchStudents(page); fetchStats(); } catch (err: any) { alert(err.response?.data?.message || 'Failed to reject'); } };
+  const handleStatusChange = async (id: string, newStatus: string) => { try { await api.patch(`/students/${id}/status`, { status: newStatus }); setStudents(p => p.map(s => s._id === id ? { ...s, status: newStatus as Student['status'] } : s)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
+  const handleDelete = async (id: string) => { if (!window.confirm('Delete this student? They can be restored later from Trash.')) return; try { await api.delete(`/students/${id}`); fetchStudents(page); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
+  const handleReject = async (id: string) => { if (!window.confirm('Reject this student?')) return; try { await api.patch(`/students/${id}/reject`); fetchStudents(page); } catch (err: any) { alert(err.response?.data?.message || 'Failed to reject'); } };
   const totalPages = Math.ceil(total / limit);
+
+  // ── Bulk selection / delete ──
+  const selectedCount = selectAllMatching ? total : selected.size;
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
+    try {
+      const payload = selectAllMatching
+        ? { selectAll: true, filters: { search: search || undefined, status: statusFilter || undefined, approvalStatus: activeApprovalStatus, school: filterSchool || undefined } }
+        : { ids: Array.from(selected) };
+      const { data } = await api.delete('/students/bulk', { data: payload });
+      setMessage(data?.message || `Moved ${selectedCount} student(s) to Trash`);
+      setSelected(new Set());
+      setSelectAllMatching(false);
+      setShowBulkDeleteModal(false);
+      fetchStudents(page);
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to bulk delete students');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   // Excel-style column header filters/sort — client-side, over whichever
   // page of results is currently loaded (this table is server-paginated).
@@ -782,6 +696,20 @@ export function StudentsManage() {
     clearAll: clearAllStudentColumnFilters, displayedRows: displayedStudents, columnFiltersActive: studentColumnFiltersActive,
   } = useColumnFilters(students, studentColumnAccessors);
 
+  const allOnPageSelected = displayedStudents.length > 0 && displayedStudents.every(s => selected.has(s._id));
+  const toggleSelectAll = () => {
+    if (selectAllMatching) { setSelectAllMatching(false); setSelected(new Set()); return; }
+    setSelected(allOnPageSelected ? new Set() : new Set(displayedStudents.map(s => s._id)));
+  };
+  // Unchecking a single row while "all matching" mode is active collapses
+  // down to "this page, minus that one row" — there's no backend concept
+  // of excluding one id from an all-pages match, so this is the sane
+  // approximation rather than the checkbox appearing to ignore the click.
+  const toggleSelectOne = (id: string) => {
+    if (selectAllMatching) { setSelectAllMatching(false); setSelected(new Set(displayedStudents.map(s => s._id).filter(sid => sid !== id))); return; }
+    setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  };
+
   // Row actions — status changes, Edit, and Deactivate all live in one kebab
   // menu instead of a separate inline status <select> next to it.
   const buildRowActions = (st: Student): RowAction[] => {
@@ -796,7 +724,7 @@ export function StudentsManage() {
       ...STATUS_OPTIONS.filter((o) => o.value !== st.status).map((o) => ({
         label: o.label, icon: o.icon, onClick: () => handleStatusChange(st._id, o.value), tone: 'default' as const,
       })),
-      { label: 'Deactivate', icon: Trash2, onClick: () => handleDelete(st._id), tone: 'danger' },
+      { label: 'Delete', icon: Trash2, onClick: () => handleDelete(st._id), tone: 'danger' },
     ];
   };
 
@@ -812,11 +740,11 @@ export function StudentsManage() {
   const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files?.[0]; if (file) setSelectedFile(file); };
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) setSelectedFile(file); };
 
-  const submitFileImport = async () => { if (!selectedFile) return; setImporting(true); setError(''); setImportResult(null); try { const formData = new FormData(); formData.append('file', selectedFile); const { data } = await api.post('/students/import', formData); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} students`); fetchStudents(page); fetchStats(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
+  const submitFileImport = async () => { if (!selectedFile) return; setImporting(true); setError(''); setImportResult(null); try { const formData = new FormData(); formData.append('file', selectedFile); const { data } = await api.post('/students/import', formData); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} students`); fetchStudents(page); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
 
   const parsePastedRows = (): string[][] => { if (!pasteText.trim()) return []; const lines = pasteText.trim().split(/\r?\n/); return lines.map(line => line.split('\t').map(cell => cell.trim())).filter(row => row.length > 0 && row.some(cell => cell !== '')); };
 
-  const submitPasteImport = async () => { const rows = parsePastedRows(); if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; } if (rows.length < 2) { setPasteError('Paste the header row (matching the template columns) plus at least one data row.'); return; } const csvContent = rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n'); const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' }); const file = new File([blob], 'pasted-students.csv', { type: 'text/csv' }); setImporting(true); setError(''); setImportResult(null); setPasteError(''); try { const formData = new FormData(); formData.append('file', file); const { data } = await api.post('/students/import', formData); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} students`); fetchStudents(page); fetchStats(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
+  const submitPasteImport = async () => { const rows = parsePastedRows(); if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; } if (rows.length < 2) { setPasteError('Paste the header row (matching the template columns) plus at least one data row.'); return; } const csvContent = rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n'); const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' }); const file = new File([blob], 'pasted-students.csv', { type: 'text/csv' }); setImporting(true); setError(''); setImportResult(null); setPasteError(''); try { const formData = new FormData(); formData.append('file', file); const { data } = await api.post('/students/import', formData); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} students`); fetchStudents(page); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
 
   // ── Export ──
   const handleExport = async () => { setExporting(true); setError(''); try { const token = localStorage.getItem('accessToken') || ''; const response = await fetch(`${api.defaults.baseURL}/students/export`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error('Export failed'); const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `students-export-${new Date().toISOString().slice(0, 10)}.xlsx`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); setMessage('Export downloaded successfully'); } catch (err: any) { setError(err.message || 'Export failed'); } finally { setExporting(false); } };
@@ -840,15 +768,12 @@ export function StudentsManage() {
           </div>
           <div className="flex gap-2 sm:gap-3 items-center flex-shrink-0">
             <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setSelectedFile(f); submitFileImport(); } }} className="hidden" />
-            <ActionsDropdown onImport={openImportModal} onExport={handleExport} exporting={exporting} />
+            <ActionsDropdown onImport={openImportModal} onExport={handleExport} exporting={exporting} onBulkDelete={() => setShowBulkDeleteModal(true)} selectedCount={selectedCount} onViewReport={() => navigate('/admin/students/report')} />
             <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-3 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm whitespace-nowrap">+ Add Student</button>
           </div>
         </div>
 
         {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
-
-        {/* ── Stats / Analytics ── */}
-        {hasFetched && <StatsSection stats={stats} loading={statsLoading} />}
 
         {/* ═══════════════════════════════════════════════════════════════
             Import Modal
@@ -922,6 +847,20 @@ export function StudentsManage() {
 
         {!loading && hasFetched && students.length > 0 && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            {selectAllMatching ? (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-5 py-2.5 text-xs bg-primary-50 dark:bg-primary-950/30 border-b border-[var(--color-border-subtle)] text-primary-700 dark:text-primary-300">
+                <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} />
+                <span>All <strong>{total}</strong> students matching your filters are selected{totalPages > 1 ? ` (across ${totalPages} pages)` : ''}.</span>
+                <button onClick={() => { setSelectAllMatching(false); setSelected(new Set(displayedStudents.map(s => s._id))); }} className="font-semibold underline hover:no-underline">Select only this page ({displayedStudents.length})</button>
+                <span className="text-primary-300 dark:text-primary-700">·</span>
+                <button onClick={() => { setSelectAllMatching(false); setSelected(new Set()); }} className="font-semibold underline hover:no-underline">Clear selection</button>
+              </div>
+            ) : (!studentColumnFiltersActive && allOnPageSelected && total > displayedStudents.length && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-5 py-2.5 text-xs bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-subtle)] text-[var(--color-text-secondary)]">
+                <span>All {displayedStudents.length} students on this page are selected.</span>
+                <button onClick={() => setSelectAllMatching(true)} className="font-semibold text-primary-600 hover:underline">Select all {total} students across {totalPages} page{totalPages !== 1 ? 's' : ''}</button>
+              </div>
+            ))}
             {studentColumnFiltersActive && (
               <div className="flex items-center gap-2 px-5 py-2 text-xs text-[var(--color-text-tertiary)] border-b border-[var(--color-border-subtle)]">
                 <span>Showing {displayedStudents.length} of {students.length} loaded students (column filters active)</span>
@@ -929,6 +868,7 @@ export function StudentsManage() {
               </div>
             )}
             <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="sticky top-0 z-10 bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr>
+              <th className="px-4 py-3 w-10"><input type="checkbox" checked={selectAllMatching || allOnPageSelected} onChange={toggleSelectAll} aria-label="Select all students on this page" className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></th>
               <th className="text-left px-4 py-3 font-semibold whitespace-nowrap min-w-[200px]"><ColumnFilterHeader label="Student" colKey="name" allValues={students.map(studentColumnAccessors.name)} currentSelected={studentColumnFilters.name ?? null} currentSort={studentSortCol === 'name' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
               <th className="text-left px-4 py-3 font-semibold hidden md:table-cell whitespace-nowrap min-w-[140px]"><ColumnFilterHeader label="Organization" colKey="organization" allValues={students.map(studentColumnAccessors.organization)} currentSelected={studentColumnFilters.organization ?? null} currentSort={studentSortCol === 'organization' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
               <th className="text-left px-4 py-3 font-semibold hidden lg:table-cell whitespace-nowrap min-w-[140px]"><ColumnFilterHeader label="Class" colKey="class" allValues={students.map(studentColumnAccessors.class)} currentSelected={studentColumnFilters.class ?? null} currentSort={studentSortCol === 'class' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
@@ -938,7 +878,7 @@ export function StudentsManage() {
               <th className="text-center px-4 py-3 font-semibold hidden md:table-cell whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Status" colKey="status" allValues={students.map(studentColumnAccessors.status)} currentSelected={studentColumnFilters.status ?? null} currentSort={studentSortCol === 'status' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} align="center" /></th>
               <th className="text-center px-4 py-3 font-semibold whitespace-nowrap min-w-[80px]">Actions</th>
             </tr></thead>
-              <tbody>{displayedStudents.length === 0 ? (<tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No students match these column filters</p><button onClick={clearAllStudentColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedStudents.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="relative flex-shrink-0"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--color-surface-primary)] ${STATUS_DOT_COLORS[st.status] || STATUS_DOT_COLORS.inactive}`} title={st.status} /></div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-4 py-3 text-center whitespace-nowrap"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-4 py-3 text-center hidden md:table-cell whitespace-nowrap"><StatusBadge status={st.status} /></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><RowActionsMenu actions={buildRowActions(st)} /></td></tr>))}</tbody></table></div>
+              <tbody>{displayedStudents.length === 0 ? (<tr><td colSpan={9} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No students match these column filters</p><button onClick={clearAllStudentColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedStudents.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-4 py-3" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectAllMatching || selected.has(st._id)} onChange={() => toggleSelectOne(st._id)} aria-label={`Select ${st.profile?.firstName || ''} ${st.profile?.lastName || ''}`} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></td><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="relative flex-shrink-0"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--color-surface-primary)] ${STATUS_DOT_COLORS[st.status] || STATUS_DOT_COLORS.inactive}`} title={st.status} /></div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-4 py-3 text-center whitespace-nowrap"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-4 py-3 text-center hidden md:table-cell whitespace-nowrap"><StatusBadge status={st.status} /></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><RowActionsMenu actions={buildRowActions(st)} /></td></tr>))}</tbody></table></div>
           </div>
         )}
 
@@ -946,10 +886,11 @@ export function StudentsManage() {
       </div>
 
       {/* Modals */}
-      {showCreate && <StudentModal schools={schools} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchStudents(page); fetchStats(); }} />}
-      {editingStudent && <StudentModal student={editingStudent} schools={schools} onClose={() => setEditingStudent(undefined)} onSaved={() => { setEditingStudent(undefined); fetchStudents(page); fetchStats(); }} />}
+      {showCreate && <StudentModal schools={schools} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchStudents(page); }} />}
+      {editingStudent && <StudentModal student={editingStudent} schools={schools} onClose={() => setEditingStudent(undefined)} onSaved={() => { setEditingStudent(undefined); fetchStudents(page); }} />}
       {viewingStudent && <ViewModal student={viewingStudent} onClose={() => setViewingStudent(undefined)} />}
       {approvingStudent && <ApproveModal student={approvingStudent} schools={schools} onClose={() => setApprovingStudent(undefined)} onDone={() => fetchStudents(page)} />}
+      {showBulkDeleteModal && <BulkDeleteModal count={selectedCount} allMatching={selectAllMatching} loading={bulkDeleting} onCancel={() => setShowBulkDeleteModal(false)} onConfirm={handleBulkDelete} />}
     </div>
   );
 }

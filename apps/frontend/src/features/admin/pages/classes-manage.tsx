@@ -515,8 +515,8 @@ function DepartmentModal({ open, departments, onClose, onSaved }: { open: boolea
   );
 }
 
-function ActionsDropdown({ onImport, onExport, exporting, label, onManageDepartments, onAddClass, onPromoteAll }: {
-  onImport: () => void; onExport: () => void; exporting: boolean; label: string; onManageDepartments: () => void; onAddClass: () => void; onPromoteAll: () => void;
+function ActionsDropdown({ onImport, onExport, exporting, label, onManageDepartments, onAddClass, onPromoteAll, onBulkDelete, selectedCount }: {
+  onImport: () => void; onExport: () => void; exporting: boolean; label: string; onManageDepartments: () => void; onAddClass: () => void; onPromoteAll: () => void; onBulkDelete: () => void; selectedCount: number;
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -541,10 +541,43 @@ function ActionsDropdown({ onImport, onExport, exporting, label, onManageDepartm
         <button onClick={() => { setOpen(false); onExport(); }} disabled={exporting} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50 flex items-center gap-2 transition-colors">{exporting ? <div className="h-3 w-3 animate-spin rounded-full border border-[var(--color-border-default)] border-t-primary-600" /> : '\u2193 Export ' + label + ' to Excel'}</button>
         <div className="my-1 border-t border-[var(--color-border-subtle)]" />
         <button onClick={() => { setOpen(false); onPromoteAll(); }} className="w-full text-left px-4 py-2.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">🎓 Promote All Classes</button>
+        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+        <button onClick={() => { setOpen(false); onBulkDelete(); }} disabled={selectedCount === 0} className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors">
+          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Bulk Delete{selectedCount > 0 ? ` (${selectedCount})` : ''}
+        </button>
       </div>,
       document.body,
     )}
   </>);
+}
+
+// ---------------------------------------------------------------------------
+// Bulk Delete Confirm Modal
+// ---------------------------------------------------------------------------
+
+function BulkDeleteModal({ count, loading, onCancel, onConfirm }: { count: number; loading: boolean; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onCancel}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/30 text-red-600">
+            <Trash2 className="h-5 w-5" strokeWidth={1.75} />
+          </div>
+          <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Bulk Delete Classes</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-5">
+          You're about to delete <strong>{count}</strong> class{count !== 1 ? 'es' : ''}. This can be reversed later from Trash.
+        </p>
+        <div className="flex gap-2">
+          <button type="button" onClick={onCancel} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={onConfirm} disabled={loading} className="flex-1 rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">
+            {loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+            Delete {count}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -627,9 +660,18 @@ export function ClassesManage() {
     clearAll: clearAllColumnFilters, displayedRows: displayedClasses, columnFiltersActive,
   } = useColumnFilters(classes, columnAccessors);
 
+  const allOnPageSelected = displayedClasses.length > 0 && displayedClasses.every(c => selected.has(c._id));
+  const toggleSelectAll = () => setSelected(allOnPageSelected ? new Set() : new Set(displayedClasses.map(c => c._id)));
+  const toggleSelectOne = (id: string) => setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+
   const [showCreate, setShowCreate] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassItem | undefined>(undefined);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // ── Bulk selection / delete state ──
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Import / Export state
   const [showImportModal, setShowImportModal] = useState(false);
@@ -664,6 +706,7 @@ export function ClassesManage() {
 
     if (classesResult.status === 'fulfilled') {
       setClasses(classesResult.value.data.data || []);
+      setSelected(new Set());
     } else {
       setError(classesResult.reason?.response?.data?.message || 'Failed to load classes');
     }
@@ -705,6 +748,21 @@ export function ClassesManage() {
       setToast({ message: 'Class duplicated', type: 'success' });
       await fetchData();
     } catch (err: any) { setToast({ message: err.response?.data?.message || 'Failed to duplicate class', type: 'error' }); }
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
+    try {
+      const { data } = await api.delete('/classes/bulk', { data: { ids: Array.from(selected) } });
+      setToast({ message: data?.message || `Deleted ${selected.size} class(es)`, type: 'success' });
+      setSelected(new Set());
+      setShowBulkDeleteModal(false);
+      await fetchData();
+    } catch (err: any) {
+      setToast({ message: err.response?.data?.message || 'Failed to bulk delete classes', type: 'error' });
+    } finally {
+      setBulkDeleting(false);
+    }
   };
 
   // ───────────────────────────────────────────────────────────────────────
@@ -799,6 +857,8 @@ export function ClassesManage() {
               onManageDepartments={() => setShowDepartments(true)}
               onAddClass={() => setShowCreate(true)}
               onPromoteAll={() => setShowPromoteAll(true)}
+              onBulkDelete={() => setShowBulkDeleteModal(true)}
+              selectedCount={selected.size}
             />
           </div>
         </div>
@@ -917,6 +977,7 @@ export function ClassesManage() {
             <table className="w-full text-sm">
               <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                 <tr>
+                  <th className="px-4 py-3 w-10"><input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAll} aria-label="Select all classes" className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></th>
                   <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[140px]">
                     <ColumnFilterHeader label="Class" colKey="title" allValues={classes.map(columnAccessors.title)} currentSelected={columnFilters.title ?? null} currentSort={sortCol === 'title' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
@@ -952,10 +1013,11 @@ export function ClassesManage() {
               </thead>
               <tbody>
                 {displayedClasses.length === 0 ? (
-                  <tr><td colSpan={11} className="text-center py-16 text-[var(--color-text-tertiary)]">{classes.length === 0 ? (<><p className="text-lg mb-1">🏫 No classes found</p><p className="text-sm">Click "+ Add Class" to create one.</p></>) : (<><p className="text-lg mb-1">🔍 No classes match these filters</p><button onClick={clearAllColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></>)}</td></tr>
+                  <tr><td colSpan={12} className="text-center py-16 text-[var(--color-text-tertiary)]">{classes.length === 0 ? (<><p className="text-lg mb-1">🏫 No classes found</p><p className="text-sm">Click "+ Add Class" to create one.</p></>) : (<><p className="text-lg mb-1">🔍 No classes match these filters</p><button onClick={clearAllColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></>)}</td></tr>
                 ) : (
                   displayedClasses.map(c => (
                     <tr key={c._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(c._id)} onChange={() => toggleSelectOne(c._id)} aria-label={`Select ${c.title}`} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></td>
                       <td className="px-4 py-3 whitespace-nowrap"><p className="font-semibold text-[var(--color-text-primary)]">{c.title}</p></td>
                       <td className="px-4 py-3 whitespace-nowrap"><span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{c.section}</span></td>
                       <td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.school?.name || '—'}</td>
@@ -989,6 +1051,7 @@ export function ClassesManage() {
       {editingClass && <ClassModal cls={editingClass} departments={departments} schools={schools} onClose={() => setEditingClass(undefined)} onSaved={() => { setEditingClass(undefined); fetchData(); }} />}
       <DepartmentModal open={showDepartments} departments={departments} onClose={() => setShowDepartments(false)} onSaved={() => { setShowDepartments(false); fetchData(); }} />
       {showPromoteAll && <PromoteAllModal schools={schools} onClose={() => setShowPromoteAll(false)} onDone={fetchData} />}
+      {showBulkDeleteModal && <BulkDeleteModal count={selected.size} loading={bulkDeleting} onCancel={() => setShowBulkDeleteModal(false)} onConfirm={handleBulkDelete} />}
     </div>
   );
 }

@@ -20,7 +20,7 @@ export interface ITrashSnapshot {
 }
 
 export interface ITrash extends Document {
-  entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School';
+  entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School' | 'Student';
   label: string;
   school?: mongoose.Types.ObjectId | null;
   snapshots: ITrashSnapshot[];
@@ -32,7 +32,7 @@ export interface ITrash extends Document {
 
 const trashSchema = new Schema<ITrash>(
   {
-    entityType: { type: String, required: true, enum: ['Parent', 'Teacher', 'Class', 'Course', 'School'], index: true },
+    entityType: { type: String, required: true, enum: ['Parent', 'Teacher', 'Class', 'Course', 'School', 'Student'], index: true },
     label: { type: String, required: true, trim: true, maxlength: 200 },
     school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
     snapshots: [

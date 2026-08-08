@@ -22,8 +22,10 @@ router.post('/import', adminOnly, upload.single('file'), asyncHandler(parentCont
 router.use(adminOnly);
 
 router.get('/', asyncHandler(parentController.getAll));
-router.get('/:id', asyncHandler(parentController.getById));
 router.post('/', asyncHandler(parentController.create));
+// Registered before /:id so "bulk" is never swallowed as an id param.
+router.delete('/bulk', asyncHandler(parentController.bulkRemove));
+router.get('/:id', asyncHandler(parentController.getById));
 router.patch('/:id', asyncHandler(parentController.update));
 router.delete('/:id', asyncHandler(parentController.remove));
 router.patch('/:id/status', asyncHandler(parentController.updateStatus));

@@ -1,0 +1,430 @@
+/**
+ * Invoices — Admin ledger
+ * Bills generated from Fee Structures (or created manually). Collecting a
+ * payment here creates a normal Payment record (visible in Payment History
+ * exactly like any other payment) and updates the invoice's own paid/due —
+ * it deliberately does NOT touch the legacy Student.totalFees balance shown
+ * on Overview/Outstanding/Student Balances; see Fee Structures page intro.
+ */
+
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { FileText, MoreVertical, Wallet, Eye, Ban, type LucideIcon } from 'lucide-react';
+import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface SchoolBrief { _id: string; name: string; }
+interface FeeStructureBrief { _id: string; title: string; feeType: string; amount: number; billingCycle: string; }
+interface ClassBrief { _id: string; title: string; section: string; }
+
+interface InvoiceLineItem { description: string; amount: number; }
+interface InvoiceItem {
+  _id: string;
+  student?: { _id: string; studentId: string; profile?: { firstName: string; lastName: string } };
+  school?: { _id: string; name: string };
+  feeStructure?: { _id: string; title: string; feeType: string };
+  title: string;
+  period: string;
+  lineItems: InvoiceLineItem[];
+  amount: number;
+  amountPaid: number;
+  amountDue: number;
+  isOverdue: boolean;
+  status: 'pending' | 'partial' | 'paid' | 'void';
+  dueDate: string;
+  issueDate: string;
+  notes?: string;
+}
+
+const STATUS_STYLES: Record<string, string> = {
+  pending: 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-900/50',
+  partial: 'bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/30 dark:text-sky-300 dark:border-sky-900/50',
+  paid: 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/50',
+  void: 'bg-slate-50 text-slate-600 border border-slate-200 dark:bg-slate-900/30 dark:text-slate-400 dark:border-slate-800',
+};
+
+function StatusBadge({ status, isOverdue }: { status: string; isOverdue?: boolean }) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[status] || STATUS_STYLES.pending}`}>{status}</span>
+      {isOverdue && <span className="rounded-full bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-900/50 px-2 py-0.5 text-[10px] font-semibold">Overdue</span>}
+    </div>
+  );
+}
+
+function Toast({ message, type, onClose }: { message: string; type: 'success' | 'error'; onClose: () => void }) {
+  useEffect(() => { const t = setTimeout(onClose, 5000); return () => clearTimeout(t); }, [onClose]);
+  return <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 rounded-xl px-5 py-3 text-sm font-medium shadow-lg max-w-md ${type === 'success' ? 'bg-green-50 text-green-800 border border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800' : 'bg-red-50 text-red-800 border border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800'}`}><span>{type === 'success' ? '✅' : '❌'}</span><span>{message}</span><button onClick={onClose} className="ml-2 text-lg leading-none opacity-60 hover:opacity-100">&times;</button></div>;
+}
+
+// ---------------------------------------------------------------------------
+// Generate Invoices Modal
+// ---------------------------------------------------------------------------
+
+function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructures: FeeStructureBrief[]; onClose: () => void; onDone: () => void }) {
+  const [feeStructureId, setFeeStructureId] = useState('');
+  const [period, setPeriod] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [academicYear, setAcademicYear] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<{ eligible: number; alreadyBilled: number; created: number; failed: number } | null>(null);
+
+  const handleGenerate = async () => {
+    if (!feeStructureId || !period.trim()) return;
+    setLoading(true); setError('');
+    try {
+      const { data } = await api.post('/invoices/generate-bulk', {
+        feeStructureId, period: period.trim(),
+        dueDate: dueDate || undefined,
+        academicYear: academicYear.trim() || undefined,
+      });
+      setResult(data.data);
+    } catch (err: any) { setError(err.response?.data?.message || err.message || 'Failed to generate invoices'); } finally { setLoading(false); }
+  };
+
+  const ic = 'w-full rounded-xl border px-3 py-2 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors border-[var(--color-border-default)]';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4"><h2 className="text-xl font-bold text-[var(--color-text-primary)]">🧾 Generate Invoices</h2><button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+
+        {result ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 dark:text-green-300">
+              ✅ Created {result.created} invoice{result.created !== 1 ? 's' : ''}{result.alreadyBilled > 0 ? `, ${result.alreadyBilled} already billed for this period — skipped` : ''}. {result.eligible} student{result.eligible !== 1 ? 's were' : ' was'} eligible in total.
+            </div>
+            <button onClick={onDone} className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors">Done</button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Fee Structure *</label>
+              <select className={ic} value={feeStructureId} onChange={e => setFeeStructureId(e.target.value)}>
+                <option value="">Select an active fee structure...</option>
+                {feeStructures.map(fs => <option key={fs._id} value={fs._id}>{fs.title} — ${fs.amount.toLocaleString()} ({fs.billingCycle.replace('_', ' ')})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Period *</label>
+              <input className={ic} value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. March 2026, Term 1" />
+              <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">A student is billed at most once per fee structure + period — re-running this is always safe.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Due Date</label><input className={ic} type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} /><p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Defaults from the structure's due-days offset</p></div>
+              <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Academic Year</label><input className={ic} value={academicYear} onChange={e => setAcademicYear(e.target.value)} placeholder="Optional" /></div>
+            </div>
+            {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{error}</div>}
+            <div className="flex gap-2 pt-2">
+              <button type="button" onClick={onClose} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={handleGenerate} disabled={loading || !feeStructureId || !period.trim()} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}Generate</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Collect Payment Modal
+// ---------------------------------------------------------------------------
+
+function CollectPaymentModal({ invoice, onClose, onDone }: { invoice: InvoiceItem; onClose: () => void; onDone: () => void }) {
+  const remaining = invoice.amount - invoice.amountPaid;
+  const [amount, setAmount] = useState(String(remaining));
+  const [method, setMethod] = useState('cash');
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async () => {
+    const amt = Number(amount);
+    if (!amt || amt <= 0) { setError('Enter a valid amount'); return; }
+    if (amt > remaining + 0.001) { setError(`Amount exceeds remaining balance of $${remaining.toLocaleString()}`); return; }
+    setLoading(true); setError('');
+    try {
+      await api.post(`/invoices/${invoice._id}/collect-payment`, { amount: amt, method, notes: notes.trim() || undefined });
+      onDone();
+    } catch (err: any) { setError(err.response?.data?.message || err.message || 'Failed to collect payment'); } finally { setLoading(false); }
+  };
+
+  const ic = 'w-full rounded-xl border px-3 py-2 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors border-[var(--color-border-default)]';
+  const studentName = invoice.student?.profile ? `${invoice.student.profile.firstName} ${invoice.student.profile.lastName}` : invoice.student?.studentId || 'Student';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-bold text-[var(--color-text-primary)]">💵 Collect Payment</h2><button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+        <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3 mb-4 text-sm space-y-1">
+          <p className="font-semibold text-[var(--color-text-primary)]">{studentName} — {invoice.title}</p>
+          <p className="text-[var(--color-text-tertiary)]">Amount: ${invoice.amount.toLocaleString()} · Paid: ${invoice.amountPaid.toLocaleString()} · Due: ${remaining.toLocaleString()}</p>
+        </div>
+        <div className="space-y-3">
+          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Amount ($) *</label><input className={ic} type="number" min={0.01} max={remaining} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></div>
+          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Method</label><select className={ic} value={method} onChange={e => setMethod(e.target.value)}><option value="cash">Cash</option><option value="bank_transfer">Bank Transfer</option><option value="mobile_money">Mobile Money</option><option value="online">Online</option></select></div>
+          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Notes</label><input className={ic} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" /></div>
+          {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{error}</div>}
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
+            <button type="button" onClick={handleSubmit} disabled={loading} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}Collect</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// View Details Modal
+// ---------------------------------------------------------------------------
+
+interface PaymentEntry { _id: string; amount: number; method: string; createdAt: string; notes?: string; }
+
+function ViewInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: () => void }) {
+  const [invoice, setInvoice] = useState<InvoiceItem | null>(null);
+  const [payments, setPayments] = useState<PaymentEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get(`/invoices/${invoiceId}`);
+        setInvoice(data.data.invoice);
+        setPayments(data.data.payments || []);
+      } finally { setLoading(false); }
+    })();
+  }, [invoiceId]);
+
+  const studentName = invoice?.student?.profile ? `${invoice.student.profile.firstName} ${invoice.student.profile.lastName}` : invoice?.student?.studentId;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-md shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-bold text-[var(--color-text-primary)]">Invoice Details</h2><button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+        {loading && <div className="flex justify-center py-8"><div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" /></div>}
+        {!loading && invoice && (
+          <div className="space-y-4">
+            <div>
+              <p className="font-semibold text-[var(--color-text-primary)]">{invoice.title}</p>
+              <p className="text-sm text-[var(--color-text-tertiary)]">{studentName} · {invoice.period}</p>
+            </div>
+            <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)]">
+              {invoice.lineItems.map((item, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2 text-sm"><span className="text-[var(--color-text-secondary)]">{item.description}</span><span className="font-medium text-[var(--color-text-primary)]">${item.amount.toLocaleString()}</span></div>
+              ))}
+              <div className="flex items-center justify-between px-3 py-2 text-sm font-semibold"><span>Total</span><span>${invoice.amount.toLocaleString()}</span></div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-[var(--color-text-primary)]">${invoice.amountPaid.toLocaleString()}</p><p className="text-[var(--color-text-tertiary)]">Paid</p></div>
+              <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-[var(--color-text-primary)]">${invoice.amountDue.toLocaleString()}</p><p className="text-[var(--color-text-tertiary)]">Due</p></div>
+              <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-[var(--color-text-primary)] capitalize">{invoice.status}</p><p className="text-[var(--color-text-tertiary)]">Status</p></div>
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)] mb-2">Payments Collected</p>
+              {payments.length === 0 ? <p className="text-sm text-[var(--color-text-tertiary)]">None yet</p> : (
+                <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)]">
+                  {payments.map(p => (
+                    <div key={p._id} className="flex items-center justify-between px-3 py-2 text-sm"><span className="text-[var(--color-text-secondary)]">{new Date(p.createdAt).toLocaleDateString()} · {p.method.replace('_', ' ')}</span><span className="font-medium text-[var(--color-text-primary)]">${p.amount.toLocaleString()}</span></div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={onClose} className="w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">Close</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Row Actions
+// ---------------------------------------------------------------------------
+
+interface RowAction { label: string; icon: LucideIcon; onClick: () => void; tone: 'default' | 'danger' | 'success'; disabled?: boolean; title?: string; }
+const rowActionTone: Record<RowAction['tone'], string> = { default: 'text-primary-600', success: 'text-green-600', danger: 'text-red-600' };
+
+function RowActionsMenu({ actions }: { actions: RowAction[] }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (!open) return; const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, [open]);
+  return (<>
+    <button ref={btnRef} onClick={(e) => { e.stopPropagation(); setOpen(!open); }} className="rounded-lg border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-1.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors" title="More Actions"><MoreVertical className="h-4 w-4" strokeWidth={1.75} /></button>
+    {open && btnRef.current && createPortal(
+      <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-48 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-md py-1">
+        {actions.map((a) => (<button key={a.label} disabled={a.disabled} title={a.title} onClick={(e) => { e.stopPropagation(); setOpen(false); a.onClick(); }} className={`flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${rowActionTone[a.tone]}`}><a.icon className="h-3.5 w-3.5" strokeWidth={1.75} /> {a.label}</button>))}
+      </div>,
+      document.body,
+    )}
+  </>);
+}
+
+// ---------------------------------------------------------------------------
+// Main Component
+// ---------------------------------------------------------------------------
+
+export function InvoicesManage() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'admin';
+
+  const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
+  const [schools, setSchools] = useState<SchoolBrief[]>([]);
+  const [feeStructures, setFeeStructures] = useState<FeeStructureBrief[]>([]);
+  const [classes, setClasses] = useState<ClassBrief[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [feeStructureFilter, setFeeStructureFilter] = useState('');
+  const [classFilter, setClassFilter] = useState('');
+  const [filterSchool, setFilterSchool] = useState('');
+
+  const [showGenerate, setShowGenerate] = useState(false);
+  const [collectingInvoice, setCollectingInvoice] = useState<InvoiceItem | undefined>(undefined);
+  const [viewingInvoiceId, setViewingInvoiceId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    (async () => {
+      try { const { data } = await api.get('/schools', { params: { limit: '100' } }); setSchools(data.data || []); } catch { /* ignore */ }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const params: Record<string, string> = { isActive: 'true', limit: '100' };
+        if (filterSchool) params.school = filterSchool;
+        const { data } = await api.get('/fee-structures', { params });
+        setFeeStructures(data.data || []);
+      } catch { setFeeStructures([]); }
+      try {
+        const params: Record<string, string> = { limit: '200', status: 'active' };
+        if (filterSchool) params.schoolId = filterSchool;
+        const { data } = await api.get('/classes', { params });
+        setClasses(data.data || []);
+      } catch { setClasses([]); }
+    })();
+  }, [filterSchool]);
+
+  const fetchInvoices = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const params: Record<string, string> = { limit: '100' };
+      if (search) params.search = search;
+      if (statusFilter) params.status = statusFilter;
+      if (feeStructureFilter) params.feeStructureId = feeStructureFilter;
+      if (classFilter) params.classId = classFilter;
+      if (filterSchool) params.school = filterSchool;
+      const { data } = await api.get('/invoices', { params });
+      setInvoices(data.data || []);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to load invoices');
+    } finally {
+      setLoading(false);
+    }
+  }, [search, statusFilter, feeStructureFilter, classFilter, filterSchool]);
+
+  useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
+
+  const handleVoid = async (invoice: InvoiceItem) => {
+    if (!window.confirm(`Void invoice "${invoice.title}" for this student?`)) return;
+    try {
+      await api.patch(`/invoices/${invoice._id}/void`, {});
+      setToast({ message: 'Invoice voided', type: 'success' });
+      fetchInvoices();
+    } catch (err: any) { setToast({ message: err.response?.data?.message || 'Failed to void invoice', type: 'error' }); }
+  };
+
+  const buildRowActions = (inv: InvoiceItem): RowAction[] => [
+    { label: 'Collect Payment', icon: Wallet, onClick: () => setCollectingInvoice(inv), tone: 'success', disabled: inv.status === 'paid' || inv.status === 'void' },
+    { label: 'View Details', icon: Eye, onClick: () => setViewingInvoiceId(inv._id), tone: 'default' },
+    { label: 'Void', icon: Ban, onClick: () => handleVoid(inv), tone: 'danger', disabled: inv.status === 'void' || inv.amountPaid > 0, title: inv.amountPaid > 0 ? 'Cannot void — payments already collected' : undefined },
+  ];
+
+  return (
+    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
+      <div className="mx-auto max-w-screen-2xl space-y-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">
+              <FileText className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />
+              Invoices
+            </h1>
+            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Bills generated from Fee Structures — collect payments and track status here.</p>
+          </div>
+          <button onClick={() => setShowGenerate(true)} className="rounded-xl bg-primary-600 px-3 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm whitespace-nowrap flex-shrink-0">🧾 Generate Invoices</button>
+        </div>
+
+        <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-4 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+            {isSuperAdmin && (<select value={filterSchool} onChange={e => setFilterSchool(e.target.value)} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">All Organizations</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>)}
+            <input type="text" placeholder="Search by student, title, ID..." value={search} onChange={e => setSearch(e.target.value)} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" />
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="flex-1 sm:flex-none sm:w-36 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">All Status</option><option value="pending">Pending</option><option value="partial">Partial</option><option value="paid">Paid</option><option value="void">Void</option></select>
+            <select value={feeStructureFilter} onChange={e => setFeeStructureFilter(e.target.value)} className="flex-1 sm:flex-none sm:w-48 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">All Fee Structures</option>{feeStructures.map(fs => <option key={fs._id} value={fs._id}>{fs.title}</option>)}</select>
+            <select value={classFilter} onChange={e => setClassFilter(e.target.value)} className="flex-1 sm:flex-none sm:w-40 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">All Classes</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title} — {c.section}</option>)}</select>
+          </div>
+        </div>
+
+        {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-red-600 text-sm">{error}</p></div>}
+        {loading && <div className="flex justify-center py-10"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>}
+        {!loading && !error && invoices.length === 0 && <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card"><p className="text-4xl mb-4">🧾</p><p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No invoices found</p><p className="text-sm text-[var(--color-text-tertiary)]">Click "Generate Invoices" to bill students from an active fee structure.</p></div>}
+
+        {!loading && !error && invoices.length > 0 && (
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr>
+              <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">Student</th>
+              <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">Title / Period</th>
+              <th className="text-right px-4 py-3 font-semibold whitespace-nowrap">Amount</th>
+              <th className="text-right px-4 py-3 font-semibold whitespace-nowrap hidden md:table-cell">Paid</th>
+              <th className="text-right px-4 py-3 font-semibold whitespace-nowrap hidden md:table-cell">Due</th>
+              <th className="text-center px-4 py-3 font-semibold whitespace-nowrap">Status</th>
+              <th className="text-left px-4 py-3 font-semibold whitespace-nowrap hidden lg:table-cell">Due Date</th>
+              <th className="text-center px-4 py-3 font-semibold whitespace-nowrap">Actions</th>
+            </tr></thead>
+              <tbody>{invoices.map(inv => {
+                const studentName = inv.student?.profile ? `${inv.student.profile.firstName} ${inv.student.profile.lastName}` : inv.student?.studentId || '—';
+                return (
+                  <tr key={inv._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
+                    <td className="px-4 py-3"><p className="font-semibold text-[var(--color-text-primary)]">{studentName}</p><p className="text-xs text-[var(--color-text-tertiary)]">{inv.student?.studentId}</p></td>
+                    <td className="px-4 py-3"><p className="text-[var(--color-text-primary)]">{inv.title}</p><p className="text-xs text-[var(--color-text-tertiary)]">{inv.period}</p></td>
+                    <td className="px-4 py-3 text-right font-semibold text-[var(--color-text-primary)]">${inv.amount.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--color-text-secondary)]">${inv.amountPaid.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--color-text-secondary)]">${inv.amountDue.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-center"><StatusBadge status={inv.status} isOverdue={inv.isOverdue} /></td>
+                    <td className="px-4 py-3 hidden lg:table-cell text-[var(--color-text-secondary)]">{new Date(inv.dueDate).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-center"><RowActionsMenu actions={buildRowActions(inv)} /></td>
+                  </tr>
+                );
+              })}</tbody></table></div>
+          </div>
+        )}
+      </div>
+
+      {showGenerate && (
+        <GenerateInvoicesModal
+          feeStructures={feeStructures}
+          onClose={() => setShowGenerate(false)}
+          onDone={() => { setShowGenerate(false); fetchInvoices(); }}
+        />
+      )}
+      {collectingInvoice && (
+        <CollectPaymentModal
+          invoice={collectingInvoice}
+          onClose={() => setCollectingInvoice(undefined)}
+          onDone={() => { setToast({ message: 'Payment collected', type: 'success' }); setCollectingInvoice(undefined); fetchInvoices(); }}
+        />
+      )}
+      {viewingInvoiceId && <ViewInvoiceModal invoiceId={viewingInvoiceId} onClose={() => setViewingInvoiceId(undefined)} />}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    </div>
+  );
+}

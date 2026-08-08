@@ -143,6 +143,9 @@ const UsersManage = lazy(() =>
 const StudentsManage = lazy(() =>
   import('../features/admin/pages/students-manage').then((m) => ({ default: m.StudentsManage }))
 );
+const StudentReport = lazy(() =>
+  import('../features/admin/pages/student-report').then((m) => ({ default: m.StudentReport }))
+);
 const StudentActivity = lazy(() =>
   import('../features/admin/pages/student-activity').then((m) => ({ default: m.StudentActivity }))
 );
@@ -157,6 +160,12 @@ const PaymentsHistory = lazy(() =>
 );
 const PaymentsOutstanding = lazy(() =>
   import('../features/admin/pages/payments-outstanding').then((m) => ({ default: m.PaymentsOutstanding }))
+);
+const FeeStructuresManage = lazy(() =>
+  import('../features/admin/pages/fee-structures-manage').then((m) => ({ default: m.FeeStructuresManage }))
+);
+const InvoicesManage = lazy(() =>
+  import('../features/admin/pages/invoices-manage').then((m) => ({ default: m.InvoicesManage }))
 );
 const AttendanceManage = lazy(() =>
   import('../features/admin/pages/attendance-manage').then((m) => ({ default: m.AttendanceManage }))
@@ -360,6 +369,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: L(<AdminDashboard />) },
       { path: 'students', element: L(<StudentsManage />) },
+      { path: 'students/report', element: L(<StudentReport />) },
       { path: 'activity', element: L(<StudentActivity />) },
       { path: 'parents', element: L(<ParentsManage />) },
       { path: 'teachers', element: L(<TeachersManage />) },
@@ -394,6 +404,8 @@ export const router = createBrowserRouter([
       { path: 'payments/record', element: L(<PaymentsRecord />) },
       { path: 'payments/history', element: L(<PaymentsHistory />) },
       { path: 'payments/outstanding', element: L(<PaymentsOutstanding />) },
+      { path: 'payments/fee-structures', element: L(<FeeStructuresManage />) },
+      { path: 'payments/invoices', element: L(<InvoicesManage />) },
       { path: 'certificates', element: L(<CertificatesManage />) },
       { path: 'announcements', element: L(<AnnouncementsManage />) },
       { path: 'news', element: L(<NewsManage />) },

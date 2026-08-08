@@ -28,6 +28,8 @@ router.patch('/:id', adminOnly, asyncHandler(ctrl.update));
 //    suspend their own org, or delete organizations. ──
 router.post('/', roleMiddleware(['admin']), asyncHandler(ctrl.create));
 router.patch('/:id/status', roleMiddleware(['admin']), asyncHandler(ctrl.updateStatus));
+// Registered before /:id so "bulk" is never swallowed as an id param.
+router.delete('/bulk', roleMiddleware(['admin']), asyncHandler(ctrl.bulkRemove));
 router.delete('/:id', roleMiddleware(['admin']), asyncHandler(ctrl.remove));
 
 export default router;

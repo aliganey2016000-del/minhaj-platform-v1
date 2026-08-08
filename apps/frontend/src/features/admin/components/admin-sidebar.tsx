@@ -20,11 +20,11 @@ import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, GraduationCap, Activity, Users, UserCog, Presentation, BookOpen,
   Building2, School, CalendarClock, CalendarCheck, ClipboardList, NotebookPen,
-  CalendarRange, Building, CheckCircle2, FileCheck2, BarChart3, AlertTriangle, Wallet,
+  CalendarRange, Building, CheckCircle2, FileCheck2, BarChart3, AlertTriangle,
   PieChart, CreditCard, History, AlertCircle, Award, MessagesSquare, Megaphone,
   Newspaper, PartyPopper, Image, ShieldCheck, Settings, Compass, TrendingUp,
   ScrollText, User, KeyRound, LogOut, Percent, ClipboardEdit, PanelLeftClose, PanelLeftOpen,
-  Trash2,
+  Trash2, FileText, Receipt,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -80,16 +80,18 @@ const navSections: { title: string; items: NavEntry[] }[] = [
           { path: '/admin/exams/grading-rules', label: 'Grading Rules',      icon: Percent },
         ],
       },
-      {
-        key: 'group:payments', label: 'Payments', icon: Wallet,
-        children: [
-          { path: '/admin/payments',             label: 'Overview',         icon: PieChart },
-          { path: '/admin/payments/record',       label: 'Payment Center',   icon: CreditCard },
-          { path: '/admin/payments/history',      label: 'Payment History',  icon: History },
-          { path: '/admin/payments/outstanding',  label: 'Outstanding Dues', icon: AlertCircle },
-        ],
-      },
       { path: '/admin/certificates', label: 'Certificates',       icon: Award },
+    ],
+  },
+  {
+    title: 'Payments',
+    items: [
+      { path: '/admin/payments',             label: 'Overview',         icon: PieChart },
+      { path: '/admin/payments/record',       label: 'Payment Center',   icon: CreditCard },
+      { path: '/admin/payments/history',      label: 'Payment History',  icon: History },
+      { path: '/admin/payments/outstanding',  label: 'Outstanding Dues', icon: AlertCircle },
+      { path: '/admin/payments/fee-structures', label: 'Fee Structures', icon: FileText },
+      { path: '/admin/payments/invoices',       label: 'Invoices',       icon: Receipt },
     ],
   },
   {
