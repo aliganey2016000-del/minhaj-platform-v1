@@ -897,6 +897,45 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   const categoryMap = new Set<string>();
   for (const c of categories) categoryMap.add(`${(c as any).school.toString()}:${(c as any).slug}`);
 
+  // ── Phase 1.5: Auto-create any category a row references that doesn't
+  // exist yet for its organization — collected once per distinct
+  // (school, slug) pair first, so a category shared by many rows (the
+  // common case) is created once, not once per row. A row whose
+  // organization can't be resolved is skipped here; Phase 2 reports that
+  // row's own "Organization not found" error instead.
+  const missingCategories = new Map<string, { school: mongoose.Types.ObjectId; slug: string; name: string }>();
+  for (const row of rows) {
+    const firstCell = String(Object.values(row as Record<string, any>)[0] ?? '').trim().toLowerCase();
+    if (firstCell === 'course title (english)' || firstCell === 'course title') continue;
+
+    const categoryRaw = String(getField(row, 'Category') ?? '').trim().toLowerCase();
+    if (!categoryRaw) continue;
+
+    const schoolName = String(getField(row, 'Organization Name', 'Organization', 'School') ?? '').trim();
+    let schoolId: mongoose.Types.ObjectId | undefined = ownOrgId ? new mongoose.Types.ObjectId(ownOrgId) : undefined;
+    if (!schoolId && schoolName) schoolId = schoolMap.get(schoolName.toLowerCase());
+    if (!schoolId) continue;
+
+    const key = `${schoolId.toString()}:${categoryRaw}`;
+    if (categoryMap.has(key) || missingCategories.has(key)) continue;
+    const name = categoryRaw.split('-').filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    missingCategories.set(key, { school: schoolId, slug: categoryRaw, name });
+  }
+
+  if (missingCategories.size > 0) {
+    try {
+      await CourseCategory.insertMany(
+        Array.from(missingCategories.values()).map((c) => ({ name: c.name, slug: c.slug, school: c.school })),
+        { ordered: false }
+      );
+    } catch {
+      // A concurrent import or a name/slug collision on a subset — the ones
+      // that did succeed still need to be usable below, and any that
+      // didn't will surface as this row's own error in Phase 2 instead.
+    }
+    for (const key of missingCategories.keys()) categoryMap.add(key);
+  }
+
   // ── Phase 2: Parse rows ──
   const errors: { row: number; message: string }[] = [];
   const courseDocs: any[] = [];
@@ -936,12 +975,14 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       }
       if (!schoolId) throw new Error('Organization is required');
 
-      // Resolve category — must already exist for this organization (via
-      // Manage Categories); previously an unrecognized value here silently
-      // fell back to "quran", which is how mislabeled rows went unnoticed.
+      // Resolve category — auto-created above (Phase 1.5) from this same
+      // row's value when it didn't already exist, so this only ever throws
+      // for a row whose organization couldn't be resolved (never silently
+      // falls back to an unrelated existing category like the old "quran"
+      // default used to — that's how mislabeled rows went unnoticed).
       if (!categoryRaw) throw new Error('Category is required');
       if (!categoryMap.has(`${schoolId.toString()}:${categoryRaw}`)) {
-        throw new Error(`Category "${categoryRaw}" does not exist for this organization — add it first via Manage Categories`);
+        throw new Error(`Category "${categoryRaw}" could not be resolved for this organization`);
       }
       const category = categoryRaw;
 
