@@ -69,9 +69,12 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/certificates', label: 'Certificates', section: 'Academic' },
 
   { key: 'admin/payments', label: 'Payments Overview', section: 'Payments' },
-  { key: 'admin/payments/record', label: 'Payment Center', section: 'Payments' },
+  { key: 'admin/payments/fee-structures', label: 'Fee Structures', section: 'Payments' },
+  { key: 'admin/payments/invoices', label: 'Invoices', section: 'Payments' },
+  { key: 'admin/payments/record', label: 'Record Payment', section: 'Payments' },
+  { key: 'admin/payments/bulk', label: 'Bulk Payment', section: 'Payments' },
+  { key: 'admin/payments/balances', label: 'Student Balances', section: 'Payments' },
   { key: 'admin/payments/history', label: 'Payment History', section: 'Payments' },
-  { key: 'admin/payments/outstanding', label: 'Outstanding Dues', section: 'Payments' },
 
   { key: 'admin/forum', label: 'Forum', section: 'Communication' },
 

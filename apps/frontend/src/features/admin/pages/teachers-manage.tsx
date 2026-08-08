@@ -239,7 +239,7 @@ function BulkDeleteModal({ count, loading, onCancel, onConfirm }: { count: numbe
           <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Bulk Delete Teachers</h2>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] mb-5">
-          You're about to delete <strong>{count}</strong> teacher{count !== 1 ? 's' : ''}. Teachers still assigned to active courses will be skipped. This can be reversed later from Trash.
+          You're about to delete <strong>{count}</strong> teacher{count !== 1 ? 's' : ''}. Any of their published/draft courses will be unassigned (and moved to draft) automatically. This can be reversed later from Trash.
         </p>
         <div className="flex gap-2">
           <button type="button" onClick={onCancel} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>

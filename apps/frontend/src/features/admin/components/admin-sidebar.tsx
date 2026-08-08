@@ -21,7 +21,7 @@ import {
   LayoutDashboard, GraduationCap, Activity, Users, UserCog, Presentation, BookOpen,
   Building2, School, CalendarClock, CalendarCheck, ClipboardList, NotebookPen,
   CalendarRange, Building, CheckCircle2, FileCheck2, BarChart3, AlertTriangle,
-  PieChart, CreditCard, History, AlertCircle, Award, MessagesSquare, Megaphone,
+  PieChart, CreditCard, History, Zap, Award, MessagesSquare, Megaphone,
   Newspaper, PartyPopper, Image, ShieldCheck, Settings, Compass, TrendingUp,
   ScrollText, User, KeyRound, LogOut, Percent, ClipboardEdit, PanelLeftClose, PanelLeftOpen,
   Trash2, FileText, Receipt,
@@ -86,12 +86,13 @@ const navSections: { title: string; items: NavEntry[] }[] = [
   {
     title: 'Payments',
     items: [
-      { path: '/admin/payments',             label: 'Overview',         icon: PieChart },
-      { path: '/admin/payments/record',       label: 'Payment Center',   icon: CreditCard },
-      { path: '/admin/payments/history',      label: 'Payment History',  icon: History },
-      { path: '/admin/payments/outstanding',  label: 'Outstanding Dues', icon: AlertCircle },
-      { path: '/admin/payments/fee-structures', label: 'Fee Structures', icon: FileText },
-      { path: '/admin/payments/invoices',       label: 'Invoices',       icon: Receipt },
+      { path: '/admin/payments',                label: 'Overview',         icon: PieChart },
+      { path: '/admin/payments/fee-structures', label: 'Fee Structures',  icon: FileText },
+      { path: '/admin/payments/invoices',       label: 'Invoices',        icon: Receipt },
+      { path: '/admin/payments/record',         label: 'Record Payment',  icon: CreditCard },
+      { path: '/admin/payments/bulk',           label: 'Bulk Payment',    icon: Zap },
+      { path: '/admin/payments/balances',       label: 'Student Balances', icon: BarChart3 },
+      { path: '/admin/payments/history',        label: 'Payment History', icon: History },
     ],
   },
   {

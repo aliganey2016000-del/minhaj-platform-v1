@@ -333,24 +333,6 @@ export const getPaymentStats = async (req: Request, res: Response): Promise<Resp
 };
 
 // ---------------------------------------------------------------------------
-// GET /payments/outstanding — Students with an outstanding balance (org-scoped)
-// ---------------------------------------------------------------------------
-
-export const getOutstanding = async (req: Request, res: Response): Promise<Response> => {
-  const filter = applyOrgFilter(req, { totalFeesDue: { $gt: 0 } }, 'school');
-
-  const students = await Student.find(filter)
-    .populate('profile', 'firstName lastName')
-    .populate('school', 'name')
-    .populate('class', 'title section')
-    .select('studentId profile school class totalFees totalFeesPaid totalFeesDue discount')
-    .sort({ totalFeesDue: -1 })
-    .lean();
-
-  return ApiResponse.success(res, students);
-};
-
-// ---------------------------------------------------------------------------
 // GET /payments/student/:studentId — Get a student's payment history
 // ---------------------------------------------------------------------------
 

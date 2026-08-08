@@ -660,6 +660,11 @@ export function ClassesManage() {
     clearAll: clearAllColumnFilters, displayedRows: displayedClasses, columnFiltersActive,
   } = useColumnFilters(classes, columnAccessors);
 
+  // ── Bulk selection / delete state ──
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   const allOnPageSelected = displayedClasses.length > 0 && displayedClasses.every(c => selected.has(c._id));
   const toggleSelectAll = () => setSelected(allOnPageSelected ? new Set() : new Set(displayedClasses.map(c => c._id)));
   const toggleSelectOne = (id: string) => setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
@@ -667,11 +672,6 @@ export function ClassesManage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassItem | undefined>(undefined);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
-  // ── Bulk selection / delete state ──
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Import / Export state
   const [showImportModal, setShowImportModal] = useState(false);

@@ -9,7 +9,7 @@ import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
-import { moveToTrash } from '../utils/trash';
+import { moveToTrash, moveManyToTrash } from '../utils/trash';
 
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -202,17 +202,45 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
     if (ids.length === 0) throw new BadRequestError('At least one class id is required');
   }
 
-  const results: { id: string; success: boolean; error?: string }[] = [];
-  for (const id of ids) {
+  // Resolve every matching class in ONE query, then do a single Trash
+  // insertMany + one deleteMany instead of looping deleteClassToTrash per
+  // id — that per-id loop was slow enough against the remote Atlas cluster
+  // to blow past the browser/proxy request timeout on large batches.
+  const classes = await ClassModel.find({ _id: { $in: ids } });
+  const foundIds = new Set(classes.map((c) => String(c._id)));
+  const notFoundIds = ids.filter((id) => !foundIds.has(id));
+
+  const allowed: (typeof classes)[number][] = [];
+  const forbiddenIds: string[] = [];
+  for (const c of classes) {
     try {
-      await deleteClassToTrash(id, req);
-      results.push({ id, success: true });
-    } catch (err: any) {
-      results.push({ id, success: false, error: err.message || 'Failed to delete' });
+      assertOwnsOrg(req, c, 'school');
+      allowed.push(c);
+    } catch {
+      forbiddenIds.push(String(c._id));
     }
   }
 
-  const deleted = results.filter((r) => r.success).length;
+  const results: { id: string; success: boolean; error?: string }[] = [
+    ...notFoundIds.map((id) => ({ id, success: false, error: 'Not found' })),
+    ...forbiddenIds.map((id) => ({ id, success: false, error: 'Not permitted' })),
+  ];
+
+  if (allowed.length > 0) {
+    const trashEntries = allowed.map((c) => ({
+      entityType: 'Class' as const,
+      label: c.section ? `${c.title} — ${c.section}` : c.title,
+      school: c.school,
+      snapshots: [{ modelName: 'Class', data: c.toObject() }],
+    }));
+
+    await moveManyToTrash(trashEntries, req);
+    await ClassModel.deleteMany({ _id: { $in: allowed.map((c) => c._id) } });
+
+    results.push(...allowed.map((c) => ({ id: String(c._id), success: true })));
+  }
+
+  const deleted = allowed.length;
   return ApiResponse.success(res, { results, deleted }, `Deleted ${deleted} of ${ids.length} class(es)`);
 };
 

@@ -16,7 +16,7 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import Student from '../models/student.model';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
-import { moveToTrash } from '../utils/trash';
+import { moveToTrash, moveManyToTrash } from '../utils/trash';
 
 // ---------------------------------------------------------------------------
 // GET /parents — List all with optional filters
@@ -288,17 +288,75 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
     if (ids.length === 0) throw new BadRequestError('At least one parent id is required');
   }
 
-  const results: { id: string; success: boolean; error?: string }[] = [];
-  for (const id of ids) {
+  // Resolve every matching parent in ONE query, then do a single Trash
+  // insertMany + children-unlink updateMany + three deleteMany calls
+  // instead of looping deleteParentToTrash per id — that per-id loop (each
+  // needing several sequential round trips) was slow enough against the
+  // remote Atlas cluster to blow past the browser/proxy request timeout on
+  // anything more than a couple dozen parents.
+  const parents = await Parent.find({ _id: { $in: ids } });
+  const foundIds = new Set(parents.map((p) => String(p._id)));
+  const notFoundIds = ids.filter((id) => !foundIds.has(id));
+
+  const allowed: (typeof parents)[number][] = [];
+  const forbiddenIds: string[] = [];
+  for (const p of parents) {
     try {
-      await deleteParentToTrash(id, req);
-      results.push({ id, success: true });
-    } catch (err: any) {
-      results.push({ id, success: false, error: err.message || 'Failed to delete' });
+      assertOwnsOrg(req, p, 'school');
+      allowed.push(p);
+    } catch {
+      forbiddenIds.push(String(p._id));
     }
   }
 
-  const moved = results.filter((r) => r.success).length;
+  const results: { id: string; success: boolean; error?: string }[] = [
+    ...notFoundIds.map((id) => ({ id, success: false, error: 'Not found' })),
+    ...forbiddenIds.map((id) => ({ id, success: false, error: 'Not permitted' })),
+  ];
+
+  if (allowed.length > 0) {
+    const userIds = allowed.map((p) => p.user).filter(Boolean);
+    const profileIds = allowed.map((p) => p.profile).filter(Boolean);
+    const [users, profiles] = await Promise.all([
+      User.find({ _id: { $in: userIds } }).select('+password'),
+      Profile.find({ _id: { $in: profileIds } }),
+    ]);
+    const userById = new Map(users.map((u) => [String(u._id), u]));
+    const profileById = new Map(profiles.map((p) => [String(p._id), p]));
+
+    const trashEntries = allowed.map((p) => {
+      const userDoc = p.user ? userById.get(String(p.user)) : undefined;
+      const profileDoc = p.profile ? profileById.get(String(p.profile)) : undefined;
+      const label = profileDoc ? `${profileDoc.firstName} ${profileDoc.lastName}`.trim() || 'Parent' : 'Parent';
+      return {
+        entityType: 'Parent' as const,
+        label,
+        school: p.school,
+        snapshots: [
+          ...(userDoc ? [{ modelName: 'User', data: userDoc.toObject() }] : []),
+          ...(profileDoc ? [{ modelName: 'Profile', data: profileDoc.toObject() }] : []),
+          { modelName: 'Parent', data: p.toObject() },
+        ],
+        restoreMeta: { childrenIds: p.children },
+      };
+    });
+
+    await moveManyToTrash(trashEntries, req);
+
+    const childrenIds = allowed.flatMap((p) => p.children);
+    await Promise.all([
+      childrenIds.length > 0
+        ? Student.updateMany({ _id: { $in: childrenIds } }, { $unset: { parent: '' } })
+        : Promise.resolve(null),
+      userIds.length > 0 ? User.deleteMany({ _id: { $in: userIds } }) : Promise.resolve(null),
+      profileIds.length > 0 ? Profile.deleteMany({ _id: { $in: profileIds } }) : Promise.resolve(null),
+      Parent.deleteMany({ _id: { $in: allowed.map((p) => p._id) } }),
+    ]);
+
+    results.push(...allowed.map((p) => ({ id: String(p._id), success: true })));
+  }
+
+  const moved = allowed.length;
   return ApiResponse.success(res, { results, moved }, `Moved ${moved} of ${ids.length} parent(s) to Trash`);
 };
 

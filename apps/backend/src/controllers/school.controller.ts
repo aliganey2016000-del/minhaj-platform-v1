@@ -16,7 +16,7 @@ import Teacher from '../models/teacher.model';
 import Parent from '../models/parent.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
-import { moveToTrash } from '../utils/trash';
+import { moveToTrash, moveManyToTrash } from '../utils/trash';
 
 // ---------------------------------------------------------------------------
 // GET /schools — List all with pagination, search, and filters
@@ -384,16 +384,56 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
     if (ids.length === 0) throw new BadRequestError('At least one organization id is required');
   }
 
-  const results: { id: string; success: boolean; error?: string }[] = [];
-  for (const id of ids) {
-    try {
-      await deleteSchoolToTrash(id, req);
-      results.push({ id, success: true });
-    } catch (err: any) {
-      results.push({ id, success: false, error: err.message || 'Failed to delete' });
+  // Resolve every matching organization in ONE query, then do a single
+  // Trash insertMany + one deleteMany instead of looping
+  // deleteSchoolToTrash per id — that per-id loop (three linked-record
+  // count queries per org) was slow enough against the remote Atlas
+  // cluster to blow past the browser/proxy request timeout on large batches.
+  const schools = await School.find({ _id: { $in: ids } });
+  const foundIds = new Set(schools.map((s) => String(s._id)));
+  const notFoundIds = ids.filter((id) => !foundIds.has(id));
+
+  const schoolIds = schools.map((s) => s._id);
+  const [studentCounts, teacherCounts, parentCounts] = schoolIds.length > 0 ? await Promise.all([
+    Student.aggregate([{ $match: { school: { $in: schoolIds } } }, { $group: { _id: '$school', count: { $sum: 1 } } }]),
+    Teacher.aggregate([{ $match: { school: { $in: schoolIds } } }, { $group: { _id: '$school', count: { $sum: 1 } } }]),
+    Parent.aggregate([{ $match: { school: { $in: schoolIds } } }, { $group: { _id: '$school', count: { $sum: 1 } } }]),
+  ]) : [[], [], []];
+  const studentCountBySchool = new Map<string, number>(studentCounts.map((r: any) => [String(r._id), r.count]));
+  const teacherCountBySchool = new Map<string, number>(teacherCounts.map((r: any) => [String(r._id), r.count]));
+  const parentCountBySchool = new Map<string, number>(parentCounts.map((r: any) => [String(r._id), r.count]));
+
+  const allowed: (typeof schools)[number][] = [];
+  const blocked: { id: string; error: string }[] = [];
+  for (const s of schools) {
+    const sc = studentCountBySchool.get(String(s._id)) || 0;
+    const tc = teacherCountBySchool.get(String(s._id)) || 0;
+    const pc = parentCountBySchool.get(String(s._id)) || 0;
+    if (sc + tc + pc > 0) {
+      blocked.push({ id: String(s._id), error: `Still has ${sc} student(s), ${tc} teacher(s), and ${pc} parent(s) linked` });
+    } else {
+      allowed.push(s);
     }
   }
 
-  const deleted = results.filter((r) => r.success).length;
+  const results: { id: string; success: boolean; error?: string }[] = [
+    ...notFoundIds.map((id) => ({ id, success: false, error: 'Not found' })),
+    ...blocked.map((b) => ({ id: b.id, success: false, error: b.error })),
+  ];
+
+  if (allowed.length > 0) {
+    const trashEntries = allowed.map((s) => ({
+      entityType: 'School' as const,
+      label: s.name,
+      snapshots: [{ modelName: 'School', data: s.toObject() }],
+    }));
+
+    await moveManyToTrash(trashEntries, req);
+    await School.deleteMany({ _id: { $in: allowed.map((s) => s._id) } });
+
+    results.push(...allowed.map((s) => ({ id: String(s._id), success: true })));
+  }
+
+  const deleted = allowed.length;
   return ApiResponse.success(res, { results, deleted }, `Deleted ${deleted} of ${ids.length} organization(s)`);
 };

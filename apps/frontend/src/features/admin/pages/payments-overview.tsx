@@ -98,21 +98,31 @@ export function PaymentsOverview() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Link to="/admin/payments/fee-structures" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
+                <p className="text-2xl mb-2">🧾</p>
+                <p className="font-semibold">Fee Structures</p>
+                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Define tuition & fee templates</p>
+              </Link>
+              <Link to="/admin/payments/invoices" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
+                <p className="text-2xl mb-2">📄</p>
+                <p className="font-semibold">Invoices</p>
+                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Generate & collect against bills</p>
+              </Link>
               <Link to="/admin/payments/record" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
                 <p className="text-2xl mb-2">💳</p>
-                <p className="font-semibold">Payment Center</p>
-                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Record payments, set fees, and bulk charge</p>
+                <p className="font-semibold">Record Payment</p>
+                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Log a single ad-hoc payment</p>
+              </Link>
+              <Link to="/admin/payments/balances" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
+                <p className="text-2xl mb-2">⚠️</p>
+                <p className="font-semibold">Student Balances</p>
+                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">{stats.studentsWithDebt} student{stats.studentsWithDebt === 1 ? '' : 's'} owe money</p>
               </Link>
               <Link to="/admin/payments/history" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
                 <p className="text-2xl mb-2">📋</p>
                 <p className="font-semibold">Payment History</p>
                 <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Search & filter all transactions</p>
-              </Link>
-              <Link to="/admin/payments/outstanding" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
-                <p className="text-2xl mb-2">⚠️</p>
-                <p className="font-semibold">Outstanding Dues</p>
-                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">{stats.studentsWithDebt} student{stats.studentsWithDebt === 1 ? '' : 's'} owe money</p>
               </Link>
             </div>
           </>

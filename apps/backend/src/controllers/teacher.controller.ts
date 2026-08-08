@@ -15,7 +15,7 @@ import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
-import { moveToTrash } from '../utils/trash';
+import { moveToTrash, moveManyToTrash } from '../utils/trash';
 
 // ---------------------------------------------------------------------------
 // GET /teachers — List all teachers with optional filters
@@ -215,8 +215,9 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
 
 // ---------------------------------------------------------------------------
 // DELETE /teachers/bulk — body: { ids: string[] } or { selectAll: true, filters }
-// Each teacher is its own Trash entry, so this loops per id — a failure on
-// one (e.g. still assigned to active courses) doesn't abort the rest.
+// Each teacher is its own Trash entry. Unlike single delete, a teacher still
+// assigned to active courses is NOT skipped — their courses are auto
+// unassigned (see below) so a bulk cleanup never gets silently blocked.
 // ---------------------------------------------------------------------------
 
 export const bulkRemove = async (req: Request, res: Response): Promise<Response> => {
@@ -255,17 +256,93 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
     if (ids.length === 0) throw new BadRequestError('At least one teacher id is required');
   }
 
-  const results: { id: string; success: boolean; error?: string }[] = [];
-  for (const id of ids) {
+  // Resolve every matching teacher in ONE query, then do a single Trash
+  // insertMany + three deleteMany calls instead of looping
+  // deleteTeacherToTrash per id — that per-id loop (each needing several
+  // sequential round trips) was slow enough against the remote Atlas
+  // cluster to blow past the browser/proxy request timeout on anything
+  // more than a couple dozen teachers.
+  const teachers = await Teacher.find({ _id: { $in: ids } });
+  const foundIds = new Set(teachers.map((t) => String(t._id)));
+  const notFoundIds = ids.filter((id) => !foundIds.has(id));
+
+  const ownable: (typeof teachers)[number][] = [];
+  const forbiddenIds: string[] = [];
+  for (const t of teachers) {
     try {
-      await deleteTeacherToTrash(id, req);
-      results.push({ id, success: true });
-    } catch (err: any) {
-      results.push({ id, success: false, error: err.message || 'Failed to delete' });
+      assertOwnsOrg(req, t, 'school');
+      ownable.push(t);
+    } catch {
+      forbiddenIds.push(String(t._id));
     }
   }
 
-  const moved = results.filter((r) => r.success).length;
+  // Unlike single delete (which still hard-blocks on active courses —
+  // deleteTeacherToTrash above), bulk delete auto-unassigns instead of
+  // skipping: any published/draft course taught by one of these teachers
+  // gets its teacher cleared and is dropped to 'draft' (pulling it out of
+  // any public "published courses" listing, since a published course with
+  // no teacher is a broken state for students), then the teacher proceeds
+  // to delete normally. One aggregation + one updateMany across every
+  // candidate instead of a per-teacher query.
+  const Course = mongoose.model('Course');
+  if (ownable.length > 0) {
+    const activeCourseCounts = await Course.aggregate([
+      { $match: { teacher: { $in: ownable.map((t) => t._id) }, status: { $in: ['published', 'draft'] } } },
+      { $group: { _id: '$teacher', count: { $sum: 1 } } },
+    ]);
+    if (activeCourseCounts.length > 0) {
+      await Course.updateMany(
+        { teacher: { $in: ownable.map((t) => t._id) }, status: { $in: ['published', 'draft'] } },
+        { $set: { teacher: null, status: 'draft' } }
+      );
+    }
+  }
+
+  const allowed = ownable;
+  const results: { id: string; success: boolean; error?: string }[] = [
+    ...notFoundIds.map((id) => ({ id, success: false, error: 'Not found' })),
+    ...forbiddenIds.map((id) => ({ id, success: false, error: 'Not permitted' })),
+  ];
+
+  if (allowed.length > 0) {
+    const userIds = allowed.map((t) => t.user).filter(Boolean);
+    const profileIds = allowed.map((t) => t.profile).filter(Boolean);
+    const [users, profiles] = await Promise.all([
+      User.find({ _id: { $in: userIds } }).select('+password'),
+      Profile.find({ _id: { $in: profileIds } }),
+    ]);
+    const userById = new Map(users.map((u) => [String(u._id), u]));
+    const profileById = new Map(profiles.map((p) => [String(p._id), p]));
+
+    const trashEntries = allowed.map((t) => {
+      const userDoc = t.user ? userById.get(String(t.user)) : undefined;
+      const profileDoc = t.profile ? profileById.get(String(t.profile)) : undefined;
+      const label = profileDoc ? `${profileDoc.firstName} ${profileDoc.lastName}`.trim() || 'Teacher' : 'Teacher';
+      return {
+        entityType: 'Teacher' as const,
+        label,
+        school: t.school,
+        snapshots: [
+          ...(userDoc ? [{ modelName: 'User', data: userDoc.toObject() }] : []),
+          ...(profileDoc ? [{ modelName: 'Profile', data: profileDoc.toObject() }] : []),
+          { modelName: 'Teacher', data: t.toObject() },
+        ],
+      };
+    });
+
+    await moveManyToTrash(trashEntries, req);
+
+    await Promise.all([
+      userIds.length > 0 ? User.deleteMany({ _id: { $in: userIds } }) : Promise.resolve(null),
+      profileIds.length > 0 ? Profile.deleteMany({ _id: { $in: profileIds } }) : Promise.resolve(null),
+      Teacher.deleteMany({ _id: { $in: allowed.map((t) => t._id) } }),
+    ]);
+
+    results.push(...allowed.map((t) => ({ id: String(t._id), success: true })));
+  }
+
+  const moved = allowed.length;
   return ApiResponse.success(res, { results, moved }, `Moved ${moved} of ${ids.length} teacher(s) to Trash`);
 };
 

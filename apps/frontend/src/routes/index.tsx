@@ -158,8 +158,11 @@ const PaymentsRecord = lazy(() =>
 const PaymentsHistory = lazy(() =>
   import('../features/admin/pages/payments-history').then((m) => ({ default: m.PaymentsHistory }))
 );
-const PaymentsOutstanding = lazy(() =>
-  import('../features/admin/pages/payments-outstanding').then((m) => ({ default: m.PaymentsOutstanding }))
+const PaymentsBulk = lazy(() =>
+  import('../features/admin/pages/payments-bulk').then((m) => ({ default: m.PaymentsBulk }))
+);
+const PaymentsBalances = lazy(() =>
+  import('../features/admin/pages/payments-balances').then((m) => ({ default: m.PaymentsBalances }))
 );
 const FeeStructuresManage = lazy(() =>
   import('../features/admin/pages/fee-structures-manage').then((m) => ({ default: m.FeeStructuresManage }))
@@ -402,8 +405,9 @@ export const router = createBrowserRouter([
       { path: 'results/enter', element: L(<ResultsEntry />) },
       { path: 'payments', element: L(<PaymentsOverview />) },
       { path: 'payments/record', element: L(<PaymentsRecord />) },
+      { path: 'payments/bulk', element: L(<PaymentsBulk />) },
+      { path: 'payments/balances', element: L(<PaymentsBalances />) },
       { path: 'payments/history', element: L(<PaymentsHistory />) },
-      { path: 'payments/outstanding', element: L(<PaymentsOutstanding />) },
       { path: 'payments/fee-structures', element: L(<FeeStructuresManage />) },
       { path: 'payments/invoices', element: L(<InvoicesManage />) },
       { path: 'certificates', element: L(<CertificatesManage />) },
