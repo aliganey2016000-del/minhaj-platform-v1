@@ -12,6 +12,7 @@ import { GraduationCap, Users, Building2, School, Pencil, Trash2, Layers, CheckC
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
+import { Pagination } from '../components/pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,6 +20,35 @@ import { ColumnFilterHeader, useColumnFilters } from '../components/column-filte
 
 interface SchoolBrief { _id: string; name: string; }
 interface ClassBrief { _id: string; title: string; section: string; department?: string; shiftMode?: string; }
+
+// Server-side column filter state — each field a comma-joined value string
+// ready to send as its query param (see column-filter-header.tsx's
+// serverConfig). sortBy is the backend field name (mapped from the column
+// key), not the column key itself.
+interface ColumnFilterParams {
+  status: string;
+  department: string;
+  shiftMode: string;
+  classId: string;
+  approvalStatus: string;
+  sortBy: string;
+  sortDir: 'asc' | 'desc';
+}
+const EMPTY_COLUMN_PARAMS: ColumnFilterParams = { status: '', department: '', shiftMode: '', classId: '', approvalStatus: '', sortBy: '', sortDir: 'asc' };
+
+const STUDENT_STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' },
+  { value: 'graduated', label: 'Graduated' }, { value: 'suspended', label: 'Suspended' },
+];
+const STUDENT_DEPARTMENT_OPTIONS = [
+  { value: 'Primary', label: 'Primary' }, { value: 'Middle School', label: 'Middle School' }, { value: 'Secondary', label: 'Secondary' },
+];
+const STUDENT_SHIFT_OPTIONS = [
+  { value: 'Morning', label: 'Morning' }, { value: 'Afternoon', label: 'Afternoon' }, { value: 'Evening', label: 'Evening' }, { value: 'Virtual', label: 'Virtual' },
+];
+const STUDENT_APPROVAL_OPTIONS = [
+  { value: 'approved', label: 'Approved' }, { value: 'pending', label: 'Pending' }, { value: 'rejected', label: 'Rejected' },
+];
 
 interface StudentProfile { _id: string; firstName: string; lastName: string; avatar?: string; gender: string; }
 interface StudentUser { _id: string; email: string; role: string; isActive: boolean; isVerified: boolean; preferredLanguage: string; }
@@ -564,7 +594,10 @@ export function StudentsManage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  // Server-side column filters (Status/Department/Shift/Class/Approval) —
+  // each a comma-joined value string ready to send as a query param, driven
+  // by the ColumnFilterHeader dropdowns below instead of separate controls.
+  const [columnParams, setColumnParams] = useState<ColumnFilterParams>(EMPTY_COLUMN_PARAMS);
   const [filterSchool, setFilterSchool] = useState('');
   const [activeTab, setActiveTab] = useState<TabKey>('all');
   // Single source of truth for the tab→approvalStatus mapping — shared by
@@ -587,7 +620,7 @@ export function StudentsManage() {
   const [editingStudent, setEditingStudent] = useState<Student | undefined>(undefined);
   const [viewingStudent, setViewingStudent] = useState<Student | undefined>(undefined);
   const [approvingStudent, setApprovingStudent] = useState<Student | undefined>(undefined);
-  const limit = 15;
+  const [limit, setLimit] = useState(15);
 
   // ── Bulk selection / delete state ──
   // `selected` holds explicitly-checked rows on the loaded page(s).
@@ -614,19 +647,40 @@ export function StudentsManage() {
   // ── Load schools on mount ──
   useEffect(() => { (async () => { try { const { data } = await api.get('/schools', { params: { limit: '100' } }); setSchools(data.data || []); } catch { /* ignore */ } })(); }, []);
 
-  // ── Fetch students — overrides let a filter chip's "✕" apply its own
-  // clearing immediately instead of waiting a render for state to settle
-  // before reading it back out of the closure. ──
-  const fetchStudents = useCallback(async (pageNum = 1, overrides?: { search?: string; statusFilter?: string; filterSchool?: string }) => {
+  // ── Classes for the Class column's filter dropdown — scoped to whichever
+  // org is selected (or the org_admin's own, once schools has loaded). ──
+  const [classesForFilter, setClassesForFilter] = useState<ClassBrief[]>([]);
+  useEffect(() => {
+    const orgId = isOrgAdmin ? schools[0]?._id : filterSchool;
+    if (!orgId) { setClassesForFilter([]); return; }
+    (async () => {
+      try { const { data } = await api.get('/classes', { params: { schoolId: orgId, status: 'active', limit: '200' } }); setClassesForFilter(data.data || []); }
+      catch { setClassesForFilter([]); }
+    })();
+  }, [filterSchool, isOrgAdmin, schools]);
+
+  // ── Fetch students — overrides let a filter chip's "✕" (or a column
+  // filter commit) apply its own clearing/change immediately instead of
+  // waiting a render for state to settle before reading it back out of the
+  // closure. ──
+  const fetchStudents = useCallback(async (pageNum = 1, overrides?: { search?: string; filterSchool?: string; limit?: number; columnParams?: ColumnFilterParams }) => {
     setLoading(true); setError('');
     try {
       const s = overrides?.search !== undefined ? overrides.search : search;
-      const st = overrides?.statusFilter !== undefined ? overrides.statusFilter : statusFilter;
       const sc = overrides?.filterSchool !== undefined ? overrides.filterSchool : filterSchool;
-      const params: any = { page: String(pageNum), limit: String(limit) };
+      const lim = overrides?.limit !== undefined ? overrides.limit : limit;
+      const cp = overrides?.columnParams !== undefined ? overrides.columnParams : columnParams;
+      const params: any = { page: String(pageNum), limit: String(lim) };
       if (s) params.search = s;
-      if (st) params.status = st;
-      if (activeApprovalStatus) params.approvalStatus = activeApprovalStatus;
+      if (cp.status) params.status = cp.status;
+      if (cp.department) params.department = cp.department;
+      if (cp.shiftMode) params.shiftMode = cp.shiftMode;
+      if (cp.classId) params.classId = cp.classId;
+      // The Approval column filter (multi-select) takes precedence over the
+      // tab's single-bucket default when it has a value committed.
+      const approvalStatus = cp.approvalStatus || activeApprovalStatus;
+      if (approvalStatus) params.approvalStatus = approvalStatus;
+      if (cp.sortBy) { params.sortBy = cp.sortBy; params.sortDir = cp.sortDir; }
       if (sc) params.school = sc;
       const { data } = await api.get('/students', { params });
       setStudents(data.data || []);
@@ -639,11 +693,10 @@ export function StudentsManage() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, activeTab, filterSchool]);
+  }, [search, columnParams, activeTab, filterSchool, limit]);
 
-  const clearFilter = (key: 'search' | 'statusFilter' | 'filterSchool') => {
+  const clearFilter = (key: 'search' | 'filterSchool') => {
     if (key === 'search') setSearch('');
-    if (key === 'statusFilter') setStatusFilter('');
     if (key === 'filterSchool') setFilterSchool('');
     setPage(1);
     fetchStudents(1, { [key]: '' });
@@ -653,6 +706,7 @@ export function StudentsManage() {
 
   const handleApplyFilters = () => { if (isSuperAdmin && !filterSchool) { setError('Please select an organization to view students.'); return; } setPage(1); fetchStudents(1); };
   const handlePageChange = (newPage: number) => { setPage(newPage); fetchStudents(newPage); };
+  const handleLimitChange = (newLimit: number) => { setLimit(newLimit); setPage(1); fetchStudents(1, { limit: newLimit }); };
   const handleStatusChange = async (id: string, newStatus: string) => { try { await api.patch(`/students/${id}/status`, { status: newStatus }); setStudents(p => p.map(s => s._id === id ? { ...s, status: newStatus as Student['status'] } : s)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
   const handleDelete = async (id: string) => { if (!window.confirm('Delete this student? They can be restored later from Trash.')) return; try { await api.delete(`/students/${id}`); fetchStudents(page); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
   const handleReject = async (id: string) => { if (!window.confirm('Reject this student?')) return; try { await api.patch(`/students/${id}/reject`); fetchStudents(page); } catch (err: any) { alert(err.response?.data?.message || 'Failed to reject'); } };
@@ -664,7 +718,15 @@ export function StudentsManage() {
     setBulkDeleting(true);
     try {
       const payload = selectAllMatching
-        ? { selectAll: true, filters: { search: search || undefined, status: statusFilter || undefined, approvalStatus: activeApprovalStatus, school: filterSchool || undefined } }
+        ? { selectAll: true, filters: {
+            search: search || undefined,
+            status: columnParams.status || undefined,
+            department: columnParams.department || undefined,
+            shiftMode: columnParams.shiftMode || undefined,
+            classId: columnParams.classId || undefined,
+            approvalStatus: (columnParams.approvalStatus || activeApprovalStatus) || undefined,
+            school: filterSchool || undefined,
+          } }
         : { ids: Array.from(selected) };
       const { data } = await api.delete('/students/bulk', { data: payload });
       setMessage(data?.message || `Moved ${selectedCount} student(s) to Trash`);
@@ -679,22 +741,43 @@ export function StudentsManage() {
     }
   };
 
-  // Excel-style column header filters/sort — client-side, over whichever
-  // page of results is currently loaded (this table is server-paginated).
+  // Excel-style column header filters/sort — server-driven for Class/
+  // Department/Shift/Approval/Status (see handleColumnFilterChange below);
+  // Name/Organization stay display-only (no meaningful server sort/filter
+  // for a populated field, and Organization already has its own dropdown
+  // above). Accessors are still needed for the hook's local UI state
+  // (checked boxes, active-sort highlight) even though displayedRows is
+  // just `students` unchanged once serverConfig is set.
   const studentColumnAccessors: Record<string, (row: Student) => string> = {
-    name: (s) => `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim() || s.user?.email || '—',
-    organization: (s) => s.school?.name || '—',
-    class: (s) => (s.class ? `${s.class.title} — ${s.class.section}` : '—'),
-    department: (s) => s.department || '—',
-    shift: (s) => s.shiftMode || '—',
+    class: (s) => (s.class ? s.class._id : ''),
+    department: (s) => s.department || '',
+    shift: (s) => s.shiftMode || '',
     approval: (s) => s.approvalStatus,
     status: (s) => s.status,
   };
+
+  // Maps a committed column key -> the query param(s) fetchStudents sends.
+  const handleColumnFilterChange = (state: { filters: Record<string, string[]>; sortBy: string | null; sortDir: 'asc' | 'desc' }) => {
+    const sortByFieldMap: Record<string, string> = { department: 'department', shift: 'shiftMode', status: 'status', approval: 'approvalStatus' };
+    const next: ColumnFilterParams = {
+      status: (state.filters.status || []).join(','),
+      department: (state.filters.department || []).join(','),
+      shiftMode: (state.filters.shift || []).join(','),
+      classId: (state.filters.class || []).join(','),
+      approvalStatus: (state.filters.approval || []).join(','),
+      sortBy: state.sortBy ? (sortByFieldMap[state.sortBy] || '') : '',
+      sortDir: state.sortDir,
+    };
+    setColumnParams(next);
+    setPage(1);
+    fetchStudents(1, { columnParams: next });
+  };
+
   const {
     columnFilters: studentColumnFilters, sortCol: studentSortCol, sortDir: studentSortDir,
     applyColumnCommit: applyStudentColumnCommit, clearColumnFilter: clearStudentColumnFilter,
-    clearAll: clearAllStudentColumnFilters, displayedRows: displayedStudents, columnFiltersActive: studentColumnFiltersActive,
-  } = useColumnFilters(students, studentColumnAccessors);
+    displayedRows: displayedStudents,
+  } = useColumnFilters(students, studentColumnAccessors, { onChange: handleColumnFilterChange });
 
   const allOnPageSelected = displayedStudents.length > 0 && displayedStudents.every(s => selected.has(s._id));
   const toggleSelectAll = () => {
@@ -810,15 +893,21 @@ export function StudentsManage() {
 
         <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-4 shadow-sm space-y-3">
           <div className="flex gap-2 overflow-x-auto pb-1 -mt-1">
-            {tabs.map(t => (<button key={t.key} onClick={() => { setActiveTab(t.key); setHasFetched(false); }} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === t.key ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}><t.icon className="h-4 w-4" strokeWidth={1.75} /> {t.label}</button>))}
+            {/* Switching tabs also clears any committed Approval column
+                filter (local state only, no fetch — matches the tab click's
+                own lazy "wait for Apply Filters" behavior) so a stale
+                column selection can't silently keep overriding the tab. */}
+            {tabs.map(t => (<button key={t.key} onClick={() => { setActiveTab(t.key); setColumnParams(p => ({ ...p, approvalStatus: '' })); setHasFetched(false); }} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors whitespace-nowrap ${activeTab === t.key ? 'bg-primary-600 text-white shadow-sm' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}><t.icon className="h-4 w-4" strokeWidth={1.75} /> {t.label}</button>))}
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
             {isOrgAdmin ? (<div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">{schools[0]?.name || 'Your Organization'}</div>) : (<select value={filterSchool} onChange={e => { setFilterSchool(e.target.value); setHasFetched(false); }} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">{isSuperAdmin ? 'Select an Organization...' : 'Select Organization...'}</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>)}
             <input type="text" placeholder="Search by name, email, or student ID..." value={search} onChange={e => { setSearch(e.target.value); setHasFetched(false); }} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" onKeyDown={e => { if (e.key === 'Enter') handleApplyFilters(); }} />
-            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setHasFetched(false); }} className="flex-1 sm:flex-none sm:w-40 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="graduated">Graduated</option><option value="suspended">Suspended</option></select>
             <button onClick={handleApplyFilters} className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors whitespace-nowrap">🔍 Apply Filters</button>
           </div>
-          {hasFetched && (filterSchool || search || statusFilter) && (
+          {/* Status is filtered from its column header now (multi-select —
+              a strict superset of a single dropdown); this bar keeps just
+              Organization + Search, the two filters gating the initial load. */}
+          {hasFetched && (filterSchool || search) && (
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <span className="text-xs font-medium text-[var(--color-text-tertiary)]">Active filters:</span>
               {filterSchool && (
@@ -829,11 +918,6 @@ export function StudentsManage() {
               {search && (
                 <button onClick={() => clearFilter('search')} className="inline-flex items-center gap-1 rounded-full bg-primary-50 dark:bg-primary-950/30 px-2.5 py-1 text-xs font-medium text-primary-700 dark:text-primary-300 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors">
                   "{search}" ✕
-                </button>
-              )}
-              {statusFilter && (
-                <button onClick={() => clearFilter('statusFilter')} className="inline-flex items-center gap-1 rounded-full bg-primary-50 dark:bg-primary-950/30 px-2.5 py-1 text-xs font-medium text-primary-700 dark:text-primary-300 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors capitalize">
-                  {statusFilter} ✕
                 </button>
               )}
             </div>
@@ -855,34 +939,35 @@ export function StudentsManage() {
                 <span className="text-primary-300 dark:text-primary-700">·</span>
                 <button onClick={() => { setSelectAllMatching(false); setSelected(new Set()); }} className="font-semibold underline hover:no-underline">Clear selection</button>
               </div>
-            ) : (!studentColumnFiltersActive && allOnPageSelected && total > displayedStudents.length && (
+            ) : (allOnPageSelected && total > displayedStudents.length && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-5 py-2.5 text-xs bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-subtle)] text-[var(--color-text-secondary)]">
                 <span>All {displayedStudents.length} students on this page are selected.</span>
                 <button onClick={() => setSelectAllMatching(true)} className="font-semibold text-primary-600 hover:underline">Select all {total} students across {totalPages} page{totalPages !== 1 ? 's' : ''}</button>
               </div>
             ))}
-            {studentColumnFiltersActive && (
-              <div className="flex items-center gap-2 px-5 py-2 text-xs text-[var(--color-text-tertiary)] border-b border-[var(--color-border-subtle)]">
-                <span>Showing {displayedStudents.length} of {students.length} loaded students (column filters active)</span>
-                <button onClick={clearAllStudentColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button>
-              </div>
-            )}
             <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="sticky top-0 z-10 bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr>
               <th className="px-4 py-3 w-10"><input type="checkbox" checked={selectAllMatching || allOnPageSelected} onChange={toggleSelectAll} aria-label="Select all students on this page" className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></th>
-              <th className="text-left px-4 py-3 font-semibold whitespace-nowrap min-w-[200px]"><ColumnFilterHeader label="Student" colKey="name" allValues={students.map(studentColumnAccessors.name)} currentSelected={studentColumnFilters.name ?? null} currentSort={studentSortCol === 'name' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
-              <th className="text-left px-4 py-3 font-semibold hidden md:table-cell whitespace-nowrap min-w-[140px]"><ColumnFilterHeader label="Organization" colKey="organization" allValues={students.map(studentColumnAccessors.organization)} currentSelected={studentColumnFilters.organization ?? null} currentSort={studentSortCol === 'organization' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
-              <th className="text-left px-4 py-3 font-semibold hidden lg:table-cell whitespace-nowrap min-w-[140px]"><ColumnFilterHeader label="Class" colKey="class" allValues={students.map(studentColumnAccessors.class)} currentSelected={studentColumnFilters.class ?? null} currentSort={studentSortCol === 'class' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
-              <th className="text-left px-4 py-3 font-semibold hidden lg:table-cell whitespace-nowrap min-w-[120px]"><ColumnFilterHeader label="Department" colKey="department" allValues={students.map(studentColumnAccessors.department)} currentSelected={studentColumnFilters.department ?? null} currentSort={studentSortCol === 'department' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
-              <th className="text-left px-4 py-3 font-semibold hidden lg:table-cell whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Shift" colKey="shift" allValues={students.map(studentColumnAccessors.shift)} currentSelected={studentColumnFilters.shift ?? null} currentSort={studentSortCol === 'shift' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
-              <th className="text-center px-4 py-3 font-semibold whitespace-nowrap min-w-[110px]"><ColumnFilterHeader label="Approval" colKey="approval" allValues={students.map(studentColumnAccessors.approval)} currentSelected={studentColumnFilters.approval ?? null} currentSort={studentSortCol === 'approval' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} align="center" /></th>
-              <th className="text-center px-4 py-3 font-semibold hidden md:table-cell whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Status" colKey="status" allValues={students.map(studentColumnAccessors.status)} currentSelected={studentColumnFilters.status ?? null} currentSort={studentSortCol === 'status' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} align="center" /></th>
+              {/* Name/Organization: display only — no meaningful server sort
+                  for a populated field, and Organization is already scoped
+                  by the dropdown above (a second filter on the same field
+                  would just fight it). Use the search box to narrow by name/
+                  email/ID instead. */}
+              <th className="text-left px-4 py-3 font-semibold whitespace-nowrap min-w-[200px]">Student</th>
+              <th className="text-left px-4 py-3 font-semibold hidden md:table-cell whitespace-nowrap min-w-[140px]">Organization</th>
+              <th className="text-left px-4 py-3 font-semibold hidden lg:table-cell whitespace-nowrap min-w-[140px]"><ColumnFilterHeader label="Class" colKey="class" options={classesForFilter.map(c => ({ value: c._id, label: `${c.title} — ${c.section}` }))} currentSelected={studentColumnFilters.class ?? null} currentSort={null} sortable={false} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
+              <th className="text-left px-4 py-3 font-semibold hidden lg:table-cell whitespace-nowrap min-w-[120px]"><ColumnFilterHeader label="Department" colKey="department" options={STUDENT_DEPARTMENT_OPTIONS} currentSelected={studentColumnFilters.department ?? null} currentSort={studentSortCol === 'department' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
+              <th className="text-left px-4 py-3 font-semibold hidden lg:table-cell whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Shift" colKey="shift" options={STUDENT_SHIFT_OPTIONS} currentSelected={studentColumnFilters.shift ?? null} currentSort={studentSortCol === 'shift' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} /></th>
+              <th className="text-center px-4 py-3 font-semibold whitespace-nowrap min-w-[110px]"><ColumnFilterHeader label="Approval" colKey="approval" options={STUDENT_APPROVAL_OPTIONS} currentSelected={studentColumnFilters.approval ?? null} currentSort={studentSortCol === 'approval' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} align="center" /></th>
+              <th className="text-center px-4 py-3 font-semibold hidden md:table-cell whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Status" colKey="status" options={STUDENT_STATUS_OPTIONS} currentSelected={studentColumnFilters.status ?? null} currentSort={studentSortCol === 'status' ? studentSortDir : null} onCommit={applyStudentColumnCommit} onClear={clearStudentColumnFilter} align="center" /></th>
               <th className="text-center px-4 py-3 font-semibold whitespace-nowrap min-w-[80px]">Actions</th>
             </tr></thead>
-              <tbody>{displayedStudents.length === 0 ? (<tr><td colSpan={9} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No students match these column filters</p><button onClick={clearAllStudentColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedStudents.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-4 py-3" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectAllMatching || selected.has(st._id)} onChange={() => toggleSelectOne(st._id)} aria-label={`Select ${st.profile?.firstName || ''} ${st.profile?.lastName || ''}`} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></td><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="relative flex-shrink-0"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--color-surface-primary)] ${STATUS_DOT_COLORS[st.status] || STATUS_DOT_COLORS.inactive}`} title={st.status} /></div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-4 py-3 text-center whitespace-nowrap"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-4 py-3 text-center hidden md:table-cell whitespace-nowrap"><StatusBadge status={st.status} /></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><RowActionsMenu actions={buildRowActions(st)} /></td></tr>))}</tbody></table></div>
+              <tbody>{displayedStudents.map(st => (<tr key={st._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingStudent(st)}><td className="px-4 py-3" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectAllMatching || selected.has(st._id)} onChange={() => toggleSelectOne(st._id)} aria-label={`Select ${st.profile?.firstName || ''} ${st.profile?.lastName || ''}`} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></td><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="relative flex-shrink-0"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600">{st.profile?.firstName?.[0]}{st.profile?.lastName?.[0]}</div><span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--color-surface-primary)] ${STATUS_DOT_COLORS[st.status] || STATUS_DOT_COLORS.inactive}`} title={st.status} /></div><div className="min-w-0"><p className="font-semibold text-[var(--color-text-primary)] truncate">{st.profile?.firstName} {st.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{st.user?.email}</p></div></div></td><td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.school?.name || '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap">{st.class ? <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{st.class.title} — {st.class.section}</span> : '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.department || '—'}</td><td className="px-4 py-3 hidden lg:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{st.shiftMode || '—'}</td><td className="px-4 py-3 text-center whitespace-nowrap"><ApprovalBadge status={st.approvalStatus} /></td><td className="px-4 py-3 text-center hidden md:table-cell whitespace-nowrap"><StatusBadge status={st.status} /></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><RowActionsMenu actions={buildRowActions(st)} /></td></tr>))}</tbody></table></div>
           </div>
         )}
 
-        {totalPages > 1 && (<div className="flex items-center justify-center gap-3"><button disabled={page <= 1} onClick={() => handlePageChange(page - 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">← Prev</button><span className="text-sm text-[var(--color-text-tertiary)]">Page {page} of {totalPages}</span><button disabled={page >= totalPages} onClick={() => handlePageChange(page + 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">Next →</button></div>)}
+        {hasFetched && total > 0 && (
+          <Pagination page={page} limit={limit} total={total} onPageChange={handlePageChange} onLimitChange={handleLimitChange} itemLabel="students" />
+        )}
       </div>
 
       {/* Modals */}

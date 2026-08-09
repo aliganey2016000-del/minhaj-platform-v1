@@ -9,6 +9,7 @@ import { Users, Search, Pencil, Trash2, MoreVertical, ToggleRight, CheckCircle2 
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
+import { Pagination } from '../components/pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -193,7 +194,7 @@ export function ParentsManage() {
   const [search, setSearch] = useState(''); const [statusFilter, setStatusFilter] = useState(''); const [filterSchool, setFilterSchool] = useState('');
   const [hasFetched, setHasFetched] = useState(false); const [showCreate, setShowCreate] = useState(false);
   const [editingParent, setEditingParent] = useState<Parent | undefined>(undefined); const [viewingParent, setViewingParent] = useState<Parent | undefined>(undefined);
-  const limit = 15;
+  const [limit, setLimit] = useState(15);
 
   // ── Bulk selection / delete state ──
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -210,12 +211,13 @@ export function ParentsManage() {
 
   useEffect(() => { (async () => { try { const { data } = await api.get('/schools', { params: { limit: '100' } }); setSchools(data.data || []); } catch {} })(); }, []);
 
-  const fetchParents = useCallback(async (pageNum = 1) => { setLoading(true); setError(''); try { const params: any = { page: String(pageNum), limit: String(limit) }; if (search) params.search = search; if (statusFilter) params.status = statusFilter; if (filterSchool) params.school = filterSchool; const { data } = await api.get('/parents', { params }); setParents(data.data || []); setTotal(data.meta?.total || 0); setHasFetched(true); setSelected(new Set()); setSelectAllMatching(false); } catch (err: any) { setError(err.response?.data?.message || 'Failed to load parents'); } finally { setLoading(false); } }, [search, statusFilter, filterSchool]);
+  const fetchParents = useCallback(async (pageNum = 1, overrideLimit?: number) => { setLoading(true); setError(''); try { const lim = overrideLimit !== undefined ? overrideLimit : limit; const params: any = { page: String(pageNum), limit: String(lim) }; if (search) params.search = search; if (statusFilter) params.status = statusFilter; if (filterSchool) params.school = filterSchool; const { data } = await api.get('/parents', { params }); setParents(data.data || []); setTotal(data.meta?.total || 0); setHasFetched(true); setSelected(new Set()); setSelectAllMatching(false); } catch (err: any) { setError(err.response?.data?.message || 'Failed to load parents'); } finally { setLoading(false); } }, [search, statusFilter, filterSchool, limit]);
 
   useEffect(() => { if (isOrgAdmin) fetchParents(1); }, [isOrgAdmin]);
 
   const handleApplyFilters = () => { if (isSuperAdmin && !filterSchool) { setError('Please select an organization to view parents.'); return; } setPage(1); fetchParents(1); };
   const handlePageChange = (np: number) => { setPage(np); fetchParents(np); };
+  const handleLimitChange = (newLimit: number) => { setLimit(newLimit); setPage(1); fetchParents(1, newLimit); };
   const handleStatusChange = async (id: string, ns: string) => { try { await api.patch(`/parents/${id}/status`, { status: ns }); setParents(p => p.map(x => x._id === id ? { ...x, status: ns as Parent['status'] } : x)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
   const handleDelete = async (id: string) => { if (!window.confirm('Delete this parent? Children will be unlinked.')) return; try { await api.delete(`/parents/${id}`); fetchParents(page); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
 
@@ -364,7 +366,9 @@ export function ParentsManage() {
             <th className="text-center px-4 py-3 font-semibold whitespace-nowrap min-w-[80px]">Actions</th>
           </tr></thead><tbody>{displayedParents.length === 0 ? (<tr><td colSpan={6} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No parents match these column filters</p><button onClick={clearAllParentColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedParents.map(p => (<tr key={p._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingParent(p)}><td className="px-4 py-3" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectAllMatching || selected.has(p._id)} onChange={() => toggleSelectOne(p._id)} aria-label={`Select ${p.profile?.firstName || ''} ${p.profile?.lastName || ''}`} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></td><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{p.profile?.firstName?.[0]}{p.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold truncate">{p.profile?.firstName} {p.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{p.user?.email}</p></div></div></td><td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{p.organizationNames && p.organizationNames.length > 0 ? p.organizationNames.join(', ') : <span className="text-[var(--color-text-tertiary)]">No linked children</span>}</td><td className="px-4 py-3 text-center hidden sm:table-cell whitespace-nowrap"><span className="font-medium">{p.children?.length || 0}</span></td><td className="px-4 py-3 text-center whitespace-nowrap"><span className={`rounded-full px-2.5 py-0.5 text-xs font-medium border ${p.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/50' : 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-900/30 dark:text-slate-400 dark:border-slate-800'}`}>{p.status}</span></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingParent(p)} onDelete={() => handleDelete(p._id)} onToggleStatus={() => handleStatusChange(p._id, p.status === 'active' ? 'inactive' : 'active')} statusLabel={p.status === 'active' ? 'Set Inactive' : 'Set Active'} /></div></td></tr>))}</tbody></table></div></div></>)}
 
-        {totalPages > 1 && (<div className="flex items-center justify-center gap-3"><button disabled={page <= 1} onClick={() => handlePageChange(page - 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">← Prev</button><span className="text-sm text-[var(--color-text-tertiary)]">Page {page} of {totalPages}</span><button disabled={page >= totalPages} onClick={() => handlePageChange(page + 1)} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">Next →</button></div>)}
+        {hasFetched && total > 0 && (
+          <Pagination page={page} limit={limit} total={total} onPageChange={handlePageChange} onLimitChange={handleLimitChange} itemLabel="parents" />
+        )}
       </div>
 
       {showCreate && <ParentModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchParents(page); }} />}

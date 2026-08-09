@@ -15,6 +15,7 @@ import { Users, MoreVertical, Pencil, Ban } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
+import { Pagination } from '../components/pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -316,6 +317,9 @@ export function UsersManage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [filterSchool, setFilterSchool] = useState('');
   const [myOrgName, setMyOrgName] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [limit, setLimit] = useState(25);
 
   const [showCreate, setShowCreate] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRecord | undefined>(undefined);
@@ -349,11 +353,12 @@ export function UsersManage() {
   }, [isSuperAdmin, isOrgAdmin, currentUser?.organizationId]);
 
   // Fetch users
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (pageNum = 1, overrideLimit?: number) => {
     setLoading(true);
     setError('');
     try {
-      const params: any = { limit: '100' };
+      const lim = overrideLimit !== undefined ? overrideLimit : limit;
+      const params: any = { page: String(pageNum), limit: String(lim) };
       if (search) params.search = search;
       if (roleFilter) params.role = roleFilter;
       if (statusFilter) params.status = statusFilter;
@@ -369,17 +374,23 @@ export function UsersManage() {
 
       const { data } = await api.get('/users', { params });
       setUsers(data.data || []);
+      setTotal(data.meta?.total || 0);
+      setPage(pageNum);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load users');
     } finally {
       setLoading(false);
     }
-  }, [search, roleFilter, statusFilter, filterSchool, isSuperAdmin, isOrgAdmin]);
+  }, [search, roleFilter, statusFilter, filterSchool, isSuperAdmin, isOrgAdmin, limit]);
 
   // Initial fetch on mount
   useEffect(() => {
-    fetchUsers();
+    fetchUsers(1);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleApplyFilters = () => fetchUsers(1);
+  const handlePageChange = (newPage: number) => fetchUsers(newPage);
+  const handleLimitChange = (newLimit: number) => { setLimit(newLimit); fetchUsers(1, newLimit); };
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Deactivate this user? They will no longer be able to log in.')) return;
@@ -427,7 +438,7 @@ export function UsersManage() {
           <div>
             <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]"><Users className="h-8 w-8 text-primary-600" strokeWidth={1.75} />User Management</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-              {users.length} users
+              {total} users
               {isOrgAdmin && ' — your organization'}
             </p>
           </div>
@@ -490,7 +501,7 @@ export function UsersManage() {
           </select>
 
           <button
-            onClick={fetchUsers}
+            onClick={handleApplyFilters}
             className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors"
           >
             Apply Filters
@@ -584,6 +595,10 @@ export function UsersManage() {
             </div>
           </div>
         </>)}
+
+        {!loading && total > 0 && (
+          <Pagination page={page} limit={limit} total={total} onPageChange={handlePageChange} onLimitChange={handleLimitChange} itemLabel="users" />
+        )}
       </div>
 
       {/* Create Modal */}
@@ -593,7 +608,7 @@ export function UsersManage() {
           onClose={() => setShowCreate(false)}
           onSaved={() => {
             setShowCreate(false);
-            fetchUsers();
+            fetchUsers(1);
           }}
         />
       )}
@@ -606,7 +621,7 @@ export function UsersManage() {
           onClose={() => setEditingUser(undefined)}
           onSaved={() => {
             setEditingUser(undefined);
-            fetchUsers();
+            fetchUsers(page);
           }}
         />
       )}

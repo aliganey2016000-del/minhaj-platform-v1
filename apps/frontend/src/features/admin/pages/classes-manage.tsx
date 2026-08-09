@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 import { School, Pencil, Trash2, Copy, MoreVertical, Search, ChevronDown, CheckCircle2, PauseCircle, Archive } from 'lucide-react';
 import api from '../../../lib/axios';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
+import { Pagination } from '../components/pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -640,6 +641,9 @@ export function ClassesManage() {
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [limit, setLimit] = useState(25);
 
   // Excel-style column header filters/sort — applied client-side on top of
   // whatever the server already returned for the search/status filters above.
@@ -694,7 +698,7 @@ export function ClassesManage() {
   // lets each piece of state update independently of the others.
   const fetchData = useCallback(async () => {
     setLoading(true); setError('');
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = { page: String(page), limit: String(limit) };
     if (search) params.search = search;
     if (statusFilter) params.status = statusFilter;
 
@@ -706,6 +710,7 @@ export function ClassesManage() {
 
     if (classesResult.status === 'fulfilled') {
       setClasses(classesResult.value.data.data || []);
+      setTotal(classesResult.value.data.meta?.total || 0);
       setSelected(new Set());
     } else {
       setError(classesResult.reason?.response?.data?.message || 'Failed to load classes');
@@ -714,9 +719,11 @@ export function ClassesManage() {
     if (departmentsResult.status === 'fulfilled') setDepartments(departmentsResult.value.data.data || []);
 
     setLoading(false);
-  }, [search, statusFilter]);
+  }, [search, statusFilter, page, limit]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+  const handlePageChange = (newPage: number) => setPage(newPage);
+  const handleLimitChange = (newLimit: number) => { setLimit(newLimit); setPage(1); };
 
   const handleStatusChange = async (id: string, newStatus: string) => {
     try { await api.patch(`/classes/${id}/status`, { status: newStatus }); setClasses(p => p.map(c => c._id === id ? { ...c, status: newStatus as ClassItem['status'] } : c)); setToast({ message: `Status updated to ${newStatus}`, type: 'success' }); }
@@ -846,7 +853,7 @@ export function ClassesManage() {
 
         {/* Header + Buttons — stay top-right of the title on every screen size */}
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0"><h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]"><School className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />Manage Classes</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{classes.length} total — {activeCount} active, {inactiveCount} inactive, {completedCount} completed</p></div>
+          <div className="min-w-0"><h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]"><School className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />Manage Classes</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} total — {activeCount} active, {inactiveCount} inactive, {completedCount} completed</p></div>
           <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 flex-shrink-0">
             <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setSelectedFile(f); submitFileImport(); } }} className="hidden" />
             <ActionsDropdown
@@ -959,9 +966,9 @@ export function ClassesManage() {
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--color-text-tertiary)]" strokeWidth={2} />
-            <input type="text" placeholder="Search by class name, section, room, or organization..." value={search} onChange={e => setSearch(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-10 pr-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary-500" />
+            <input type="text" placeholder="Search by class name, section, room, or organization..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-10 pr-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary-500" />
           </div>
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500"><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select>
+          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500"><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select>
         </div>
 
         {columnFiltersActive && (
@@ -1045,6 +1052,10 @@ export function ClassesManage() {
             </table>
           </div>
         </div>
+
+        {!loading && total > 0 && (
+          <Pagination page={page} limit={limit} total={total} onPageChange={handlePageChange} onLimitChange={handleLimitChange} itemLabel="classes" />
+        )}
       </div>
 
       {showCreate && <ClassModal departments={departments} schools={schools} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchData(); }} />}

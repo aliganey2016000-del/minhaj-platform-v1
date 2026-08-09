@@ -14,6 +14,7 @@ import { Building2, MoreVertical, Pencil, Trash2, ToggleRight } from 'lucide-rea
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
+import { Pagination } from '../components/pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -449,8 +450,8 @@ export function SchoolsManage() {
 
       if (data.success) {
         setSchools(data.data || []);
-        if (data.pagination) {
-          setPagination((prev) => ({ ...prev, ...data.pagination }));
+        if (data.meta) {
+          setPagination((prev) => ({ ...prev, total: data.meta.total, page: data.meta.page, limit: data.meta.limit }));
         }
         setSelected(new Set());
         setSelectAllMatching(false);
@@ -923,29 +924,15 @@ export function SchoolsManage() {
           </div>
 
           {/* ── Pagination ── */}
-          {pagination.total > pagination.limit && (
-            <div className="flex items-center justify-between border-t border-[var(--color-border-subtle)] px-6 py-3">
-              <p className="text-xs text-[var(--color-text-tertiary)]">
-                Showing {(pagination.page - 1) * pagination.limit + 1}–{Math.min(pagination.page * pagination.limit, pagination.total)} of{' '}
-                {pagination.total}
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
-                  disabled={pagination.page <= 1}
-                  className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setPagination((p) => ({ ...p, page: p.page + 1 }))}
-                  disabled={pagination.page * pagination.limit >= pagination.total}
-                  className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+          {pagination.total > 0 && (
+            <Pagination
+              page={pagination.page}
+              limit={pagination.limit}
+              total={pagination.total}
+              onPageChange={(p) => setPagination((prev) => ({ ...prev, page: p }))}
+              onLimitChange={(l) => setPagination((prev) => ({ ...prev, limit: l, page: 1 }))}
+              itemLabel="organizations"
+            />
           )}
         </div>
       </div>

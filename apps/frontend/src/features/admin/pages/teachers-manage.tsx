@@ -10,6 +10,7 @@ import { Presentation, Search, MoreVertical, Trash2 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
+import { Pagination } from '../components/pagination';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -285,6 +286,9 @@ export function TeachersManage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [filterSchool, setFilterSchool] = useState('');
   const [hasFetched, setHasFetched] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [limit, setLimit] = useState(10);
 
   // ── Bulk selection / delete state ──
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -305,20 +309,23 @@ export function TeachersManage() {
 
   useEffect(() => { (async () => { try { const { data } = await api.get('/schools', { params: { limit: '100' } }); setSchools(data.data || []); } catch {} })(); }, []);
 
-  const fetchTeachers = useCallback(async () => {
+  const fetchTeachers = useCallback(async (pageNum = 1, overrideLimit?: number) => {
     setLoading(true); setError('');
     try {
-      const params: any = {}; if (search) params.search = search; if (statusFilter) params.status = statusFilter; if (filterSchool) params.school = filterSchool;
+      const lim = overrideLimit !== undefined ? overrideLimit : limit;
+      const params: any = { page: String(pageNum), limit: String(lim) }; if (search) params.search = search; if (statusFilter) params.status = statusFilter; if (filterSchool) params.school = filterSchool;
       const { data } = await api.get('/teachers', { params });
-      setTeachers(data.data || []); setHasFetched(true); setSelected(new Set());
+      setTeachers(data.data || []); setTotal(data.meta?.total || 0); setPage(pageNum); setHasFetched(true); setSelected(new Set());
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to load teachers'); }
     finally { setLoading(false); }
-  }, [search, statusFilter, filterSchool]);
+  }, [search, statusFilter, filterSchool, limit]);
 
-  useEffect(() => { if (isOrgAdmin) fetchTeachers(); }, [isOrgAdmin]);
+  useEffect(() => { if (isOrgAdmin) fetchTeachers(1); }, [isOrgAdmin]);
 
-  const handleApplyFilters = () => { if (isSuperAdmin && !filterSchool) { setError('Please select an organization to view teachers.'); return; } fetchTeachers(); };
-  const handleDelete = async (id: string, name: string) => { if (!window.confirm(`Delete teacher "${name}"?`)) return; try { await api.delete(`/teachers/${id}`); setTeachers(p => p.filter(t => t._id !== id)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
+  const handleApplyFilters = () => { if (isSuperAdmin && !filterSchool) { setError('Please select an organization to view teachers.'); return; } fetchTeachers(1); };
+  const handlePageChange = (newPage: number) => fetchTeachers(newPage);
+  const handleLimitChange = (newLimit: number) => { setLimit(newLimit); fetchTeachers(1, newLimit); };
+  const handleDelete = async (id: string, name: string) => { if (!window.confirm(`Delete teacher "${name}"?`)) return; try { await api.delete(`/teachers/${id}`); fetchTeachers(page); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
   const handleSetStatus = async (id: string, ns: Teacher['status']) => { try { await api.patch(`/teachers/${id}/status`, { status: ns }); setTeachers(p => p.map(t => t._id === id ? { ...t, status: ns } : t)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
   const handleStatusToggle = (id: string, currentStatus: string) => handleSetStatus(id, currentStatus === 'active' ? 'inactive' : 'active');
 
@@ -330,7 +337,7 @@ export function TeachersManage() {
       setMessage(data?.message || `Deleted ${selected.size} teacher(s)`);
       setSelected(new Set());
       setShowBulkDeleteModal(false);
-      fetchTeachers();
+      fetchTeachers(page);
     } catch (err: any) {
       alert(err.response?.data?.message || 'Failed to bulk delete teachers');
     } finally {
@@ -397,7 +404,7 @@ export function TeachersManage() {
 
         {/* Header + Buttons — stay top-right of the title on every screen size */}
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0"><h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]"><Presentation className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />Manage Teachers</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{hasFetched ? `${teachers.length} total — ${activeCount} active, ${inactiveCount} inactive, ${onLeaveCount} on leave` : 'Apply a filter to view teachers'}</p></div>
+          <div className="min-w-0"><h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]"><Presentation className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />Manage Teachers</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{hasFetched ? `${total} total — ${activeCount} active, ${inactiveCount} inactive, ${onLeaveCount} on leave` : 'Apply a filter to view teachers'}</p></div>
           <div className="flex gap-2 sm:gap-3 flex-shrink-0">
             <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={e => { const f = e.target.files?.[0]; if (f) { setSelectedFile(f); submitFileImport(); } }} className="hidden" />
             <ActionsDropdown onImport={openImportModal} onExport={handleExport} exporting={exporting} label="Teachers" onBulkDelete={() => setShowBulkDeleteModal(true)} selectedCount={selected.size} />
@@ -470,10 +477,14 @@ export function TeachersManage() {
             <th className="text-center px-4 py-3 font-semibold whitespace-nowrap min-w-[80px]">Actions</th>
           </tr></thead><tbody>{displayedTeachers.length === 0 ? (<tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No teachers match these column filters</p><button onClick={clearAllTeacherColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedTeachers.map(t => (<tr key={t._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingTeacher(t)}><td className="px-4 py-3" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(t._id)} onChange={() => toggleSelectOne(t._id)} aria-label={`Select ${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></td><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{t.profile?.firstName?.[0]}{t.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold truncate">{t.profile?.firstName} {t.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{t.user?.email}</p></div></div></td><td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{t.school?.name || '—'}</td><td className="px-4 py-3 hidden lg:table-cell"><div className="flex flex-wrap gap-1">{(t.specialization || []).slice(0, 3).map(s => <span key={s} className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{s}</span>)}{(t.specialization || []).length > 3 && <span className="text-xs text-[var(--color-text-tertiary)]">+{t.specialization.length - 3}</span>}</div></td><td className="px-4 py-3 text-center hidden sm:table-cell whitespace-nowrap"><span className="font-medium">{t.courses?.length || 0}</span></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><button onClick={() => handleStatusToggle(t._id, t.status)} className="cursor-pointer" title="Click to toggle"><StatusBadge status={t.status} /></button></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><ThreeDotsMenu teacher={t} onEdit={() => setEditingTeacher(t)} onDelete={() => handleDelete(t._id, `${t.profile?.firstName} ${t.profile?.lastName}`)} onSetStatus={(status) => handleSetStatus(t._id, status)} onPermission={() => setPermissioningTeacher(t)} /></td></tr>))}</tbody></table></div></div></>)}
 
+        {hasFetched && total > 0 && (
+          <Pagination page={page} limit={limit} total={total} onPageChange={handlePageChange} onLimitChange={handleLimitChange} itemLabel="teachers" />
+        )}
+
         {showCreate && <TeacherModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchTeachers(); }} />}
-        {editingTeacher && <TeacherModal teacher={editingTeacher} onClose={() => setEditingTeacher(undefined)} onSaved={() => { setEditingTeacher(undefined); fetchTeachers(); }} />}
+        {editingTeacher && <TeacherModal teacher={editingTeacher} onClose={() => setEditingTeacher(undefined)} onSaved={() => { setEditingTeacher(undefined); fetchTeachers(page); }} />}
         {viewingTeacher && <ViewModal teacher={viewingTeacher} onClose={() => setViewingTeacher(undefined)} />}
-        {permissioningTeacher && <PermissionModal teacher={permissioningTeacher} onClose={() => setPermissioningTeacher(undefined)} onSaved={() => { setPermissioningTeacher(undefined); fetchTeachers(); }} />}
+        {permissioningTeacher && <PermissionModal teacher={permissioningTeacher} onClose={() => setPermissioningTeacher(undefined)} onSaved={() => { setPermissioningTeacher(undefined); fetchTeachers(page); }} />}
         {showBulkDeleteModal && <BulkDeleteModal count={selected.size} loading={bulkDeleting} onCancel={() => setShowBulkDeleteModal(false)} onConfirm={handleBulkDelete} />}
       </div>
     </div>

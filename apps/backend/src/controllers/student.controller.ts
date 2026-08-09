@@ -47,27 +47,55 @@ const PARENT_POPULATE = {
 // the Student document itself.
 // ---------------------------------------------------------------------------
 
+const STUDENT_DEPARTMENTS = ['Primary', 'Middle School', 'Secondary'];
+const STUDENT_SHIFTS = ['Morning', 'Afternoon', 'Evening', 'Virtual'];
+const STUDENT_STATUSES = ['active', 'inactive', 'graduated', 'suspended'];
+const STUDENT_APPROVALS = ['approved', 'pending', 'rejected'];
+
+// Comma-separated query param -> trimmed, non-empty values (multi-select
+// column filters send several values this way, e.g. "Morning,Evening").
+function parseMultiValue(raw?: string): string[] {
+  if (!raw) return [];
+  return raw.split(',').map((v) => v.trim()).filter(Boolean);
+}
+
 async function buildStudentScopedFilter(
   req: Request,
-  params: { status?: string; approvalStatus?: string; search?: string; school?: string }
+  params: { status?: string; approvalStatus?: string; search?: string; school?: string; department?: string; shiftMode?: string; classId?: string }
 ): Promise<Record<string, unknown>> {
-  const { status, approvalStatus, search, school } = params;
+  const { status, approvalStatus, search, school, department, shiftMode, classId } = params;
   const filter: Record<string, unknown> = {};
+  // Two independent OR-groups (approval + search) can both be active at
+  // once — each needs its own $or, ANDed together, rather than flattened
+  // into one shared $or (which previously meant "approved OR studentId
+  // matches search", silently widening results instead of narrowing them
+  // whenever both were set at the same time).
+  const andClauses: Record<string, unknown>[] = [];
 
-  if (status && ['active', 'inactive', 'graduated', 'suspended'].includes(status)) {
-    filter.status = status;
-  }
+  const statusValues = parseMultiValue(status).filter((v) => STUDENT_STATUSES.includes(v));
+  if (statusValues.length > 0) filter.status = { $in: statusValues };
 
-  if (approvalStatus === 'approved') {
-    // Match explicitly approved OR legacy students (null/undefined) who were created before this field existed
-    filter.$or = [
-      { approvalStatus: 'approved' },
-      { approvalStatus: { $in: [null, undefined] } },
-    ];
-  } else if (approvalStatus === 'pending') {
-    filter.approvalStatus = 'pending';
-  } else if (approvalStatus === 'rejected') {
-    filter.approvalStatus = 'rejected';
+  const departmentValues = parseMultiValue(department).filter((v) => STUDENT_DEPARTMENTS.includes(v));
+  if (departmentValues.length > 0) filter.department = { $in: departmentValues };
+
+  const shiftValues = parseMultiValue(shiftMode).filter((v) => STUDENT_SHIFTS.includes(v));
+  if (shiftValues.length > 0) filter.shiftMode = { $in: shiftValues };
+
+  const classValues = parseMultiValue(classId);
+  if (classValues.length > 0) filter.class = { $in: classValues.map((id) => new mongoose.Types.ObjectId(id)) };
+
+  const approvalValues = parseMultiValue(approvalStatus).filter((v) => STUDENT_APPROVALS.includes(v));
+  if (approvalValues.length > 0) {
+    const orClauses: Record<string, unknown>[] = [];
+    for (const v of approvalValues) {
+      if (v === 'approved') {
+        // Match explicitly approved OR legacy students (null/undefined) who were created before this field existed
+        orClauses.push({ approvalStatus: 'approved' }, { approvalStatus: { $in: [null, undefined] } });
+      } else {
+        orClauses.push({ approvalStatus: v });
+      }
+    }
+    andClauses.push({ $or: orClauses });
   }
 
   if (req.user?.role === 'teacher') {
@@ -80,9 +108,10 @@ async function buildStudentScopedFilter(
 
   if (search) {
     const searchRegex = { $regex: search, $options: 'i' };
-    (filter.$or as any[]) = (filter.$or as any[]) || [];
-    (filter.$or as any[]).push({ studentId: searchRegex });
+    andClauses.push({ $or: [{ studentId: searchRegex }] });
   }
+
+  if (andClauses.length > 0) filter.$and = andClauses;
 
   // org_admin can never widen the filter to another org via ?school=; their
   // own organization always wins (applied below, after the client's value).
@@ -97,6 +126,11 @@ async function buildStudentScopedFilter(
 // List Students (Admin & Teacher only)
 // ---------------------------------------------------------------------------
 
+// Only fields stored directly on the Student document are sortable —
+// populated/joined fields (profile name, school name, class title) would
+// need an aggregation pipeline to sort by, which this endpoint doesn't do.
+const STUDENT_SORT_FIELDS = new Set(['studentId', 'enrollmentDate', 'department', 'shiftMode', 'status', 'approvalStatus', 'createdAt']);
+
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
@@ -104,8 +138,16 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const approvalStatus = req.query.approvalStatus as string | undefined;
   const search = req.query.search as string | undefined;
   const school = req.query.school as string | undefined;
+  const department = req.query.department as string | undefined;
+  const shiftMode = req.query.shiftMode as string | undefined;
+  const classId = req.query.classId as string | undefined;
 
-  const scopedFilter = await buildStudentScopedFilter(req, { status, approvalStatus, search, school });
+  const sortByRaw = req.query.sortBy as string | undefined;
+  const sortField = sortByRaw && STUDENT_SORT_FIELDS.has(sortByRaw) ? sortByRaw : 'createdAt';
+  const sortDir = req.query.sortDir === 'asc' ? 1 : -1;
+  const sort: Record<string, 1 | -1> = { [sortField]: sortDir };
+
+  const scopedFilter = await buildStudentScopedFilter(req, { status, approvalStatus, search, school, department, shiftMode, classId });
 
   let allStudents: any[];
   let total: number;
@@ -119,7 +161,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
         .populate('school', 'name')
         .populate('class', 'title section')
         .populate('enrolledCourses', 'title slug')
-        .sort({ createdAt: -1 })
+        .sort(sort)
         .lean(),
       Student.countDocuments(scopedFilter),
     ]);
@@ -143,7 +185,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
         .populate('school', 'name')
         .populate('class', 'title section')
         .populate('enrolledCourses', 'title slug')
-        .sort({ createdAt: -1 })
+        .sort(sort)
         .skip((page - 1) * limit)
         .limit(limit)
         .lean(),
