@@ -322,6 +322,7 @@ export function StudentCourseLearn() {
   };
 
   const goToNext = () => {
+    if (isCurrentItemGateLocked) return;
     if (activeItemIdx < unlockedCount - 1) {
       const newIdx = activeItemIdx + 1;
       setActiveItemIdx(newIdx);
@@ -422,6 +423,17 @@ export function StudentCourseLearn() {
   };
 
   const isCurrentItemCompleted = activeItemIdx < completedCount || locallyCompleted.has(activeItemIdx);
+
+  // An Interactive Gate lesson (a reading passage broken into blocks, each
+  // with its own Stop & Check question(s)) must have every block answered
+  // correctly before the student can leave it — otherwise the bottom
+  // Previous/Next pager would let them skip straight to the next lesson
+  // without ever answering the gate questions in this one.
+  const isCurrentItemGateLocked = !!currentItem
+    && currentItem.item.type === 'lesson'
+    && (currentItem.item as LessonItem).deliveryMode === 'interactive_gate'
+    && !isCurrentItemCompleted
+    && !gateCleared.has(activeItemIdx);
 
   const jumpToItem = (flatIdx: number) => {
     if (flatIdx < 0 || flatIdx >= unlockedCount) return; // Cannot jump to locked items
@@ -871,10 +883,8 @@ export function StudentCourseLearn() {
                 {/* ── Mark as Completed Button (hidden during live quiz, hidden entirely for exams — completion there comes from actual attendance/results, not a checkbox — or while an Interactive Gate lesson is still locked) ── */}
                 {(() => {
                   if (currentItem.item.type === 'exam') return null;
-                  const isGateLesson = currentItem.item.type === 'lesson' && (currentItem.item as LessonItem).deliveryMode === 'interactive_gate';
-                  const isGateLocked = isGateLesson && !isCurrentItemCompleted && !gateCleared.has(activeItemIdx);
                   if (currentItem.item.type === 'quiz' && !quizFinished) return null;
-                  if (isGateLocked) {
+                  if (isCurrentItemGateLocked) {
                     return (
                       <div className="rounded-2xl bg-[var(--color-surface-secondary)] border border-[var(--color-border-default)] px-6 py-4 text-center text-sm text-[var(--color-text-tertiary)]">
                         🔒 Complete every Stop &amp; Check block above to unlock "Mark as Completed".
@@ -926,7 +936,8 @@ export function StudentCourseLearn() {
                   </span>
                   <button
                     onClick={goToNext}
-                    disabled={activeItemIdx >= unlockedCount - 1}
+                    disabled={activeItemIdx >= unlockedCount - 1 || isCurrentItemGateLocked}
+                    title={isCurrentItemGateLocked ? 'Complete every Stop & Check block above first' : undefined}
                     className="rounded-xl bg-primary-600 px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
                   >
                     {t('next') || 'Next'} →
