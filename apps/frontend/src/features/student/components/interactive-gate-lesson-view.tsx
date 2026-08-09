@@ -305,11 +305,6 @@ export function InteractiveGateLessonView({ lesson, courseId, onGateCleared }: I
     restoreBlockState(currentBlockIndex - 1, 'reading');
   };
 
-  const goToNextBlock = () => {
-    if (currentBlockIndex >= totalBlocks - 1) return;
-    restoreBlockState(currentBlockIndex + 1, 'reading');
-  };
-
   const persistCurrentAnswer = (value: number | boolean | null, nextPhase: Phase) => {
     setAnswerCache((prev) => ({ ...prev, [currentBlockIndex]: value }));
     setSelectedAnswer(value);
@@ -460,14 +455,6 @@ export function InteractiveGateLessonView({ lesson, courseId, onGateCleared }: I
                 ) : <span />}
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={goToNextBlock}
-                  disabled={currentBlockIndex >= totalBlocks - 1}
-                  className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                >
-                  Next →
-                </button>
                 <button
                   type="button"
                   onClick={handleNext}
