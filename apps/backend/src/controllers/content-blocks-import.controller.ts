@@ -13,25 +13,17 @@
  * write against here — the caller just appends the parsed blocks to its
  * local state exactly like the "+ Add Content Block" and "AI Generate"
  * buttons already do.
+ *
+ * See also course-content.controller's importContentBlocksForCourse — the
+ * course-wide, multi-lesson sibling of this importer, which writes straight
+ * to the DB and shares this file's row-grouping logic via
+ * utils/content-blocks-parser.ts and this file's AI-prompt sheet builders.
  */
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
-
-// `marked` ships ESM-only (`"type": "module"`, no CJS build). TypeScript
-// compiles this file to CommonJS, and under that target it silently rewrites
-// a plain `import('marked')` into `Promise.resolve().then(() => require('marked'))`
-// — `require()` can't load a pure-ESM package, so that throws ERR_REQUIRE_ESM
-// at runtime every time this import is hit. Wrapping the call in `new Function`
-// hides it from TS's static downleveling, so it stays a genuine dynamic
-// `import()` at runtime, which Node resolves correctly even from CJS.
-let markedModulePromise: Promise<typeof import('marked')> | null = null;
-function getMarked(): Promise<typeof import('marked')> {
-  if (!markedModulePromise) markedModulePromise = new Function('return import("marked")')() as Promise<typeof import('marked')>;
-  return markedModulePromise;
-}
-
 import { BadRequestError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
+import { parseBlockRows } from '../utils/content-blocks-parser';
 
 // ---------------------------------------------------------------------------
 // Ready-to-copy AI prompts — shipped as extra sheets in the downloadable
@@ -39,7 +31,8 @@ import ApiResponse from '../utils/api-response';
 // (ChatGPT, DeepSeek, ...) and get back rows in EXACTLY this importer's
 // column format, instead of writing the spreadsheet by hand. Two variants
 // because "paraphrase this" and "don't touch my wording" need opposite
-// instructions — same table contract either way.
+// instructions — same table contract either way. Exported so the course-wide
+// bulk importer's template can reuse the exact same prompt sheets.
 // ---------------------------------------------------------------------------
 
 const PROMPT_TABLE_CONTRACT = `Output ONLY a table with these exact columns, in this exact order, as TAB-SEPARATED values (so I can paste it straight into Excel) — one row per question, repeating the same Block Title on every question row that belongs to the same block:
@@ -80,51 +73,26 @@ function buildPromptSheetLines(title: string, bodyInstruction: string): string[]
   ];
 }
 
-const PARAPHRASE_PROMPT_LINES = buildPromptSheetLines(
+export const PARAPHRASE_PROMPT_LINES = buildPromptSheetLines(
   'AI LESSON IMPORT PROMPT — Paraphrase Mode',
   'Rewrite the text in clearer, more polished language while preserving every fact and idea (a paraphrase/polish pass, not new invented content), then split the result into exactly <<NUMBER_OF_BLOCKS>> content blocks. For each block, write <<QUESTIONS_PER_BLOCK>> comprehension question(s) of type <<QUESTION_TYPES>>, answerable purely from that block\'s own content.'
 );
 
-const PRESERVE_PROMPT_LINES = buildPromptSheetLines(
+export const PRESERVE_PROMPT_LINES = buildPromptSheetLines(
   'AI LESSON IMPORT PROMPT — Exact Wording Mode (no paraphrasing)',
   'Do NOT rewrite, paraphrase, or summarize any of the wording — use my exact original text, character for character. Only split it into exactly <<NUMBER_OF_BLOCKS>> content blocks at natural section breaks. For each block, write <<QUESTIONS_PER_BLOCK>> comprehension question(s) of type <<QUESTION_TYPES>>, answerable purely from that block\'s own (unedited) content.'
 );
 
-const HEADER_TITLES = new Set([
-  'block title', 'block content', 'min read seconds', 'question type',
-  'question text', 'option 1', 'option 2', 'option 3', 'correct answer', 'explanation',
-]);
+/** Appends the two ready-to-copy AI-prompt sheets to a workbook — shared by this importer's template and the course-wide bulk importer's template. */
+export function appendAiPromptSheets(workbook: XLSX.WorkBook): void {
+  const paraphraseSheet = XLSX.utils.aoa_to_sheet(PARAPHRASE_PROMPT_LINES.map((line) => [line]));
+  paraphraseSheet['!cols'] = [{ wch: 120 }];
 
-function looksLikeHeaderRow(cellValues: string[]): boolean {
-  const matches = cellValues.filter((v) => HEADER_TITLES.has(v.toLowerCase())).length;
-  return matches >= 2;
-}
+  const preserveSheet = XLSX.utils.aoa_to_sheet(PRESERVE_PROMPT_LINES.map((line) => [line]));
+  preserveSheet['!cols'] = [{ wch: 120 }];
 
-function getField(row: Record<string, any>, ...names: string[]): unknown {
-  const keys = Object.keys(row);
-  for (const name of names) {
-    const target = name.toLowerCase();
-    const key = keys.find((k) => k.trim().toLowerCase() === target) ?? keys.find((k) => k.trim().toLowerCase().startsWith(target));
-    if (key !== undefined) return row[key];
-  }
-  return undefined;
-}
-
-interface ParsedQuestion {
-  type: 'mcq' | 'true_false';
-  question: string;
-  options?: string[];
-  correctIndex?: number;
-  correctAnswer?: boolean;
-  explanation?: string;
-  aiGenerated: false;
-}
-
-interface ParsedBlock {
-  title: string;
-  content: string;
-  minReadSeconds?: number;
-  questions: ParsedQuestion[];
+  XLSX.utils.book_append_sheet(workbook, paraphraseSheet, 'AI Prompt - Paraphrase');
+  XLSX.utils.book_append_sheet(workbook, preserveSheet, 'AI Prompt - Exact Wording');
 }
 
 // ---------------------------------------------------------------------------
@@ -156,16 +124,9 @@ export const downloadContentBlocksTemplate = async (_req: Request, res: Response
   const templateSheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   templateSheet['!cols'] = headers.map((h) => ({ wch: Math.min(Math.max(h.length + 2, 20), 50) }));
 
-  const paraphraseSheet = XLSX.utils.aoa_to_sheet(PARAPHRASE_PROMPT_LINES.map((line) => [line]));
-  paraphraseSheet['!cols'] = [{ wch: 120 }];
-
-  const preserveSheet = XLSX.utils.aoa_to_sheet(PRESERVE_PROMPT_LINES.map((line) => [line]));
-  preserveSheet['!cols'] = [{ wch: 120 }];
-
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, templateSheet, 'Content Blocks Template');
-  XLSX.utils.book_append_sheet(workbook, paraphraseSheet, 'AI Prompt - Paraphrase');
-  XLSX.utils.book_append_sheet(workbook, preserveSheet, 'AI Prompt - Exact Wording');
+  appendAiPromptSheets(workbook);
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
@@ -185,101 +146,16 @@ export const parseContentBlocksImport = async (req: Request, res: Response): Pro
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) throw new BadRequestError('The uploaded file has no sheets');
 
-  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], { defval: '' });
-  if (rows.length === 0) throw new BadRequestError('The uploaded file has no data rows');
+  const sheetRows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], { defval: '' });
+  if (sheetRows.length === 0) throw new BadRequestError('The uploaded file has no data rows');
 
-  const { marked } = await getMarked();
-  const errors: { row: number; message: string }[] = [];
-  const order: string[] = [];
-  const groups = new Map<string, ParsedBlock>();
+  // +1 for 0-index, +1 for the header row already stripped by sheet_to_json
+  const rows = sheetRows.map((data, i) => ({ rowNum: i + 2, data }));
+  const { blocks, errors, hadAnyBlock } = await parseBlockRows(rows);
 
-  for (let i = 0; i < rows.length; i++) {
-    const rowNum = i + 2; // +1 for 0-index, +1 for the header row already stripped by sheet_to_json
-    const row = rows[i];
-    const cellValues = Object.values(row).map((v) => String(v ?? '').trim());
-    if (cellValues.every((v) => v === '')) continue; // blank row
-    if (looksLikeHeaderRow(cellValues)) continue; // a re-pasted header row further down the batch
-
-    const blockTitle = String(getField(row, 'Block Title') ?? '').trim();
-    if (!blockTitle) {
-      errors.push({ row: rowNum, message: 'Block Title is required' });
-      continue;
-    }
-
-    const key = blockTitle.toLowerCase();
-    if (!groups.has(key)) {
-      groups.set(key, { title: blockTitle, content: '', questions: [] });
-      order.push(key);
-    }
-    const block = groups.get(key)!;
-
-    const contentRaw = String(getField(row, 'Block Content') ?? '').trim();
-    if (contentRaw && !block.content) {
-      block.content = marked.parse(contentRaw, { async: false }) as string;
-    }
-
-    if (block.minReadSeconds === undefined) {
-      const minReadRaw = getField(row, 'Min Read Seconds');
-      const n = Number(minReadRaw);
-      if (minReadRaw !== undefined && String(minReadRaw).trim() !== '' && !Number.isNaN(n) && n > 0) {
-        block.minReadSeconds = n;
-      }
-    }
-
-    const questionText = String(getField(row, 'Question Text') ?? '').trim();
-    if (!questionText) continue; // a row can just carry block content with no question of its own
-
-    const typeRaw = String(getField(row, 'Question Type') ?? '').trim().toLowerCase();
-    const type: 'mcq' | 'true_false' = ['true_false', 'true/false', 'truefalse'].includes(typeRaw) ? 'true_false' : 'mcq';
-    const explanation = String(getField(row, 'Explanation') ?? '').trim();
-
-    if (type === 'true_false') {
-      const correctRaw = String(getField(row, 'Correct Answer') ?? '').trim().toLowerCase();
-      block.questions.push({
-        type: 'true_false',
-        question: questionText,
-        correctAnswer: correctRaw === 'true' || correctRaw === 'yes' || correctRaw === '1',
-        explanation,
-        aiGenerated: false,
-      });
-    } else {
-      const options = [
-        String(getField(row, 'Option 1') ?? '').trim(),
-        String(getField(row, 'Option 2') ?? '').trim(),
-        String(getField(row, 'Option 3') ?? '').trim(),
-      ].filter(Boolean);
-      if (options.length < 2) {
-        errors.push({ row: rowNum, message: 'MCQ questions need at least 2 options' });
-        continue;
-      }
-      const correctRaw = String(getField(row, 'Correct Answer') ?? '').trim();
-      const correctNum = Number(correctRaw);
-      const correctIndex = Number.isInteger(correctNum) && correctNum >= 1 && correctNum <= options.length ? correctNum - 1 : 0;
-      block.questions.push({
-        type: 'mcq',
-        question: questionText,
-        options,
-        correctIndex,
-        explanation,
-        aiGenerated: false,
-      });
-    }
-  }
-
-  if (groups.size === 0) {
+  if (!hadAnyBlock) {
     throw new BadRequestError('No valid rows found to import — every row was missing a Block Title.');
   }
-
-  const blocks: ParsedBlock[] = [];
-  for (const key of order) {
-    const block = groups.get(key)!;
-    if (!block.content) {
-      errors.push({ row: 0, message: `Block "${block.title}" was skipped — it has no Block Content in any of its rows` });
-      continue;
-    }
-    blocks.push(block);
-  }
-
   if (blocks.length === 0) {
     throw new BadRequestError('No blocks had any Block Content — nothing to import.');
   }

@@ -44,4 +44,12 @@ router.get('/template', asyncHandler(contentController.downloadImportTemplate as
 // POST /api/v1/courses/:courseId/content/import — bulk import chapters + lessons
 router.post('/import', upload.single('file'), asyncHandler(contentController.importContent));
 
+// GET /api/v1/courses/:courseId/content/blocks-import/template — course-scoped
+// Interactive Gate Content Blocks import template (one sheet per lesson)
+router.get('/blocks-import/template', asyncHandler(contentController.downloadBlocksImportTemplate as any));
+
+// POST /api/v1/courses/:courseId/content/blocks-import — bulk import Interactive
+// Gate Content Blocks across every lesson in the course from one multi-sheet file
+router.post('/blocks-import', upload.single('file'), asyncHandler(contentController.importContentBlocksForCourse));
+
 export default router;

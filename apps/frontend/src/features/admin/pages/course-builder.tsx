@@ -13,6 +13,7 @@ import api from '../../../lib/axios';
 import { useCourseContent, useAutoSave, generateTempId } from './course-builder.api';
 import { AssignmentEditor } from './components/builder-assignment-editor';
 import { CourseContentImportModal } from './components/course-content-import-modal';
+import { CourseBlocksImportModal } from './components/course-blocks-import-modal';
 import { ExamPickerModal, type ExamSummary } from '../components/exam-picker-modal';
 import { JitsiCallModal } from '../../../components/shared/jitsi-call-modal';
 import { jitsiRoomName } from '../../../components/shared/jitsi-room';
@@ -111,6 +112,8 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
 
   // Bulk import (Chapters + Lessons via Excel/paste)
   const [showImportModal, setShowImportModal] = useState(false);
+  // Bulk import (Interactive Gate Content Blocks across every lesson)
+  const [showBlocksImportModal, setShowBlocksImportModal] = useState(false);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
@@ -638,6 +641,13 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
             </button>
 
             <button
+              onClick={() => setShowBlocksImportModal(true)}
+              className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors"
+            >
+              🧩 Import Interactive Blocks
+            </button>
+
+            <button
               onClick={handleManualSave}
               disabled={saving}
               className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50"
@@ -657,6 +667,19 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
               if (result.chaptersUpdated > 0) parts.push(`${result.chaptersUpdated} updated`);
               parts.push(`${result.lessonsCreated} lesson${result.lessonsCreated === 1 ? '' : 's'} added`);
               const suffix = result.errors.length > 0 ? ` — ${result.errors.length} row${result.errors.length === 1 ? '' : 's'} skipped` : '';
+              showToast(`${parts.join(', ')}${suffix}`, result.errors.length > 0 ? 'info' : 'success');
+            }}
+          />
+        )}
+
+        {showBlocksImportModal && (
+          <CourseBlocksImportModal
+            courseId={courseId!}
+            onClose={() => setShowBlocksImportModal(false)}
+            onImported={(result) => {
+              fetchContent();
+              const parts = [`${result.lessonsUpdated} lesson${result.lessonsUpdated === 1 ? '' : 's'} updated`, `${result.blocksCreated} block${result.blocksCreated === 1 ? '' : 's'}`, `${result.questionsCreated} question${result.questionsCreated === 1 ? '' : 's'}`];
+              const suffix = result.errors.length > 0 ? ` — ${result.errors.length} issue${result.errors.length === 1 ? '' : 's'}` : '';
               showToast(`${parts.join(', ')}${suffix}`, result.errors.length > 0 ? 'info' : 'success');
             }}
           />

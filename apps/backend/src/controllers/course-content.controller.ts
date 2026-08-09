@@ -29,6 +29,8 @@ import ApiResponse from '../utils/api-response';
 import { assertOwnsOrg } from '../utils/tenant-scope';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { sanitizeQuestionForStudent } from '../utils/question-engine';
+import { parseBlockRows, getField, looksLikeContentBlockHeaderRow } from '../utils/content-blocks-parser';
+import { appendAiPromptSheets } from './content-blocks-import.controller';
 
 /**
  * SHA-256 of a gate answer, salted per-question by lesson id + scope + index.
@@ -297,20 +299,6 @@ function looksLikeHeaderRow(cellValues: string[]): boolean {
   return matches >= 2;
 }
 
-function getField(row: Record<string, any>, ...names: string[]): unknown {
-  const keys = Object.keys(row);
-  for (const name of names) {
-    const target = name.toLowerCase();
-    // Exact match first, then a starts-with fallback — the template's own
-    // headers carry descriptive suffixes (e.g. "Content (optional — plain
-    // text or Markdown)"), which a plain equality check against the short
-    // name alone ("Content") would never match.
-    const key = keys.find((k) => k.trim().toLowerCase() === target) ?? keys.find((k) => k.trim().toLowerCase().startsWith(target));
-    if (key !== undefined) return row[key];
-  }
-  return undefined;
-}
-
 // ---------------------------------------------------------------------------
 // GET /courses/:courseId/content/template — Download import template (XLSX)
 // ---------------------------------------------------------------------------
@@ -447,4 +435,222 @@ export const importContent = async (req: Request, res: Response): Promise<Respon
     lessonsCreated,
     errors,
   }, 'Course content imported successfully');
+};
+
+// ---------------------------------------------------------------------------
+// Bulk Interactive Gate Content Blocks import — across every lesson in the
+// course at once, from one multi-sheet workbook. The course-wide sibling of
+// content-blocks-import.controller's single-lesson importer: same row-
+// grouping rules (via utils/content-blocks-parser), same AI-prompt sheets,
+// but this one writes straight to the DB (like importContent above) instead
+// of handing parsed blocks back to the Lesson Editor's local state — a file
+// touching dozens of lessons can't reasonably be merged into one editor's
+// in-memory state.
+//
+// Rows are matched to a lesson by their own "Chapter Title"/"Lesson Title"
+// columns, NOT by the sheet's tab name — Excel sheet names are capped at 31
+// characters and can't contain a colon, so a lesson title like "Unit 1:
+// Living and Nonliving Things" can never be used as a reliable match key.
+// One sheet per lesson is still the expected shape (and what the course-
+// scoped template below generates), purely so the file is easy for an admin
+// to navigate — the parser is happy to see a lesson's rows split across
+// several sheets or combined into one, since matching runs on the columns.
+//
+// This only fills content into chapters/lessons that already exist — it
+// never creates them. Build course structure first via /content/import.
+// ---------------------------------------------------------------------------
+
+const BLOCKS_IMPORT_HEADERS = [
+  'Chapter Title', 'Lesson Title', 'Block Title', 'Block Content (plain text or Markdown)',
+  'Min Read Seconds (optional)', 'Question Type (mcq or true_false)', 'Question Text',
+  'Option 1', 'Option 2', 'Option 3', 'Correct Answer (mcq: 1/2/3, true_false: TRUE/FALSE)',
+  'Explanation (optional)',
+];
+
+const INVALID_SHEET_NAME_CHARS = /[:\\/?*[\]]/g;
+
+/** Excel sheet names: max 31 chars, no `: \ / ? * [ ]`, never blank, never repeated within one workbook. */
+function sanitizeSheetName(title: string, used: Set<string>): string {
+  let base = (title || 'Lesson').replace(INVALID_SHEET_NAME_CHARS, ' ').replace(/\s+/g, ' ').trim();
+  if (!base) base = 'Lesson';
+  if (base.length > 31) base = base.slice(0, 31).trim();
+
+  let candidate = base;
+  let suffix = 2;
+  while (used.has(candidate.toLowerCase())) {
+    const suffixText = ` (${suffix})`;
+    candidate = base.slice(0, 31 - suffixText.length).trim() + suffixText;
+    suffix++;
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+// ---------------------------------------------------------------------------
+// GET /courses/:courseId/content/blocks-import/template — course-scoped
+// template: one sheet per existing lesson, Chapter/Lesson Title already
+// filled in from the course's actual structure, plus the same AI-prompt
+// sheets as the single-lesson template.
+// ---------------------------------------------------------------------------
+export const downloadBlocksImportTemplate = async (req: Request, res: Response): Promise<void> => {
+  const { courseId } = req.params;
+  const course = await Course.findById(courseId);
+  if (!course) throw new NotFoundError('Course');
+  assertOwnsOrg(req, course, 'school');
+
+  const doc = await CourseContent.findOne({ course: courseId });
+  const lessons: { chapterTitle: string; lessonTitle: string }[] = [];
+  for (const chapter of (doc?.chapters || []) as any[]) {
+    for (const item of chapter.items || []) {
+      if (item.type === 'lesson') lessons.push({ chapterTitle: chapter.title, lessonTitle: item.title });
+    }
+  }
+
+  const workbook = XLSX.utils.book_new();
+  const usedSheetNames = new Set<string>();
+  const colWidths = BLOCKS_IMPORT_HEADERS.map((h) => ({ wch: Math.min(Math.max(h.length + 2, 18), 50) }));
+
+  if (lessons.length === 0) {
+    const exampleRow = [
+      'Unit 1: Example Chapter', 'Lesson 1: Example Lesson',
+      'REPLACE ME — Block 1 Title', 'REPLACE ME — paste or type this block\'s passage text here.',
+      '30', 'mcq', 'REPLACE ME — a comprehension question about this block', 'Correct option', 'Wrong option', 'Wrong option', '1', '',
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet([BLOCKS_IMPORT_HEADERS, exampleRow]);
+    sheet['!cols'] = colWidths;
+    XLSX.utils.book_append_sheet(workbook, sheet, sanitizeSheetName('Example — build course structure first', usedSheetNames));
+  } else {
+    for (const { chapterTitle, lessonTitle } of lessons) {
+      const exampleRow = [
+        chapterTitle, lessonTitle,
+        'REPLACE ME — Block 1 Title', 'REPLACE ME — paste or type this block\'s passage text here.',
+        '30', 'mcq', 'REPLACE ME — a comprehension question about this block', 'Correct option', 'Wrong option', 'Wrong option', '1', '',
+      ];
+      const sheet = XLSX.utils.aoa_to_sheet([BLOCKS_IMPORT_HEADERS, exampleRow]);
+      sheet['!cols'] = colWidths;
+      XLSX.utils.book_append_sheet(workbook, sheet, sanitizeSheetName(lessonTitle, usedSheetNames));
+    }
+  }
+
+  appendAiPromptSheets(workbook);
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=content-blocks-bulk-template.xlsx');
+  res.end(buffer);
+};
+
+// ---------------------------------------------------------------------------
+// POST /courses/:courseId/content/blocks-import — bulk import
+// ---------------------------------------------------------------------------
+export const importContentBlocksForCourse = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId } = req.params;
+
+  const course = await Course.findById(courseId);
+  if (!course) throw new NotFoundError('Course');
+  assertOwnsOrg(req, course, 'school');
+
+  if (!req.file) throw new BadRequestError('An Excel or CSV file is required (field name "file")');
+
+  const doc = await CourseContent.findOne({ course: courseId });
+  if (!doc || doc.chapters.length === 0) {
+    throw new BadRequestError('This course has no chapters or lessons yet — create them first via "Import Content".');
+  }
+
+  const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+  if (workbook.SheetNames.length === 0) throw new BadRequestError('The uploaded file has no sheets');
+
+  interface GroupedRow { sheetName: string; rowNum: number; data: Record<string, any> }
+  const lessonGroups = new Map<string, { chapterTitle: string; lessonTitle: string; rows: GroupedRow[] }>();
+  const errors: { row: number; message: string }[] = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    const sheetRows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], { defval: '' });
+    if (sheetRows.length === 0) continue;
+
+    // Sheets without a "Chapter Title"/"Lesson Title" column at all aren't
+    // meant for this importer (the AI-prompt sheets in the template, or any
+    // other unrelated tab) — skip them silently instead of spamming a
+    // per-row error for every line of instructional text.
+    const sampleKeys = Object.keys(sheetRows[0]).map((k) => k.trim().toLowerCase());
+    const hasChapterCol = sampleKeys.some((k) => k.startsWith('chapter title'));
+    const hasLessonCol = sampleKeys.some((k) => k.startsWith('lesson title'));
+    if (!hasChapterCol || !hasLessonCol) continue;
+
+    for (let i = 0; i < sheetRows.length; i++) {
+      const rowNum = i + 2; // +1 for 0-index, +1 for the header row already stripped by sheet_to_json
+      const row = sheetRows[i];
+      const cellValues = Object.values(row).map((v) => String(v ?? '').trim());
+      if (cellValues.every((v) => v === '')) continue; // blank row
+      if (looksLikeContentBlockHeaderRow(cellValues)) continue; // a re-pasted header row further down the batch
+
+      const chapterTitle = String(getField(row, 'Chapter Title') ?? '').trim();
+      const lessonTitle = String(getField(row, 'Lesson Title') ?? '').trim();
+      if (!chapterTitle || !lessonTitle) {
+        errors.push({ row: 0, message: `Sheet "${sheetName}" row ${rowNum}: Chapter Title and Lesson Title are both required` });
+        continue;
+      }
+
+      const key = `${chapterTitle.toLowerCase()}|||${lessonTitle.toLowerCase()}`;
+      if (!lessonGroups.has(key)) lessonGroups.set(key, { chapterTitle, lessonTitle, rows: [] });
+      lessonGroups.get(key)!.rows.push({ sheetName, rowNum, data: row });
+    }
+  }
+
+  if (lessonGroups.size === 0) {
+    throw new BadRequestError('No valid rows found — every sheet was either missing Chapter Title/Lesson Title columns, or every row was missing those values.');
+  }
+
+  let lessonsUpdated = 0;
+  let blocksCreated = 0;
+  let questionsCreated = 0;
+
+  for (const { chapterTitle, lessonTitle, rows } of lessonGroups.values()) {
+    const chapter: any = doc.chapters.find((ch: any) => String(ch.title || '').trim().toLowerCase() === chapterTitle.toLowerCase());
+    if (!chapter) {
+      errors.push({ row: 0, message: `Chapter "${chapterTitle}" not found in this course — check spelling, or create it first via "Import Content".` });
+      continue;
+    }
+    const lessonItem: any = (chapter.items || []).find((it: any) => it.type === 'lesson' && String(it.title || '').trim().toLowerCase() === lessonTitle.toLowerCase());
+    if (!lessonItem) {
+      errors.push({ row: 0, message: `Lesson "${lessonTitle}" not found in chapter "${chapterTitle}" — check spelling, or create it first via "Import Content".` });
+      continue;
+    }
+
+    const { blocks, errors: blockErrors } = await parseBlockRows(rows.map((r) => ({ rowNum: r.rowNum, data: r.data })));
+    for (const be of blockErrors) {
+      const sourceRow = rows.find((r) => r.rowNum === be.row);
+      const location = sourceRow ? `Sheet "${sourceRow.sheetName}" row ${be.row}` : `Lesson "${lessonTitle}"`;
+      errors.push({ row: 0, message: `${location}: ${be.message}` });
+    }
+    if (blocks.length === 0) continue;
+
+    // Append — never replace — any content blocks the lesson already has,
+    // same non-destructive default as the single-lesson import modal.
+    const baseOrder = (lessonItem.contentBlocks || []).length;
+    const newBlocks = blocks.map((b, idx) => ({
+      _id: new mongoose.Types.ObjectId(),
+      title: b.title,
+      order: baseOrder + idx,
+      content: b.content,
+      minReadSeconds: b.minReadSeconds || 30,
+      questions: b.questions,
+    }));
+    lessonItem.contentBlocks = [...(lessonItem.contentBlocks || []), ...newBlocks];
+    lessonItem.deliveryMode = 'interactive_gate';
+
+    lessonsUpdated++;
+    blocksCreated += newBlocks.length;
+    questionsCreated += newBlocks.reduce((sum, b) => sum + b.questions.length, 0);
+  }
+
+  doc.markModified('chapters');
+  await doc.save();
+
+  return ApiResponse.success(res, {
+    lessonsUpdated,
+    blocksCreated,
+    questionsCreated,
+    errors,
+  }, 'Content blocks imported successfully');
 };
