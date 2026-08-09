@@ -852,6 +852,10 @@ function getField(row: Record<string, any>, ...names: string[]): unknown {
   return undefined;
 }
 
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 const VALID_LEVELS = ['beginner', 'intermediate', 'advanced'];
 
 // ---------------------------------------------------------------------------
@@ -880,6 +884,16 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   for (const c of classes) {
     classMap.set(((c as any).title || '').toLowerCase(), c._id);
   }
+
+  // `slug` is globally unique (not scoped per organization — see
+  // course.model.ts), so a re-import of the same file (e.g. after fixing a
+  // typo'd teacher email in the spreadsheet) must resolve each row's slug
+  // against every existing course, not just this org's. Rows whose
+  // title+class combination already produced a course update it in place
+  // instead of colliding on the unique index — see Phase 2 below.
+  const existingCourses = await Course.find({}).select('slug school').lean();
+  const slugMap = new Map<string, { id: mongoose.Types.ObjectId; school: mongoose.Types.ObjectId }>();
+  for (const c of existingCourses) slugMap.set((c as any).slug, { id: c._id, school: (c as any).school });
 
   const teachers = ownOrgId
     ? await Teacher.find({ school: ownOrgId }).populate('user', 'email').lean()
@@ -939,6 +953,12 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   // ── Phase 2: Parse rows ──
   const errors: { row: number; message: string }[] = [];
   const courseDocs: any[] = [];
+  // Parallel to courseDocs — insertMany's writeErrors report an index into
+  // that array, not the original spreadsheet row, since rows that became
+  // updates or failed validation above are never added to it.
+  const courseDocRowNums: number[] = [];
+  const updateOps: { filter: any; update: any; rowNum: number }[] = [];
+  const seenSlugsThisBatch = new Set<string>();
 
   for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 2;
@@ -1002,24 +1022,45 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         teacherId = tid;
       }
 
-      // Slug
-      const slug = titleEn.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      // Slug — the same subject re-taught in a different class (very common
+      // in these spreadsheets: "Quran Studies" once per grade/section) must
+      // not collide on the globally-unique slug index, so the class title
+      // disambiguates it. A row whose (title, class) already resolves to an
+      // existing course is treated as an update to that course (teacher,
+      // fee, etc. re-synced) instead of a doomed duplicate insert — this is
+      // what makes re-uploading the same file after fixing one column, like
+      // a wrong teacher email, actually apply the fix instead of failing
+      // every row with a duplicate-key error.
+      const baseSlug = slugify(titleEn);
+      const slug = classTitle ? `${baseSlug}-${slugify(classTitle)}` : baseSlug;
 
-      courseDocs.push({
-        title: { en: titleEn, so: '', ar: '' },
-        slug,
-        description: { en: '', so: '', ar: '' },
-        category,
-        level,
-        duration,
-        fee,
-        maxStudents,
+      const fields = {
+        category, level, duration, fee, maxStudents,
         teacher: teacherId,
-        school: schoolId,
-        class: classId || undefined,
         thumbnail: thumbnail || undefined,
-        status: 'draft',
-      });
+      };
+
+      const existing = slugMap.get(slug);
+      if (existing) {
+        if (String(existing.school) !== String(schoolId)) {
+          throw new Error(`A course with slug "${slug}" already exists in a different organization`);
+        }
+        updateOps.push({ filter: { _id: existing.id }, update: { $set: fields }, rowNum });
+      } else if (seenSlugsThisBatch.has(slug)) {
+        throw new Error(`Duplicate course "${titleEn}"${classTitle ? ` for class "${classTitle}"` : ''} — already appears earlier in this file`);
+      } else {
+        seenSlugsThisBatch.add(slug);
+        courseDocRowNums.push(rowNum);
+        courseDocs.push({
+          title: { en: titleEn, so: '', ar: '' },
+          slug,
+          description: { en: '', so: '', ar: '' },
+          ...fields,
+          school: schoolId,
+          class: classId || undefined,
+          status: 'draft',
+        });
+      }
     } catch (err: any) {
       errors.push({ row: rowNum, message: err.message || 'Unknown error' });
     }
@@ -1039,7 +1080,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       if (txErr.insertedDocs) inserted = txErr.insertedDocs.length;
       if (txErr.writeErrors) {
         txErr.writeErrors.forEach((we: any) => {
-          errors.push({ row: we.index + 2, message: we.err?.errmsg || we.errmsg || 'Insert error' });
+          errors.push({ row: courseDocRowNums[we.index] ?? 0, message: we.err?.errmsg || we.errmsg || 'Insert error' });
         });
       } else if (inserted === 0) {
         errors.push({ row: 0, message: txErr.message || 'Import failed.' });
@@ -1047,10 +1088,24 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     }
   }
 
+  let updated = 0;
+  if (updateOps.length > 0) {
+    try {
+      const result = await Course.bulkWrite(
+        updateOps.map((op) => ({ updateOne: { filter: op.filter, update: op.update } })),
+        { ordered: false }
+      );
+      updated = result.modifiedCount || 0;
+    } catch (txErr: any) {
+      errors.push({ row: 0, message: txErr.message || 'Failed to update existing courses.' });
+    }
+  }
+
   return ApiResponse.success(res, {
     totalRows: rows.length,
     created: inserted,
+    updated,
     failed: errors.length,
     errors,
-  }, `Imported ${inserted} of ${rows.length} courses`);
+  }, `Imported ${inserted} new and updated ${updated} existing course(s) of ${rows.length} rows`);
 };

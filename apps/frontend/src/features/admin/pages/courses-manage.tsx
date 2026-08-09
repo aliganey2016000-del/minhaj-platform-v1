@@ -1182,7 +1182,7 @@ export function CoursesManage() {
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState('');
-  const [importResult, setImportResult] = useState<{ totalRows: number; created: number; failed: number; errors: { row: number; message: string }[] } | null>(null);
+  const [importResult, setImportResult] = useState<{ totalRows: number; created: number; updated?: number; failed: number; errors: { row: number; message: string }[] } | null>(null);
 
   const fetchCourses = useCallback(async () => {
     try {
@@ -1220,11 +1220,11 @@ export function CoursesManage() {
   const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) setSelectedFile(f); };
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) setSelectedFile(f); };
 
-  const submitFileImport = async () => { if (!selectedFile) return; setImporting(true); setError(''); setImportResult(null); try { const fd = new FormData(); fd.append('file', selectedFile); const { data } = await api.post('/courses/import', fd); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} courses`); fetchCourses(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
+  const submitFileImport = async () => { if (!selectedFile) return; setImporting(true); setError(''); setImportResult(null); try { const fd = new FormData(); fd.append('file', selectedFile); const { data } = await api.post('/courses/import', fd); setImportResult(data.data); if (data.data?.created > 0 || data.data?.updated > 0) { setMessage(`Imported ${data.data.created} new and updated ${data.data.updated || 0} existing course(s)`); fetchCourses(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
 
   const parsePastedRows = (): string[][] => { if (!pasteText.trim()) return []; return pasteText.trim().split(/\r?\n/).map(l => l.split('\t').map(c => c.trim())).filter(r => r.length > 0 && r.some(c => c !== '')); };
 
-  const submitPasteImport = async () => { const rows = parsePastedRows(); if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; } if (rows[0].length < 5) { setPasteError('Expected 10 columns (Course Title, Category, Level, Organization, Class Title, Teacher Email, Duration, Price, Capacity, Thumbnail URL). Found ' + rows[0].length + '.'); return; } const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n'); const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); const file = new File([blob], 'pasted-courses.csv', { type: 'text/csv' }); setImporting(true); setError(''); setImportResult(null); setPasteError(''); try { const fd = new FormData(); fd.append('file', file); const { data } = await api.post('/courses/import', fd); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} courses`); fetchCourses(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
+  const submitPasteImport = async () => { const rows = parsePastedRows(); if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; } if (rows[0].length < 5) { setPasteError('Expected 10 columns (Course Title, Category, Level, Organization, Class Title, Teacher Email, Duration, Price, Capacity, Thumbnail URL). Found ' + rows[0].length + '.'); return; } const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n'); const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); const file = new File([blob], 'pasted-courses.csv', { type: 'text/csv' }); setImporting(true); setError(''); setImportResult(null); setPasteError(''); try { const fd = new FormData(); fd.append('file', file); const { data } = await api.post('/courses/import', fd); setImportResult(data.data); if (data.data?.created > 0 || data.data?.updated > 0) { setMessage(`Imported ${data.data.created} new and updated ${data.data.updated || 0} existing course(s)`); fetchCourses(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
 
   const handleExport = async () => { setExporting(true); setError(''); try { const token = localStorage.getItem('accessToken') || ''; const r = await fetch(`${api.defaults.baseURL}/courses/export`, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Export failed'); const blob = await r.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `courses-export-${new Date().toISOString().slice(0, 10)}.xlsx`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); setMessage('Export downloaded successfully'); } catch (err: any) { setError(err.message || 'Export failed'); } finally { setExporting(false); } };
 
@@ -1505,7 +1505,7 @@ export function CoursesManage() {
               {importResult && (
                 <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 space-y-2">
                   <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                    {importResult.created} of {importResult.totalRows} rows imported successfully{importResult.failed > 0 && ` — ${importResult.failed} failed`}
+                    {importResult.created} created{!!importResult.updated && `, ${importResult.updated} updated`} of {importResult.totalRows} rows{importResult.failed > 0 && ` — ${importResult.failed} failed`}
                   </p>
                   {importResult.errors.length > 0 && (
                     <div className="max-h-36 overflow-auto rounded-lg border border-red-200 dark:border-red-900/40">
