@@ -6,9 +6,11 @@
  * the admin clicks Save when ready), and responsive dark mode.
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { MoreVertical } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useCourseContent, useAutoSave, generateTempId } from './course-builder.api';
 import { AssignmentEditor } from './components/builder-assignment-editor';
@@ -627,33 +629,18 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
             </span>
 
             <button
-              onClick={() => navigate(`${basePath}/courses/${courseId}/gradebook`)}
-              className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors"
-            >
-              📐 Gradebook
-            </button>
-
-            <button
-              onClick={() => setShowImportModal(true)}
-              className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors"
-            >
-              ↑ Import Content
-            </button>
-
-            <button
-              onClick={() => setShowBlocksImportModal(true)}
-              className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors"
-            >
-              🧩 Import Interactive Blocks
-            </button>
-
-            <button
               onClick={handleManualSave}
               disabled={saving}
               className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50"
             >
               💾 Save Now
             </button>
+
+            <BuilderActionsMenu
+              onGradebook={() => navigate(`${basePath}/courses/${courseId}/gradebook`)}
+              onImportContent={() => setShowImportModal(true)}
+              onImportBlocks={() => setShowBlocksImportModal(true)}
+            />
           </div>
         </motion.div>
 
@@ -1164,6 +1151,43 @@ function StatCard({
       {sub && <p className="text-xs text-[var(--color-text-tertiary)]">{sub}</p>}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Three-Dot Actions Dropdown — Gradebook / Import Content / Import Interactive
+// Blocks, tucked behind a single button so the header has room to breathe.
+// ---------------------------------------------------------------------------
+function BuilderActionsMenu({ onGradebook, onImportContent, onImportBlocks }: {
+  onGradebook: () => void;
+  onImportContent: () => void;
+  onImportBlocks: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const toggle = (e: React.MouseEvent) => { e.stopPropagation(); setOpen(!open); };
+
+  return (<>
+    <button ref={btnRef} onClick={toggle} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors" title="More Actions">
+      <MoreVertical className="h-5 w-5" strokeWidth={1.75} />
+    </button>
+    {open && btnRef.current && createPortal(
+      <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-56 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
+        <button onClick={() => { setOpen(false); onGradebook(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">📐 Gradebook</button>
+        <button onClick={() => { setOpen(false); onImportContent(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">↑ Import Content</button>
+        <button onClick={() => { setOpen(false); onImportBlocks(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">🧩 Import Interactive Blocks</button>
+      </div>,
+      document.body,
+    )}
+  </>);
 }
 
 export default CourseBuilder;
