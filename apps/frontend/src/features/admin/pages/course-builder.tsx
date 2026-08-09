@@ -678,7 +678,10 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
             onClose={() => setShowBlocksImportModal(false)}
             onImported={(result) => {
               fetchContent();
-              const parts = [`${result.lessonsUpdated} lesson${result.lessonsUpdated === 1 ? '' : 's'} updated`, `${result.blocksCreated} block${result.blocksCreated === 1 ? '' : 's'}`, `${result.questionsCreated} question${result.questionsCreated === 1 ? '' : 's'}`];
+              const parts: string[] = [];
+              if (result.chaptersCreated > 0) parts.push(`${result.chaptersCreated} chapter${result.chaptersCreated === 1 ? '' : 's'} created`);
+              if (result.lessonsCreated > 0) parts.push(`${result.lessonsCreated} lesson${result.lessonsCreated === 1 ? '' : 's'} created`);
+              parts.push(`${result.lessonsUpdated} lesson${result.lessonsUpdated === 1 ? '' : 's'} updated`, `${result.blocksCreated} block${result.blocksCreated === 1 ? '' : 's'}`, `${result.questionsCreated} question${result.questionsCreated === 1 ? '' : 's'}`);
               const suffix = result.errors.length > 0 ? ` — ${result.errors.length} issue${result.errors.length === 1 ? '' : 's'}` : '';
               showToast(`${parts.join(', ')}${suffix}`, result.errors.length > 0 ? 'info' : 'success');
             }}

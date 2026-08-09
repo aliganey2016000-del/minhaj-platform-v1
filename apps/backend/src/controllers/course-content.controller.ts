@@ -456,8 +456,12 @@ export const importContent = async (req: Request, res: Response): Promise<Respon
 // to navigate — the parser is happy to see a lesson's rows split across
 // several sheets or combined into one, since matching runs on the columns.
 //
-// This only fills content into chapters/lessons that already exist — it
-// never creates them. Build course structure first via /content/import.
+// A (Chapter Title, Lesson Title) pair that doesn't match anything existing
+// is auto-created (chapter, then lesson inside it) exactly like the plain
+// /content/import chapters+lessons importer already does — so a single
+// upload here can build the whole course structure AND its interactive
+// content in one pass when nothing exists yet, not just fill in lessons
+// that were created some other way first.
 // ---------------------------------------------------------------------------
 
 const BLOCKS_IMPORT_HEADERS = [
@@ -518,7 +522,7 @@ export const downloadBlocksImportTemplate = async (req: Request, res: Response):
     ];
     const sheet = XLSX.utils.aoa_to_sheet([BLOCKS_IMPORT_HEADERS, exampleRow]);
     sheet['!cols'] = colWidths;
-    XLSX.utils.book_append_sheet(workbook, sheet, sanitizeSheetName('Example — build course structure first', usedSheetNames));
+    XLSX.utils.book_append_sheet(workbook, sheet, sanitizeSheetName('Example — edit Chapter & Lesson Title', usedSheetNames));
   } else {
     for (const { chapterTitle, lessonTitle } of lessons) {
       const exampleRow = [
@@ -552,9 +556,9 @@ export const importContentBlocksForCourse = async (req: Request, res: Response):
 
   if (!req.file) throw new BadRequestError('An Excel or CSV file is required (field name "file")');
 
-  const doc = await CourseContent.findOne({ course: courseId });
-  if (!doc || doc.chapters.length === 0) {
-    throw new BadRequestError('This course has no chapters or lessons yet — create them first via "Import Content".');
+  let doc = await CourseContent.findOne({ course: courseId });
+  if (!doc) {
+    doc = new CourseContent({ course: courseId, chapters: [] });
   }
 
   const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
@@ -601,20 +605,70 @@ export const importContentBlocksForCourse = async (req: Request, res: Response):
     throw new BadRequestError('No valid rows found — every sheet was either missing Chapter Title/Lesson Title columns, or every row was missing those values.');
   }
 
+  let chaptersCreated = 0;
+  let lessonsCreated = 0;
   let lessonsUpdated = 0;
   let blocksCreated = 0;
   let questionsCreated = 0;
 
+  const findLesson = (chapter: any, title: string) =>
+    (chapter.items || []).find((it: any) => it.type === 'lesson' && String(it.title || '').trim().toLowerCase() === title.toLowerCase());
+
   for (const { chapterTitle, lessonTitle, rows } of lessonGroups.values()) {
-    const chapter: any = doc.chapters.find((ch: any) => String(ch.title || '').trim().toLowerCase() === chapterTitle.toLowerCase());
+    let chapter: any = doc.chapters.find((ch: any) => String(ch.title || '').trim().toLowerCase() === chapterTitle.toLowerCase());
+    let lessonItem: any;
+
     if (!chapter) {
-      errors.push({ row: 0, message: `Chapter "${chapterTitle}" not found in this course — check spelling, or create it first via "Import Content".` });
-      continue;
-    }
-    const lessonItem: any = (chapter.items || []).find((it: any) => it.type === 'lesson' && String(it.title || '').trim().toLowerCase() === lessonTitle.toLowerCase());
-    if (!lessonItem) {
-      errors.push({ row: 0, message: `Lesson "${lessonTitle}" not found in chapter "${chapterTitle}" — check spelling, or create it first via "Import Content".` });
-      continue;
+      // Build the chapter WITH its lesson already inside `items` before
+      // pushing — `doc.chapters.push(x)` casts/clones `x` into a new
+      // subdocument instance, so a pre-push plain-object reference would
+      // silently mutate nothing that actually saves (same caveat as
+      // importContent above). Re-fetch the live subdocument afterward for
+      // anything that still needs mutating (contentBlocks, below).
+      const newLesson = {
+        _id: new mongoose.Types.ObjectId(),
+        title: lessonTitle,
+        type: 'lesson',
+        content: '',
+        attachments: [],
+        order: 0,
+        status: 'draft',
+        duration: 0,
+        deliveryMode: 'traditional',
+      };
+      doc.chapters.push({
+        _id: new mongoose.Types.ObjectId(),
+        title: chapterTitle,
+        description: '',
+        order: doc.chapters.length,
+        status: 'draft',
+        collapsed: false,
+        items: [newLesson],
+      } as any);
+      chaptersCreated++;
+      lessonsCreated++;
+      chapter = doc.chapters[doc.chapters.length - 1];
+      lessonItem = findLesson(chapter, lessonTitle);
+    } else {
+      lessonItem = findLesson(chapter, lessonTitle);
+      if (!lessonItem) {
+        lessonItem = {
+          _id: new mongoose.Types.ObjectId(),
+          title: lessonTitle,
+          type: 'lesson',
+          content: '',
+          attachments: [],
+          order: (chapter.items || []).length,
+          status: 'draft',
+          duration: 0,
+          deliveryMode: 'traditional',
+        };
+        // A live subdocument reference from `.find()` — pushing onto its
+        // own `items` array mutates the actual document (see importContent
+        // above for the same pattern on an existing chapter).
+        chapter.items.push(lessonItem);
+        lessonsCreated++;
+      }
     }
 
     const { blocks, errors: blockErrors } = await parseBlockRows(rows.map((r) => ({ rowNum: r.rowNum, data: r.data })));
@@ -648,6 +702,8 @@ export const importContentBlocksForCourse = async (req: Request, res: Response):
   await doc.save();
 
   return ApiResponse.success(res, {
+    chaptersCreated,
+    lessonsCreated,
     lessonsUpdated,
     blocksCreated,
     questionsCreated,

@@ -22,6 +22,8 @@ interface CourseBlocksImportModalProps {
 }
 
 export interface ImportResult {
+  chaptersCreated: number;
+  lessonsCreated: number;
   lessonsUpdated: number;
   blocksCreated: number;
   questionsCreated: number;
@@ -77,7 +79,7 @@ export function CourseBlocksImportModal({ courseId, onClose, onImported }: Cours
       // the page so it can toast it, instead of leaving this modal open
       // waiting for a manual "Close" click. Only a total failure (nothing
       // updated) keeps it open to show the errors.
-      if (data.data?.lessonsUpdated > 0) {
+      if (data.data?.lessonsUpdated > 0 || data.data?.chaptersCreated > 0 || data.data?.lessonsCreated > 0) {
         onImported(data.data);
         onClose();
       } else {
@@ -97,7 +99,7 @@ export function CourseBlocksImportModal({ courseId, onClose, onImported }: Cours
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Import Interactive Blocks — All Lessons</h2>
-              <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Bulk-create Stop &amp; Check content blocks across every lesson in this course from one spreadsheet.</p>
+              <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Bulk-create Stop &amp; Check content blocks across every lesson in this course from one spreadsheet. Any Chapter/Lesson Title that doesn't already exist is created automatically.</p>
             </div>
             <button type="button" onClick={onClose} disabled={importing} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors">
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -166,6 +168,8 @@ export function CourseBlocksImportModal({ courseId, onClose, onImported }: Cours
         {result && (
           <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 space-y-2">
             <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+              {result.chaptersCreated > 0 && `${result.chaptersCreated} chapter${result.chaptersCreated === 1 ? '' : 's'} created, `}
+              {result.lessonsCreated > 0 && `${result.lessonsCreated} lesson${result.lessonsCreated === 1 ? '' : 's'} created, `}
               {result.lessonsUpdated} lesson{result.lessonsUpdated === 1 ? '' : 's'} updated, {result.blocksCreated} block{result.blocksCreated === 1 ? '' : 's'}, {result.questionsCreated} question{result.questionsCreated === 1 ? '' : 's'}
               {result.errors.length > 0 && ` — ${result.errors.length} issue${result.errors.length === 1 ? '' : 's'}`}
             </p>
