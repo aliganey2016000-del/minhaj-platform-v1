@@ -860,32 +860,15 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                 )}
 
                 {/* Chapter Actions */}
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      setEditingChapterIdx(chIdx);
-                      setEditingChapterTitle(chapter.title);
-                    }}
-                    className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-xs"
-                    title="Rename"
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    onClick={() => handleToggleChapterStatus(chIdx)}
-                    className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-xs"
-                    title={chapter.status === 'published' ? 'Unpublish' : 'Publish'}
-                  >
-                    {chapter.status === 'published' ? '📥' : '📤'}
-                  </button>
-                  <button
-                    onClick={() => handleDeleteChapter(chIdx)}
-                    className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-xs"
-                    title="Delete module"
-                  >
-                    🗑️
-                  </button>
-                </div>
+                <ChapterActionsMenu
+                  status={chapter.status}
+                  onRename={() => {
+                    setEditingChapterIdx(chIdx);
+                    setEditingChapterTitle(chapter.title);
+                  }}
+                  onToggleStatus={() => handleToggleChapterStatus(chIdx)}
+                  onDelete={() => handleDeleteChapter(chIdx)}
+                />
               </div>
 
               {/* Chapter Body (items) */}
@@ -1184,6 +1167,44 @@ function BuilderActionsMenu({ onGradebook, onImportContent, onImportBlocks }: {
         <button onClick={() => { setOpen(false); onGradebook(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">📐 Gradebook</button>
         <button onClick={() => { setOpen(false); onImportContent(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">↑ Import Content</button>
         <button onClick={() => { setOpen(false); onImportBlocks(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">🧩 Import Interactive Blocks</button>
+      </div>,
+      document.body,
+    )}
+  </>);
+}
+
+// ---------------------------------------------------------------------------
+// Three-Dot Actions Dropdown — per-module Rename / Publish / Delete, tucked
+// behind a single button so a module's header row has room for its title.
+// ---------------------------------------------------------------------------
+function ChapterActionsMenu({ status, onRename, onToggleStatus, onDelete }: {
+  status: 'draft' | 'published';
+  onRename: () => void;
+  onToggleStatus: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const toggle = (e: React.MouseEvent) => { e.stopPropagation(); setOpen(!open); };
+
+  return (<>
+    <button ref={btnRef} onClick={toggle} className="h-7 w-7 flex-shrink-0 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors" title="Module Actions">
+      <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
+    </button>
+    {open && btnRef.current && createPortal(
+      <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-44 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
+        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onRename(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">✏️ Rename</button>
+        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onToggleStatus(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">{status === 'published' ? '📥 Unpublish' : '📤 Publish'}</button>
+        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 flex items-center gap-2 transition-colors">🗑️ Delete module</button>
       </div>,
       document.body,
     )}
