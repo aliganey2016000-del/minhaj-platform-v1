@@ -17,9 +17,16 @@
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 
+// `marked` ships ESM-only (`"type": "module"`, no CJS build). TypeScript
+// compiles this file to CommonJS, and under that target it silently rewrites
+// a plain `import('marked')` into `Promise.resolve().then(() => require('marked'))`
+// — `require()` can't load a pure-ESM package, so that throws ERR_REQUIRE_ESM
+// at runtime every time this import is hit. Wrapping the call in `new Function`
+// hides it from TS's static downleveling, so it stays a genuine dynamic
+// `import()` at runtime, which Node resolves correctly even from CJS.
 let markedModulePromise: Promise<typeof import('marked')> | null = null;
 function getMarked(): Promise<typeof import('marked')> {
-  if (!markedModulePromise) markedModulePromise = import('marked');
+  if (!markedModulePromise) markedModulePromise = new Function('return import("marked")')() as Promise<typeof import('marked')>;
   return markedModulePromise;
 }
 

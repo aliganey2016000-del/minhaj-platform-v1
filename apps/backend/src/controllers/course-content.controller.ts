@@ -10,11 +10,16 @@ import mongoose from 'mongoose';
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 // `marked` ships ESM-only from v5+, which breaks a static `require()` once
-// this file is compiled to CommonJS for production. Load it dynamically
-// instead — `import()` works from CJS regardless of the target's module type.
+// this file is compiled to CommonJS for production. A plain `import()` does
+// NOT fix this on its own — under `module: "commonjs"`, TypeScript silently
+// rewrites it into `Promise.resolve().then(() => require('marked'))`, and
+// `require()` still can't load a pure-ESM package (throws ERR_REQUIRE_ESM).
+// Wrapping the call in `new Function` hides it from TS's static downleveling,
+// so it stays a genuine dynamic `import()` at runtime, which Node resolves
+// correctly even from a CJS caller.
 let markedModulePromise: Promise<typeof import('marked')> | null = null;
 function getMarked(): Promise<typeof import('marked')> {
-  if (!markedModulePromise) markedModulePromise = import('marked');
+  if (!markedModulePromise) markedModulePromise = new Function('return import("marked")')() as Promise<typeof import('marked')>;
   return markedModulePromise;
 }
 import CourseContent, { computeContentTotals } from '../models/course-content.model';
