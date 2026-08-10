@@ -195,6 +195,7 @@ export function ParentsManage() {
   const [hasFetched, setHasFetched] = useState(false); const [showCreate, setShowCreate] = useState(false);
   const [editingParent, setEditingParent] = useState<Parent | undefined>(undefined); const [viewingParent, setViewingParent] = useState<Parent | undefined>(undefined);
   const [limit, setLimit] = useState(15);
+  const [stats, setStats] = useState<{ total: number; active: number; inactive: number; totalChildren: number } | null>(null);
 
   // ── Bulk selection / delete state ──
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -213,13 +214,27 @@ export function ParentsManage() {
 
   const fetchParents = useCallback(async (pageNum = 1, overrideLimit?: number) => { setLoading(true); setError(''); try { const lim = overrideLimit !== undefined ? overrideLimit : limit; const params: any = { page: String(pageNum), limit: String(lim) }; if (search) params.search = search; if (statusFilter) params.status = statusFilter; if (filterSchool) params.school = filterSchool; const { data } = await api.get('/parents', { params }); setParents(data.data || []); setTotal(data.meta?.total || 0); setHasFetched(true); setSelected(new Set()); setSelectAllMatching(false); } catch (err: any) { setError(err.response?.data?.message || 'Failed to load parents'); } finally { setLoading(false); } }, [search, statusFilter, filterSchool, limit]);
 
-  useEffect(() => { if (isOrgAdmin) fetchParents(1); }, [isOrgAdmin]);
+  // Stats cards (Active/Inactive/Children) — a real aggregate across every
+  // matching parent, not just whatever page happens to be loaded. Scoped by
+  // organization only, same as the list's org filter, deliberately ignoring
+  // search/status so the cards describe the whole org rather than flickering
+  // with every keystroke in the search box.
+  const fetchStats = useCallback(async () => {
+    try {
+      const params: any = {};
+      if (filterSchool) params.school = filterSchool;
+      const { data } = await api.get('/parents/stats', { params });
+      setStats(data.data);
+    } catch { /* non-critical — leave prior stats in place */ }
+  }, [filterSchool]);
 
-  const handleApplyFilters = () => { if (isSuperAdmin && !filterSchool) { setError('Please select an organization to view parents.'); return; } setPage(1); fetchParents(1); };
+  useEffect(() => { if (isOrgAdmin) { fetchParents(1); fetchStats(); } }, [isOrgAdmin]);
+
+  const handleApplyFilters = () => { if (isSuperAdmin && !filterSchool) { setError('Please select an organization to view parents.'); return; } setPage(1); fetchParents(1); fetchStats(); };
   const handlePageChange = (np: number) => { setPage(np); fetchParents(np); };
   const handleLimitChange = (newLimit: number) => { setLimit(newLimit); setPage(1); fetchParents(1, newLimit); };
-  const handleStatusChange = async (id: string, ns: string) => { try { await api.patch(`/parents/${id}/status`, { status: ns }); setParents(p => p.map(x => x._id === id ? { ...x, status: ns as Parent['status'] } : x)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
-  const handleDelete = async (id: string) => { if (!window.confirm('Delete this parent? Children will be unlinked.')) return; try { await api.delete(`/parents/${id}`); fetchParents(page); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
+  const handleStatusChange = async (id: string, ns: string) => { try { await api.patch(`/parents/${id}/status`, { status: ns }); setParents(p => p.map(x => x._id === id ? { ...x, status: ns as Parent['status'] } : x)); fetchStats(); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
+  const handleDelete = async (id: string) => { if (!window.confirm('Delete this parent? Children will be unlinked.')) return; try { await api.delete(`/parents/${id}`); fetchParents(page); fetchStats(); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
 
   // ── Bulk selection / delete ──
   const selectedCount = selectAllMatching ? total : selected.size;
@@ -235,6 +250,7 @@ export function ParentsManage() {
       setSelectAllMatching(false);
       setShowBulkDeleteModal(false);
       fetchParents(page);
+      fetchStats();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Failed to bulk delete parents');
     } finally {
@@ -273,15 +289,15 @@ export function ParentsManage() {
   const handleDownloadTemplate = async () => { try { const token = localStorage.getItem('accessToken') || ''; const r = await fetch(`${api.defaults.baseURL}/parents/template`, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Download failed'); const blob = await r.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'parents-template.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); } catch { setError('Failed to download template'); } };
   const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) setSelectedFile(f); };
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) setSelectedFile(f); };
-  const submitFileImport = async () => { if (!selectedFile) return; setImporting(true); setError(''); setImportResult(null); try { const fd = new FormData(); fd.append('file', selectedFile); const { data } = await api.post('/parents/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } }); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} parents`); fetchParents(page); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
+  const submitFileImport = async () => { if (!selectedFile) return; setImporting(true); setError(''); setImportResult(null); try { const fd = new FormData(); fd.append('file', selectedFile); const { data } = await api.post('/parents/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } }); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} parents`); fetchParents(page); fetchStats(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
   const parsePastedRows = (): string[][] => { if (!pasteText.trim()) return []; return pasteText.trim().split(/\r?\n/).map(l => l.split('\t').map(c => c.trim())).filter(r => r.length > 0 && r.some(c => c !== '')); };
-  const submitPasteImport = async () => { const rows = parsePastedRows(); if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; } if (rows[0].length < 6) { setPasteError('Expected 9 columns (First Name, Last Name, Gender, Email, Password, Phone Number, Occupation, Address, Student Association). Found ' + rows[0].length + '.'); return; } const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n'); const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); const file = new File([blob], 'pasted-parents.csv', { type: 'text/csv' }); setImporting(true); setError(''); setImportResult(null); setPasteError(''); try { const fd = new FormData(); fd.append('file', file); const { data } = await api.post('/parents/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } }); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} parents`); fetchParents(page); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
+  const submitPasteImport = async () => { const rows = parsePastedRows(); if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; } if (rows[0].length < 6) { setPasteError('Expected 9 columns (First Name, Last Name, Gender, Email, Password, Phone Number, Occupation, Address, Student Association). Found ' + rows[0].length + '.'); return; } const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n'); const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); const file = new File([blob], 'pasted-parents.csv', { type: 'text/csv' }); setImporting(true); setError(''); setImportResult(null); setPasteError(''); try { const fd = new FormData(); fd.append('file', file); const { data } = await api.post('/parents/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } }); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} parents`); fetchParents(page); fetchStats(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
   const handleExport = async () => { setExporting(true); setError(''); try { const token = localStorage.getItem('accessToken') || ''; const r = await fetch(`${api.defaults.baseURL}/parents/export`, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Export failed'); const blob = await r.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `parents-export-${new Date().toISOString().slice(0, 10)}.xlsx`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); setMessage('Export downloaded successfully'); } catch (err: any) { setError(err.message || 'Export failed'); } finally { setExporting(false); } };
 
   const totalPages = Math.ceil(total / limit);
-  const activeCount = parents.filter(p => p.status === 'active').length;
-  const inactiveCount = parents.filter(p => p.status === 'inactive').length;
-  const totalChildren = parents.reduce((sum, p) => sum + (p.children?.length || 0), 0);
+  const activeCount = stats?.active ?? 0;
+  const inactiveCount = stats?.inactive ?? 0;
+  const totalChildren = stats?.totalChildren ?? 0;
   const parsedRows = parsePastedRows();
 
   return (
@@ -371,8 +387,8 @@ export function ParentsManage() {
         )}
       </div>
 
-      {showCreate && <ParentModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchParents(page); }} />}
-      {editingParent && <ParentModal parent={editingParent} onClose={() => setEditingParent(undefined)} onSaved={() => { setEditingParent(undefined); fetchParents(page); }} />}
+      {showCreate && <ParentModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchParents(page); fetchStats(); }} />}
+      {editingParent && <ParentModal parent={editingParent} onClose={() => setEditingParent(undefined)} onSaved={() => { setEditingParent(undefined); fetchParents(page); fetchStats(); }} />}
       {viewingParent && <ViewModal parent={viewingParent} onClose={() => setViewingParent(undefined)} />}
       {showBulkDeleteModal && <BulkDeleteModal count={selectedCount} allMatching={selectAllMatching} loading={bulkDeleting} onCancel={() => setShowBulkDeleteModal(false)} onConfirm={handleBulkDelete} />}
     </div>
