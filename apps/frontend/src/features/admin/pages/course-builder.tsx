@@ -117,6 +117,18 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
   // Bulk import (Interactive Gate Content Blocks across every lesson)
   const [showBlocksImportModal, setShowBlocksImportModal] = useState(false);
 
+  // Bulk delete (modules + lessons/items) — selection mode toggled from the
+  // 3-dot menu. Reuses the same full-document saveContent() the single
+  // delete handlers already use (see handleDeleteChapter/handleDeleteItem)
+  // rather than a dedicated API — the whole chapters array is already
+  // replaced in one PUT on every save, so a bulk removal is just a bigger
+  // version of the same computed newContent.
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
+  const [selectedChapterIds, setSelectedChapterIds] = useState<Set<string>>(new Set());
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
@@ -397,6 +409,101 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
   };
 
   // -----------------------------------------------------------------------
+  // Bulk Delete (modules + items)
+  // -----------------------------------------------------------------------
+  const startBulkDeleteMode = () => {
+    // Bulk-selecting and inline-editing at the same time is a confusing
+    // combination to render — close out of any in-progress edit first.
+    setEditingChapterIdx(null);
+    setEditingItem(null);
+    setAddingItemChapter(null);
+    setAddingChapter(false);
+    setSelectedChapterIds(new Set());
+    setSelectedItemIds(new Set());
+    setBulkDeleteMode(true);
+  };
+
+  const exitBulkDeleteMode = () => {
+    setBulkDeleteMode(false);
+    setSelectedChapterIds(new Set());
+    setSelectedItemIds(new Set());
+  };
+
+  // Selecting a module implies deleting every item inside it, so its own
+  // items are dropped from selectedItemIds — keeps the two sets from ever
+  // double-counting the same item toward the "items selected" total.
+  const toggleChapterSelected = (chapterId: string) => {
+    setSelectedChapterIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(chapterId)) next.delete(chapterId);
+      else next.add(chapterId);
+      return next;
+    });
+    const chapter = content?.chapters.find((ch) => ch._id === chapterId);
+    if (chapter) {
+      setSelectedItemIds((prev) => {
+        const next = new Set(prev);
+        chapter.items.forEach((it) => next.delete(it._id));
+        return next;
+      });
+    }
+  };
+
+  const toggleItemSelected = (itemId: string) => {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllChapters = () => {
+    if (!content) return;
+    const allSelected = content.chapters.length > 0 && content.chapters.every((ch) => selectedChapterIds.has(ch._id));
+    setSelectedChapterIds(allSelected ? new Set() : new Set(content.chapters.map((ch) => ch._id)));
+    setSelectedItemIds(new Set());
+  };
+
+  // Total items that will actually be removed — individually-selected items
+  // PLUS every item swept up by a fully-selected parent module — so the
+  // count shown to the admin matches the real blast radius of the delete.
+  const bulkSelectedModulesCount = selectedChapterIds.size;
+  const bulkSelectedItemsCount = (content?.chapters || []).reduce((sum, ch) => {
+    if (selectedChapterIds.has(ch._id)) return sum + ch.items.length;
+    return sum + ch.items.filter((it) => selectedItemIds.has(it._id)).length;
+  }, 0);
+  const bulkHasSelection = bulkSelectedModulesCount > 0 || bulkSelectedItemsCount > 0;
+
+  const handleBulkDelete = async () => {
+    if (!content) return;
+    setBulkDeleting(true);
+    const newContent: CourseContent = {
+      ...content,
+      chapters: content.chapters
+        .filter((ch) => !selectedChapterIds.has(ch._id))
+        .map((ch, i) => ({
+          ...ch,
+          order: i,
+          items: ch.items
+            .filter((it) => !selectedItemIds.has(it._id))
+            .map((it, j) => ({ ...it, order: j })),
+        })),
+    };
+    updateContentLocally(() => newContent);
+    try {
+      await saveContent(newContent);
+      showToast(`Deleted ${bulkSelectedModulesCount} module${bulkSelectedModulesCount === 1 ? '' : 's'} and ${bulkSelectedItemsCount} item${bulkSelectedItemsCount === 1 ? '' : 's'}`, 'success');
+      setShowBulkDeleteConfirm(false);
+      exitBulkDeleteMode();
+    } catch {
+      showToast('Failed to delete — please try again.', 'error');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  // -----------------------------------------------------------------------
   // Drag & Drop — Chapters
   // -----------------------------------------------------------------------
   const handleChapterDragStart = (e: React.DragEvent, chapterIdx: number) => {
@@ -640,6 +747,7 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
               onGradebook={() => navigate(`${basePath}/courses/${courseId}/gradebook`)}
               onImportContent={() => setShowImportModal(true)}
               onImportBlocks={() => setShowBlocksImportModal(true)}
+              onBulkDelete={startBulkDeleteMode}
             />
           </div>
         </motion.div>
@@ -680,6 +788,50 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
             courseId={courseId}
             onClose={() => setExamPickerChapter(null)}
             onLink={(exam) => handleLinkExam(examPickerChapter, exam)}
+          />
+        )}
+
+        {bulkDeleteMode && (
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-5 py-3 shadow-elevated">
+            <label className="flex items-center gap-2 text-xs font-medium text-[var(--color-text-secondary)] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!!content && content.chapters.length > 0 && content.chapters.every((ch) => selectedChapterIds.has(ch._id))}
+                onChange={toggleSelectAllChapters}
+                className="h-4 w-4 rounded border-[var(--color-border-default)] text-red-600 focus:ring-red-500 cursor-pointer"
+              />
+              Select All
+            </label>
+            <span className="text-sm font-semibold text-[var(--color-text-primary)]">
+              {bulkHasSelection
+                ? `${bulkSelectedModulesCount} module${bulkSelectedModulesCount === 1 ? '' : 's'}, ${bulkSelectedItemsCount} item${bulkSelectedItemsCount === 1 ? '' : 's'} selected`
+                : 'Select modules or items to delete'}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={exitBulkDeleteMode}
+                className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={!bulkHasSelection}
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Delete Selected
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showBulkDeleteConfirm && (
+          <BulkDeleteChaptersModal
+            modulesCount={bulkSelectedModulesCount}
+            itemsCount={bulkSelectedItemsCount}
+            loading={bulkDeleting}
+            onCancel={() => setShowBulkDeleteConfirm(false)}
+            onConfirm={handleBulkDelete}
           />
         )}
 
@@ -780,23 +932,34 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
               layout
               {...fadeUp}
               transition={{ delay: chIdx * 0.05 }}
-              draggable
+              draggable={!bulkDeleteMode}
               onDragStart={(e: any) => handleChapterDragStart(e, chIdx)}
               onDragOver={(e: any) => handleChapterDragOver(e, chIdx)}
               onDrop={(e: any) => handleChapterDrop(e, chIdx)}
               onDragEnd={handleChapterDragEnd}
               className={`rounded-2xl border bg-[var(--color-surface-primary)] shadow-card transition-all duration-200 ${
-                dragOverChapterIdx === chIdx && dragPayload?.type === 'chapter'
+                bulkDeleteMode && selectedChapterIds.has(chapter._id)
+                  ? 'border-red-400 ring-2 ring-red-200 dark:ring-red-900/40'
+                  : dragOverChapterIdx === chIdx && dragPayload?.type === 'chapter'
                   ? 'border-primary-400 ring-2 ring-primary-200 dark:ring-primary-800 scale-[1.01]'
                   : 'border-[var(--color-border-default)]'
               }`}
             >
               {/* Chapter Header */}
               <div className="flex items-center gap-3 px-5 py-4">
-                {/* Drag Handle */}
-                <span className="cursor-grab text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors select-none text-lg" title="Drag to reorder">
-                  ⠿
-                </span>
+                {bulkDeleteMode ? (
+                  <input
+                    type="checkbox"
+                    checked={selectedChapterIds.has(chapter._id)}
+                    onChange={() => toggleChapterSelected(chapter._id)}
+                    className="h-4 w-4 flex-shrink-0 rounded border-[var(--color-border-default)] text-red-600 focus:ring-red-500 cursor-pointer"
+                    title="Select module"
+                  />
+                ) : (
+                  <span className="cursor-grab text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors select-none text-lg" title="Drag to reorder">
+                    ⠿
+                  </span>
+                )}
 
                 {/* Collapse Toggle */}
                 <button
@@ -825,7 +988,10 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                     <button onClick={() => setEditingChapterIdx(null)} className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]">Cancel</button>
                   </div>
                 ) : (
-                  <div className="flex-1 flex items-center gap-2 min-w-0">
+                  <div
+                    className={`flex-1 flex items-center gap-2 min-w-0 ${bulkDeleteMode ? 'cursor-pointer' : ''}`}
+                    onClick={bulkDeleteMode ? () => toggleChapterSelected(chapter._id) : undefined}
+                  >
                     <span className="text-xs font-mono text-[var(--color-text-tertiary)] bg-[var(--color-surface-tertiary)] rounded-md px-1.5 py-0.5">
                       {chIdx + 1}
                     </span>
@@ -860,15 +1026,17 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                 )}
 
                 {/* Chapter Actions */}
-                <ChapterActionsMenu
-                  status={chapter.status}
-                  onRename={() => {
-                    setEditingChapterIdx(chIdx);
-                    setEditingChapterTitle(chapter.title);
-                  }}
-                  onToggleStatus={() => handleToggleChapterStatus(chIdx)}
-                  onDelete={() => handleDeleteChapter(chIdx)}
-                />
+                {!bulkDeleteMode && (
+                  <ChapterActionsMenu
+                    status={chapter.status}
+                    onRename={() => {
+                      setEditingChapterIdx(chIdx);
+                      setEditingChapterTitle(chapter.title);
+                    }}
+                    onToggleStatus={() => handleToggleChapterStatus(chIdx)}
+                    onDelete={() => handleDeleteChapter(chIdx)}
+                  />
+                )}
               </div>
 
               {/* Chapter Body (items) */}
@@ -896,24 +1064,39 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                         </p>
                       )}
 
-                      {chapter.items.map((item, itemIdx) => (
+                      {chapter.items.map((item, itemIdx) => {
+                        const itemLockedBySelectedChapter = bulkDeleteMode && selectedChapterIds.has(chapter._id);
+                        const itemChecked = itemLockedBySelectedChapter || selectedItemIds.has(item._id);
+                        return (
                         <div key={item._id}>
                           <div
-                            draggable
+                            draggable={!bulkDeleteMode}
                             onDragStart={(e: any) => handleItemDragStart(e, chIdx, itemIdx)}
                             onDragOver={(e: any) => handleItemDragOver(e, chIdx, itemIdx)}
                             onDrop={(e: any) => handleItemDrop(e, chIdx, itemIdx)}
                             onDragEnd={handleItemDragEnd}
                             className={`flex items-center gap-3 rounded-xl border p-3 transition-all duration-150 group ${
-                              dragOverItemIdx?.chapterIdx === chIdx && dragOverItemIdx?.itemIdx === itemIdx && dragPayload?.type === 'chapter-item'
+                              bulkDeleteMode && itemChecked
+                                ? 'border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-950/10'
+                                : dragOverItemIdx?.chapterIdx === chIdx && dragOverItemIdx?.itemIdx === itemIdx && dragPayload?.type === 'chapter-item'
                                 ? 'border-primary-400 bg-primary-50/50 dark:bg-primary-950/20'
                                 : 'border-transparent hover:border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]'
                             }`}
                           >
-                            {/* Item drag handle */}
-                            <span className="cursor-grab text-[var(--color-text-tertiary)] select-none text-sm">
-                              ⠿
-                            </span>
+                            {bulkDeleteMode ? (
+                              <input
+                                type="checkbox"
+                                checked={itemChecked}
+                                disabled={itemLockedBySelectedChapter}
+                                onChange={() => toggleItemSelected(item._id)}
+                                className="h-4 w-4 flex-shrink-0 rounded border-[var(--color-border-default)] text-red-600 focus:ring-red-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                title={itemLockedBySelectedChapter ? 'Included — this module is selected' : 'Select item'}
+                              />
+                            ) : (
+                              <span className="cursor-grab text-[var(--color-text-tertiary)] select-none text-sm">
+                                ⠿
+                              </span>
+                            )}
 
                             {/* Type badge */}
                             <span className={`rounded-full px-2 py-0.5 text-xs font-medium flex-shrink-0 ${itemTypeMeta[item.type]?.color || 'bg-gray-100 text-gray-600'}`}>
@@ -922,8 +1105,12 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
 
                             {/* Title + meta */}
                             <div
-                              className={`flex-1 min-w-0 ${item.type === 'lesson' || item.type === 'quiz' || item.type === 'exam' ? 'cursor-pointer' : ''}`}
+                              className={`flex-1 min-w-0 ${bulkDeleteMode || item.type === 'lesson' || item.type === 'quiz' || item.type === 'exam' ? 'cursor-pointer' : ''}`}
                             onClick={() => {
+                                if (bulkDeleteMode) {
+                                  if (!itemLockedBySelectedChapter) toggleItemSelected(item._id);
+                                  return;
+                                }
                                 if (item.type === 'lesson') {
                                   navigate(`${basePath}/courses/${courseId}/lessons/${item._id}/edit`);
                                 } else if (item.type === 'quiz') {
@@ -974,34 +1161,36 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                             </div>
 
                             {/* Item Actions */}
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={() => {
-                                  if (item.type === 'lesson') navigate(`${basePath}/courses/${courseId}/lessons/${item._id}/edit`);
-                                  else if (item.type === 'quiz') navigate(`${basePath}/courses/${courseId}/quizzes/${item._id}/edit`);
-                                  else if (item.type === 'exam') navigate(`${basePath}/courses/${courseId}/exams/${item._id}/paper/edit`);
-                                  else setEditingItem({ chapterIdx: chIdx, itemIdx });
-                                }}
-                                className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors text-xs"
-                                title="Edit"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                onClick={() => handleToggleItemStatus(chIdx, itemIdx)}
-                                className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-xs"
-                                title={item.status === 'published' ? 'Unpublish' : 'Publish'}
-                              >
-                                {item.status === 'published' ? '📥' : '📤'}
-                              </button>
-                              <button
-                                onClick={() => handleDeleteItem(chIdx, itemIdx)}
-                                className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-xs"
-                                title="Delete"
-                              >
-                                🗑️
-                              </button>
-                            </div>
+                            {!bulkDeleteMode && (
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => {
+                                    if (item.type === 'lesson') navigate(`${basePath}/courses/${courseId}/lessons/${item._id}/edit`);
+                                    else if (item.type === 'quiz') navigate(`${basePath}/courses/${courseId}/quizzes/${item._id}/edit`);
+                                    else if (item.type === 'exam') navigate(`${basePath}/courses/${courseId}/exams/${item._id}/paper/edit`);
+                                    else setEditingItem({ chapterIdx: chIdx, itemIdx });
+                                  }}
+                                  className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors text-xs"
+                                  title="Edit"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  onClick={() => handleToggleItemStatus(chIdx, itemIdx)}
+                                  className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-xs"
+                                  title={item.status === 'published' ? 'Unpublish' : 'Publish'}
+                                >
+                                  {item.status === 'published' ? '📥' : '📤'}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteItem(chIdx, itemIdx)}
+                                  className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-xs"
+                                  title="Delete"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            )}
                           </div>
 
                           {/* Item Editor (inline) — lessons & quizzes now open a dedicated full-page editor instead */}
@@ -1019,7 +1208,8 @@ export function CourseBuilder({ basePath = '/admin' }: CourseBuilderProps) {
                             )}
                           </AnimatePresence>
                         </div>
-                      ))}
+                        );
+                      })}
 
                       {/* Add Item Row */}
                       {addingItemChapter === chIdx ? (
@@ -1137,13 +1327,54 @@ function StatCard({
 }
 
 // ---------------------------------------------------------------------------
+// Bulk Delete confirmation — same shell as the Bulk Delete Students modal
+// (students-manage.tsx) for a consistent "danger action" pattern app-wide.
+// ---------------------------------------------------------------------------
+function BulkDeleteChaptersModal({ modulesCount, itemsCount, loading, onCancel, onConfirm }: {
+  modulesCount: number;
+  itemsCount: number;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const parts: string[] = [];
+  if (modulesCount > 0) parts.push(`${modulesCount} module${modulesCount === 1 ? '' : 's'}`);
+  if (itemsCount > 0) parts.push(`${itemsCount} item${itemsCount === 1 ? '' : 's'}`);
+  const summary = parts.join(' and ') || 'the selection';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onCancel}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/30 text-red-600 text-xl">
+            🗑️
+          </div>
+          <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Delete Selected?</h2>
+        </div>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-5">
+          You're about to delete <strong>{summary}</strong>. This action cannot be undone.
+        </p>
+        <div className="flex gap-2">
+          <button type="button" onClick={onCancel} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={onConfirm} disabled={loading} className="flex-1 rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">
+            {loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+            Confirm Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Three-Dot Actions Dropdown — Gradebook / Import Content / Import Interactive
 // Blocks, tucked behind a single button so the header has room to breathe.
 // ---------------------------------------------------------------------------
-function BuilderActionsMenu({ onGradebook, onImportContent, onImportBlocks }: {
+function BuilderActionsMenu({ onGradebook, onImportContent, onImportBlocks, onBulkDelete }: {
   onGradebook: () => void;
   onImportContent: () => void;
   onImportBlocks: () => void;
+  onBulkDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -1167,6 +1398,8 @@ function BuilderActionsMenu({ onGradebook, onImportContent, onImportBlocks }: {
         <button onClick={() => { setOpen(false); onGradebook(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">📐 Gradebook</button>
         <button onClick={() => { setOpen(false); onImportContent(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">↑ Import Content</button>
         <button onClick={() => { setOpen(false); onImportBlocks(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">🧩 Import Interactive Blocks</button>
+        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+        <button onClick={() => { setOpen(false); onBulkDelete(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 flex items-center gap-2 transition-colors">🗑️ Bulk Delete</button>
       </div>,
       document.body,
     )}
