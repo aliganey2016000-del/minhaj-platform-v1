@@ -78,10 +78,48 @@ export const PARAPHRASE_PROMPT_LINES = buildPromptSheetLines(
   'Rewrite the text in clearer, more polished language while preserving every fact and idea (a paraphrase/polish pass, not new invented content), then split the result into exactly <<NUMBER_OF_BLOCKS>> content blocks. For each block, write <<QUESTIONS_PER_BLOCK>> comprehension question(s) of type <<QUESTION_TYPES>>, answerable purely from that block\'s own content.'
 );
 
-export const PRESERVE_PROMPT_LINES = buildPromptSheetLines(
-  'AI LESSON IMPORT PROMPT — Exact Wording Mode (no paraphrasing)',
-  'Do NOT rewrite, paraphrase, or summarize any of the wording — use my exact original text, character for character. Only split it into exactly <<NUMBER_OF_BLOCKS>> content blocks at natural section breaks. For each block, write <<QUESTIONS_PER_BLOCK>> comprehension question(s) of type <<QUESTION_TYPES>>, answerable purely from that block\'s own (unedited) content.'
-);
+// Exact Wording Mode is a fully-written, ready-to-send prompt (Somali,
+// hardcoded to 3 MCQ questions per block) rather than the generic
+// placeholder-driven template above — supplied directly by the school,
+// so it's kept verbatim rather than run through buildPromptSheetLines.
+export const PRESERVE_PROMPT_LINES = [
+  'PROMPT: Buug u badal Content-Blocks Excel (qoraal aan la badalin + 3 MCQ block kasta)',
+  '',
+  'Waxaan kuu soo lifaaqay (1) template-ka Excel-ka iyo (2) buugga/PDF-ka. Fadlan Excel-ka ka dhis buugga adigoo raacaya tilmaamahan:',
+  '',
+  '1. QAABKA GUUD',
+  '- Isticmaal isla sheet-ka template-ka ku jira ("Example — edit Chapter & Lesson"). Ha sameyn sheet cusub, hana ka tegin xogtii hore ee sheet-kaas ku jirtay (tirtir oo cusub ku qor).',
+  '- Safafka: Chapter Title, Lesson Title, Block Title, Block Content, Min Read Seconds, Question Type, Question Text, Option 1, Option 2, Option 3, Correct Answer, Explanation.',
+  '',
+  '2. CHAPTER IYO LESSON',
+  '- Haddii buuggu leeyahay "Unit"/"Cutub"/"Cashar" oo kala duwan Lesson, isticmaal magacooda asalka ah (tusaale: "Unit 9: Human Organ Systems").',
+  '- Haddii buuggu KALIYA leeyahay "Lesson N: Magaca" (aan lahayn "Chapter" gooni ah), markaa:',
+  '  - Column A (Chapter Title) = "Chapter N: Magaca"',
+  '  - Column B (Lesson Title) = "Lesson N: Magaca"',
+  '  (Labadaba isku lambar iyo isku magac ah, laakiin erayga "Chapter" iyo "Lesson" mid waliba sax uga jira column-kiisa — ha isku daba marin.)',
+  '',
+  '3. BLOCK (Cinwaanka iyo Qoraalka)',
+  '- Unug kasta oo dabiici ah oo buugga ka mid ah (passage, cutub-hoosaad, cashar-hoosaad) = hal BLOCK.',
+  '- Block Title = magaca/cinwaanka unugga, lagu daro lambarka si mid kastaa gaar u noqdo (tusaale: "Passage 1: The Red Cup").',
+  '- Block Content = qoraalka unugga oo SAX AH, sida uu buugga ugu qoran yahay — HA WAXBA KA BADALIN, ha ku darin, hana ka saarin. Haddii buugu yahay sawir/scan ah, si taxaddar leh bog kasta u eeg (ha isku hallayn OCR otomaatig ah oo keliya); haddii eray aanad 100% hubin, calaamadi si cad.',
+  '- Block Content iyo Min Read Seconds waxa laga qoraa KELIYA safka ugu horreeya ee block-kaas (kuwa kale ha ka bannaan yihiin).',
+  '',
+  '4. 3 MCQ BLOCK KASTA',
+  '- Su\'aal kasta waa in ay ku salaysan tahay xaqiiq/qoraal ku jira block-ka qudhiisa — ha been-abuurin, hana ka fekerin wax aan qoraalku sheegin.',
+  '- Isticmaal noocyo kala duwan oo su\'aalo ah si aanay isku nooc noqon (tusaale: fikradda ugu weyn/ujeeddada, eray ama xaqiiq gaar ah, faah-faahin/natiijo).',
+  '- Saddexda ikhtiyaar (options) waa in mid saxa ah leeyahay, labana khaldan yihiin laakiin macquul ah (ka soo qaad qaybo kale oo buugga ah, ha ka dhigin kuwo bin-macquul ah).',
+  '- Beddelbeddel meesha jawaabta saxda ahi ku jirto (1, 2 ama 3) — ha marwalba isku meel ku jirin dhammaan su\'aalaha.',
+  '- Explanation gaaban oo lagu sax-sheego jawaabta, oo ku salaysan qoraalka.',
+  '',
+  '5. HUBINTA KA HOR INTAANAD SOO GUDBIN',
+  '- Chapter/Lesson/Block Title-ku waa in ay saf walba oo block-kaas ka mid ah ku sugan yihiin isku si.',
+  '- Block kasta 3 saf (3 su\'aal) oo Question Type = mcq.',
+  '- Dhammaan 3-da ikhtiyaar (Option 1/2/3) waa in ay buuxaan, Correct Answer-na (1/2/3) sax.',
+  '- Block Title kastaa waa in uu ka duwan yahay kuwa kale (aan isku mid ahayn).',
+  '- Ma jirto saf aan buuxin (blank) oo aan ku jirin qaybo la filayo in ay bannaan yihiin (Block Content/Min Read ee safafka 2aad iyo 3aad).',
+  '',
+  'Marka aad dhammayso, ii soo koob: immisa block, immisa su\'aal, iyo haddii ay jirto qayb aad ka shakisan tahay saxnaanteeda (tusaale qoraal aad u adag ama sawir aan cad ahayn).',
+];
 
 /** Appends the two ready-to-copy AI-prompt sheets to a workbook — shared by this importer's template and the course-wide bulk importer's template. */
 export function appendAiPromptSheets(workbook: XLSX.WorkBook): void {
