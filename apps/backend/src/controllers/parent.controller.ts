@@ -81,6 +81,52 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 };
 
 // ---------------------------------------------------------------------------
+// GET /parents/stats — Aggregate counts (active/inactive/children) across
+// EVERY matching parent, not just the current page. Scoped by organization
+// only (like students' getStats) — deliberately ignores the list's
+// search/status quick-filters, since these summary cards are meant to
+// describe the whole selected organization, not whatever's currently typed
+// into the search box.
+// ---------------------------------------------------------------------------
+
+export const getStats = async (req: Request, res: Response): Promise<Response> => {
+  const school = req.query.school as string | undefined;
+  const filter: Record<string, unknown> = {};
+  if (school && req.user?.role !== 'org_admin') filter.school = school;
+  const scopedFilter = applyOrgFilter(req, filter, 'school') as Record<string, unknown>;
+
+  // applyOrgFilter puts an org_admin's organizationId in as the plain string
+  // pulled off the JWT. Parent.countDocuments() auto-casts that through
+  // Mongoose's query layer, but a raw .aggregate() $match does not — cast
+  // explicitly for the aggregation pipeline only (same issue/fix as
+  // students' computeStudentStats).
+  const aggregateMatch: Record<string, unknown> = { ...scopedFilter };
+  const schoolFilter = aggregateMatch.school as { $in?: unknown[] } | undefined;
+  if (schoolFilter && Array.isArray(schoolFilter.$in)) {
+    aggregateMatch.school = { $in: schoolFilter.$in.map((v) => (v ? new mongoose.Types.ObjectId(v as string) : null)) };
+  }
+
+  const [statusCounts, childrenAgg, total] = await Promise.all([
+    Parent.aggregate([
+      { $match: aggregateMatch },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]),
+    Parent.aggregate([
+      { $match: aggregateMatch },
+      { $project: { childCount: { $size: { $ifNull: ['$children', []] } } } },
+      { $group: { _id: null, total: { $sum: '$childCount' } } },
+    ]),
+    Parent.countDocuments(scopedFilter),
+  ]);
+
+  const active = statusCounts.find((r: any) => r._id === 'active')?.count || 0;
+  const inactive = statusCounts.find((r: any) => r._id === 'inactive')?.count || 0;
+  const totalChildren = childrenAgg[0]?.total || 0;
+
+  return ApiResponse.success(res, { total, active, inactive, totalChildren });
+};
+
+// ---------------------------------------------------------------------------
 // GET /parents/:id
 // ---------------------------------------------------------------------------
 

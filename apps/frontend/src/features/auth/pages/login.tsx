@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -34,6 +34,7 @@ export function LoginPage() {
   const { t: tc } = useTranslation('common');
   const { login, error: authError, clearError } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -51,6 +52,25 @@ export function LoginPage() {
     clearError();
     try {
       const userData: any = await login(data.email, data.password);
+      // If the guard bounced them here from a specific page (session expired
+      // mid-use, or a bookmarked deep link), send them straight back to it
+      // instead of the default dashboard — the guard re-checks role on that
+      // page anyway, so this is safe even if the "from" page belongs to a
+      // different portal than this account turns out to have. Router state
+      // covers the client-side redirect case; the query param covers the
+      // hard window.location redirect axios.ts falls back to when a silent
+      // token refresh fails outright (see lib/axios.ts).
+      const stateFrom = (location.state as { from?: string } | null)?.from;
+      const queryFrom = new URLSearchParams(location.search).get('from');
+      // Only ever follow a same-app relative path — never an absolute URL
+      // or protocol-relative one — so this can't become an open redirect.
+      const isSafeRelativePath = (p: string | null | undefined): p is string =>
+        !!p && p.startsWith('/') && !p.startsWith('//');
+      const from = isSafeRelativePath(stateFrom) ? stateFrom : isSafeRelativePath(queryFrom) ? queryFrom : null;
+      if (from) {
+        navigate(from);
+        return;
+      }
       // Redirect based on role — teachers have their own sandboxed portal
       // at /teacher, admins/org_admins at /admin.
       const role = userData?.role || 'student';

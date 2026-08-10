@@ -23,8 +23,9 @@ router.use(adminOnly);
 
 router.get('/', asyncHandler(parentController.getAll));
 router.post('/', asyncHandler(parentController.create));
-// Registered before /:id so "bulk" is never swallowed as an id param.
+// Registered before /:id so "bulk"/"stats" are never swallowed as an id param.
 router.delete('/bulk', asyncHandler(parentController.bulkRemove));
+router.get('/stats', asyncHandler(parentController.getStats));
 router.get('/:id', asyncHandler(parentController.getById));
 router.patch('/:id', asyncHandler(parentController.update));
 router.delete('/:id', asyncHandler(parentController.remove));

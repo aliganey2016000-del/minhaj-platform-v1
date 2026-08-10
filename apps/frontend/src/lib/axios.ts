@@ -48,8 +48,17 @@ let refreshPromise: Promise<string | null> | null = null;
 
 function refreshAccessToken(): Promise<string | null> {
   if (!refreshPromise) {
+    // Must hit the same absolute API_URL the main `api` instance uses, not
+    // a bare relative path — in production VITE_API_URL points at a
+    // different origin (e.g. api.masjidalrahma.com) than the frontend
+    // itself (e.g. sahaledu.com/suganhub.com), and the refreshToken cookie
+    // is scoped to that API origin. A relative path here resolves against
+    // window.location.origin instead, so the browser never attaches the
+    // cookie and every silent refresh silently fails — invisibly at first
+    // since the access token is still valid, then forcing a full logout
+    // the moment it expires (15 min by default) on the next request.
     refreshPromise = axios
-      .post(`/api/v1/auth/refresh-token`, {}, { withCredentials: true })
+      .post(`${API_URL}/auth/refresh-token`, {}, { withCredentials: true })
       .then(({ data }) => data.data?.accessToken || null)
       .finally(() => {
         refreshPromise = null;
@@ -79,9 +88,13 @@ api.interceptors.response.use(
           return api(originalRequest);
         }
       } catch (refreshError) {
-        // Refresh failed — redirect to login
+        // Refresh failed (refresh token itself expired/invalid, e.g. after
+        // 7 days) — this is a hard window navigation, not a React Router
+        // one, so the return page has to travel as a query param instead
+        // of router state; login.tsx reads it back out on success.
         localStorage.removeItem('accessToken');
-        window.location.href = '/auth/login';
+        const from = window.location.pathname + window.location.search;
+        window.location.href = `/auth/login?from=${encodeURIComponent(from)}`;
         return Promise.reject(refreshError);
       }
     }

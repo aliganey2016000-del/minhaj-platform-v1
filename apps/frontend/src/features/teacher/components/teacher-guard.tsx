@@ -7,17 +7,20 @@
  */
 
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../store/auth-context';
 
 export function TeacherGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (isLoading) return;
     if (!user) {
-      navigate('/auth/login', { replace: true });
+      // Carry the page the user was on so login can send them straight back
+      // to it instead of the default dashboard.
+      navigate('/auth/login', { replace: true, state: { from: location.pathname + location.search } });
       return;
     }
     if (user.role !== 'teacher') {
@@ -31,7 +34,7 @@ export function TeacherGuard({ children }: { children: React.ReactNode }) {
       };
       navigate(redirectMap[user.role] || '/auth/login', { replace: true });
     }
-  }, [user, isLoading, navigate]);
+  }, [user, isLoading, navigate, location]);
 
   if (isLoading || !user || user.role !== 'teacher') {
     return (

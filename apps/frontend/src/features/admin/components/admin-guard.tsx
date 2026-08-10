@@ -7,7 +7,7 @@
  */
 
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../store/auth-context';
 
 const ROLE_PORTAL: Record<string, string> = {
@@ -19,18 +19,23 @@ const ROLE_PORTAL: Record<string, string> = {
 export function AdminGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (isLoading) return;
     if (!user) {
-      navigate('/auth/login', { replace: true });
+      // Carry the page the user was on so login can send them straight
+      // back to it instead of dumping them on the default dashboard —
+      // otherwise a transient session hiccup (e.g. an access token
+      // expiring mid-session) loses their place in the app.
+      navigate('/auth/login', { replace: true, state: { from: location.pathname + location.search } });
       return;
     }
     if (user.role !== 'admin' && user.role !== 'org_admin') {
       const redirect = ROLE_PORTAL[user.role] || '/auth/login';
       navigate(redirect, { replace: true });
     }
-  }, [user, isLoading, navigate]);
+  }, [user, isLoading, navigate, location]);
 
   if (isLoading || !user || (user.role !== 'admin' && user.role !== 'org_admin')) {
     return (
