@@ -212,8 +212,12 @@ export function SchedulesManage() {
   const [filterClasses, setFilterClasses] = useState<ClassBrief[]>([]);
   const [filterCourses, setFilterCourses] = useState<CourseBrief[]>([]);
 
-  // Bulk selection / delete
+  // Bulk selection / delete — `selected` holds explicitly-checked rows on
+  // the loaded page; `selectAllMatching` is a separate "every schedule
+  // matching the current filters, across every page" mode entered via the
+  // banner upsell below, not implied by ticking every row on one page.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -261,6 +265,7 @@ export function SchedulesManage() {
       setTotal(data.meta?.total || 0);
       setHasFetched(true);
       setSelected(new Set());
+      setSelectAllMatching(false);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load schedules');
     } finally {
@@ -743,7 +748,14 @@ export function SchedulesManage() {
   const parsedRows = parsePastedRows();
 
   // ── Bulk selection / delete ──
+  const allOnPageSelected = schedules.length > 0 && schedules.every((s) => selected.has(s._id));
+  const selectedCount = selectAllMatching ? total : selected.size;
+  // Unchecking a single row while "all matching" mode is active collapses
+  // down to "this page, minus that one row" — there's no backend concept of
+  // excluding one id from an all-pages match, so this is the sane
+  // approximation rather than the checkbox appearing to ignore the click.
   const toggleSelected = (id: string) => {
+    if (selectAllMatching) { setSelectAllMatching(false); setSelected(new Set(schedules.map((s) => s._id).filter((sid) => sid !== id))); return; }
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -751,14 +763,28 @@ export function SchedulesManage() {
     });
   };
   const toggleSelectAll = () => {
-    setSelected((prev) => (prev.size === schedules.length ? new Set() : new Set(schedules.map((s) => s._id))));
+    if (selectAllMatching) { setSelectAllMatching(false); setSelected(new Set()); return; }
+    setSelected(allOnPageSelected ? new Set() : new Set(schedules.map((s) => s._id)));
   };
   const handleBulkDelete = async () => {
     setBulkDeleting(true);
     try {
-      const { data } = await api.post('/class-schedules/bulk-delete', { ids: Array.from(selected) });
-      setMessage(data?.message || `Deleted ${selected.size} schedule(s)`);
+      const payload = selectAllMatching
+        ? { selectAllMatching: true, filters: {
+            search: searchTerm || undefined,
+            school: filterSchool || undefined,
+            department: columnParams.departmentIds.length ? columnParams.departmentIds.join(',') : undefined,
+            class: columnParams.classIds.length ? columnParams.classIds.join(',') : undefined,
+            course: columnParams.courseIds.length ? columnParams.courseIds.join(',') : undefined,
+            teacher: columnParams.teacherIds.length ? columnParams.teacherIds.join(',') : undefined,
+            day: columnParams.days.length ? columnParams.days.join(',') : undefined,
+            status: columnParams.statuses.length ? columnParams.statuses.join(',') : undefined,
+          } }
+        : { ids: Array.from(selected) };
+      const { data } = await api.post('/class-schedules/bulk-delete', payload);
+      setMessage(data?.message || `Deleted ${selectedCount} schedule(s)`);
       setSelected(new Set());
+      setSelectAllMatching(false);
       setShowBulkDeleteModal(false);
       fetchSchedules(page);
     } catch (err: any) {
@@ -787,7 +813,7 @@ export function SchedulesManage() {
               exporting={exporting}
               onNew={() => { resetForm(); setShowForm(true); }}
               onBulkDelete={() => setShowBulkDeleteModal(true)}
-              selectedCount={selected.size}
+              selectedCount={selectedCount}
             />
           </div>
         </div>
@@ -1290,12 +1316,26 @@ export function SchedulesManage() {
         {/* ── Schedules Table ── */}
         {!loading && hasFetched && schedules.length > 0 && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            {selectAllMatching ? (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-5 py-2.5 text-xs bg-primary-50 dark:bg-primary-950/30 border-b border-[var(--color-border-subtle)] text-primary-700 dark:text-primary-300">
+                <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} />
+                <span>All <strong>{total}</strong> schedules matching your filters are selected{totalPages > 1 ? ` (across ${totalPages} pages)` : ''}.</span>
+                <button onClick={() => { setSelectAllMatching(false); setSelected(new Set(schedules.map((s) => s._id))); }} className="font-semibold underline hover:no-underline">Select only this page ({schedules.length})</button>
+                <span className="text-primary-300 dark:text-primary-700">·</span>
+                <button onClick={() => { setSelectAllMatching(false); setSelected(new Set()); }} className="font-semibold underline hover:no-underline">Clear selection</button>
+              </div>
+            ) : (allOnPageSelected && total > schedules.length && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-5 py-2.5 text-xs bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-subtle)] text-[var(--color-text-secondary)]">
+                <span>All {schedules.length} schedules on this page are selected.</span>
+                <button onClick={() => setSelectAllMatching(true)} className="font-semibold text-primary-600 hover:underline">Select all {total} schedules across {totalPages} page{totalPages !== 1 ? 's' : ''}</button>
+              </div>
+            ))}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-[var(--color-surface-secondary)] text-left text-xs font-semibold text-[var(--color-text-tertiary)] uppercase">
                   <tr>
                     <th className="px-4 py-3 w-10">
-                      <input type="checkbox" checked={selected.size > 0 && selected.size === schedules.length} onChange={toggleSelectAll} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30 cursor-pointer" />
+                      <input type="checkbox" checked={selectAllMatching || allOnPageSelected} onChange={toggleSelectAll} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30 cursor-pointer" />
                     </th>
                     <th className="px-4 py-3">Organization</th>
                     <th className="px-4 py-3"><ColumnFilterHeader label="Department" colKey="department" options={filterDepartments.map((d) => ({ value: d._id, label: d.name }))} currentSelected={scheduleColumnFilters.department ?? null} currentSort={scheduleSortCol === 'department' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
@@ -1362,13 +1402,13 @@ export function SchedulesManage() {
                 <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Bulk Delete Schedules</h2>
               </div>
               <p className="text-sm text-[var(--color-text-secondary)] mb-5">
-                You're about to delete <strong>{selected.size}</strong> schedule{selected.size !== 1 ? 's' : ''}. This action cannot be undone.
+                You're about to delete <strong>{selectedCount}</strong> schedule{selectedCount !== 1 ? 's' : ''}{selectAllMatching ? ' — every schedule matching your current filters, across all pages' : ''}. This action cannot be undone.
               </p>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setShowBulkDeleteModal(false)} disabled={bulkDeleting} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
                 <button type="button" onClick={handleBulkDelete} disabled={bulkDeleting} className="flex-1 rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">
                   {bulkDeleting && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                  Delete {selected.size}
+                  Delete {selectedCount}
                 </button>
               </div>
             </div>

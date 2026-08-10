@@ -78,24 +78,34 @@ function scheduleSortValue(sch: any, sortBy: string): string | number {
   }
 }
 
-// ---------------------------------------------------------------------------
-// GET /class-schedules — List schedules (paginated, filterable)
-// ---------------------------------------------------------------------------
+interface ScheduleFilterParams {
+  school?: unknown;
+  course?: unknown;
+  teacher?: unknown;
+  class?: unknown;
+  department?: unknown;
+  day?: unknown;
+  status?: unknown;
+  search?: unknown;
+}
 
-export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const { search } = req.query;
-  const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
-
-  const schoolIds = parseMultiValue(req.query.school);
-  const courseIds = parseMultiValue(req.query.course);
-  const teacherIds = parseMultiValue(req.query.teacher);
-  const classIds = parseMultiValue(req.query.class);
-  const departmentIds = parseMultiValue(req.query.department);
-  const dayValues = parseMultiValue(req.query.day)
+/**
+ * Resolves every ClassSchedule matching the given params — populated,
+ * search/department-filtered, but UNSORTED and UNPAGINATED. Shared by
+ * `getAll` (which sorts+paginates the result) and `bulkRemove`'s "select
+ * all matching" path (which just needs every id), so "select all across
+ * every page" always deletes exactly what the table is currently showing.
+ */
+async function resolveMatchingSchedules(req: Request, params: ScheduleFilterParams): Promise<any[]> {
+  const schoolIds = parseMultiValue(params.school);
+  const courseIds = parseMultiValue(params.course);
+  const teacherIds = parseMultiValue(params.teacher);
+  const classIds = parseMultiValue(params.class);
+  const departmentIds = parseMultiValue(params.department);
+  const dayValues = parseMultiValue(params.day)
     .map((d) => parseInt(d, 10))
     .filter((d) => !isNaN(d) && d >= 0 && d <= 6);
-  const statusValues = parseMultiValue(req.query.status).filter((s) => s === 'active' || s === 'inactive');
+  const statusValues = parseMultiValue(params.status).filter((s) => s === 'active' || s === 'inactive');
 
   const baseFilter: Record<string, unknown> = {};
   if (schoolIds.length > 0) baseFilter.school = { $in: schoolIds };
@@ -112,8 +122,8 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   // For search (and the department filter — Department lives on the
   // populated Class, not directly on ClassSchedule) we need populated
-  // documents first — so both happen post-query, same as before.
-  const hasSearch = typeof search === 'string' && search.trim().length > 0;
+  // documents first — so both happen post-query.
+  const hasSearch = typeof params.search === 'string' && params.search.trim().length > 0;
 
   const schedules = await ClassSchedule.find(filter)
     .populate('school', 'name')
@@ -124,7 +134,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   let filtered = schedules;
   if (hasSearch) {
-    const s = (search as string).toLowerCase();
+    const s = (params.search as string).toLowerCase();
     filtered = filtered.filter((sch: any) => {
       const courseTitle = (sch.course?.title?.en || sch.course?.title || '').toLowerCase();
       const teacherName = [
@@ -151,6 +161,19 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
       return !!deptId && deptSet.has(String(deptId));
     });
   }
+
+  return filtered;
+}
+
+// ---------------------------------------------------------------------------
+// GET /class-schedules — List schedules (paginated, filterable)
+// ---------------------------------------------------------------------------
+
+export const getAll = async (req: Request, res: Response): Promise<Response> => {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
+
+  let filtered = await resolveMatchingSchedules(req, req.query as ScheduleFilterParams);
 
   const sortByRaw = typeof req.query.sortBy === 'string' ? req.query.sortBy : '';
   const sortBy = CLASS_SCHEDULE_SORT_FIELDS.has(sortByRaw) ? sortByRaw : null;
@@ -301,9 +324,19 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
 // ---------------------------------------------------------------------------
 
 export const bulkRemove = async (req: Request, res: Response): Promise<Response> => {
-  const ids: string[] = Array.isArray(req.body?.ids)
-    ? req.body.ids.filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0)
-    : [];
+  let ids: string[];
+
+  if (req.body?.selectAllMatching) {
+    // "Select all across every page" — resolve ids from the SAME matching
+    // logic getAll uses (with whatever filters were active on the table),
+    // not just whatever happened to be loaded on the current page.
+    const matched = await resolveMatchingSchedules(req, (req.body?.filters || {}) as ScheduleFilterParams);
+    ids = matched.map((sch: any) => String(sch._id));
+  } else {
+    ids = Array.isArray(req.body?.ids)
+      ? req.body.ids.filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0)
+      : [];
+  }
   if (ids.length === 0) throw new BadRequestError('No schedule ids provided');
 
   // Scoping through applyOrgFilter (not just trusting the ids the client
