@@ -27,6 +27,8 @@ router.get('/template', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctr
 router.get('/my', roleMiddleware(['student']), asyncHandler(ctrl.getMySchedules));
 router.get('/my-teaching', roleMiddleware(['teacher']), asyncHandler(ctrl.getMyScheduleAsTeacher));
 router.get('/status/:courseId', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(ctrl.checkScheduleStatus));
+// Registered before /:id so "bulk-delete" is never swallowed as an id param.
+router.post('/bulk-delete', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.bulkRemove));
 router.get('/:id', adminOrTeacher, asyncHandler(ctrl.getById));
 router.put('/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.update));
 router.delete('/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.remove));

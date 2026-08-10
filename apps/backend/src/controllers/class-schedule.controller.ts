@@ -6,9 +6,12 @@
  * for a given course.
  *
  * GET /class-schedules supports:
- *   ?school=<id>   — filter by organization (super admin); org_admin auto-scoped
- *   ?day=<0-6>     — filter by day of week (0=Sunday…6=Saturday)
+ *   ?school=&department=&class=&course=&teacher=&day=&status=
+ *                  — each accepts one value or a comma-separated list
+ *                    (school: super admin only; org_admin is auto-scoped)
  *   ?search=<term> — search by course title, teacher name, or class title
+ *   ?sortBy=&sortDir= — sortBy one of organization/department/class/course/
+ *                    teacher/day/time/status; sortDir asc|desc
  *   ?page=&limit=  — pagination
  */
 
@@ -50,49 +53,79 @@ const CLASS_POPULATE = {
   populate: { path: 'department', select: 'name' },
 };
 
+function parseMultiValue(raw: unknown): string[] {
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  return raw.split(',').map((v) => v.trim()).filter(Boolean);
+}
+
+const CLASS_SCHEDULE_SORT_FIELDS = new Set(['organization', 'department', 'class', 'course', 'teacher', 'day', 'time', 'status']);
+
+/** Populated-field-aware sort key extractor — everything is already loaded
+ *  into memory below, so a populated field (course title, teacher name...)
+ *  sorts exactly as easily as a direct one (unlike a DB-level `.sort()`,
+ *  which can't reach into a ref before it's populated). */
+function scheduleSortValue(sch: any, sortBy: string): string | number {
+  switch (sortBy) {
+    case 'organization': return (sch.school?.name || '').toLowerCase();
+    case 'department': return (sch.class?.department?.name || '').toLowerCase();
+    case 'class': return `${sch.class?.title || ''} ${sch.class?.section || ''}`.toLowerCase();
+    case 'course': return (sch.course?.title?.en || sch.course?.title || '').toLowerCase();
+    case 'teacher': return `${sch.teacher?.profile?.firstName || ''} ${sch.teacher?.profile?.lastName || ''}`.toLowerCase();
+    case 'day': return sch.dayOfWeek;
+    case 'time': return sch.startTime || '';
+    case 'status': return sch.isActive ? 1 : 0;
+    default: return 0;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GET /class-schedules — List schedules (paginated, filterable)
 // ---------------------------------------------------------------------------
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const { course, teacher, class: classId, day, search, school } = req.query;
+  const { search } = req.query;
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
 
+  const schoolIds = parseMultiValue(req.query.school);
+  const courseIds = parseMultiValue(req.query.course);
+  const teacherIds = parseMultiValue(req.query.teacher);
+  const classIds = parseMultiValue(req.query.class);
+  const departmentIds = parseMultiValue(req.query.department);
+  const dayValues = parseMultiValue(req.query.day)
+    .map((d) => parseInt(d, 10))
+    .filter((d) => !isNaN(d) && d >= 0 && d <= 6);
+  const statusValues = parseMultiValue(req.query.status).filter((s) => s === 'active' || s === 'inactive');
+
   const baseFilter: Record<string, unknown> = {};
-  if (school) baseFilter.school = school;
+  if (schoolIds.length > 0) baseFilter.school = { $in: schoolIds };
   const filter: Record<string, unknown> = applyOrgFilter(req, baseFilter, 'school');
 
-  if (course) filter.course = course;
-  if (teacher) filter.teacher = teacher;
-  if (classId) filter.class = classId;
-  if (day !== undefined && day !== '') {
-    const dayNum = parseInt(day as string, 10);
-    if (!isNaN(dayNum) && dayNum >= 0 && dayNum <= 6) {
-      filter.dayOfWeek = dayNum;
-    }
-  }
+  if (courseIds.length > 0) filter.course = { $in: courseIds };
+  if (teacherIds.length > 0) filter.teacher = { $in: teacherIds };
+  if (classIds.length > 0) filter.class = { $in: classIds };
+  if (dayValues.length > 0) filter.dayOfWeek = { $in: dayValues };
+  // Both "active" and "inactive" selected together is equivalent to no
+  // filter (every schedule matches one or the other) — only constrain the
+  // query when exactly one status is picked.
+  if (statusValues.length === 1) filter.isActive = statusValues[0] === 'active';
 
-  // For search we need to build an $or across populated fields — but populate
-  // happens after find(), so we do search post-query for simplicity.
+  // For search (and the department filter — Department lives on the
+  // populated Class, not directly on ClassSchedule) we need populated
+  // documents first — so both happen post-query, same as before.
   const hasSearch = typeof search === 'string' && search.trim().length > 0;
 
-  const [schedules, total] = await Promise.all([
-    ClassSchedule.find(filter)
-      .populate('school', 'name')
-      .populate(CLASS_POPULATE)
-      .populate('course', 'title')
-      .populate(TEACHER_POPULATE)
-      .sort({ dayOfWeek: 1, startTime: 1 })
-      .lean(),
-    ClassSchedule.countDocuments(filter),
-  ]);
+  const schedules = await ClassSchedule.find(filter)
+    .populate('school', 'name')
+    .populate(CLASS_POPULATE)
+    .populate('course', 'title')
+    .populate(TEACHER_POPULATE)
+    .lean();
 
-  // Post-populate search + pagination
   let filtered = schedules;
   if (hasSearch) {
     const s = (search as string).toLowerCase();
-    filtered = schedules.filter((sch: any) => {
+    filtered = filtered.filter((sch: any) => {
       const courseTitle = (sch.course?.title?.en || sch.course?.title || '').toLowerCase();
       const teacherName = [
         sch.teacher?.profile?.firstName,
@@ -111,6 +144,26 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
       );
     });
   }
+  if (departmentIds.length > 0) {
+    const deptSet = new Set(departmentIds);
+    filtered = filtered.filter((sch: any) => {
+      const deptId = typeof sch.class?.department === 'string' ? sch.class.department : sch.class?.department?._id;
+      return !!deptId && deptSet.has(String(deptId));
+    });
+  }
+
+  const sortByRaw = typeof req.query.sortBy === 'string' ? req.query.sortBy : '';
+  const sortBy = CLASS_SCHEDULE_SORT_FIELDS.has(sortByRaw) ? sortByRaw : null;
+  const sortDir = req.query.sortDir === 'desc' ? -1 : 1;
+  filtered = sortBy
+    ? [...filtered].sort((a, b) => {
+        const av = scheduleSortValue(a, sortBy);
+        const bv = scheduleSortValue(b, sortBy);
+        if (av < bv) return -sortDir;
+        if (av > bv) return sortDir;
+        return 0;
+      })
+    : [...filtered].sort((a: any, b: any) => (a.dayOfWeek - b.dayOfWeek) || String(a.startTime).localeCompare(b.startTime));
 
   const totalFiltered = filtered.length;
   const paginated = filtered.slice((page - 1) * limit, page * limit);
@@ -239,6 +292,29 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   const schedule = await ClassSchedule.findByIdAndDelete(req.params.id);
   if (!schedule) throw new NotFoundError('Schedule not found');
   return ApiResponse.success(res, null, 'Schedule deleted');
+};
+
+// ---------------------------------------------------------------------------
+// POST /class-schedules/bulk-delete — Delete many schedules in one request
+// (no Trash/restore for this resource — single delete above is already
+// permanent, so bulk matches that instead of introducing a second behavior)
+// ---------------------------------------------------------------------------
+
+export const bulkRemove = async (req: Request, res: Response): Promise<Response> => {
+  const ids: string[] = Array.isArray(req.body?.ids)
+    ? req.body.ids.filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0)
+    : [];
+  if (ids.length === 0) throw new BadRequestError('No schedule ids provided');
+
+  // Scoping through applyOrgFilter (not just trusting the ids the client
+  // sent) means an org_admin can never delete another org's schedule even
+  // if a stray id from elsewhere ended up in the request — it's just
+  // silently excluded from the match, same spirit as assertOwnsOrg on the
+  // single-delete path above.
+  const filter: Record<string, unknown> = applyOrgFilter(req, { _id: { $in: ids } }, 'school');
+  const result = await ClassSchedule.deleteMany(filter);
+
+  return ApiResponse.success(res, { deleted: result.deletedCount }, `Deleted ${result.deletedCount} schedule(s)`);
 };
 
 // ---------------------------------------------------------------------------
@@ -637,6 +713,92 @@ export const bulkImportTransactional = async (req: Request, res: Response): Prom
   const errors: { row: number; message: string }[] = [];
   const documents: any[] = [];
 
+  // ---------------------------------------------------------------------
+  // Batch-resolve every School/Department/Class/Course/Teacher the file
+  // could reference, UP FRONT, instead of the ~5-6 sequential DB round-
+  // trips per row this used to do (400 rows -> 2000+ round-trips against
+  // the remote Atlas cluster — easily enough to blow a request/proxy
+  // timeout partway through, which is what made large files appear to
+  // silently stop partway through import). Schools/Departments/Classes/
+  // Courses/Teachers are all small per-organization reference tables, so
+  // fetching each one ONCE (regardless of row count) and matching entirely
+  // in memory below is both correct and dramatically faster.
+  // ---------------------------------------------------------------------
+
+  let schoolIdByName: Map<string, string> | null = null;
+  if (!ownOrgId) {
+    const allSchools = await School.find({}, { name: 1 }).lean();
+    schoolIdByName = new Map(allSchools.map((s: any) => [String(s.name).trim().toLowerCase(), s._id.toString()]));
+  }
+
+  // Every school a row could resolve to — org_admin is always their own
+  // org; super admin depends on each row's own School column, so every
+  // known school stays in scope (still one query per collection either way).
+  const relevantSchoolIds = ownOrgId ? [ownOrgId] : Array.from(schoolIdByName!.values());
+
+  const [allDepartments, allClasses, allCourses, nameScopedTeachers] = await Promise.all([
+    Department.find({ tenantId: { $in: relevantSchoolIds } }).lean(),
+    ClassModel.find({ school: { $in: relevantSchoolIds } }).lean(),
+    Course.find({ school: { $in: relevantSchoolIds } }).lean(),
+    Teacher.find({ school: { $in: relevantSchoolIds } }).populate('profile', 'firstName lastName').lean(),
+  ]);
+
+  const departmentByKey = new Map<string, any>();
+  for (const d of allDepartments as any[]) departmentByKey.set(`${d.tenantId}|||${String(d.name).trim().toLowerCase()}`, d);
+
+  // Keyed by title only (not title+section) — a row with no Section value
+  // matches on title alone, same as the original `findOne` with no section
+  // clause in its filter; classCandidates[0] mirrors that query returning
+  // whichever doc Mongo found first when several sections share a title.
+  const classesByTitleKey = new Map<string, any[]>();
+  for (const c of allClasses as any[]) {
+    const key = `${c.school}|||${c.department}|||${String(c.title).trim().toLowerCase()}`;
+    if (!classesByTitleKey.has(key)) classesByTitleKey.set(key, []);
+    classesByTitleKey.get(key)!.push(c);
+  }
+
+  const courseByKey = new Map<string, any>();
+  for (const co of allCourses as any[]) courseByKey.set(`${co.school}|||${String(co.title?.en || '').trim().toLowerCase()}`, co);
+
+  // Teacher-by-email lookup is intentionally NOT scoped to relevantSchoolIds
+  // — the original resolveTeacherId() looked up the email globally (via
+  // User, not Teacher.school), so preserving that means a separate,
+  // narrowly-scoped fetch keyed off exactly the email-looking identifiers
+  // the file actually references (bounded by distinct emails, not rows).
+  const teacherIdentifiers = new Set<string>();
+  for (const row of rows) {
+    const t = String(getField(row, 'Teacher Email', 'Teacher') ?? '').trim();
+    if (t) teacherIdentifiers.add(t);
+  }
+  const emailIdentifiers = Array.from(teacherIdentifiers).filter((t) => t.includes('@')).map((t) => t.toLowerCase());
+  const emailUsers = emailIdentifiers.length > 0
+    ? await User.find({ email: { $in: emailIdentifiers }, role: 'teacher' }).lean()
+    : [];
+  const userIdByEmail = new Map(emailUsers.map((u: any) => [String(u.email).toLowerCase(), String(u._id)]));
+  const emailUserIds = emailUsers.map((u: any) => u._id);
+  const emailTeachers = emailUserIds.length > 0 ? await Teacher.find({ user: { $in: emailUserIds } }).lean() : [];
+  const teacherByUserId = new Map(emailTeachers.map((t: any) => [String(t.user), t]));
+
+  function resolveTeacherIdBatched(identifier: string, schoolId: string): mongoose.Types.ObjectId {
+    if (identifier.includes('@')) {
+      const userId = userIdByEmail.get(identifier.toLowerCase());
+      if (!userId) throw new Error(`Teacher with email "${identifier}" not found`);
+      const teacherDoc = teacherByUserId.get(userId);
+      if (!teacherDoc) throw new Error(`No teacher profile linked to "${identifier}"`);
+      return teacherDoc._id;
+    }
+    const normalized = identifier.trim().toLowerCase().replace(/\s+/g, ' ');
+    const matches = nameScopedTeachers.filter((t: any) => {
+      if (String(t.school) !== String(schoolId)) return false;
+      const full = `${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`.trim().toLowerCase().replace(/\s+/g, ' ');
+      return full === normalized;
+    });
+    if (matches.length === 0) throw new Error(`Teacher "${identifier}" not found at this organization — use their email to disambiguate`);
+    if (matches.length > 1) throw new Error(`Multiple teachers named "${identifier}" — use their email instead`);
+    return (matches[0] as any)._id;
+  }
+
+  // ---- Row loop — purely in-memory now, no awaits ----
   for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 2; // header is row 1
     const row = rows[i];
@@ -661,34 +823,24 @@ export const bulkImportTransactional = async (req: Request, res: Response): Prom
       let schoolId: string | undefined = ownOrgId;
       if (!schoolId) {
         if (!schoolName) throw new Error('School is required');
-        const school = await School.findOne({ name: new RegExp(`^${escapeRegex(schoolName)}$`, 'i') }).lean();
-        if (!school) throw new Error(`School "${schoolName}" not found`);
-        schoolId = school._id.toString();
+        schoolId = schoolIdByName!.get(schoolName.toLowerCase());
+        if (!schoolId) throw new Error(`School "${schoolName}" not found`);
       }
 
-      const departmentDoc = await Department.findOne({
-        tenantId: schoolId,
-        name: new RegExp(`^${escapeRegex(departmentName)}$`, 'i'),
-      }).lean();
+      const departmentDoc = departmentByKey.get(`${schoolId}|||${departmentName.toLowerCase()}`);
       if (!departmentDoc) throw new Error(`Department "${departmentName}" not found`);
 
       const { name: resolvedClassName, section: resolvedSection } = splitClassAndSection(className, section);
-      const classFilter: Record<string, unknown> = {
-        school: schoolId,
-        department: departmentDoc._id,
-        title: new RegExp(`^${escapeRegex(resolvedClassName)}$`, 'i'),
-      };
-      if (resolvedSection) classFilter.section = new RegExp(`^${escapeRegex(resolvedSection)}$`, 'i');
-      const classDoc = await ClassModel.findOne(classFilter).lean();
+      const classCandidates = classesByTitleKey.get(`${schoolId}|||${departmentDoc._id}|||${resolvedClassName.toLowerCase()}`) || [];
+      const classDoc = resolvedSection
+        ? classCandidates.find((c: any) => String(c.section || '').trim().toLowerCase() === resolvedSection.toLowerCase())
+        : classCandidates[0];
       if (!classDoc) throw new Error(`Class "${resolvedClassName}${resolvedSection ? ' ' + resolvedSection : ''}" not found in department "${departmentName}"`);
 
-      const courseDoc = await Course.findOne({
-        school: schoolId,
-        'title.en': new RegExp(`^${escapeRegex(courseTitle)}$`, 'i'),
-      }).lean();
+      const courseDoc = courseByKey.get(`${schoolId}|||${courseTitle.toLowerCase()}`);
       if (!courseDoc) throw new Error(`Course "${courseTitle}" not found`);
 
-      const teacherId = await resolveTeacherId(teacherEmail, schoolId);
+      const teacherId = resolveTeacherIdBatched(teacherEmail, schoolId);
 
       const dayOfWeek = parseDay(dayRaw);
       if (dayOfWeek === null) throw new Error(`Invalid day of week "${dayRaw}"`);
