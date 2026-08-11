@@ -376,7 +376,9 @@ export const getMySchedules = async (req: Request, res: Response): Promise<Respo
     class: (student as any).class,
     isActive: true,
   })
-    .populate('course', 'title')
+    // isLive lets the student schedule page show a "Join Class" action for
+    // whatever course the teacher currently has live (see student-schedule.tsx).
+    .populate('course', 'title isLive')
     .populate({ path: 'teacher', populate: { path: 'profile', select: 'firstName lastName' } })
     .sort({ dayOfWeek: 1, startTime: 1 })
     .lean();
