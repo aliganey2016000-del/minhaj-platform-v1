@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { CalendarClock, PlayCircle, CheckCircle2, XCircle, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid } from 'lucide-react';
+import { CalendarClock, PlayCircle, CheckCircle2, XCircle, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -178,6 +178,57 @@ function RowActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEd
           </button>
           <button onClick={() => { setOpen(false); onDelete(); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
             <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page Header Actions — Import / Export / Bulk Delete, tucked behind a
+// single "⋮" button; "+ Schedule Exam" (the primary action) stays outside
+// as its own button.
+// ---------------------------------------------------------------------------
+
+function ExamsActionsMenu({ onImport, onExport, exporting, onBulkDelete, selectedCount }: {
+  onImport: () => void;
+  onExport: () => void;
+  exporting: boolean;
+  onBulkDelete: () => void;
+  selectedCount: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors"
+        title="More Actions"
+      >
+        <MoreVertical className="h-5 w-5" strokeWidth={1.75} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-1 w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-lg py-1 text-left">
+          <button onClick={() => { setOpen(false); onImport(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <Upload className="h-3.5 w-3.5" strokeWidth={1.75} /> Import Exams
+          </button>
+          <button onClick={() => { setOpen(false); onExport(); }} disabled={exporting} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50 transition-colors">
+            <Download className="h-3.5 w-3.5" strokeWidth={1.75} /> {exporting ? 'Exporting...' : 'Export Data'}
+          </button>
+          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+          <button onClick={() => { setOpen(false); onBulkDelete(); }} disabled={selectedCount === 0} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Bulk Delete{selectedCount > 0 ? ` (${selectedCount})` : ''}
           </button>
         </div>
       )}
@@ -615,6 +666,242 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 // ---------------------------------------------------------------------------
+// Bulk Import Modal — Excel/CSV upload or manual paste, mirroring the same
+// shell used by the other admin importers (Students, Class Schedules).
+// ---------------------------------------------------------------------------
+
+interface ImportResult { totalRows: number; created: number; failed: number; errors: { row: number; message: string }[]; }
+
+function ExamsImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const [mode, setMode] = useState<'upload' | 'paste'>('upload');
+  const [dragOver, setDragOver] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pasteText, setPasteText] = useState('');
+  const [pasteError, setPasteError] = useState('');
+  const [error, setError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const token = localStorage.getItem('accessToken') || '';
+      const response = await fetch(`${api.defaults.baseURL}/exams/template`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'exams-template.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('Failed to download template');
+    }
+  };
+
+  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) setSelectedFile(file);
+  };
+
+  const submitImport = async (file: File) => {
+    setImporting(true);
+    setError('');
+    setResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const { data } = await api.post('/exams/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setResult(data.data);
+      if (data.data?.created > 0) {
+        onImported();
+        if (!data.data?.failed) onClose();
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const submitFileImport = () => { if (selectedFile) submitImport(selectedFile); };
+
+  const parsePastedRows = (): string[][] => {
+    if (!pasteText.trim()) return [];
+    return pasteText.trim().split(/\r?\n/).map((l) => l.split('\t').map((c) => c.trim())).filter((r) => r.length > 0 && r.some((c) => c !== ''));
+  };
+
+  const submitPasteImport = () => {
+    const rows = parsePastedRows();
+    if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; }
+    if (rows[0].length < 2) { setPasteError("That doesn't look like tabular data — make sure each row has more than one tab-separated column."); return; }
+    const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const file = new File([blob], 'pasted-exams.csv', { type: 'text/csv' });
+    setPasteError('');
+    submitImport(file);
+  };
+
+  const parsedRows = parsePastedRows();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="border-b border-[var(--color-border-subtle)] px-6 py-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Import Exams</h2>
+              <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Bulk-create manually-scheduled exams from a spreadsheet.</p>
+            </div>
+            <button onClick={onClose} disabled={importing} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors">
+              <X className="h-5 w-5" strokeWidth={2} />
+            </button>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-6">
+          <button onClick={handleDownloadTemplate} className="w-full rounded-xl border-2 border-dashed border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-950/20 px-5 py-4 text-left hover:bg-primary-100 dark:hover:bg-primary-950/40 transition-colors group">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">📥</span>
+                <div>
+                  <p className="text-sm font-bold text-primary-700 dark:text-primary-300 group-hover:text-primary-800 dark:group-hover:text-primary-200">Download Excel Template</p>
+                  <p className="text-xs text-primary-600/70 dark:text-primary-400/70 mt-0.5">Pre-formatted .xlsx file with the correct column structure</p>
+                </div>
+              </div>
+              <Download className="h-5 w-5 text-primary-500 group-hover:translate-y-0.5 transition-transform" strokeWidth={1.75} />
+            </div>
+          </button>
+          <p className="text-xs text-[var(--color-text-tertiary)] -mt-3">
+            💡 Only manually-scheduled exams can be bulk-imported — an auto-scheduled exam has no fixed date/time of its own, so set those up individually via "+ Schedule Exam".
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <button onClick={() => { setMode('upload'); setPasteError(''); }} className={`rounded-xl border-2 p-4 text-left transition-all ${mode === 'upload' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm' : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'}`}>
+              <span className="text-2xl block mb-1">📁</span>
+              <p className={`text-sm font-bold ${mode === 'upload' ? 'text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-primary)]'}`}>Upload Excel File</p>
+              <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Drag and drop your .xlsx file</p>
+            </button>
+            <button onClick={() => { setMode('paste'); setPasteError(''); }} className={`rounded-xl border-2 p-4 text-left transition-all ${mode === 'paste' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm' : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'}`}>
+              <span className="text-2xl block mb-1">📋</span>
+              <p className={`text-sm font-bold ${mode === 'paste' ? 'text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-primary)]'}`}>Manual Copy &amp; Paste</p>
+              <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Paste tabular data from your clipboard</p>
+            </button>
+          </div>
+
+          {mode === 'upload' && (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleFileDrop}
+              className={`rounded-xl border-2 border-dashed p-10 text-center transition-colors ${dragOver ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20' : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]'}`}
+            >
+              {selectedFile ? (
+                <div className="space-y-3">
+                  <span className="text-3xl">✅</span>
+                  <p className="text-sm font-semibold text-[var(--color-text-primary)]">{selectedFile.name}</p>
+                  <p className="text-xs text-[var(--color-text-tertiary)]">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                  <button onClick={() => setSelectedFile(null)} className="text-xs text-red-500 hover:underline">Remove file</button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <span className="text-3xl">📂</span>
+                  <p className="text-sm font-medium text-[var(--color-text-secondary)]">Drag and drop your Excel file here, or</p>
+                  <label className="inline-block cursor-pointer rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-700 transition-colors">
+                    Browse Files
+                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) setSelectedFile(f); }} className="hidden" />
+                  </label>
+                  <p className="text-xs text-[var(--color-text-tertiary)]">Supported formats: .xlsx, .xls, .csv (max 10 MB)</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {mode === 'paste' && (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+                <p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below, including the header row (tab-separated columns):</p>
+                <p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">
+                  Organization &nbsp; Course Title &nbsp; Exam Title &nbsp; Exam Date &nbsp; Start Time &nbsp; End Time &nbsp; Duration &nbsp; Total Marks &nbsp; Passing Marks &nbsp; Room &nbsp; Instructions
+                  <span className="italic"> (Organization only needed if you manage more than one)</span>
+                </p>
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => { setPasteText(e.target.value); setPasteError(''); }}
+                  rows={8}
+                  placeholder={"Paste data from Excel here, including the header row..."}
+                  className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y"
+                />
+              </div>
+              {pasteError && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{pasteError}</div>}
+              {parsedRows.length > 0 && (
+                <div className="rounded-xl border border-[var(--color-border-default)] overflow-hidden">
+                  <div className="bg-[var(--color-surface-secondary)] px-4 py-2 text-xs font-semibold text-[var(--color-text-tertiary)]">Preview — {parsedRows.length} row{parsedRows.length !== 1 ? '' : ''} parsed</div>
+                  <div className="max-h-40 overflow-auto">
+                    <table className="w-full text-xs">
+                      <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                        {parsedRows.slice(0, 20).map((row, ri) => (
+                          <tr key={ri} className={ri % 2 === 0 ? 'bg-[var(--color-surface-primary)]' : 'bg-[var(--color-surface-secondary)]'}>
+                            {row.map((cell, ci) => (
+                              <td key={ci} className="px-3 py-1.5 text-[var(--color-text-secondary)] whitespace-nowrap border-r border-[var(--color-border-subtle)] last:border-r-0">{cell}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-4 py-2.5 text-xs text-red-600 dark:text-red-400">{error}</div>}
+        </div>
+
+        <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 flex items-center justify-between">
+          <button onClick={onClose} disabled={importing} className="rounded-lg border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Close</button>
+          <button
+            onClick={mode === 'upload' ? submitFileImport : submitPasteImport}
+            disabled={importing || (mode === 'upload' && !selectedFile) || (mode === 'paste' && !pasteText.trim())}
+            className="rounded-lg bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors inline-flex items-center gap-2"
+          >
+            {importing ? <><div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />Importing...</> : 'Import Exams'}
+          </button>
+        </div>
+
+        {result && (
+          <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 space-y-2">
+            <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+              {result.created} of {result.totalRows} rows imported successfully
+              {result.failed > 0 && ` — ${result.failed} failed`}
+            </p>
+            {result.errors.length > 0 && (
+              <div className="max-h-36 overflow-auto rounded-lg border border-red-200 dark:border-red-900/40">
+                <table className="w-full text-xs">
+                  <thead className="bg-red-50 dark:bg-red-950/30 text-left text-red-700 dark:text-red-300">
+                    <tr><th className="px-3 py-1.5">Row</th><th className="px-3 py-1.5">Error</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-red-100 dark:divide-red-900/30">
+                    {result.errors.map((e, idx) => (
+                      <tr key={idx}><td className="px-3 py-1.5 text-[var(--color-text-secondary)]">{e.row || '—'}</td><td className="px-3 py-1.5 text-red-600 dark:text-red-400">{e.message}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -629,6 +916,15 @@ export function ExamsManage() {
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
   const [viewingExam, setViewingExam] = useState<Exam | undefined>(undefined);
 
+  // Bulk selection / delete
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // Import / Export
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -642,6 +938,7 @@ export function ExamsManage() {
 
       const { data } = await api.get('/exams', { params });
       setExams(data.data || []);
+      setSelected(new Set());
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load exams');
     } finally {
@@ -665,6 +962,7 @@ export function ExamsManage() {
     try {
       await api.delete(`/exams/${id}`);
       setExams((prev) => prev.filter((e) => e._id !== id));
+      setSelected((prev) => { const next = new Set(prev); next.delete(id); return next; });
     } catch (err: any) {
       alert(err.response?.data?.message || 'Failed to delete');
     }
@@ -683,6 +981,52 @@ export function ExamsManage() {
     if (statusFilter && getEffectiveStatus(e) !== statusFilter) return false;
     return true;
   });
+
+  // ── Bulk selection / delete ──
+  const allVisibleSelected = visibleExams.length > 0 && visibleExams.every((e) => selected.has(e._id));
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  };
+  const toggleSelectAll = () => {
+    setSelected(allVisibleSelected ? new Set() : new Set(visibleExams.map((e) => e._id)));
+  };
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
+    try {
+      const { data } = await api.post('/exams/bulk-delete', { ids: Array.from(selected) });
+      setExams((prev) => prev.filter((e) => !selected.has(e._id)));
+      setSelected(new Set());
+      setShowBulkDeleteModal(false);
+      alert(data?.message || `Deleted ${selected.size} exam(s)`);
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Bulk delete failed');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  // ── Export ──
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const token = localStorage.getItem('accessToken') || '';
+      const response = await fetch(`${api.defaults.baseURL}/exams/export`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error('Export failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `exams-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -704,9 +1048,18 @@ export function ExamsManage() {
               {exams.length} total — {scheduledCount} scheduled, {ongoingCount} ongoing, {completedCount} completed, {cancelledCount} cancelled
             </p>
           </div>
-          <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">
-            + Schedule Exam
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">
+              + Schedule Exam
+            </button>
+            <ExamsActionsMenu
+              onImport={() => setShowImportModal(true)}
+              onExport={handleExport}
+              exporting={exporting}
+              onBulkDelete={() => setShowBulkDeleteModal(true)}
+              selectedCount={selected.size}
+            />
+          </div>
         </div>
 
         {/* Stats — gradient tiles doubling as status filter tabs: click one
@@ -803,6 +1156,9 @@ export function ExamsManage() {
           <table className="w-full text-sm border-separate" style={{ borderSpacing: '0 0.5rem' }}>
             <thead>
               <tr>
+                <th className="px-4 py-3 w-10">
+                  <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30 cursor-pointer" />
+                </th>
                 <th className="text-left px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Exam</th>
                 <th className="text-left px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden md:table-cell">Course</th>
                 <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden lg:table-cell">Date</th>
@@ -814,7 +1170,7 @@ export function ExamsManage() {
             </thead>
             <tbody>
               {visibleExams.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)] bg-[var(--color-surface-primary)] rounded-2xl">
+                <tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)] bg-[var(--color-surface-primary)] rounded-2xl">
                   <p className="text-lg mb-1">📝 No exams found</p>
                   <p className="text-sm">Click "+ Schedule Exam" to create one.</p>
                 </td></tr>
@@ -825,7 +1181,10 @@ export function ExamsManage() {
                     className="bg-[var(--color-surface-primary)] shadow-sm hover:shadow-md transition-all cursor-pointer"
                     onClick={() => setViewingExam(exam)}
                   >
-                    <td className="px-6 py-5 rounded-l-2xl border-y border-l border-[var(--color-border-subtle)]">
+                    <td className="px-4 py-5 rounded-l-2xl border-y border-l border-[var(--color-border-subtle)]" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={selected.has(exam._id)} onChange={() => toggleSelected(exam._id)} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30 cursor-pointer" />
+                    </td>
+                    <td className="px-6 py-5 border-y border-[var(--color-border-subtle)]">
                       {/* dir="auto" reads the title's own script (Arabic,
                           Somali, English, ...) and aligns accordingly
                           instead of always forcing left-to-right. */}
@@ -896,6 +1255,34 @@ export function ExamsManage() {
           exam={viewingExam}
           onClose={() => setViewingExam(undefined)}
         />
+      )}
+      {showImportModal && (
+        <ExamsImportModal
+          onClose={() => setShowImportModal(false)}
+          onImported={fetchData}
+        />
+      )}
+      {showBulkDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setShowBulkDeleteModal(false)}>
+          <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/30 text-red-600">
+                <Trash2 className="h-5 w-5" strokeWidth={1.75} />
+              </div>
+              <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Bulk Delete Exams</h2>
+            </div>
+            <p className="text-sm text-[var(--color-text-secondary)] mb-5">
+              Are you sure you want to delete the selected <strong>{selected.size}</strong> exam{selected.size !== 1 ? 's' : ''}? This action cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setShowBulkDeleteModal(false)} disabled={bulkDeleting} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={handleBulkDelete} disabled={bulkDeleting} className="flex-1 rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">
+                {bulkDeleting && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+                Delete {selected.size}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import * as examController from '../../controllers/exam.controller';
 import * as seatController from '../../controllers/seat-allocation.controller';
 import * as examAttendanceController from '../../controllers/exam-attendance.controller';
@@ -8,6 +9,11 @@ import * as attemptController from '../../controllers/exam-attempt.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 const router = Router();
 
@@ -24,6 +30,12 @@ router.get('/my/attendance', roleMiddleware(['student']), asyncHandler(examAtten
 router.get('/my/active', roleMiddleware(['student']), asyncHandler(attemptController.getActiveExams));
 router.get('/my/appeals', roleMiddleware(['student']), asyncHandler(appealController.getMy));
 router.get('/attendance/aggregate', adminOrTeacher, asyncHandler(examAttendanceController.getAggregateReport));
+
+// Registered before /:id so these are never swallowed as an id param.
+router.post('/bulk-delete', adminOrTeacher, asyncHandler(examController.bulkRemove));
+router.get('/export', adminOrTeacher, asyncHandler(examController.exportData as any));
+router.get('/template', adminOrTeacher, asyncHandler(examController.downloadTemplate as any));
+router.post('/import', adminOrTeacher, upload.single('file'), asyncHandler(examController.bulkImport));
 
 router.get('/', adminOrTeacher, asyncHandler(examController.getAll));
 router.post('/', adminOrTeacher, asyncHandler(examController.create));

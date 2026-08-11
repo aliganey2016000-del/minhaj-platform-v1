@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
+import * as XLSX from 'xlsx';
 import Exam from '../models/exam.model';
 import Course from '../models/course.model';
+import School from '../models/school.model';
 import ExamPaper from '../models/exam-paper.model';
 import ExamAttempt from '../models/exam-attempt.model';
 import ExamAppeal from '../models/exam-appeal.model';
@@ -8,7 +10,8 @@ import { getAutoScheduleWindow } from '../utils/exam-eligibility';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
-import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, assertOwnsExamIfTeacher } from '../utils/tenant-scope';
+import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, assertOwnsExamIfTeacher, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 
 // GET /exams — List all with optional filters
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
@@ -272,4 +275,246 @@ export const publishResults = async (req: Request, res: Response): Promise<Respo
 
   if (!exam) throw new NotFoundError('Exam');
   return ApiResponse.success(res, exam, published ? 'Results published to students' : 'Results hidden from students');
+};
+
+// ---------------------------------------------------------------------------
+// POST /exams/bulk-delete — Delete many exams in one request
+// ---------------------------------------------------------------------------
+
+export const bulkRemove = async (req: Request, res: Response): Promise<Response> => {
+  const ids: string[] = Array.isArray(req.body?.ids)
+    ? req.body.ids.filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0)
+    : [];
+  if (ids.length === 0) throw new BadRequestError('No exam ids provided');
+
+  const filter: Record<string, unknown> = applyOrgFilter(req, { _id: { $in: ids } }, 'school');
+
+  // Teacher: only their own courses' exams — same scoping assertOwnsExamIfTeacher
+  // enforces per-document on the single-delete path above, applied as a
+  // query filter here so a stray id for someone else's course is silently
+  // excluded rather than aborting the whole batch.
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    const teacherCourseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
+    filter.course = { $in: teacherCourseIds };
+  }
+
+  const result = await Exam.deleteMany(filter);
+  return ApiResponse.success(res, { deleted: result.deletedCount }, `Deleted ${result.deletedCount} exam(s)`);
+};
+
+// ---------------------------------------------------------------------------
+// GET /exams/export — Export scoped exams as formatted XLSX
+// ---------------------------------------------------------------------------
+
+export const exportData = async (req: Request, res: Response): Promise<void> => {
+  const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    const teacherCourseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
+    filter.course = { $in: teacherCourseIds };
+  }
+
+  const exams = await Exam.find(filter)
+    .populate('course', 'title.en')
+    .populate('school', 'name')
+    .sort({ examDate: 1, startTime: 1 })
+    .lean();
+
+  const headers = ['Organization', 'Course', 'Exam Title', 'Exam Date', 'Start Time', 'End Time', 'Duration (min)', 'Total Marks', 'Passing Marks', 'Room', 'Status', 'Scheduling'];
+  const rows = exams.map((e: any) => [
+    e.school?.name || '',
+    e.course?.title?.en || '',
+    e.title,
+    e.autoSchedule ? '' : (e.examDate ? new Date(e.examDate).toLocaleDateString() : ''),
+    e.autoSchedule ? '' : (e.startTime || ''),
+    e.autoSchedule ? '' : (e.endTime || ''),
+    e.duration,
+    e.totalMarks,
+    e.passingMarks,
+    e.room || '',
+    e.status,
+    e.autoSchedule ? 'Automatic' : 'Manual',
+  ]);
+
+  const buffer = buildXlsxBuffer(headers, rows, 'Exams');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=exams-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  res.end(buffer);
+};
+
+// ---------------------------------------------------------------------------
+// GET /exams/template — Download bulk-import template (XLSX)
+//
+// Scoped to MANUAL scheduling only — an auto-scheduled exam has no fixed
+// date/time of its own (see the `autoSchedule` branch on the model), which
+// doesn't fit a "one row = one dated exam" spreadsheet; those are still
+// set up individually via "+ Schedule Exam".
+// ---------------------------------------------------------------------------
+
+export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
+  const isOrgAdmin = req.user?.role === 'org_admin';
+  const headers = isOrgAdmin
+    ? ['Course Title', 'Exam Title', 'Exam Date (YYYY-MM-DD)', 'Start Time (HH:MM)', 'End Time (HH:MM)', 'Duration (minutes)', 'Total Marks', 'Passing Marks', 'Room', 'Instructions']
+    : ['Organization', 'Course Title', 'Exam Title', 'Exam Date (YYYY-MM-DD)', 'Start Time (HH:MM)', 'End Time (HH:MM)', 'Duration (minutes)', 'Total Marks', 'Passing Marks', 'Room', 'Instructions'];
+  const sampleRow = isOrgAdmin
+    ? ['Quran Recitation', 'Mid-Term Exam', '2026-03-15', '09:00', '11:00', '120', '100', '50', 'Room 12', '']
+    : ['Madrasa Al-Noor', 'Quran Recitation', 'Mid-Term Exam', '2026-03-15', '09:00', '11:00', '120', '100', '50', 'Room 12', ''];
+
+  const buffer = buildXlsxBuffer(headers, [sampleRow], 'Exams Template');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=exams-template.xlsx');
+  res.end(buffer);
+};
+
+function getExamImportField(row: Record<string, any>, ...names: string[]): unknown {
+  const keys = Object.keys(row);
+  for (const name of names) {
+    const target = name.toLowerCase();
+    const key = keys.find((k) => k.trim().toLowerCase() === target) ?? keys.find((k) => k.trim().toLowerCase().startsWith(target));
+    if (key !== undefined) return row[key];
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// POST /exams/import — Bulk import manually-scheduled exams from Excel/CSV
+// ---------------------------------------------------------------------------
+
+export const bulkImport = async (req: Request, res: Response): Promise<Response> => {
+  if (!req.file) throw new BadRequestError('An Excel or CSV file is required (field name "file")');
+
+  const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new BadRequestError('The uploaded file has no sheets');
+
+  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], { defval: '' });
+  if (rows.length === 0) throw new BadRequestError('The uploaded file has no data rows');
+
+  const ownOrgId = resolveOrgIdForCreate(req) as string | undefined;
+  const createdBy = req.user!.userId;
+
+  // Batch-resolve every distinct School/Course referenced up front instead
+  // of a query per row — same fix already applied to Class Schedules'
+  // importer (sequential per-row lookups against a remote cluster don't
+  // scale to large files).
+  let schoolIdByName: Map<string, string> | null = null;
+  if (!ownOrgId) {
+    const allSchools = await School.find({}, { name: 1 }).lean();
+    schoolIdByName = new Map(allSchools.map((s: any) => [String(s.name).trim().toLowerCase(), s._id.toString()]));
+  }
+  const relevantSchoolIds = ownOrgId ? [ownOrgId] : Array.from(schoolIdByName!.values());
+  const allCourses = await Course.find({ school: { $in: relevantSchoolIds } }, { title: 1, school: 1 }).lean();
+  const courseByKey = new Map<string, any>();
+  for (const c of allCourses as any[]) courseByKey.set(`${c.school}|||${String((c as any).title?.en || '').trim().toLowerCase()}`, c);
+
+  // Teacher caller: only allowed to import exams for their own courses.
+  let teacherCourseIdSet: Set<string> | null = null;
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    const ids = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
+    teacherCourseIdSet = new Set(ids.map((id: any) => id.toString()));
+  }
+
+  const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const errors: { row: number; message: string }[] = [];
+  const documents: any[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 2; // header is row 1
+    const row = rows[i];
+
+    try {
+      const cellValues = Object.values(row).map((v) => String(v ?? '').trim());
+      if (cellValues.every((v) => v === '')) continue; // blank row
+
+      const schoolName = String(getExamImportField(row, 'Organization', 'School') ?? '').trim();
+      const courseTitle = String(getExamImportField(row, 'Course Title', 'Course') ?? '').trim();
+      const examTitle = String(getExamImportField(row, 'Exam Title', 'Title') ?? '').trim();
+      const examDateRaw = getExamImportField(row, 'Exam Date', 'Date');
+      const startTime = String(getExamImportField(row, 'Start Time', 'Start') ?? '').trim();
+      const endTime = String(getExamImportField(row, 'End Time', 'End') ?? '').trim();
+      const durationRaw = getExamImportField(row, 'Duration');
+      const totalMarksRaw = getExamImportField(row, 'Total Marks');
+      const passingMarksRaw = getExamImportField(row, 'Passing Marks');
+      const room = String(getExamImportField(row, 'Room') ?? '').trim();
+      const instructions = String(getExamImportField(row, 'Instructions') ?? '').trim();
+
+      if (!courseTitle) throw new Error('Course Title is required');
+      if (!examTitle) throw new Error('Exam Title is required');
+      if (!examDateRaw) throw new Error('Exam Date is required');
+      if (!startTime) throw new Error('Start Time is required');
+      if (!endTime) throw new Error('End Time is required');
+
+      let schoolId: string | undefined = ownOrgId;
+      if (!schoolId) {
+        if (!schoolName) throw new Error('Organization is required');
+        schoolId = schoolIdByName!.get(schoolName.toLowerCase());
+        if (!schoolId) throw new Error(`Organization "${schoolName}" not found`);
+      }
+
+      const courseDoc = courseByKey.get(`${schoolId}|||${courseTitle.toLowerCase()}`);
+      if (!courseDoc) throw new Error(`Course "${courseTitle}" not found`);
+      if (teacherCourseIdSet && !teacherCourseIdSet.has(String(courseDoc._id))) {
+        throw new Error(`You are not the assigned teacher for "${courseTitle}"`);
+      }
+
+      const examDate = new Date(examDateRaw as any);
+      if (isNaN(examDate.getTime())) throw new Error(`Invalid Exam Date "${examDateRaw}"`);
+      if (!HHMM.test(startTime)) throw new Error(`Invalid Start Time "${startTime}" (expected HH:MM)`);
+      if (!HHMM.test(endTime)) throw new Error(`Invalid End Time "${endTime}" (expected HH:MM)`);
+      if (endTime <= startTime) throw new Error('End Time must be after Start Time');
+
+      const duration = Number(durationRaw);
+      if (!duration || duration <= 0) throw new Error('Duration must be a positive number of minutes');
+      const totalMarks = Number(totalMarksRaw);
+      if (!totalMarks || totalMarks <= 0) throw new Error('Total Marks must be a positive number');
+      const passingMarks = Number(passingMarksRaw);
+      if (!passingMarks || passingMarks <= 0) throw new Error('Passing Marks must be a positive number');
+
+      documents.push({
+        title: examTitle,
+        course: courseDoc._id,
+        school: courseDoc.school || null,
+        examDate,
+        startTime,
+        endTime,
+        duration,
+        totalMarks,
+        passingMarks,
+        room: room || '',
+        instructions: instructions || '',
+        createdBy,
+      });
+    } catch (err: any) {
+      errors.push({ row: rowNum, message: err.message || 'Unknown error' });
+    }
+  }
+
+  // No transaction — this deployment's MongoDB is a standalone instance (no
+  // replica set); insertMany with ordered:false continues past individual
+  // row/document errors and reports what succeeded.
+  let inserted = 0;
+  if (documents.length > 0) {
+    try {
+      const result = await Exam.insertMany(documents, { ordered: false });
+      inserted = result.length;
+    } catch (txErr: any) {
+      if (txErr.insertedDocs) inserted = txErr.insertedDocs.length;
+      if (txErr.writeErrors) {
+        txErr.writeErrors.forEach((we: any) => {
+          errors.push({ row: 0, message: we.err?.errmsg || we.errmsg || 'Insert error' });
+        });
+      } else if (inserted === 0) {
+        errors.push({ row: 0, message: txErr.message || 'Import failed.' });
+      }
+    }
+  }
+
+  return ApiResponse.success(res, {
+    totalRows: rows.length,
+    created: inserted,
+    failed: errors.length,
+    errors,
+  }, `Imported ${inserted} of ${rows.length} exams`);
 };
