@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import Exam from '../models/exam.model';
 import Course from '../models/course.model';
 import School from '../models/school.model';
+import ClassModel from '../models/class.model';
 import ExamPaper from '../models/exam-paper.model';
 import ExamAttempt from '../models/exam-attempt.model';
 import ExamAppeal from '../models/exam-appeal.model';
@@ -228,7 +229,56 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
     };
   });
 
-  return ApiResponse.success(res, result);
+  // The student's own class/school — lets the frontend default to "My
+  // Class" (course.class._id === myClass._id) instead of the full
+  // enrolledCourses list, and seeds the Department dropdown's org scope
+  // for browsing other classes (see browseExams below). Fetched separately
+  // since ensureStudentRecord() returns an unpopulated document.
+  const studentRecord = student as any;
+  const [myClass, mySchool] = await Promise.all([
+    studentRecord.class ? ClassModel.findById(studentRecord.class).select('title section department').populate('department', 'name').lean() : null,
+    studentRecord.school ? School.findById(studentRecord.school).select('name').lean() : null,
+  ]);
+
+  return ApiResponse.success(res, { exams: result, myClass, mySchool });
+};
+
+// ---------------------------------------------------------------------------
+// GET /exams/browse?classId=<id> — Student-only, read-only exam calendar for
+// a class the caller does NOT belong to. Returns only public schedule
+// fields (no myAttemptStatus/myScheduledStart/myMetPrerequisites/
+// myRetakeRequestStatus — those are specific to the caller's own access,
+// which this endpoint deliberately never grants). Auto-scheduled exams have
+// no shared date to show here at all — each student's own window is
+// computed individually — so those come back with just their autoSchedule/
+// milestone flags and no date/time.
+// ---------------------------------------------------------------------------
+
+export const browseExams = async (req: Request, res: Response): Promise<Response> => {
+  const classId = req.query.classId as string | undefined;
+  if (!classId) throw new BadRequestError('classId is required');
+
+  const student = await ensureStudentRecord(req.user!.userId);
+  const studentSchool = (student as any).school;
+
+  const targetClass = await ClassModel.findById(classId).select('title section department school').lean();
+  if (!targetClass) throw new NotFoundError('Class');
+  if (!studentSchool || String((targetClass as any).school) !== String(studentSchool)) {
+    throw new NotFoundError('Class');
+  }
+
+  const courseIds = await Course.find({ class: classId }).distinct('_id');
+  const exams = await Exam.find({ course: { $in: courseIds } })
+    .select('title course examDate startTime endTime duration totalMarks passingMarks room status autoSchedule milestone')
+    .populate({ path: 'course', select: 'title.en slug category thumbnail class school teacher', populate: [
+      { path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } },
+      { path: 'school', select: 'name' },
+      { path: 'teacher', select: 'profile', populate: { path: 'profile', select: 'firstName lastName' } },
+    ] })
+    .sort({ examDate: 1, startTime: 1 })
+    .lean();
+
+  return ApiResponse.success(res, exams);
 };
 
 // PATCH /exams/:id/status

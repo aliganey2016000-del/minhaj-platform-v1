@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import * as classController from '../../controllers/class.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { adminOnly, adminOrTeacher } from '../../middleware/role.middleware';
+import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -12,6 +12,8 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/', adminOrTeacher, asyncHandler(classController.getAll));
+// Registered before /:id so "browse" is never swallowed as an id param.
+router.get('/browse', roleMiddleware(['admin', 'org_admin', 'teacher', 'student']), asyncHandler(classController.browseClasses));
 router.post('/', adminOnly, asyncHandler(classController.create));
 router.post('/import', adminOnly, upload.single('file'), asyncHandler(classController.bulkImport));
 router.get('/export', adminOnly, asyncHandler(classController.exportClasses as any));

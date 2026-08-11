@@ -25,6 +25,7 @@ router.use(authMiddleware);
 // ---------------------------------------------------------------------------
 
 router.get('/my', roleMiddleware(['student']), asyncHandler(examController.getMyExams));
+router.get('/browse', roleMiddleware(['student']), asyncHandler(examController.browseExams));
 router.get('/my/seating', roleMiddleware(['student']), asyncHandler(seatController.getMySeating));
 router.get('/my/attendance', roleMiddleware(['student']), asyncHandler(examAttendanceController.getMyHistory));
 router.get('/my/active', roleMiddleware(['student']), asyncHandler(attemptController.getActiveExams));

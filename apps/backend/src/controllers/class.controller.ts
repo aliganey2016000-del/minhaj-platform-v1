@@ -10,8 +10,43 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
+import ensureStudentRecord from '../utils/ensure-student';
 
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// ---------------------------------------------------------------------------
+// GET /classes/browse?department=<id> — Minimal, read-only class list for a
+// department, open to students too (unlike the admin/teacher-only GET /
+// below) — just enough to populate the "browse another class's exams"
+// cascade dropdown on the student Exams page. Verifies the department
+// belongs to the caller's own school; a student can never be shown another
+// organization's classes this way.
+// ---------------------------------------------------------------------------
+
+export const browseClasses = async (req: Request, res: Response): Promise<Response> => {
+  const departmentId = req.query.department as string | undefined;
+  if (!departmentId) throw new BadRequestError('department is required');
+
+  const dept = await Department.findById(departmentId).select('school').lean();
+  if (!dept) throw new NotFoundError('Department');
+
+  if (req.user?.role === 'student') {
+    const student = await ensureStudentRecord(req.user!.userId);
+    const studentSchool = (student as any).school;
+    if (!studentSchool || String((dept as any).school) !== String(studentSchool)) {
+      throw new NotFoundError('Department');
+    }
+  } else {
+    assertOwnsOrg(req, dept, 'school');
+  }
+
+  const classes = await ClassModel.find({ department: departmentId, status: 'active' })
+    .select('title section')
+    .sort({ title: 1, section: 1 })
+    .lean();
+
+  return ApiResponse.success(res, classes);
+};
 
 // ---------------------------------------------------------------------------
 // GET /classes — List all with optional filters

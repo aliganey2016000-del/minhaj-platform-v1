@@ -55,12 +55,17 @@ interface Exam {
     title: { en: string; so: string; ar: string };
     category: string;
     thumbnail?: string;
-    class?: { title?: string; section?: string; department?: { name?: string } };
+    class?: { _id?: string; title?: string; section?: string; department?: { name?: string } };
     school?: { name?: string };
     teacher?: { profile?: { firstName?: string; lastName?: string } };
   };
   school?: { name?: string };
 }
+
+interface MyClassInfo { _id: string; title: string; section?: string; department?: { _id?: string; name?: string } | null; }
+interface MySchoolInfo { _id: string; name: string; }
+interface DepartmentBrief { _id: string; name: string; }
+interface ClassBrief { _id: string; title: string; section?: string; }
 
 type ExamState = 'upcoming' | 'active' | 'completed' | 'missed' | 'cancelled';
 
@@ -186,6 +191,8 @@ export function StudentExams() {
   const navigate = useNavigate();
   const lang = i18n.language as 'en' | 'so' | 'ar';
   const [exams, setExams] = useState<Exam[]>([]);
+  const [myClass, setMyClass] = useState<MyClassInfo | null>(null);
+  const [mySchool, setMySchool] = useState<MySchoolInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'all' | ExamState>('all');
@@ -193,6 +200,18 @@ export function StudentExams() {
   const [retakeReason, setRetakeReason] = useState('');
   const [retakeSubmitting, setRetakeSubmitting] = useState(false);
   const [retakeError, setRetakeError] = useState('');
+
+  // "My Class" (default) vs "Other Classes" — the latter is a read-only
+  // calendar view of a class the student doesn't belong to (see the
+  // Department -> Class cascade + browseExams state below).
+  const [viewMode, setViewMode] = useState<'myClass' | 'other'>('myClass');
+  const [browseDepartments, setBrowseDepartments] = useState<DepartmentBrief[]>([]);
+  const [browseClassOptions, setBrowseClassOptions] = useState<ClassBrief[]>([]);
+  const [selectedDept, setSelectedDept] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const [browseExams, setBrowseExams] = useState<Exam[]>([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [browseError, setBrowseError] = useState('');
 
   // computeState() reads Date.now() internally — this tick just forces a
   // periodic re-render so an exam whose countdown hits zero actually flips
@@ -206,12 +225,45 @@ export function StudentExams() {
   const fetchExams = async () => {
     try {
       const { data } = await api.get('/exams/my');
-      setExams(data.data || []);
+      setExams(data.data?.exams || []);
+      setMyClass(data.data?.myClass || null);
+      setMySchool(data.data?.mySchool || null);
     } catch (err: any) {
       setError(err.response?.data?.message || t('error_occurred'));
     } finally {
       setLoading(false);
     }
+  };
+
+  // ── Other Classes: Department -> Class cascade + read-only exam fetch ──
+  useEffect(() => {
+    if (viewMode !== 'other' || !mySchool?._id) return;
+    api.get('/departments', { params: { school: mySchool._id } })
+      .then(({ data }) => setBrowseDepartments(data.data || []))
+      .catch(() => setBrowseDepartments([]));
+  }, [viewMode, mySchool]);
+
+  const handleBrowseDeptChange = (deptId: string) => {
+    setSelectedDept(deptId);
+    setSelectedClassId('');
+    setBrowseExams([]);
+    setBrowseClassOptions([]);
+    if (!deptId) return;
+    api.get('/classes/browse', { params: { department: deptId } })
+      .then(({ data }) => setBrowseClassOptions(data.data || []))
+      .catch(() => setBrowseClassOptions([]));
+  };
+
+  const handleBrowseClassChange = (classId: string) => {
+    setSelectedClassId(classId);
+    setBrowseExams([]);
+    setBrowseError('');
+    if (!classId) return;
+    setBrowseLoading(true);
+    api.get('/exams/browse', { params: { classId } })
+      .then(({ data }) => setBrowseExams(data.data || []))
+      .catch((err: any) => setBrowseError(err.response?.data?.message || 'Failed to load exams for this class'))
+      .finally(() => setBrowseLoading(false));
   };
 
   const submitRetakeRequest = async () => {
@@ -238,7 +290,14 @@ export function StudentExams() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t]);
 
-  const withState = exams.map((e) => ({ exam: e, state: computeState(e) }));
+  // Default display filter — "My Class" only, even though /exams/my itself
+  // still returns everything the student is enrolled in (see the plan: that
+  // access list is left alone; this just narrows what's *shown* by default).
+  // Falls back to showing everything if myClass is unset (e.g. a student
+  // with no class assigned yet), so nothing silently vanishes.
+  const myClassExams = myClass ? exams.filter((e) => !e.course?.class?._id || e.course.class._id === myClass._id) : exams;
+
+  const withState = myClassExams.map((e) => ({ exam: e, state: computeState(e) }));
   const counts = {
     all: withState.length,
     upcoming: withState.filter((x) => x.state === 'upcoming').length,
@@ -267,10 +326,140 @@ export function StudentExams() {
         <div>
           <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">📖 {t('exams')}</h1>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-            {counts.all} {t('total')} — {counts.upcoming} Upcoming, {counts.active} Active, {counts.completed} Completed, {counts.missed} Missed
+            {viewMode === 'myClass'
+              ? `${counts.all} ${t('total')} — ${counts.upcoming} Upcoming, ${counts.active} Active, ${counts.completed} Completed, ${counts.missed} Missed`
+              : 'Read-only exam calendar for another class'}
           </p>
         </div>
 
+        {/* My Class (default) vs Other Classes — the latter is a read-only
+            calendar for a class the student doesn't belong to. */}
+        <div className="inline-flex rounded-xl bg-[var(--color-surface-secondary)] p-1">
+          <button
+            type="button"
+            onClick={() => setViewMode('myClass')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              viewMode === 'myClass' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
+            }`}
+          >
+            🔘 My Class{myClass ? ` (${myClass.title}${myClass.section ? ` - ${myClass.section}` : ''})` : ''}
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('other')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              viewMode === 'other' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
+            }`}
+          >
+            🌐 Other Classes
+          </button>
+        </div>
+
+        {viewMode === 'other' && (
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <select
+                value={selectedDept}
+                onChange={(e) => handleBrowseDeptChange(e.target.value)}
+                className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-2.5 text-sm"
+              >
+                <option value="">Select Level / Grade...</option>
+                {browseDepartments.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
+              </select>
+              <select
+                value={selectedClassId}
+                onChange={(e) => handleBrowseClassChange(e.target.value)}
+                disabled={!selectedDept}
+                className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-2.5 text-sm disabled:opacity-50"
+              >
+                <option value="">Select Class / Stream...</option>
+                {browseClassOptions.map((c) => <option key={c._id} value={c._id}>{c.title}{c.section ? ` - ${c.section}` : ''}</option>)}
+              </select>
+            </div>
+            {!selectedDept && (
+              <p className="text-xs text-[var(--color-text-tertiary)]">Pick a Level/Grade, then a Class, to see its exam schedule.</p>
+            )}
+          </div>
+        )}
+
+        {viewMode === 'other' && selectedClassId && (
+          <div>
+            {browseLoading && (
+              <div className="flex justify-center py-10"><div className="h-8 w-8 animate-spin rounded-full border-3 border-t-primary-600" /></div>
+            )}
+            {!browseLoading && browseError && (
+              <div className="text-center py-10"><p className="text-red-500 text-sm">{browseError}</p></div>
+            )}
+            {!browseLoading && !browseError && browseExams.length === 0 && (
+              <div className="text-center py-16 text-[var(--color-text-tertiary)]">
+                <p className="text-5xl mb-4">📖</p>
+                <p className="text-lg">No exams scheduled for this class.</p>
+              </div>
+            )}
+            {!browseLoading && !browseError && browseExams.length > 0 && (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {browseExams.map((e) => (
+                  <div key={e._id} className="rounded-2xl border border-[var(--color-border-default)] overflow-hidden bg-[var(--color-surface-primary)] shadow-sm">
+                    <div className="relative aspect-[16/9] w-full overflow-hidden">
+                      {e.course?.thumbnail ? (
+                        <img src={e.course.thumbnail} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className={`h-full w-full bg-gradient-to-br ${placeholderGradient(e.course?._id || e._id)} flex items-center justify-center text-6xl`}>📝</div>
+                      )}
+                      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent" />
+                      <div className="absolute top-3 end-3">
+                        <span className="rounded-full bg-blue-500 px-2.5 py-0.5 text-[11px] font-bold text-white">
+                          🔵 {className(e)}
+                        </span>
+                      </div>
+                      <p className="absolute bottom-2.5 start-3.5 end-3.5 text-sm font-bold text-white truncate drop-shadow">{toTitleCase(e.title)}</p>
+                    </div>
+                    <div className="p-4 space-y-2">
+                      <p className="text-sm font-bold text-[var(--color-text-primary)] truncate">{toTitleCase(e.title)}</p>
+                      {e.course && (
+                        <p className="text-xs text-[var(--color-text-secondary)] truncate">
+                          📘 {getTitle(e.course)} <span className="text-[var(--color-text-tertiary)]">· {getCat(e.course.category)}</span>
+                        </p>
+                      )}
+                      <p className="text-xs text-[var(--color-text-tertiary)] truncate">🧑‍🏫 {teacherName(e)}</p>
+                      <div className="space-y-1 text-xs pt-1">
+                        {e.autoSchedule ? (
+                          <div className="flex justify-between">
+                            <span className="text-[var(--color-text-tertiary)]">Schedule</span>
+                            <span className="font-semibold text-[var(--color-text-primary)]">🤖 Automatic — personalized per student</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-[var(--color-text-tertiary)]">{dateLabel}</span>
+                              <span className="font-semibold text-[var(--color-text-primary)]">{e.examDate ? new Date(e.examDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-[var(--color-text-tertiary)]">{timeLabel}</span>
+                              <span className="font-semibold text-[var(--color-text-primary)]">{e.startTime} - {e.endTime}</span>
+                            </div>
+                          </>
+                        )}
+                        {e.room && (
+                          <div className="flex justify-between">
+                            <span className="text-[var(--color-text-tertiary)]">Room</span>
+                            <span className="font-semibold text-[var(--color-text-primary)]">{e.room}</span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="rounded-lg bg-slate-50 dark:bg-slate-900/30 px-3 py-2 text-[11px] font-medium text-slate-500 dark:text-slate-400 text-center">
+                        🔒 Read-only — you're not enrolled in this class
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {viewMode === 'myClass' && (
+        <>
         {/* Status cards double as filter tabs — click one to narrow the
             list below to just that status; click the active one again to
             clear back to All (same interaction as the pill tabs below). */}
@@ -337,7 +526,10 @@ export function StudentExams() {
                     </p>
                   )}
                   <p className="text-xs text-[var(--color-text-tertiary)] truncate">🧑‍🏫 {teacherName(e)}</p>
-                  <p className="text-xs text-[var(--color-text-tertiary)] truncate">🏫 {orgName(e)} · {departmentName(e)} · {className(e)}</p>
+                  <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] truncate">
+                    <span className="truncate">🏫 {orgName(e)} · {departmentName(e)} · {className(e)}</span>
+                    <span className="flex-shrink-0 inline-flex items-center gap-1 rounded-full bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 text-[10px] font-bold text-green-700 dark:text-green-300">🟢 My Class</span>
+                  </p>
 
                   <div className="space-y-1 text-xs pt-1">
                     {e.autoSchedule ? (
@@ -451,6 +643,8 @@ export function StudentExams() {
               </div>
             ))}
           </div>
+        )}
+        </>
         )}
       </div>
 
