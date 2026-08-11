@@ -284,34 +284,47 @@ export function StudentSchedule() {
         {!loading && schedules.length > 0 && (
           <div className="space-y-4">
             {/* ── Day Tabs ── */}
-            <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
-              {DISPLAY_ORDER.map((day) => {
-                const isToday = day === todayDow;
-                const isSelected = day === selectedDay;
-                const count = grouped[day]?.length || 0;
-                return (
-                  <button
-                    key={day}
-                    onClick={() => { setSwipeDirection(day > selectedDay ? 1 : -1); setSelectedDay(day); }}
-                    className={`relative flex-shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap ${
-                      isSelected
-                        ? 'bg-primary-600 text-white shadow-sm'
-                        : 'bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
-                    }`}
-                  >
-                    <span className="hidden sm:inline">{DAY_NAMES[day]}</span>
-                    <span className="sm:hidden">{DAY_SHORT[day]}</span>
-                    {isToday && (
-                      <span className={`ml-1.5 inline-block h-1.5 w-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-primary-500'}`} />
-                    )}
-                    {count > 0 && (
-                      <span className={`ml-1.5 text-[10px] ${isSelected ? 'text-white/70' : 'text-[var(--color-text-tertiary)]'}`}>
-                        {count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-2">
+              <div
+                className="flex flex-1 min-w-0 gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 [&::-webkit-scrollbar]:hidden"
+                style={{ scrollbarWidth: 'none' }}
+              >
+                {DISPLAY_ORDER.map((day) => {
+                  const isToday = day === todayDow;
+                  const isSelected = day === selectedDay;
+                  const count = grouped[day]?.length || 0;
+                  return (
+                    <button
+                      key={day}
+                      onClick={() => { setSwipeDirection(day > selectedDay ? 1 : -1); setSelectedDay(day); }}
+                      className={`relative flex-shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap ${
+                        isSelected
+                          ? 'bg-primary-600 text-white shadow-sm'
+                          : 'bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
+                      }`}
+                    >
+                      <span className="hidden sm:inline">{DAY_NAMES[day]}</span>
+                      <span className="sm:hidden">{DAY_SHORT[day]}</span>
+                      {isToday && (
+                        <span className={`ml-1.5 inline-block h-1.5 w-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-primary-500'}`} />
+                      )}
+                      {count > 0 && (
+                        <span className={`ml-1.5 text-[10px] ${isSelected ? 'text-white/70' : 'text-[var(--color-text-tertiary)]'}`}>
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedDay !== todayDow && (
+                <button
+                  onClick={() => { setSwipeDirection(todayDow > selectedDay ? 1 : -1); setSelectedDay(todayDow); }}
+                  className="flex-shrink-0 rounded-xl border border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-950/30 px-3 py-2.5 text-xs font-semibold text-primary-600 dark:text-primary-400 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors whitespace-nowrap"
+                >
+                  Today
+                </button>
+              )}
             </div>
 
             {/* ── Selected Day Panel (swipeable on touch) ── */}
@@ -343,36 +356,48 @@ export function StudentSchedule() {
                       const live = isLiveNow(s);
                       const isLiveCourse = !!s.course?.isLive;
                       const hasReminder = remindedIds.has(s._id);
+                      const startM = toMinutes(s.startTime);
+                      const endM = toMinutes(s.endTime);
+                      const progressPct = live ? Math.min(100, Math.max(0, ((nowMinutes - startM) / (endM - startM)) * 100)) : 0;
+                      const minutesLeft = live ? Math.max(0, endM - nowMinutes) : 0;
                       return (
                         <div
                           key={s._id}
                           className={`rounded-2xl border-l-4 ${color.border} border-y border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden transition-all ${
-                            live ? 'ring-2 ring-red-400/70 dark:ring-red-500/50' : ''
+                            live ? 'ring-2 ring-red-400 dark:ring-red-500 shadow-[0_0_24px_-6px_rgba(239,68,68,0.55)]' : ''
                           }`}
                         >
-                          <div className="flex items-center gap-4 px-5 py-4">
-                            <div className="flex-shrink-0 w-24 text-center">
-                              <span className="inline-block rounded-lg bg-slate-100 dark:bg-slate-800/60 px-3 py-1.5 text-sm font-medium text-slate-500 dark:text-slate-400">
+                          <div className="px-5 py-4">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
                                 {s.startTime} – {s.endTime}
                               </span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${color.dot}`} />
-                                <p className="text-base font-bold text-[var(--color-text-primary)] truncate">
-                                  {s.course?.title?.en || 'Untitled Course'}
-                                </p>
-                                {live && (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white animate-pulse">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-white" /> Live Now
-                                  </span>
-                                )}
-                              </div>
-                              <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] mt-0.5">
-                                <User className="h-3.5 w-3.5 text-slate-400" strokeWidth={1.75} />
-                                {teacherLabel(s.teacher)}
+                              <span className={`inline-block h-1.5 w-1.5 rounded-full flex-shrink-0 ${color.dot}`} />
+                              <p className="text-base font-bold text-[var(--color-text-primary)] truncate">
+                                {s.course?.title?.en || 'Untitled Course'}
                               </p>
+                              {live && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white animate-pulse">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-white" /> Live Now
+                                </span>
+                              )}
                             </div>
+                            <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] mt-1">
+                              <User className="h-3.5 w-3.5 text-slate-400" strokeWidth={1.75} />
+                              {teacherLabel(s.teacher)}
+                            </p>
+
+                            {live && (
+                              <div className="mt-2.5">
+                                <div className="flex items-center justify-between text-[10px] font-medium text-red-600 dark:text-red-400 mb-1">
+                                  <span>In progress</span>
+                                  <span>{minutesLeft} min left</span>
+                                </div>
+                                <div className="h-1.5 w-full rounded-full bg-red-100 dark:bg-red-950/40 overflow-hidden">
+                                  <div className="h-full rounded-full bg-red-500 transition-all duration-500" style={{ width: `${progressPct}%` }} />
+                                </div>
+                              </div>
+                            )}
                           </div>
 
                           {/* Quick actions */}
@@ -380,28 +405,26 @@ export function StudentSchedule() {
                             <button
                               onClick={() => handleAddToCalendar(s)}
                               title="Add to Google Calendar"
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                              className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600 hover:scale-105 active:scale-95 transition-all"
                             >
-                              <CalendarPlus className="h-3.5 w-3.5" strokeWidth={1.75} />
-                              <span className="hidden sm:inline">Add to Calendar</span>
+                              <CalendarPlus className="h-4 w-4" strokeWidth={1.75} />
                             </button>
                             <button
                               onClick={() => handleSetReminder(s)}
                               disabled={hasReminder}
                               title={hasReminder ? 'Reminder set' : `Remind me ${REMINDER_LEAD_MINUTES} min before (while this app is open)`}
-                              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                              className={`flex h-8 w-8 items-center justify-center rounded-full border transition-all hover:scale-105 active:scale-95 ${
                                 hasReminder
                                   ? 'border-primary-300 bg-primary-50 dark:bg-primary-950/30 text-primary-600 dark:text-primary-400'
-                                  : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
+                                  : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600'
                               }`}
                             >
-                              <Bell className="h-3.5 w-3.5" strokeWidth={1.75} />
-                              <span className="hidden sm:inline">{hasReminder ? 'Reminder Set' : 'Remind Me'}</span>
+                              <Bell className="h-4 w-4" strokeWidth={1.75} fill={hasReminder ? 'currentColor' : 'none'} />
                             </button>
                             {isLiveCourse && (
                               <button
                                 onClick={() => handleJoinClass(s)}
-                                className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 transition-colors animate-pulse"
+                                className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 hover:scale-105 active:scale-95 transition-all animate-pulse"
                               >
                                 <Video className="h-3.5 w-3.5" strokeWidth={1.75} />
                                 Join Class
