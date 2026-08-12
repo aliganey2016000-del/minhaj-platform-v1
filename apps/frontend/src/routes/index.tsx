@@ -298,6 +298,18 @@ const TeacherSchedule = lazy(() =>
 const TeacherCourseBuilder = lazy(() =>
   import('../features/teacher/pages/teacher-course-builder').then((m) => ({ default: m.TeacherCourseBuilder }))
 );
+const TeacherAssignments = lazy(() =>
+  import('../features/admin/pages/assignments-manage').then((m) => ({ default: m.AssignmentsManage }))
+);
+const TeacherProfile = lazy(() =>
+  import('../features/admin/pages/profile-manage').then((m) => ({ default: m.ProfileManage }))
+);
+const TeacherSettings = lazy(() =>
+  import('../features/student/pages/student-settings').then((m) => ({ default: m.StudentSettings }))
+);
+const TeacherGamification = lazy(() =>
+  import('../features/teacher/pages/teacher-gamification').then((m) => ({ default: m.TeacherGamification }))
+);
 // Reuse admin edit pages for teacher portal (they work with course content API)
 const TeacherLessonEditPage = lazy(() =>
   import('../features/admin/pages/lesson-edit-page').then((m) => ({ default: m.LessonEditPage }))
@@ -450,13 +462,13 @@ export const router = createBrowserRouter([
       { path: 'results/enter', element: L(<ResultsEntry backFallback="/teacher" />) },
       { path: 'students', element: L(<TeacherStudents />) },
       { path: 'activity', element: L(<TeacherActivity basePath="/teacher" />) },
-      { path: 'gamification', element: L(<TeacherStudents />) },
+      { path: 'gamification', element: L(<TeacherGamification />) },
       { path: 'analytics', element: L(<TeacherAnalytics />) },
       { path: 'schedule', element: L(<TeacherSchedule />) },
       { path: 'forum', element: L(<ForumPage />) },
-      { path: 'profile', element: L(<PortalPage />) },
-      { path: 'settings', element: L(<PortalPage />) },
-      { path: 'assignments', element: L(<PortalPage />) },
+      { path: 'profile', element: L(<TeacherProfile />) },
+      { path: 'settings', element: L(<TeacherSettings />) },
+      { path: 'assignments', element: L(<TeacherAssignments />) },
     ],
   },
 
