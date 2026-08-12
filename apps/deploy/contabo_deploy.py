@@ -216,7 +216,7 @@ services:
       - mongodb_data:/data/db
     environment:
       - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=masjid_rahma_2025_secure
+      - MONGO_INITDB_ROOT_PASSWORD=__MONGO_ROOT_PASSWORD__
     ports:
       - "27017:27017"
 
@@ -226,7 +226,7 @@ volumes:
 DOCKEREOF
         """
         dockerfiles_script = dockerfiles_script.replace(
-            "MONGO_INITDB_ROOT_PASSWORD=masjid_rahma_2025_secure",
+            "MONGO_INITDB_ROOT_PASSWORD=__MONGO_ROOT_PASSWORD__",
             f"MONGO_INITDB_ROOT_PASSWORD={MONGO_CONTAINER_PASSWORD}",
         )
         run_ssh(client, dockerfiles_script, "Step 8: Create Dockerfiles + docker-compose")
