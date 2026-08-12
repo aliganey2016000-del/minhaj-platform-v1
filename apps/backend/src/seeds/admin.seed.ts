@@ -1,19 +1,29 @@
 /**
  * Admin User Seed Script
- * 
+ *
  * Creates a default admin user in the database.
- * Run: npx ts-node src/seeds/admin.seed.ts
+ * Run: MONGODB_URI=... SEED_ADMIN_PASSWORD=... npx ts-node src/seeds/admin.seed.ts
  */
 
 import mongoose from 'mongoose';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://rayan2016003_db_user:635110Liiali@rahma.bo0elay.mongodb.net/masjid-al-rahma?appName=rahma&retryWrites=true&w=majority';
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} env var is required to run this script.`);
+  }
+  return value;
+}
+
+const MONGODB_URI = requireEnv('MONGODB_URI');
+const SEED_ADMIN_PASSWORD = requireEnv('SEED_ADMIN_PASSWORD');
+const SEED_ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'admin@masjidalrahma.com';
 
 const ADMIN_USER = {
-  email: 'admin@masjidalrahma.com',
-  password: 'Admin@123',
+  email: SEED_ADMIN_EMAIL,
+  password: SEED_ADMIN_PASSWORD,
   firstName: 'Admin',
   lastName: 'User',
   gender: 'male',
@@ -54,8 +64,8 @@ async function seedAdmin() {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📧 Email:    admin@masjidalrahma.com');
-    console.log('🔑 Password: Admin@123');
+    console.log(`📧 Email:    ${ADMIN_USER.email}`);
+    console.log('🔑 Password: (value of SEED_ADMIN_PASSWORD)');
     console.log('👤 Role:     admin');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🌐 Login at: http://localhost:5173/auth/login');

@@ -9,6 +9,13 @@ build/
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+.env.staging
+
+# User-uploaded content
+backend/uploads/
+apps/backend/uploads/
 
 # Logs
 *.log
@@ -24,3 +31,7 @@ Thumbs.db
 
 # TypeScript build info
 *.tsbuildinfo
+
+# Python build artifacts
+__pycache__/
+*.pyc

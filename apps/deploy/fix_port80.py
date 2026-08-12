@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Fix: Remove coolify-proxy from port 80 and move frontend to port 80."""
+import os
 import paramiko, time
 
 HOST = "158.220.120.83"
 USER = "root"
-PASS = "635110Liiali"
+PASS = os.environ["VPS_PASS"]
 
 c = paramiko.SSHClient()
 c.set_missing_host_key_policy(paramiko.AutoAddPolicy())

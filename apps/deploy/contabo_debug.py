@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Debug backend restart loop on Contabo VPS."""
 
+import os
 import paramiko, time, sys
 
 HOST = "158.220.120.83"
 USER = "root"
-PASS = "635110Liiali"
+PASS = os.environ["VPS_PASS"]
 
 def ssh():
     c = paramiko.SSHClient()

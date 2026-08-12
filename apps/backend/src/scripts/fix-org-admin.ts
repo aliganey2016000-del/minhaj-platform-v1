@@ -1,8 +1,8 @@
 /**
  * Fix Organization Admin User
- * 
+ *
  * Ensures the org_admin user exists with proper role, organization binding,
- * and password. Run: npx ts-node src/scripts/fix-org-admin.ts
+ * and password. Run: MONGODB_URI=... ORG_ADMIN_EMAIL=... ORG_ADMIN_PASSWORD=... npx ts-node src/scripts/fix-org-admin.ts
  */
 
 import mongoose from 'mongoose';
@@ -10,13 +10,23 @@ import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import School from '../models/school.model';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://rayan2016003_db_user:635110Liiali@rahma.bo0elay.mongodb.net/masjid-al-rahma?appName=rahma&retryWrites=true&w=majority';
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} env var is required to run this script.`);
+  }
+  return value;
+}
+
+const MONGODB_URI = requireEnv('MONGODB_URI');
+const ORG_ADMIN_EMAIL = requireEnv('ORG_ADMIN_EMAIL');
+const ORG_ADMIN_PASSWORD = requireEnv('ORG_ADMIN_PASSWORD');
 
 const ORG_ADMIN = {
-  email: 'diriye@gmail.com',
-  password: '615328006',
-  firstName: 'Diriye',
-  lastName: 'Admin',
+  email: ORG_ADMIN_EMAIL,
+  password: ORG_ADMIN_PASSWORD,
+  firstName: process.env.ORG_ADMIN_FIRST_NAME || 'Org',
+  lastName: process.env.ORG_ADMIN_LAST_NAME || 'Admin',
 };
 
 async function fixOrgAdmin() {
@@ -64,8 +74,8 @@ async function fixOrgAdmin() {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📧 Email:    diriye@gmail.com');
-    console.log('🔑 Password: 615328006');
+    console.log(`📧 Email:    ${ORG_ADMIN.email}`);
+    console.log('🔑 Password: (value of ORG_ADMIN_PASSWORD)');
     console.log('👤 Role:     org_admin');
     console.log('🏢 Org ID:  ', user.organizationId || '(none)');
     console.log('🔓 Status:   Active & Unlocked');

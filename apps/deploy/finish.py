@@ -3,6 +3,10 @@ import sys, os, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from deploy import connect_ssh, run_cmd, VPS_HOST
 
+JWT_ACCESS_SECRET = os.environ["JWT_ACCESS_SECRET"]
+JWT_REFRESH_SECRET = os.environ["JWT_REFRESH_SECRET"]
+MONGODB_URI = os.environ.get("MONGODB_URI", "mongodb://127.0.0.1:27017/masjid-al-rahma")
+
 c = connect_ssh()
 
 # 1. Kill existing nginx and restart properly on port 5001
@@ -46,21 +50,21 @@ if nginx_test.strip() != '200':
 
 # 2. Update ecosystem.config.js to include env vars permanently
 print("\n2. Updating PM2 ecosystem config...")
-new_ecosystem = """module.exports = {
-  apps: [{
+new_ecosystem = f"""module.exports = {{
+  apps: [{{
     name: 'masjid-al-rahma-api',
     cwd: '/var/www/masjid-al-rahma/backend',
     script: 'dist/server.js',
     instances: 1,
     exec_mode: 'fork',
-    env: {
+    env: {{
       NODE_ENV: 'production',
-      MONGODB_URI: 'mongodb://127.0.0.1:27017/masjid-al-rahma',
+      MONGODB_URI: '{MONGODB_URI}',
       PORT: '5000',
-      JWT_ACCESS_SECRET: '7dac97af8f8f3ef8e7817786c9665ae84d356af78d37f31cf3bf2836b2c3e6fb2b19d34ca65692b3140d24416be8351c406ad3df2e5ccf038db4096bfa65cf59',
-      JWT_REFRESH_SECRET: '8a041cf2d52331ad09488131734ddb98198b66186b15a178ba5058f43fbc25792021bac282301458a3189a21a6106c79b686a7010138309f4417c2c11eb009db',
-      CLIENT_URL: 'http://152.239.119.129'
-    },
+      JWT_ACCESS_SECRET: '{JWT_ACCESS_SECRET}',
+      JWT_REFRESH_SECRET: '{JWT_REFRESH_SECRET}',
+      CLIENT_URL: 'http://{VPS_HOST}'
+    }},
     autorestart: true,
     watch: false,
     max_memory_restart: '500M',
@@ -70,8 +74,8 @@ new_ecosystem = """module.exports = {
     merge_logs: true,
     kill_timeout: 10000,
     listen_timeout: 5000
-  }]
-};"""
+  }}]
+}};"""
 run_cmd(c, f"cat > /var/www/masjid-al-rahma/deploy/ecosystem.config.js << 'ECOSYSTEM_EOF'\n{new_ecosystem}\nECOSYSTEM_EOF")
 
 # Restart PM2 with new config

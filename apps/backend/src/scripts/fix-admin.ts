@@ -1,17 +1,24 @@
 /**
  * Fix Admin Script
- * 
+ *
  * Resets the admin user password and unlocks the account.
- * Run: npx ts-node src/scripts/fix-admin.ts
+ * Run: MONGODB_URI=... NEW_ADMIN_PASSWORD=... npx ts-node src/scripts/fix-admin.ts
  */
 
 import mongoose from 'mongoose';
 import User from '../models/user.model';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://rayan2016003_db_user:635110Liiali@rahma.bo0elay.mongodb.net/masjid-al-rahma?appName=rahma&retryWrites=true&w=majority';
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} env var is required to run this script.`);
+  }
+  return value;
+}
 
-const ADMIN_EMAIL = 'admin@masjidalrahma.com';
-const NEW_PASSWORD = 'Admin@2025#Secure';
+const MONGODB_URI = requireEnv('MONGODB_URI');
+const NEW_PASSWORD = requireEnv('NEW_ADMIN_PASSWORD');
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@masjidalrahma.com';
 
 async function fixAdmin() {
   try {
@@ -56,8 +63,8 @@ async function fixAdmin() {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📧 Email:    admin@masjidalrahma.com');
-    console.log('🔑 Password: Admin@2025#Secure');
+    console.log(`📧 Email:    ${ADMIN_EMAIL}`);
+    console.log('🔑 Password: (value of NEW_ADMIN_PASSWORD)');
     console.log('👤 Role:     admin');
     console.log('🔓 Status:   Unlocked & Active');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

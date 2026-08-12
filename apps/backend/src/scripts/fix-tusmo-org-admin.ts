@@ -8,7 +8,7 @@
  * creates/repairs the matching org_admin user (email + phone-as-password,
  * hashed once via the model's pre-save hook).
  *
- * Run: npx ts-node src/scripts/fix-tusmo-org-admin.ts
+ * Run: MONGODB_URI=... TARGET_SCHOOL_EMAIL=... npx ts-node src/scripts/fix-tusmo-org-admin.ts
  */
 
 import mongoose from 'mongoose';
@@ -16,9 +16,16 @@ import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import School from '../models/school.model';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://rayan2016003_db_user:635110Liiali@rahma.bo0elay.mongodb.net/masjid-al-rahma?appName=rahma&retryWrites=true&w=majority';
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} env var is required to run this script.`);
+  }
+  return value;
+}
 
-const TARGET_EMAIL = 'diriye1@gmail.com';
+const MONGODB_URI = requireEnv('MONGODB_URI');
+const TARGET_EMAIL = requireEnv('TARGET_SCHOOL_EMAIL');
 
 async function fixTusmoOrgAdmin() {
   await mongoose.connect(MONGODB_URI);

@@ -4,7 +4,7 @@ import paramiko, os, tarfile, io, time
 
 HOST = '158.220.120.83'
 USER = 'root'
-PASS = '635110Liiali'
+PASS = os.environ["VPS_PASS"]
 dist_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
 
 # Create tar.gz of dist folder in memory

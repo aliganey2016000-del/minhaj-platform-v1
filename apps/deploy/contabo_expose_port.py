@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Expose port 3000 for frontend and verify external access."""
 
+import os
 import paramiko, time
 
 HOST = "158.220.120.83"
 c = paramiko.SSHClient()
 c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-c.connect(HOST, username="root", password="635110Liiali", timeout=30)
+c.connect(HOST, username="root", password=os.environ["VPS_PASS"], timeout=30)
 
 def run(cmd, desc=""):
     if desc:
@@ -96,7 +97,7 @@ print(f"""
   Frontend: http://{HOST}:3000/
   API:      http://{HOST}:5000/api/v1/health
   Coolify:  http://{HOST}:8000
-  Admin:    admin@masjidalrahma.com / Admin@2025#Secure
+  Admin:    admin@masjidalrahma.com / (value of ADMIN_PASSWORD env var)
 ============================================================
 """)
 

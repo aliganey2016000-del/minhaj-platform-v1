@@ -14,9 +14,9 @@ from scp import SCPClient
 # Configuration
 # ───────────────────────────────────────────────────
 
-VPS_HOST = "152.239.119.129"
-VPS_USER = "root"
-VPS_PASS = "635110Liiali@"
+VPS_HOST = os.environ.get("VPS_HOST", "152.239.119.129")
+VPS_USER = os.environ.get("VPS_USER", "root")
+VPS_PASS = os.environ["VPS_PASS"]  # set before running, e.g. `VPS_PASS=... python deploy/deploy.py`
 DEPLOY_ROOT = "/var/www/masjid-al-rahma"
 LOCAL_BASE = r"c:\Users\Exam Office\Desktop\masjid-al-rahma-platform\apps"
 
@@ -179,7 +179,8 @@ def main():
         _, user_check, _ = run_cmd(client, 'mongosh --quiet --eval "use masjid-al-rahma; db.getUser(\"masjid_admin\")" 2>&1')
         if 'null' in user_check or 'MongoServerError' in user_check:
             print("  Creating MongoDB user...")
-            run_cmd(client, "mongosh --quiet --eval 'use masjid-al-rahma; db.createUser({user:\"masjid_admin\",pwd:\"RahmaDB2026Secure!\",roles:[{role:\"readWrite\",db:\"masjid-al-rahma\"}]});' 2>&1")
+            mongo_admin_pwd = os.environ["MONGO_ADMIN_PASSWORD"]
+            run_cmd(client, f"mongosh --quiet --eval 'use masjid-al-rahma; db.createUser({{user:\"masjid_admin\",pwd:\"{mongo_admin_pwd}\",roles:[{{role:\"readWrite\",db:\"masjid-al-rahma\"}}]}});' 2>&1")
             
             # Enable auth if not already
             _, auth_check, _ = run_cmd(client, "grep 'authorization: enabled' /etc/mongod.conf 2>/dev/null || echo 'not_found'")

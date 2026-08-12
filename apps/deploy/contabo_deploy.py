@@ -17,8 +17,10 @@ from scp import SCPClient
 # ========== CONFIG ==========
 VPS_HOST = "158.220.120.83"
 VPS_USER = "root"
-VPS_PASS = "635110Liiali"
+VPS_PASS = os.environ["VPS_PASS"]
 VPS_PORT = 22
+MONGO_CONTAINER_PASSWORD = os.environ["MONGO_CONTAINER_PASSWORD"]
+SEED_ADMIN_PASSWORD = os.environ["SEED_ADMIN_PASSWORD"]
 
 PROJECT_ROOT = r"c:\Users\Exam Office\Desktop\masjid-al-rahma-platform\apps"
 BACKEND_DIR = os.path.join(PROJECT_ROOT, "backend")
@@ -90,7 +92,7 @@ def main():
         """, "Step 2: Install Docker + Docker Compose")
 
         # ─── Step 3: Create Docker network + MongoDB ───
-        run_ssh(client, """
+        run_ssh(client, f"""
             docker network create masjid-network 2>/dev/null || true
             docker volume create mongodb_data
             docker stop mongodb 2>/dev/null || true
@@ -102,7 +104,7 @@ def main():
                 -v mongodb_data:/data/db \
                 -p 27017:27017 \
                 -e MONGO_INITDB_ROOT_USERNAME=admin \
-                -e MONGO_INITDB_ROOT_PASSWORD=masjid_rahma_2025_secure \
+                -e MONGO_INITDB_ROOT_PASSWORD={MONGO_CONTAINER_PASSWORD} \
                 mongo:7
             sleep 5
             docker ps | grep mongodb
@@ -142,7 +144,7 @@ def main():
         upload_dir(client, os.path.join(FRONTEND_DIR, "dist"), "/var/www/masjid-al-rahma/frontend/dist")
 
         # ─── Step 8: Create Dockerfiles ───
-        run_ssh(client, """
+        dockerfiles_script = """
 cat > /var/www/masjid-al-rahma/backend/Dockerfile << 'DOCKEREOF'
 FROM node:22-alpine
 WORKDIR /app
@@ -222,7 +224,12 @@ volumes:
   mongodb_data:
     external: true
 DOCKEREOF
-        """, "Step 8: Create Dockerfiles + docker-compose")
+        """
+        dockerfiles_script = dockerfiles_script.replace(
+            "MONGO_INITDB_ROOT_PASSWORD=masjid_rahma_2025_secure",
+            f"MONGO_INITDB_ROOT_PASSWORD={MONGO_CONTAINER_PASSWORD}",
+        )
+        run_ssh(client, dockerfiles_script, "Step 8: Create Dockerfiles + docker-compose")
 
         # ─── Step 9: Start the stack ───
         run_ssh(client, """
@@ -243,7 +250,7 @@ DOCKEREOF
         run_ssh(client, "curl -s -o /dev/null -w '%{http_code}' http://localhost/ || echo 'Frontend not ready'", "Frontend status")
 
         # ─── Step 11: Seed admin user ───
-        run_ssh(client, """
+        seed_admin_script = """
             docker exec masjid-backend node -e "
                 const mongoose = require('mongoose');
                 const bcrypt = require('bcryptjs');
@@ -267,7 +274,8 @@ DOCKEREOF
                     process.exit(0);
                 }).catch(e => { console.error(e); process.exit(1); });
             " 2>&1 || echo "Seed script note: run manually if needed"
-        """, "Step 11: Seed admin user")
+        """.replace("Admin@2025#Secure", SEED_ADMIN_PASSWORD)
+        run_ssh(client, seed_admin_script, "Step 11: Seed admin user")
 
         print("\n" + "=" * 70)
         print("  DEPLOYMENT COMPLETE")
@@ -275,7 +283,7 @@ DOCKEREOF
         print(f"  Frontend:  http://{VPS_HOST}")
         print(f"  Coolify:   http://{VPS_HOST}:8000")
         print(f"  API:       http://{VPS_HOST}/api/v1/health")
-        print(f"  Admin:     admin@masjidalrahma.com / Admin@2025#Secure")
+        print(f"  Admin:     admin@masjidalrahma.com / (value of SEED_ADMIN_PASSWORD)")
         print("=" * 70)
 
     except Exception as e:
