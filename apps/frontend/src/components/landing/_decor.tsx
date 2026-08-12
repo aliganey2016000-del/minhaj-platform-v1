@@ -122,7 +122,7 @@ export function Reveal({
     <Tag
       ref={ref as any}
       style={{ transitionDelay: `${delay}ms`, transform: shown ? undefined : `translateY(${y}px)` }}
-      className={`transition-[opacity,transform] duration-700 ease-[cubic-bezier(0.22,0.61,0.36,1)] ${shown ? 'opacity-100 translate-y-0' : 'opacity-0'} ${className}`}
+      className={`transition-[opacity,transform] duration-700 [transition-timing-function:cubic-bezier(0.22,0.61,0.36,1)] ${shown ? 'opacity-100 translate-y-0' : 'opacity-0'} ${className}`}
     >
       {children}
     </Tag>
