@@ -24,6 +24,7 @@ import * as XLSX from 'xlsx';
 import { BadRequestError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { parseBlockRows } from '../utils/content-blocks-parser';
+import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 
 // ---------------------------------------------------------------------------
 // Ready-to-copy AI prompts — shipped as extra sheets in the downloadable
@@ -179,6 +180,7 @@ export const downloadContentBlocksTemplate = async (_req: Request, res: Response
 // ---------------------------------------------------------------------------
 export const parseContentBlocksImport = async (req: Request, res: Response): Promise<Response> => {
   if (!req.file) throw new BadRequestError('An Excel or CSV file is required (field name "file")');
+  assertSafeSpreadsheetUpload(req.file);
 
   const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
   const sheetName = workbook.SheetNames[0];

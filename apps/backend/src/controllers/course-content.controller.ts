@@ -28,6 +28,7 @@ import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { assertOwnsOrg } from '../utils/tenant-scope';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
+import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 import { sanitizeQuestionForStudent } from '../utils/question-engine';
 import { parseBlockRows, getField, looksLikeContentBlockHeaderRow } from '../utils/content-blocks-parser';
 import { appendAiPromptSheets } from './content-blocks-import.controller';
@@ -331,6 +332,7 @@ export const importContent = async (req: Request, res: Response): Promise<Respon
   assertOwnsOrg(req, course, 'school');
 
   if (!req.file) throw new BadRequestError('An Excel or CSV file is required (field name "file")');
+  assertSafeSpreadsheetUpload(req.file);
 
   const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
   const sheetName = workbook.SheetNames[0];
@@ -555,6 +557,7 @@ export const importContentBlocksForCourse = async (req: Request, res: Response):
   assertOwnsOrg(req, course, 'school');
 
   if (!req.file) throw new BadRequestError('An Excel or CSV file is required (field name "file")');
+  assertSafeSpreadsheetUpload(req.file);
 
   let doc = await CourseContent.findOne({ course: courseId });
   if (!doc) {
