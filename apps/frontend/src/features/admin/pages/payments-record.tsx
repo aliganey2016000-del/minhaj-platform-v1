@@ -5,7 +5,7 @@
  * an Invoice happens on the Invoices page instead). Shows a printable
  * receipt after a successful record.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import api from '../../../lib/axios';
 
 // ---------------------------------------------------------------------------
@@ -235,6 +235,10 @@ export function PaymentsRecord() {
   const [recordNotes, setRecordNotes] = useState('');
 
   const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null);
+  // Regenerated after every successful submit, so a retry of the SAME
+  // attempt reuses the same key (idempotent) while a genuinely new payment
+  // gets a fresh one.
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
 
   useEffect(() => {
     (async () => {
@@ -263,7 +267,9 @@ export function PaymentsRecord() {
         type: recordType,
         method: recordMethod,
         notes: recordNotes,
+        idempotencyKey: idempotencyKeyRef.current,
       });
+      idempotencyKeyRef.current = crypto.randomUUID();
       const bal = data.data?.balance;
       const payment = data.data?.payment;
 

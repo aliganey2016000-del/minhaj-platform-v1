@@ -7,8 +7,10 @@ import { asyncHandler } from '../../middleware/async-handler.middleware';
 const router = Router();
 router.use(authMiddleware);
 
-// literal /generate-bulk route MUST come before the /:id wildcard route.
+// literal /generate-bulk and /collect-bulk routes MUST come before the /:id
+// wildcard route.
 router.post('/generate-bulk', adminOnly, asyncHandler(invoiceController.generateBulk));
+router.post('/collect-bulk', adminOnly, asyncHandler(invoiceController.collectBulk));
 
 router.get('/', adminOnly, asyncHandler(invoiceController.getAll));
 router.post('/', adminOnly, asyncHandler(invoiceController.create));

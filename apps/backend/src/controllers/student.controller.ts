@@ -598,9 +598,13 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   assertOwnsOrg(req, student, 'school');
 
   const {
-    studentId, firstName, lastName, gender, school, classId, grade, medicalNotes, parent, enrollmentDate, status, attendancePercentage, gpa, totalFeesPaid, totalFeesDue,
+    studentId, firstName, lastName, gender, school, classId, grade, medicalNotes, parent, enrollmentDate, status, attendancePercentage, gpa,
     email, password, guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship,
   } = req.body;
+  // totalFeesPaid/totalFeesDue are intentionally NOT accepted here — they're
+  // a cache derived only from the student's Invoices (billing.service.ts
+  // recalcStudentBalance), never writable directly. See totalFees/discount
+  // below for the legacy/display-only fields that ARE still editable.
 
   // Admin-editable — a school may want to align this with its own paper
   // records. Still only has to be unique within the student's organization.
@@ -647,8 +651,6 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (status !== undefined) student.status = status;
   if (attendancePercentage !== undefined) student.attendancePercentage = attendancePercentage;
   if (gpa !== undefined) student.gpa = gpa;
-  if (totalFeesPaid !== undefined) student.totalFeesPaid = totalFeesPaid;
-  if (totalFeesDue !== undefined) student.totalFeesDue = totalFeesDue;
 
   // ── Student's own login (email / password reset) ──
   let warning: string | null = null;

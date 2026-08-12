@@ -8,6 +8,7 @@ import Payment from '../models/payment.model';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, assertOwnsOrg } from '../utils/tenant-scope';
+import { collectPaymentService } from '../services/billing.service';
 
 const INVOICE_STATUSES = ['pending', 'partial', 'paid', 'void'];
 
@@ -254,51 +255,100 @@ export const generateBulk = async (req: Request, res: Response): Promise<Respons
 
 // ---------------------------------------------------------------------------
 // POST /invoices/:id/collect-payment
-// Creates a normal Payment doc (visible in the existing Payment History /
-// receipts / student self-service views exactly like any other payment)
-// linked via Payment.invoice, and updates this invoice's own amountPaid/
-// status. Deliberately does NOT call the legacy recalculateStudentBalance()
-// helper — that derives totalFeesDue against Student.totalFees, a figure
-// this invoice has no relationship to; feeding invoice-collected cash into
-// it would silently move an unrelated legacy balance. Reconciling the two
-// systems is the later "Reports & Reconciliation" phase, not this one.
+// Thin wrapper around collectPaymentService (billing.service.ts) — that
+// service creates the Payment (linked via Payment.invoice), atomically
+// updates this invoice's amountPaid/status, and recalculates
+// Student.totalFeesPaid/totalFeesDue from all of the student's invoices, so
+// the two figures can never drift apart.
 // ---------------------------------------------------------------------------
 
 export const collectPayment = async (req: Request, res: Response): Promise<Response> => {
-  const { amount, method, notes } = req.body;
-  if (!amount || amount <= 0) throw new BadRequestError('A valid amount is required');
+  const { amount, method, notes, idempotencyKey } = req.body;
 
   const invoice = await Invoice.findById(req.params.id);
   if (!invoice) throw new NotFoundError('Invoice');
   assertOwnsOrg(req, invoice, 'school');
 
-  if (invoice.status === 'void') throw new BadRequestError('Cannot collect payment on a voided invoice');
-
-  const remaining = invoice.amount - invoice.amountPaid;
-  if (amount > remaining + 0.001) throw new BadRequestError(`Amount exceeds remaining balance of ${remaining}`);
-
-  const payment = await Payment.create({
-    student: invoice.student,
-    school: invoice.school,
+  const { payment, invoice: updatedInvoice } = await collectPaymentService({
+    studentId: invoice.student,
+    schoolId: invoice.school,
+    invoiceId: invoice._id as mongoose.Types.ObjectId,
     amount,
-    discount: 0,
-    type: invoice.paymentType,
     method: method || 'cash',
-    status: 'completed',
+    type: invoice.paymentType,
     notes: notes || `Payment for invoice: ${invoice.title}`,
-    recordedBy: new mongoose.Types.ObjectId(req.user!.userId),
-    invoice: invoice._id,
+    recordedBy: req.user!.userId,
+    idempotencyKey,
   });
-
-  invoice.amountPaid += Number(amount);
-  invoice.status = invoice.amountPaid >= invoice.amount ? 'paid' : 'partial';
-  await invoice.save();
 
   const populatedPayment = await Payment.findById(payment._id)
     .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
     .lean();
 
-  return ApiResponse.created(res, { payment: populatedPayment, invoice }, 'Payment collected against invoice');
+  return ApiResponse.created(res, { payment: populatedPayment, invoice: updatedInvoice }, 'Payment collected against invoice');
+};
+
+// ---------------------------------------------------------------------------
+// POST /invoices/collect-bulk
+// Collects payment (defaulting to each invoice's full remaining balance)
+// against every pending/partial invoice matching the given filters — the
+// correctly-scoped replacement for the old bulk-charge flow. Loops
+// collectPaymentService per invoice; the atomic guard inside it still
+// protects each one individually even without a multi-document transaction.
+// ---------------------------------------------------------------------------
+
+export const collectBulk = async (req: Request, res: Response): Promise<Response> => {
+  const { feeStructureId, period, classId, schoolId, amount, method, notes } = req.body;
+
+  const filter: Record<string, unknown> = { status: { $in: ['pending', 'partial'] } };
+  if (feeStructureId) filter.feeStructure = feeStructureId;
+  if (period) filter.period = period;
+  if (schoolId) filter.school = schoolId;
+
+  if (classId) {
+    const studentIds = await Student.find({ class: classId }).distinct('_id');
+    filter.student = { $in: studentIds };
+  }
+
+  const scopedFilter = applyOrgFilter(req, filter, 'school');
+  const invoices = await Invoice.find(scopedFilter).select('_id student school amount amountPaid paymentType title');
+
+  if (invoices.length === 0) {
+    return ApiResponse.success(res, { collected: 0, failed: 0, totalAmount: 0 }, 'No matching invoices found');
+  }
+
+  const recordedBy = req.user!.userId;
+  let collected = 0;
+  let failed = 0;
+  let totalAmount = 0;
+
+  for (const inv of invoices) {
+    const remaining = inv.amount - inv.amountPaid;
+    const payAmount = amount ? Math.min(Number(amount), remaining) : remaining;
+    if (payAmount <= 0) continue;
+    try {
+      await collectPaymentService({
+        studentId: inv.student,
+        schoolId: inv.school,
+        invoiceId: inv._id as mongoose.Types.ObjectId,
+        amount: payAmount,
+        method: method || 'cash',
+        type: inv.paymentType,
+        notes: notes || `Bulk collection — ${inv.title}`,
+        recordedBy,
+      });
+      collected++;
+      totalAmount += payAmount;
+    } catch {
+      failed++;
+    }
+  }
+
+  return ApiResponse.success(
+    res,
+    { collected, failed, totalAmount },
+    `Collected payment against ${collected} invoice(s)`
+  );
 };
 
 // ---------------------------------------------------------------------------

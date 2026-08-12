@@ -12,8 +12,10 @@ export interface IPayment extends Document {
   recordedBy: mongoose.Types.ObjectId;
   dueDate?: Date;
   invoice?: mongoose.Types.ObjectId;
+  idempotencyKey?: string;
   createdAt: Date;
   updatedAt: Date;
+  effectiveAmount: number;
 }
 
 const paymentSchema = new Schema<IPayment>(
@@ -29,12 +31,22 @@ const paymentSchema = new Schema<IPayment>(
     recordedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     dueDate: { type: Date, default: null },
     invoice: { type: Schema.Types.ObjectId, ref: 'Invoice', default: null, index: true },
+    // Client-supplied, e.g. `crypto.randomUUID()` generated once per
+    // submit-attempt and resent unchanged on retry — lets collectPaymentService
+    // recognize and no-op a duplicate submission (double-click, network
+    // retry) instead of creating a second charge. Partial index so older
+    // payments with no key don't collide with each other on `null`.
+    idempotencyKey: { type: String, default: undefined },
   },
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );
 
 paymentSchema.index({ student: 1, createdAt: -1 });
 paymentSchema.index({ type: 1 });
+paymentSchema.index(
+  { idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+);
 
 // Virtual: effective amount after discount
 paymentSchema.virtual('effectiveAmount').get(function (this: IPayment) {

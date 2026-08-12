@@ -9,8 +9,8 @@ const router = Router();
 router.use(authMiddleware);
 
 // ---------------------------------------------------------------------------
-// IMPORTANT: literal /my, /stats, /student-balances, /bulk-charge
-// routes MUST come before the /student/:studentId wildcard route.
+// IMPORTANT: literal /my, /stats, /student-balances routes MUST come before
+// the /student/:studentId wildcard route.
 // ---------------------------------------------------------------------------
 
 router.get('/my', roleMiddleware(['student']), asyncHandler(paymentController.getMyPayments));
@@ -20,7 +20,6 @@ router.get('/', adminOnly, asyncHandler(paymentController.getAll));
 router.post('/', adminOnly, asyncHandler(paymentController.recordPayment));
 router.get('/stats', adminOnly, asyncHandler(paymentController.getPaymentStats));
 router.get('/student-balances', adminOnly, asyncHandler(paymentController.getStudentBalances));
-router.post('/bulk-charge', adminOnly, asyncHandler(paymentController.bulkCharge));
 router.put('/set-fees/:studentId', adminOnly, asyncHandler(paymentController.setStudentFees));
 router.patch('/:id/status', adminOnly, asyncHandler(paymentController.updateStatus));
 

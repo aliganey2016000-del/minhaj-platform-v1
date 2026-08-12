@@ -2,14 +2,15 @@
  * Invoices — Admin ledger
  * Bills generated from Fee Structures (or created manually). Collecting a
  * payment here creates a normal Payment record (visible in Payment History
- * exactly like any other payment) and updates the invoice's own paid/due —
- * it deliberately does NOT touch the legacy Student.totalFees balance shown
- * on Overview/Outstanding/Student Balances; see Fee Structures page intro.
+ * exactly like any other payment), updates the invoice's own paid/due, and
+ * recalculates the student's totalFeesPaid/totalFeesDue (shown on
+ * Overview/Student Balances) from all of their invoices — Invoice is the
+ * single source of truth for balances.
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, MoreVertical, Wallet, Eye, Ban, type LucideIcon } from 'lucide-react';
+import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -142,6 +143,9 @@ function CollectPaymentModal({ invoice, onClose, onDone }: { invoice: InvoiceIte
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Generated once when the modal opens and resent unchanged on retry, so a
+  // double-click or network retry can't create a duplicate payment.
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
 
   const handleSubmit = async () => {
     const amt = Number(amount);
@@ -149,7 +153,7 @@ function CollectPaymentModal({ invoice, onClose, onDone }: { invoice: InvoiceIte
     if (amt > remaining + 0.001) { setError(`Amount exceeds remaining balance of $${remaining.toLocaleString()}`); return; }
     setLoading(true); setError('');
     try {
-      await api.post(`/invoices/${invoice._id}/collect-payment`, { amount: amt, method, notes: notes.trim() || undefined });
+      await api.post(`/invoices/${invoice._id}/collect-payment`, { amount: amt, method, notes: notes.trim() || undefined, idempotencyKey: idempotencyKeyRef.current });
       onDone();
     } catch (err: any) { setError(err.response?.data?.message || err.message || 'Failed to collect payment'); } finally { setLoading(false); }
   };
@@ -184,22 +188,61 @@ function CollectPaymentModal({ invoice, onClose, onDone }: { invoice: InvoiceIte
 // View Details Modal
 // ---------------------------------------------------------------------------
 
-interface PaymentEntry { _id: string; amount: number; method: string; createdAt: string; notes?: string; }
+interface PaymentEntry { _id: string; amount: number; discount?: number; method: string; createdAt: string; notes?: string; status: 'completed' | 'pending' | 'refunded'; }
+
+function RefundModal({ payment, onClose, onDone }: { payment: PaymentEntry; onClose: () => void; onDone: () => void }) {
+  const refundable = Math.max(0, (payment.amount || 0) - (payment.discount || 0));
+  const [amount, setAmount] = useState(String(refundable));
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async () => {
+    const amt = Number(amount);
+    if (!amt || amt <= 0) { setError('Enter a valid amount'); return; }
+    if (!reason.trim()) { setError('A reason is required'); return; }
+    setLoading(true); setError('');
+    try {
+      await api.post('/refunds', { paymentId: payment._id, amount: amt, reason: reason.trim() });
+      onDone();
+    } catch (err: any) { setError(err.response?.data?.message || err.message || 'Failed to issue refund'); } finally { setLoading(false); }
+  };
+
+  const ic = 'w-full rounded-xl border px-3 py-2 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors border-[var(--color-border-default)]';
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-bold text-[var(--color-text-primary)]">↩️ Refund Payment</h2><button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+        <div className="space-y-3">
+          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Amount ($) *</label><input className={ic} type="number" min={0.01} max={refundable} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></div>
+          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Reason *</label><input className={ic} value={reason} onChange={e => setReason(e.target.value)} placeholder="Why is this being refunded?" /></div>
+          {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{error}</div>}
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
+            <button type="button" onClick={handleSubmit} disabled={loading} className="flex-1 rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}Issue Refund</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ViewInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: () => void }) {
   const [invoice, setInvoice] = useState<InvoiceItem | null>(null);
   const [payments, setPayments] = useState<PaymentEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refundingPayment, setRefundingPayment] = useState<PaymentEntry | undefined>(undefined);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await api.get(`/invoices/${invoiceId}`);
-        setInvoice(data.data.invoice);
-        setPayments(data.data.payments || []);
-      } finally { setLoading(false); }
-    })();
+  const load = useCallback(async () => {
+    try {
+      const { data } = await api.get(`/invoices/${invoiceId}`);
+      setInvoice(data.data.invoice);
+      setPayments(data.data.payments || []);
+    } finally { setLoading(false); }
   }, [invoiceId]);
+
+  useEffect(() => { load(); }, [load]);
 
   const studentName = invoice?.student?.profile ? `${invoice.student.profile.firstName} ${invoice.student.profile.lastName}` : invoice?.student?.studentId;
 
@@ -230,7 +273,15 @@ function ViewInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: 
               {payments.length === 0 ? <p className="text-sm text-[var(--color-text-tertiary)]">None yet</p> : (
                 <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)]">
                   {payments.map(p => (
-                    <div key={p._id} className="flex items-center justify-between px-3 py-2 text-sm"><span className="text-[var(--color-text-secondary)]">{new Date(p.createdAt).toLocaleDateString()} · {p.method.replace('_', ' ')}</span><span className="font-medium text-[var(--color-text-primary)]">${p.amount.toLocaleString()}</span></div>
+                    <div key={p._id} className="flex items-center justify-between px-3 py-2 text-sm gap-2">
+                      <span className="text-[var(--color-text-secondary)]">{new Date(p.createdAt).toLocaleDateString()} · {p.method.replace('_', ' ')}{p.status === 'refunded' && <span className="ml-1.5 text-[10px] font-semibold text-red-600 dark:text-red-400">REFUNDED</span>}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="font-medium text-[var(--color-text-primary)]">${p.amount.toLocaleString()}</span>
+                        {p.status !== 'refunded' && (
+                          <button onClick={() => setRefundingPayment(p)} title="Refund this payment" className="rounded-lg p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"><Undo2 className="h-3.5 w-3.5" strokeWidth={1.75} /></button>
+                        )}
+                      </span>
+                    </div>
                   ))}
                 </div>
               )}
@@ -239,6 +290,13 @@ function ViewInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: 
           </div>
         )}
       </div>
+      {refundingPayment && (
+        <RefundModal
+          payment={refundingPayment}
+          onClose={() => setRefundingPayment(undefined)}
+          onDone={() => { setRefundingPayment(undefined); load(); }}
+        />
+      )}
     </div>
   );
 }

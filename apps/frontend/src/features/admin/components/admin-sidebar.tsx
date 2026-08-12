@@ -90,7 +90,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/payments/fee-structures', label: 'Fee Structures',  icon: FileText },
       { path: '/admin/payments/invoices',       label: 'Invoices',        icon: Receipt },
       { path: '/admin/payments/record',         label: 'Record Payment',  icon: CreditCard },
-      { path: '/admin/payments/bulk',           label: 'Bulk Payment',    icon: Zap },
+      { path: '/admin/payments/bulk',           label: 'Bulk Collect',    icon: Zap },
       { path: '/admin/payments/balances',       label: 'Student Balances', icon: BarChart3 },
       { path: '/admin/payments/history',        label: 'Payment History', icon: History },
     ],

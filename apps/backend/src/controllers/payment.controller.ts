@@ -1,41 +1,26 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Payment from '../models/payment.model';
+import Invoice from '../models/invoice.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/tenant-scope';
 import ensureStudentRecord from '../utils/ensure-student';
+import { collectPaymentService, recalcStudentBalance } from '../services/billing.service';
 
 // ---------------------------------------------------------------------------
-// Helper: recalculate a student's totalFeesPaid & totalFeesDue from payments
-// ---------------------------------------------------------------------------
-
-async function recalculateStudentBalance(studentId: mongoose.Types.ObjectId): Promise<void> {
-  const completedPayments = await Payment.find({ student: studentId, status: 'completed' }).lean();
-
-  const totalPaid = completedPayments.reduce((sum, p) => sum + ((p as any).amount || 0) - ((p as any).discount || 0), 0);
-
-  const student = await Student.findById(studentId).select('totalFees discount');
-  const totalFees = (student as any)?.totalFees || 0;
-  const discount = (student as any)?.discount || 0;
-  const netExpected = Math.max(0, totalFees - discount);
-  const totalFeesDue = Math.max(0, netExpected - totalPaid);
-
-  await Student.findByIdAndUpdate(studentId, {
-    totalFeesPaid: totalPaid,
-    totalFeesDue,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// POST /payments — Record a payment with discount support
+// POST /payments — Record an ad-hoc payment for a single student (walk-in
+// cash, a donation, anything not tied to a pre-existing invoice). Thin
+// wrapper around collectPaymentService — that service auto-creates a minimal
+// invoice to hold this payment, so it still counts toward the student's
+// balance the same way an invoice-collected payment does.
 // ---------------------------------------------------------------------------
 
 export const recordPayment = async (req: Request, res: Response): Promise<Response> => {
-  const { studentId, amount, discount, type, method, notes, dueDate, status } = req.body;
+  const { studentId, amount, discount, type, method, notes, idempotencyKey } = req.body;
 
-  if (!studentId || amount === undefined || amount < 0) {
+  if (!studentId || amount === undefined || amount <= 0) {
     throw new BadRequestError('studentId and a valid amount are required');
   }
 
@@ -46,21 +31,17 @@ export const recordPayment = async (req: Request, res: Response): Promise<Respon
   const payDiscount = discount || 0;
   const effectiveAmount = Math.max(0, amount - payDiscount);
 
-  const payment = await Payment.create({
-    student: studentId,
-    school: student.school || null,
+  const { payment } = await collectPaymentService({
+    studentId,
+    schoolId: student.school,
     amount,
     discount: payDiscount,
     type: type || 'tuition',
     method: method || 'cash',
-    status: status || 'completed',
-    notes: notes || '',
-    recordedBy: new mongoose.Types.ObjectId(req.user!.userId),
-    dueDate: dueDate || undefined,
+    notes,
+    recordedBy: req.user!.userId,
+    idempotencyKey,
   });
-
-  // Recalculate student balance
-  await recalculateStudentBalance(new mongoose.Types.ObjectId(studentId));
 
   // Return updated student balance
   const updatedStudent = await Student.findById(studentId).select('totalFees totalFeesPaid totalFeesDue discount').lean();
@@ -83,7 +64,11 @@ export const recordPayment = async (req: Request, res: Response): Promise<Respon
 };
 
 // ---------------------------------------------------------------------------
-// PUT /payments/set-fees/:studentId — Set total fees & discount for a student
+// PUT /payments/set-fees/:studentId — Assign a total fee amount to a student.
+// Keeps writing the legacy display fields (totalFees/discount, still read by
+// some admin UI), but the amount now also becomes an actual ad-hoc pending
+// Invoice, so it's collectible through the normal flow instead of silently
+// not affecting totalFeesDue.
 // ---------------------------------------------------------------------------
 
 export const setStudentFees = async (req: Request, res: Response): Promise<Response> => {
@@ -103,7 +88,26 @@ export const setStudentFees = async (req: Request, res: Response): Promise<Respo
   }
   await student.save();
 
-  await recalculateStudentBalance(new mongoose.Types.ObjectId(req.params.studentId));
+  const netAmount = Math.max(0, totalFees - (student.discount || 0));
+  if (netAmount > 0) {
+    await Invoice.create({
+      student: student._id,
+      school: student.school || null,
+      feeStructure: null,
+      title: 'Manual Fee Assignment',
+      period: `manual-${new Date().toISOString().slice(0, 10)}`,
+      lineItems: [{ description: 'Manually assigned fee', amount: netAmount }],
+      amount: netAmount,
+      amountPaid: 0,
+      status: 'pending',
+      paymentType: 'tuition',
+      dueDate: new Date(),
+      issueDate: new Date(),
+      generatedBy: req.user!.userId,
+    });
+  }
+
+  await recalcStudentBalance(student._id as mongoose.Types.ObjectId);
 
   const updated = await Student.findById(req.params.studentId)
     .select('studentId totalFees totalFeesPaid totalFeesDue discount')
@@ -111,78 +115,6 @@ export const setStudentFees = async (req: Request, res: Response): Promise<Respo
     .lean();
 
   return ApiResponse.success(res, updated, 'Student fees updated');
-};
-
-// ---------------------------------------------------------------------------
-// POST /payments/bulk-charge — Bulk charge all students in an org/class
-// ---------------------------------------------------------------------------
-
-export const bulkCharge = async (req: Request, res: Response): Promise<Response> => {
-  const { amount, type, method, notes, schoolId, classId, discount: globalDiscount } = req.body;
-
-  if (!amount || amount <= 0) {
-    throw new BadRequestError('A valid amount is required for bulk charge');
-  }
-
-  // Build student filter — org-scoped
-  const studentFilter: Record<string, unknown> = {};
-  if (schoolId) studentFilter.school = schoolId;
-  if (classId) studentFilter.class = classId;
-
-  const scopedFilter = applyOrgFilter(req, studentFilter, 'school');
-  // Only active/approved students
-  scopedFilter.status = 'active';
-  scopedFilter.approvalStatus = 'approved';
-
-  const students = await Student.find(scopedFilter).select('_id studentId school totalFees totalFeesPaid totalFeesDue discount').lean();
-  if (students.length === 0) {
-    throw new BadRequestError('No eligible students found for bulk charge');
-  }
-
-  const userId = new mongoose.Types.ObjectId(req.user!.userId);
-  const payDiscount = globalDiscount || 0;
-
-  // Create payments for all students
-  const paymentDocs = students.map((s: any) => ({
-    student: s._id,
-    school: s.school || null,
-    amount,
-    discount: payDiscount,
-    type: type || 'tuition',
-    method: method || 'cash',
-    status: 'completed',
-    notes: notes || `Bulk charge — ${new Date().toLocaleDateString()}`,
-    recordedBy: userId,
-  }));
-
-  await Payment.insertMany(paymentDocs);
-
-  // Recalculate balance for all affected students
-  for (const s of students) {
-    await recalculateStudentBalance(s._id);
-  }
-
-  // Get updated totals
-  const updatedStudents = await Student.find(scopedFilter)
-    .select('totalFees totalFeesPaid totalFeesDue discount')
-    .lean();
-
-  const totalCharged = students.length * (amount - payDiscount);
-  const aggregateFees = updatedStudents.reduce((sum, s: any) => sum + (s.totalFees || 0), 0);
-  const aggregatePaid = updatedStudents.reduce((sum, s: any) => sum + (s.totalFeesPaid || 0), 0);
-  const aggregateDue = updatedStudents.reduce((sum, s: any) => sum + (s.totalFeesDue || 0), 0);
-
-  return ApiResponse.created(res, {
-    studentsCharged: students.length,
-    amountPerStudent: amount,
-    discountPerStudent: payDiscount,
-    effectivePerStudent: amount - payDiscount,
-    totalCharged,
-    aggregateFees,
-    aggregatePaid,
-    aggregateDue,
-    collectionRate: aggregateFees > 0 ? Math.round((aggregatePaid / aggregateFees) * 100) : 0,
-  }, `Bulk charge applied to ${students.length} students`);
 };
 
 // ---------------------------------------------------------------------------
@@ -411,7 +343,7 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
   // Recalculate student balance after status change
   const studentId = (payment as any).student?._id;
   if (studentId) {
-    await recalculateStudentBalance(studentId);
+    await recalcStudentBalance(studentId);
   }
 
   return ApiResponse.success(res, payment, `Payment status updated to ${status}`);
