@@ -5,10 +5,13 @@ import FeeStructure from '../models/fee-structure.model';
 import Student from '../models/student.model';
 import ClassModel from '../models/class.model';
 import Payment from '../models/payment.model';
+import User from '../models/user.model';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
-import { applyOrgFilter, assertOwnsOrg } from '../utils/tenant-scope';
+import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/tenant-scope';
 import { collectPaymentService } from '../services/billing.service';
+import { notifyUsers } from '../utils/notify';
+import ensureStudentRecord from '../utils/ensure-student';
 
 const INVOICE_STATUSES = ['pending', 'partial', 'paid', 'void'];
 
@@ -371,4 +374,90 @@ export const voidInvoice = async (req: Request, res: Response): Promise<Response
   await invoice.save();
 
   return ApiResponse.success(res, invoice, 'Invoice voided');
+};
+
+// ---------------------------------------------------------------------------
+// GET /invoices/my — student self-service, same pattern as
+// payment.controller.ts's getMyPayments (resolves the caller's own Student
+// record rather than requiring them to know their own studentId).
+// ---------------------------------------------------------------------------
+
+export const getMyInvoices = async (req: Request, res: Response): Promise<Response> => {
+  const student = await ensureStudentRecord(req.user!.userId);
+
+  const invoices = await Invoice.find({ student: student._id, status: { $ne: 'void' } })
+    .sort({ dueDate: 1 })
+    .lean({ virtuals: true });
+
+  return ApiResponse.success(res, invoices);
+};
+
+// ---------------------------------------------------------------------------
+// GET /invoices/student/:studentId — a student's own invoices (self-service,
+// for the parent/student "what do I owe and when" view). Same
+// admin/org_admin/parent/student access rule as payment.routes.ts's
+// GET /payments/student/:studentId.
+// ---------------------------------------------------------------------------
+
+export const getStudentInvoices = async (req: Request, res: Response): Promise<Response> => {
+  const student = await Student.findById(req.params.studentId).select('studentId school user enrolledCourses').lean();
+  if (!student) throw new NotFoundError('Student');
+  await assertCanAccessStudent(req, student);
+
+  const invoices = await Invoice.find({ student: req.params.studentId, status: { $ne: 'void' } })
+    .sort({ dueDate: 1 })
+    .lean({ virtuals: true });
+
+  return ApiResponse.success(res, invoices);
+};
+
+// ---------------------------------------------------------------------------
+// POST /invoices/:id/request-payment — parent/student self-service "I want
+// to pay this." There is no payment gateway wired into this app (that's a
+// real business/compliance decision, not something to bolt on silently), so
+// this doesn't move any money — it notifies the school's own admins so they
+// can follow up (call, arrange a bank transfer, take cash in person, etc.),
+// giving the parent/student SOME way to act instead of a dead end.
+// ---------------------------------------------------------------------------
+
+export const requestPayment = async (req: Request, res: Response): Promise<Response> => {
+  const invoice = await Invoice.findById(req.params.id).populate({
+    path: 'student',
+    select: 'studentId school user enrolledCourses',
+    populate: { path: 'profile', select: 'firstName lastName' },
+  });
+  if (!invoice) throw new NotFoundError('Invoice');
+  await assertCanAccessStudent(req, invoice.student);
+
+  if (invoice.status === 'void' || invoice.status === 'paid') {
+    throw new BadRequestError('This invoice is not awaiting payment.');
+  }
+
+  const orgAdmins = await User.find({ role: 'org_admin', organizationId: invoice.school }).select('_id').lean();
+  let recipientIds = orgAdmins.map((u) => (u._id as mongoose.Types.ObjectId).toString());
+  if (recipientIds.length === 0) {
+    const globalAdmins = await User.find({ role: 'admin' }).select('_id').lean();
+    recipientIds = globalAdmins.map((u) => (u._id as mongoose.Types.ObjectId).toString());
+  }
+
+  if (recipientIds.length === 0) {
+    // Don't claim success when nobody was actually notified — a school with
+    // no org_admin assigned yet (and no global admin left) is a real
+    // misconfiguration the parent/student needs to know about, not a silent
+    // no-op that looks identical to a successful request.
+    throw new BadRequestError('No school staff are available to notify right now — please contact your school directly.');
+  }
+
+  const student = invoice.student as any;
+  const studentName = student?.profile ? `${student.profile.firstName} ${student.profile.lastName}` : student?.studentId || 'A student';
+  const remaining = invoice.amount - invoice.amountPaid;
+
+  await notifyUsers(recipientIds, {
+    title: 'Payment request',
+    message: `${studentName} would like to pay "${invoice.title}" (${remaining.toLocaleString()} remaining). Please follow up with them.`,
+    type: 'info',
+    link: '/admin/payments/invoices',
+  });
+
+  return ApiResponse.success(res, null, 'The office has been notified and will follow up with you shortly.');
 };

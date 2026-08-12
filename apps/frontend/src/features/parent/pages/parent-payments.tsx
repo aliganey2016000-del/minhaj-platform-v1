@@ -1,10 +1,13 @@
 /**
  * Fees & Payments — Parent self-service
- * Shows each linked child's balance, with an expandable payment history.
+ * Shows each linked child's balance, open invoices (with a way to notify the
+ * office they want to pay — there's no payment gateway wired into this app,
+ * so this can't move money itself, but it beats a dead end), and an
+ * expandable payment history.
  */
 
 import { useEffect, useState } from 'react';
-import { Download } from 'lucide-react';
+import { Download, Bell, Check } from 'lucide-react';
 import api from '../../../lib/axios';
 import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
 
@@ -25,6 +28,18 @@ interface PaymentRecord {
   createdAt: string;
 }
 
+interface InvoiceRecord {
+  _id: string;
+  title: string;
+  period: string;
+  amount: number;
+  amountPaid: number;
+  amountDue: number;
+  status: 'pending' | 'partial' | 'paid' | 'void';
+  isOverdue: boolean;
+  dueDate: string;
+}
+
 function StatusBadge({ status }: { status: string }) {
   const c: Record<string, string> = {
     completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
@@ -34,9 +49,51 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${c[status] || 'bg-gray-100'}`}>{status}</span>;
 }
 
+function InvoiceRow({ invoice }: { invoice: InvoiceRecord }) {
+  const [requesting, setRequesting] = useState(false);
+  const [requested, setRequested] = useState(false);
+  const [error, setError] = useState('');
+
+  const requestPayment = async () => {
+    setRequesting(true); setError('');
+    try {
+      await api.post(`/invoices/${invoice._id}/request-payment`, {});
+      setRequested(true);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to send request');
+    } finally {
+      setRequesting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl bg-[var(--color-surface-secondary)] px-4 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="font-semibold text-[var(--color-text-primary)]">{invoice.title}</p>
+          <p className="text-[10px] text-[var(--color-text-tertiary)]">{invoice.period} · Due {new Date(invoice.dueDate).toLocaleDateString()}{invoice.isOverdue && <span className="ml-1 font-semibold text-red-600">· Overdue</span>}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <p className="font-semibold text-red-600">${invoice.amountDue.toLocaleString()}</p>
+          {requested ? (
+            <span title="Office notified" className="rounded-lg p-1.5 text-green-600"><Check className="h-3.5 w-3.5" strokeWidth={2} /></span>
+          ) : (
+            <button type="button" onClick={requestPayment} disabled={requesting} title="Notify the office you want to pay this" className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600 transition-colors disabled:opacity-50">
+              <Bell className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </button>
+          )}
+        </div>
+      </div>
+      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      {requested && <p className="text-xs text-green-600 mt-1">The office has been notified and will follow up with you.</p>}
+    </div>
+  );
+}
+
 function ChildCard({ child }: { child: Child }) {
   const [expanded, setExpanded] = useState(false);
   const [payments, setPayments] = useState<PaymentRecord[] | null>(null);
+  const [invoices, setInvoices] = useState<InvoiceRecord[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -46,14 +103,23 @@ function ChildCard({ child }: { child: Child }) {
     if (next && payments === null) {
       setLoading(true);
       setError('');
-      try {
-        const { data } = await api.get(`/payments/student/${child._id}`);
-        setPayments(data.data?.payments || []);
-      } catch (err: any) {
-        setError(err.response?.data?.message || 'Failed to load payment history');
-      } finally {
-        setLoading(false);
+      // allSettled — a failure loading invoices shouldn't also block payment
+      // history (and vice versa); each panel degrades independently.
+      const [paymentsResult, invoicesResult] = await Promise.allSettled([
+        api.get(`/payments/student/${child._id}`),
+        api.get(`/invoices/student/${child._id}`),
+      ]);
+      if (paymentsResult.status === 'fulfilled') {
+        setPayments(paymentsResult.value.data.data?.payments || []);
+      } else {
+        setError(paymentsResult.reason?.response?.data?.message || 'Failed to load payment history');
       }
+      if (invoicesResult.status === 'fulfilled') {
+        setInvoices((invoicesResult.value.data.data || []).filter((inv: InvoiceRecord) => inv.status !== 'paid'));
+      } else {
+        setInvoices([]);
+      }
+      setLoading(false);
     }
   };
 
@@ -82,28 +148,42 @@ function ChildCard({ child }: { child: Child }) {
       </button>
 
       {expanded && (
-        <div className="border-t border-[var(--color-border-subtle)] px-5 py-4">
+        <div className="border-t border-[var(--color-border-subtle)] px-5 py-4 space-y-5">
           {loading && <div className="flex justify-center py-6"><div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>}
           {error && <p className="text-sm text-red-600">{error}</p>}
-          {!loading && payments && payments.length === 0 && <p className="text-sm text-[var(--color-text-tertiary)] text-center py-4">No payment records yet</p>}
-          {!loading && payments && payments.length > 0 && (
-            <div className="space-y-2">
-              {payments.map((p) => (
-                <div key={p._id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-4 py-2.5">
-                  <div>
-                    <p className="font-semibold text-green-600">${p.amount.toLocaleString()}</p>
-                    <p className="text-[10px] text-[var(--color-text-tertiary)]">{new Date(p.createdAt).toLocaleDateString()} · {p.method.replace('_', ' ')}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={p.status} />
-                    {hasReceipt(p.status) && (
-                      <button type="button" onClick={() => downloadReceipt(p._id)} title="Download receipt" className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600 transition-colors">
-                        <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
-                      </button>
-                    )}
-                  </div>
+
+          {!loading && invoices && invoices.length > 0 && (
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)] mb-2">Open Invoices</p>
+              <div className="space-y-2">
+                {invoices.map((inv) => <InvoiceRow key={inv._id} invoice={inv} />)}
+              </div>
+            </div>
+          )}
+
+          {!loading && payments && (
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)] mb-2">Payment History</p>
+              {payments.length === 0 ? <p className="text-sm text-[var(--color-text-tertiary)] text-center py-4">No payment records yet</p> : (
+                <div className="space-y-2">
+                  {payments.map((p) => (
+                    <div key={p._id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-4 py-2.5">
+                      <div>
+                        <p className="font-semibold text-green-600">${p.amount.toLocaleString()}</p>
+                        <p className="text-[10px] text-[var(--color-text-tertiary)]">{new Date(p.createdAt).toLocaleDateString()} · {p.method.replace('_', ' ')}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={p.status} />
+                        {hasReceipt(p.status) && (
+                          <button type="button" onClick={() => downloadReceipt(p._id)} title="Download receipt" className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600 transition-colors">
+                            <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
