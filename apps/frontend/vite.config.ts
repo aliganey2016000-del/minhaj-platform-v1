@@ -137,10 +137,24 @@ export default defineConfig({
     minify: 'esbuild',
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          motion: ['framer-motion'],
-          i18n: ['i18next', 'react-i18next'],
+        manualChunks(id) {
+          if (id.includes('node_modules/recharts/')) return 'charts';
+          if (
+            id.includes('node_modules/@tiptap/') ||
+            id.includes('node_modules/@tiptap/pm/') ||
+            id.includes('node_modules/prosemirror-')
+          ) {
+            return 'rich-text-editor';
+          }
+          if (id.includes('node_modules/framer-motion/')) return 'motion';
+          if (id.includes('node_modules/i18next/') || id.includes('node_modules/react-i18next/')) return 'i18n';
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/react-router-dom/')
+          ) {
+            return 'vendor';
+          }
         },
       },
     },
