@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import Payment from '../models/payment.model';
+import Payment, { formatReceiptNumber } from '../models/payment.model';
 import Invoice from '../models/invoice.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
@@ -8,6 +8,7 @@ import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/tenant-scope';
 import ensureStudentRecord from '../utils/ensure-student';
 import { collectPaymentService, recalcStudentBalance } from '../services/billing.service';
+import { buildReceiptPdf } from '../utils/receipt-pdf';
 
 // ---------------------------------------------------------------------------
 // POST /payments — Record an ad-hoc payment for a single student (walk-in
@@ -316,18 +317,29 @@ export const getMyPayments = async (req: Request, res: Response): Promise<Respon
 };
 
 // ---------------------------------------------------------------------------
-// PATCH /payments/:id/status — Update payment status
+// PATCH /payments/:id/status — Update payment status.
+// 'refunded' is deliberately NOT settable here — only POST /refunds can move
+// a payment into that state, since a real refund must also reverse
+// Invoice.amountPaid and carry an audit trail (reason, processedBy). Setting
+// it directly here would desync the invoice/balance from what the payment
+// record claims.
 // ---------------------------------------------------------------------------
 
 export const updateStatus = async (req: Request, res: Response): Promise<Response> => {
   const { status } = req.body;
-  if (!status || !['completed', 'pending', 'refunded'].includes(status)) {
-    throw new BadRequestError('Valid status required: completed, pending, or refunded');
+  if (!status || !['completed', 'pending'].includes(status)) {
+    throw new BadRequestError('Valid status required: completed or pending. To refund a payment, use POST /refunds instead.');
   }
 
   const existing = await Payment.findById(req.params.id);
   if (!existing) throw new NotFoundError('Payment');
+  // Ownership must be checked before any business-state check below, or a
+  // caller with no rights to this payment at all could distinguish
+  // refunded-vs-not for another organization's data from the error alone.
   assertOwnsOrg(req, existing, 'school');
+  if (existing.status === 'refunded') {
+    throw new BadRequestError('This payment has already been refunded and cannot be reverted.');
+  }
 
   const payment = await Payment.findByIdAndUpdate(
     req.params.id,
@@ -347,4 +359,57 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
   }
 
   return ApiResponse.success(res, payment, `Payment status updated to ${status}`);
+};
+
+// ---------------------------------------------------------------------------
+// GET /payments/:id/receipt — Download the official PDF receipt.
+// Accessible to admin/org_admin (own org), the paying student themselves,
+// or their parent — same access rule as getStudentPayments. Available for
+// 'completed' and 'refunded' payments (refunded ones are clearly marked as
+// such in the PDF); 'pending' has no receipt since no money was received.
+// ---------------------------------------------------------------------------
+
+export const getReceipt = async (req: Request, res: Response): Promise<void> => {
+  const payment = await Payment.findById(req.params.id)
+    .populate({ path: 'student', select: 'studentId user enrolledCourses school', populate: { path: 'profile', select: 'firstName lastName' } })
+    .populate('school', 'name')
+    .populate('recordedBy', 'email')
+    .populate('invoice', 'title period');
+
+  if (!payment) throw new NotFoundError('Payment');
+  // assertCanAccessStudent treats a null/missing document as "allowed" (that
+  // no-op is meant for genuinely optional relations elsewhere) — Payment's
+  // student ref is normally required but Mongo doesn't enforce referential
+  // integrity, so a payment whose Student was later deleted would populate
+  // to null and silently bypass every ownership check below. Reject
+  // explicitly first, same guard getStudentPayments already uses.
+  if (!payment.student) throw new NotFoundError('Student');
+  await assertCanAccessStudent(req, payment.student);
+
+  if (payment.status === 'pending') {
+    throw new BadRequestError('No receipt is available for a pending payment.');
+  }
+
+  const student = payment.student as any;
+  const invoice = payment.invoice as any;
+
+  const pdf = await buildReceiptPdf({
+    receiptNumber: payment.receiptNumber || formatReceiptNumber(payment._id as mongoose.Types.ObjectId, payment.createdAt),
+    schoolName: (payment.school as any)?.name || 'Masjid Al-Rahma Platform',
+    studentName: `${student?.profile?.firstName || ''} ${student?.profile?.lastName || ''}`.trim() || student?.studentId || 'Student',
+    studentCode: student?.studentId || '',
+    invoiceTitle: invoice?.title,
+    invoicePeriod: invoice?.period,
+    amount: payment.amount,
+    discount: payment.discount || 0,
+    method: payment.method,
+    paidAt: payment.createdAt,
+    confirmedByEmail: (payment.recordedBy as any)?.email || '—',
+    notes: payment.notes,
+    refunded: payment.status === 'refunded',
+  });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename=receipt-${payment.receiptNumber || payment._id}.pdf`);
+  res.end(pdf);
 };

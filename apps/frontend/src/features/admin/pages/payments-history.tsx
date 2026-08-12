@@ -4,7 +4,9 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import { Download } from 'lucide-react';
 import api from '../../../lib/axios';
+import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
 
 interface PaymentRecord {
   _id: string;
@@ -123,11 +125,12 @@ export function PaymentsHistory() {
                     <th className="text-center px-5 py-3 font-semibold hidden lg:table-cell">Method</th>
                     <th className="text-center px-5 py-3 font-semibold">Status</th>
                     <th className="text-left px-5 py-3 font-semibold hidden lg:table-cell">Date</th>
+                    <th className="text-center px-5 py-3 font-semibold">Receipt</th>
                   </tr>
                 </thead>
                 <tbody>
                   {payments.length === 0 ? (
-                    <tr><td colSpan={6} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">💰 No payments found</p></td></tr>
+                    <tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">💰 No payments found</p></td></tr>
                   ) : payments.map((p) => (
                     <tr key={p._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
                       <td className="px-5 py-4">
@@ -142,15 +145,25 @@ export function PaymentsHistory() {
                       <td className="px-5 py-4 text-center hidden md:table-cell"><TypeBadge type={p.type} /></td>
                       <td className="px-5 py-4 text-center hidden lg:table-cell"><MethodBadge method={p.method} /></td>
                       <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                        <select value={p.status} onChange={(e) => handleStatusChange(p._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer">
-                          <option value="completed">Completed</option>
-                          <option value="pending">Pending</option>
-                          <option value="refunded">Refunded</option>
-                        </select>
+                        {p.status === 'refunded' ? (
+                          <span title="Refunds are issued from the Invoices page, not changed here" className="rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">Refunded</span>
+                        ) : (
+                          <select value={p.status} onChange={(e) => handleStatusChange(p._id, e.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1 text-xs font-medium cursor-pointer">
+                            <option value="completed">Completed</option>
+                            <option value="pending">Pending</option>
+                          </select>
+                        )}
                       </td>
                       <td className="px-5 py-4 hidden lg:table-cell text-xs text-[var(--color-text-tertiary)]">
                         {new Date(p.createdAt).toLocaleDateString()}
                         <p className="text-[10px]">{new Date(p.createdAt).toLocaleTimeString()}</p>
+                      </td>
+                      <td className="px-5 py-4 text-center">
+                        {hasReceipt(p.status) && (
+                          <button type="button" onClick={() => downloadReceipt(p._id)} title="Download receipt" className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600 transition-colors inline-flex">
+                            <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

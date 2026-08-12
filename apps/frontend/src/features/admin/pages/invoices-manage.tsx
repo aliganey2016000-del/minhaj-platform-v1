@@ -10,9 +10,10 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, type LucideIcon } from 'lucide-react';
+import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, Download, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -277,6 +278,9 @@ function ViewInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: 
                       <span className="text-[var(--color-text-secondary)]">{new Date(p.createdAt).toLocaleDateString()} · {p.method.replace('_', ' ')}{p.status === 'refunded' && <span className="ml-1.5 text-[10px] font-semibold text-red-600 dark:text-red-400">REFUNDED</span>}</span>
                       <span className="flex items-center gap-2">
                         <span className="font-medium text-[var(--color-text-primary)]">${p.amount.toLocaleString()}</span>
+                        {hasReceipt(p.status) && (
+                          <button onClick={() => downloadReceipt(p._id)} title="Download receipt" className="rounded-lg p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600 transition-colors"><Download className="h-3.5 w-3.5" strokeWidth={1.75} /></button>
+                        )}
                         {p.status !== 'refunded' && (
                           <button onClick={() => setRefundingPayment(p)} title="Refund this payment" className="rounded-lg p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"><Undo2 className="h-3.5 w-3.5" strokeWidth={1.75} /></button>
                         )}

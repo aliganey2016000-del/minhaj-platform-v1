@@ -4,7 +4,9 @@
  */
 
 import { useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
 import api from '../../../lib/axios';
+import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
 
 interface Child {
   _id: string;
@@ -92,7 +94,14 @@ function ChildCard({ child }: { child: Child }) {
                     <p className="font-semibold text-green-600">${p.amount.toLocaleString()}</p>
                     <p className="text-[10px] text-[var(--color-text-tertiary)]">{new Date(p.createdAt).toLocaleDateString()} · {p.method.replace('_', ' ')}</p>
                   </div>
-                  <StatusBadge status={p.status} />
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={p.status} />
+                    {hasReceipt(p.status) && (
+                      <button type="button" onClick={() => downloadReceipt(p._id)} title="Download receipt" className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600 transition-colors">
+                        <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

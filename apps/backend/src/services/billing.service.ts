@@ -189,15 +189,32 @@ export async function collectPaymentService(
       idempotencyKey: idempotencyKey || undefined,
     });
   } catch (err: any) {
-    if (err.code === 11000 && idempotencyKey) {
-      // Lost a race against an identical concurrent retry that got there
-      // first. This call already bumped the invoice above — roll that back
-      // before returning the winner, or the invoice would be double-counted.
+    // A duplicate-key error can come from EITHER unique index on this model
+    // (idempotencyKey OR receiptNumber) — err.keyPattern tells us which one
+    // actually fired. Only treat it as "lost a race against an identical
+    // concurrent retry" when it's really the idempotencyKey index; anything
+    // else (a receiptNumber collision, a validation error, etc.) is a
+    // genuine failure to create the Payment.
+    const isIdempotencyRace = err.code === 11000 && idempotencyKey && err.keyPattern?.idempotencyKey;
+
+    if (isIdempotencyRace) {
+      // This call already bumped the invoice above — roll that back before
+      // returning the winner, or the invoice would be double-counted.
       await reverseInvoicePayment(updatedInvoice._id as mongoose.Types.ObjectId, Number(amount));
       const winner = await Payment.findOne({ idempotencyKey });
-      const winnerInvoice = winner?.invoice ? await Invoice.findById(winner.invoice) : updatedInvoice;
-      return { payment: winner as IPayment, invoice: (winnerInvoice as IInvoice) || updatedInvoice };
+      if (!winner) {
+        // Shouldn't happen (something else must have created the colliding
+        // key), but never report success with no actual Payment record.
+        throw err;
+      }
+      const winnerInvoice = winner.invoice ? await Invoice.findById(winner.invoice) : updatedInvoice;
+      return { payment: winner, invoice: (winnerInvoice as IInvoice) || updatedInvoice };
     }
+
+    // Any other failure to create the Payment — the invoice was already
+    // incremented above; reverse it so it doesn't stay desynced from the
+    // fact that no Payment record actually exists for that amount.
+    await reverseInvoicePayment(updatedInvoice._id as mongoose.Types.ObjectId, Number(amount)).catch(() => {});
     throw err;
   }
 

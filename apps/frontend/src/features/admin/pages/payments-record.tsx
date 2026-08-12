@@ -7,6 +7,7 @@
  */
 import { useEffect, useState, useRef } from 'react';
 import api from '../../../lib/axios';
+import { downloadReceipt } from '../../../lib/receipts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,6 +95,11 @@ function InvoiceModal({ invoice, onClose }: { invoice: InvoiceData; onClose: () 
     `);
     win.document.close();
     setTimeout(() => win.print(), 300);
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!invoice.paymentId) { alert('This receipt has no linked payment record yet — try Print instead.'); return; }
+    await downloadReceipt(invoice.paymentId);
   };
 
   return (
@@ -190,10 +196,16 @@ function InvoiceModal({ invoice, onClose }: { invoice: InvoiceData; onClose: () 
         <div className="text-center px-8 pb-8 pt-2">
           <div className="flex items-center justify-center gap-4 mb-4">
             <button
-              onClick={handlePrint}
+              onClick={handleDownloadPdf}
               className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors shadow-sm"
             >
-              🖨️ Print Receipt
+              ⬇️ Download PDF
+            </button>
+            <button
+              onClick={handlePrint}
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-600 px-6 py-2.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors"
+            >
+              🖨️ Print
             </button>
             <button
               onClick={onClose}

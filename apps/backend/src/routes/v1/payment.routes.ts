@@ -25,5 +25,6 @@ router.patch('/:id/status', adminOnly, asyncHandler(paymentController.updateStat
 
 // Admin / org_admin / parent / student — ownership enforced in the controller.
 router.get('/student/:studentId', roleMiddleware(['admin', 'org_admin', 'parent', 'student']), asyncHandler(paymentController.getStudentPayments));
+router.get('/:id/receipt', roleMiddleware(['admin', 'org_admin', 'parent', 'student']), asyncHandler(paymentController.getReceipt));
 
 export default router;
