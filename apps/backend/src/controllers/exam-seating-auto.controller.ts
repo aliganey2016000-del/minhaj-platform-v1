@@ -43,9 +43,10 @@ export const generate = async (req: Request, res: Response) => {
   for (let i = 0; i < groupCount; i++) { const size = base + (i < remainder ? 1 : 0); const group = selected.slice(cursor, cursor + size); cursor += size; if (size > Number(activeRooms[i].capacity)) throw new BadRequestError(`${activeRooms[i].name} capacity is ${activeRooms[i].capacity}, but ${size} students were assigned`); groups.push(group); }
 
   const scope: any = { academicYear: year, examType: type, school: schoolId || null };
-  const existing = await ExamSeatingPlan.countDocuments(scope);
-  if (existing && !overwrite) throw new BadRequestError(`A seating plan already exists for ${year} / ${type}. Choose Regenerate to replace it.`);
-  if (overwrite) await ExamSeatingPlan.deleteMany(scope);
+  const selectedIds = selected.map(s => s._id);
+  const existing = await ExamSeatingPlan.countDocuments({ ...scope, student: { $in: selectedIds } });
+  if (existing && !overwrite) throw new BadRequestError(`Some selected students already have seating for ${year} / ${type}. Enable Regenerate existing plan to replace their assignments.`);
+  if (overwrite) await ExamSeatingPlan.deleteMany({ ...scope, student: { $in: selectedIds } });
 
   const docs: any[] = [];
   groups.forEach((group, roomIndex) => group.forEach((student, index) => docs.push({ student: student._id, room: activeRooms[roomIndex]._id, deskNumber: seatMode === 'sequential' ? `S${String(index + 1).padStart(2, '0')}` : '', academicYear: year, examType: type, school: schoolId || student.school?._id || null })));
