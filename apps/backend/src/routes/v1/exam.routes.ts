@@ -42,6 +42,8 @@ router.patch('/:id/status', adminOrTeacher, asyncHandler(examController.updateSt
 router.patch('/:id/publish-results', adminOrTeacher, asyncHandler(examController.publishResults));
 
 router.get('/:id/seating', adminOrTeacher, asyncHandler(seatController.getForExam));
+router.get('/:id/seating/candidates', adminOrTeacher, asyncHandler(seatController.getCandidates));
+router.post('/:id/seating', adminOrTeacher, asyncHandler(seatController.create));
 router.post('/:id/seating/generate', adminOrTeacher, asyncHandler(seatController.generate));
 router.post('/:id/seating/import-preview', adminOrTeacher, upload.single('file'), asyncHandler(seatImportController.previewImport));
 router.post('/:id/seating/import', adminOrTeacher, upload.single('file'), asyncHandler(seatImportController.importSeating));
@@ -58,7 +60,6 @@ router.post('/:id/paper/submit', adminOrTeacher, asyncHandler(paperController.su
 router.patch('/:id/paper/review', adminOrTeacher, asyncHandler(paperController.review));
 
 router.post('/:id/appeals', roleMiddleware(['student']), asyncHandler(appealController.create));
-
 router.post('/:id/attempt/start', roleMiddleware(['student']), asyncHandler(attemptController.start));
 router.get('/:id/attempt', roleMiddleware(['student']), asyncHandler(attemptController.getMine));
 router.patch('/:id/attempt', roleMiddleware(['student']), asyncHandler(attemptController.saveAnswers));
