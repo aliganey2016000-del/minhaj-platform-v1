@@ -14,7 +14,7 @@ import { assertOwnsOrg, assertOwnsExamIfTeacher } from '../utils/tenant-scope';
 import ensureStudentRecord from '../utils/ensure-student';
 
 async function loadManageableExam(req: Request, examId: string) {
-  const exam = await Exam.findById(examId).populate('course', 'title.en school teacher');
+  const exam = await Exam.findById(examId).populate('course', 'title.en school teacher class');
   if (!exam) throw new NotFoundError('Exam');
   assertOwnsOrg(req, exam, 'school');
   await assertOwnsExamIfTeacher(req, exam);
@@ -26,19 +26,40 @@ async function getEligibleStudents(exam: any) {
   if (!courseId) return [];
   return Student.find({ enrolledCourses: courseId })
     .populate('profile', 'firstName lastName')
-    .select('studentId profile status')
+    .populate('class', 'title section academicYear shiftMode')
+    .populate('school', 'name')
+    .select('studentId profile school class department shiftMode')
     .sort({ studentId: 1 })
     .lean();
 }
+
+const studentPayload = (student: any) => ({
+  ...student,
+  organization: student.school?.name || '',
+  className: [student.class?.title, student.class?.section].filter(Boolean).join(' ').trim(),
+  academicYear: student.class?.academicYear || '',
+});
 
 export const getForExam = async (req: Request, res: Response): Promise<Response> => {
   const exam = await loadManageableExam(req, req.params.id);
   const allocations = await SeatAllocation.find({ exam: exam._id })
     .populate('room', 'name building capacity')
-    .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
+    .populate({
+      path: 'student',
+      populate: [
+        { path: 'profile', select: 'firstName lastName' },
+        { path: 'class', select: 'title section academicYear shiftMode' },
+        { path: 'school', select: 'name' },
+      ],
+      select: 'studentId profile school class department shiftMode',
+    })
     .sort({ room: 1, deskNumber: 1 })
     .lean();
-  return ApiResponse.success(res, allocations);
+
+  return ApiResponse.success(res, allocations.map((allocation: any) => ({
+    ...allocation,
+    student: allocation.student ? studentPayload(allocation.student) : allocation.student,
+  })));
 };
 
 export const getCandidates = async (req: Request, res: Response): Promise<Response> => {
@@ -49,7 +70,7 @@ export const getCandidates = async (req: Request, res: Response): Promise<Respon
   ]);
   const assignedIds = new Set(allocations.map((allocation) => allocation.student.toString()));
   return ApiResponse.success(res, students.map((student: any) => ({
-    ...student,
+    ...studentPayload(student),
     assigned: assignedIds.has(student._id.toString()),
   })));
 };
@@ -80,7 +101,15 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const allocation = await SeatAllocation.create({ exam: exam._id, student: student._id, room: room._id, deskNumber: seat, school: exam.school || null });
   const populated = await SeatAllocation.findById(allocation._id)
     .populate('room', 'name building capacity')
-    .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
+    .populate({
+      path: 'student',
+      populate: [
+        { path: 'profile', select: 'firstName lastName' },
+        { path: 'class', select: 'title section academicYear shiftMode' },
+        { path: 'school', select: 'name' },
+      ],
+      select: 'studentId profile school class department shiftMode',
+    })
     .lean();
   return ApiResponse.success(res, populated, 'Seat allocation added');
 };
@@ -108,27 +137,43 @@ export const generate = async (req: Request, res: Response): Promise<Response> =
   if (docs.length > 0) await SeatAllocation.insertMany(docs);
   const populated = await SeatAllocation.find({ exam: exam._id })
     .populate('room', 'name building capacity')
-    .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
+    .populate({ path: 'student', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'class', select: 'title section academicYear shiftMode' }, { path: 'school', select: 'name' }], select: 'studentId profile school class department shiftMode' })
     .lean();
   return ApiResponse.success(res, populated, `${docs.length} students seated across ${rooms.length} room(s)`);
 };
 
 export const update = async (req: Request, res: Response): Promise<Response> => {
   const exam = await loadManageableExam(req, req.params.id);
-  const { room: roomId, deskNumber } = req.body;
+  const { room: roomId, deskNumber } = req.body as { room?: string; deskNumber?: string };
   const existing = await SeatAllocation.findOne({ _id: req.params.allocationId, exam: exam._id });
   if (!existing) throw new NotFoundError('Seat allocation');
+
+  let targetRoom = existing.room;
   if (roomId) {
     const room = await ExamRoom.findById(roomId).lean();
     if (!room) throw new NotFoundError('Exam room');
     assertOwnsOrg(req, room, 'school');
-    existing.room = room._id;
+    targetRoom = room._id;
   }
-  if (deskNumber) existing.deskNumber = deskNumber;
+
+  const seat = String(deskNumber ?? existing.deskNumber).trim();
+  if (!seat) throw new BadRequestError('Seat is required');
+  const room = await ExamRoom.findById(targetRoom).lean();
+  if (!room) throw new NotFoundError('Exam room');
+
+  const trailingNumber = seat.match(/(\d+)\s*$/);
+  if (trailingNumber && Number(trailingNumber[1]) > room.capacity) throw new BadRequestError(`Seat ${seat} exceeds ${room.name} capacity (${room.capacity})`);
+
+  const occupied = await SeatAllocation.findOne({ exam: exam._id, room: room._id, deskNumber: seat, _id: { $ne: existing._id } }).lean();
+  if (occupied) throw new BadRequestError(`Seat "${seat}" is already occupied in ${room.name}`);
+
+  existing.room = room._id;
+  existing.deskNumber = seat;
   await existing.save();
+
   const populated = await SeatAllocation.findById(existing._id)
     .populate('room', 'name building capacity')
-    .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
+    .populate({ path: 'student', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'class', select: 'title section academicYear shiftMode' }, { path: 'school', select: 'name' }], select: 'studentId profile school class department shiftMode' })
     .lean();
   return ApiResponse.success(res, populated, 'Seat updated');
 };
