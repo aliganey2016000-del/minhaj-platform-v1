@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api/v1';
+// Always use the frontend's same-origin API proxy in production. This keeps
+// login, cookies, CORS, and refresh-token handling on one browser origin and
+// lets nginx forward /api/* to the separate backend application.
+const API_URL = '/api/v1';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -48,15 +51,10 @@ let refreshPromise: Promise<string | null> | null = null;
 
 function refreshAccessToken(): Promise<string | null> {
   if (!refreshPromise) {
-    // Must hit the same absolute API_URL the main `api` instance uses, not
-    // a bare relative path — in production VITE_API_URL points at a
-    // different origin (e.g. api.masjidalrahma.com) than the frontend
-    // itself (e.g. sahaledu.com/suganhub.com), and the refreshToken cookie
-    // is scoped to that API origin. A relative path here resolves against
-    // window.location.origin instead, so the browser never attaches the
-    // cookie and every silent refresh silently fails — invisibly at first
-    // since the access token is still valid, then forcing a full logout
-    // the moment it expires (15 min by default) on the next request.
+    // Use the same-origin proxy as the main API client. The nginx frontend
+    // proxies /api/* to https://api.sahaledu.com, so both login and refresh
+    // stay on the browser's current origin and avoid cross-origin cookie/CORS
+    // failures.
     refreshPromise = axios
       .post(`${API_URL}/auth/refresh-token`, {}, { withCredentials: true })
       .then(({ data }) => data.data?.accessToken || null)
