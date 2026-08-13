@@ -1,1 +1,0 @@
-Excel-first exam seating workflow: import, validate, review, and assign seats.
