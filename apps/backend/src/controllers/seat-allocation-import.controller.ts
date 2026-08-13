@@ -11,7 +11,7 @@ import { assertOwnOrg, assertOwnsExamIfTeacher } from '../utils/tenant-scope';
 import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 
-const REQUIRED_COLUMNS = ['Organization', 'Department', 'Class', 'Shift', 'Student ID', 'Student Name', 'Room', 'Seat'];
+const REQUIRED_COLUMNS = ['Organization', 'Department', 'Class', 'Shift', 'Student ID', 'Student Name', 'Academic Year', 'Exam Type', 'Room', 'Seat'];
 
 interface PreviewRow {
   row: number;
@@ -21,6 +21,8 @@ interface PreviewRow {
   shift: string;
   studentId: string;
   studentName: string;
+  academicYear: string;
+  examType: string;
   room: string;
   seat: string;
   status: 'valid' | 'warning' | 'error';
@@ -52,13 +54,17 @@ function classLabel(classDoc: any): string {
   return [classDoc.title, classDoc.section].filter(Boolean).join(' ').trim();
 }
 
+function examTypeLabel(milestone?: 'mid' | 'final' | null): string {
+  return milestone === 'mid' ? 'Mid Exam' : milestone === 'final' ? 'Final' : '';
+}
+
 function trailingSeatNumber(seat: string): number | null {
   const match = seat.match(/(\d+)\s*$/);
   return match ? Number(match[1]) : null;
 }
 
 async function loadExam(req: Request, examId: string): Promise<any> {
-  const exam = await Exam.findById(examId).populate('course', 'title.en school teacher');
+  const exam = await Exam.findById(examId).populate('course', 'title.en school teacher class').populate({ path: 'course.class', select: 'academicYear title section' });
   if (!exam) throw new NotFoundError('Exam');
   assertOwnOrg(req, exam, 'school');
   await assertOwnsExamIfTeacher(req, exam);
@@ -88,6 +94,8 @@ async function parseImport(req: Request, examId: string, commit: boolean) {
 
   const school = exam.school ? await School.findById(exam.school).select('name').lean() : null;
   const examSchoolName = normalize((school as any)?.name);
+  const selectedAcademicYear = normalize((exam.course as any)?.class?.academicYear);
+  const selectedExamType = examTypeLabel(exam.milestone);
 
   const studentIds = rows.map((row) => normalize(readCell(row, 'Student ID', 'StudentID', 'ID')).toUpperCase()).filter(Boolean);
   const students = await Student.find({
@@ -95,7 +103,8 @@ async function parseImport(req: Request, examId: string, commit: boolean) {
     ...(exam.school ? { school: exam.school } : {}),
   })
     .populate('profile', 'firstName lastName')
-    .populate({ path: 'class', select: 'title section shiftMode department', populate: { path: 'department', select: 'name' } })
+    .populate({ path: 'class', select: 'title section shiftMode department academicYear', populate: { path: 'department', select: 'name' } })
+    .populate('school', 'name')
     .lean();
 
   const studentById = new Map<string, any>();
@@ -116,6 +125,8 @@ async function parseImport(req: Request, examId: string, commit: boolean) {
       shift: normalize(readCell(row, 'Shift', 'Shift Mode')),
       studentId: normalize(readCell(row, 'Student ID', 'StudentID', 'ID')).toUpperCase(),
       studentName: normalize(readCell(row, 'Student Name', 'Name')),
+      academicYear: normalize(readCell(row, 'Academic Year')),
+      examType: normalize(readCell(row, 'Exam Type')),
       room: normalize(readCell(row, 'Room', 'Room Name')),
       seat: normalize(readCell(row, 'Seat', 'Desk', 'Desk Number')),
       status: 'valid',
@@ -128,8 +139,15 @@ async function parseImport(req: Request, examId: string, commit: boolean) {
       if (!result.shift) throw new Error('Shift is required');
       if (!result.studentId) throw new Error('Student ID is required');
       if (!result.studentName) throw new Error('Student Name is required');
+      if (!result.academicYear) throw new Error('Academic Year is required');
+      if (!result.examType) throw new Error('Exam Type is required');
       if (!result.room) throw new Error('Room is required');
       if (!result.seat) throw new Error('Seat is required');
+
+      if (!selectedAcademicYear) throw new Error('The selected examination has no Academic Year configured');
+      if (!selectedExamType) throw new Error('The selected examination has no Exam Type configured');
+      if (key(result.academicYear) !== key(selectedAcademicYear)) throw new Error(`Academic Year must match this examination (${selectedAcademicYear})`);
+      if (key(result.examType) !== key(selectedExamType)) throw new Error(`Exam Type must match this examination (${selectedExamType})`);
 
       if (examSchoolName && key(result.organization) !== key(examSchoolName)) {
         throw new Error(`Organization does not match this exam (${examSchoolName})`);
@@ -160,12 +178,14 @@ async function parseImport(req: Request, examId: string, commit: boolean) {
       const actualClass = classLabel(student.class);
       const actualDepartment = normalize(student.class?.department?.name || student.department || '');
       const actualShift = normalize(student.class?.shiftMode || student.shiftMode || '');
+      const actualAcademicYear = normalize(student.class?.academicYear || '');
       const warnings: string[] = [];
 
       if (actualName && key(actualName) !== key(result.studentName)) warnings.push(`name on file is "${actualName}"`);
       if (actualClass && key(actualClass) !== key(result.className) && key(student.class?.title) !== key(result.className)) warnings.push(`class on file is "${actualClass}"`);
       if (actualDepartment && key(actualDepartment) !== key(result.department)) warnings.push(`department on file is "${actualDepartment}"`);
       if (actualShift && key(actualShift) !== key(result.shift)) warnings.push(`shift on file is "${actualShift}"`);
+      if (actualAcademicYear && key(actualAcademicYear) !== key(result.academicYear)) warnings.push(`student academic year is "${actualAcademicYear}"`);
 
       if (warnings.length) {
         result.status = 'warning';
@@ -216,7 +236,7 @@ export const importSeating = async (req: Request, res: Response): Promise<Respon
 
   const allocations = await SeatAllocation.find({ exam: result.exam._id })
     .populate('room', 'name building capacity')
-    .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
+    .populate({ path: 'student', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'class', select: 'title section academicYear shiftMode' }, { path: 'school', select: 'name' }], select: 'studentId profile school class department shiftMode' })
     .sort({ room: 1, deskNumber: 1 })
     .lean();
 
@@ -236,6 +256,8 @@ export const downloadTemplate = async (_req: Request, res: Response): Promise<vo
     'Morning',
     'STU-2026-0001',
     'Ahmed Ali',
+    '2026-2027',
+    'Mid Exam',
     'Room 5',
     'R5-01',
   ]];
