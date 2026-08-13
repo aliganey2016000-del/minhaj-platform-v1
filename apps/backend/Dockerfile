@@ -21,8 +21,8 @@ RUN (npm ci --omit=dev || npm install --omit=dev) && npm cache clean --force
 # Copy compiled output from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy environment file for production
-COPY .env.production ./
+# Environment variables are injected by Coolify at runtime.
+# Do not copy production secrets into the image.
 
 EXPOSE 5000
 
