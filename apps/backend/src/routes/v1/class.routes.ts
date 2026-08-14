@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as classController from '../../controllers/class.controller';
+import * as curriculumPromotionController from '../../controllers/curriculum-promotion.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -25,7 +26,8 @@ router.patch('/:id', adminOnly, syncClassExamRoom, asyncHandler(classController.
 router.delete('/:id', adminOnly, asyncHandler(classController.remove));
 router.patch('/:id/status', adminOnly, asyncHandler(classController.updateStatus));
 router.get('/schedule/:courseId', asyncHandler(classController.getSchedule));
-router.get('/promotion-preview', adminOnly, asyncHandler(classController.getPromotionPreview));
-router.post('/promote-all', adminOnly, asyncHandler(classController.promoteAll));
+router.get('/promotion-preview', adminOnly, asyncHandler(curriculumPromotionController.getPromotionPreview));
+router.post('/promote-all', adminOnly, asyncHandler(curriculumPromotionController.promoteAll));
+router.get('/promotion-target', adminOnly, asyncHandler(curriculumPromotionController.validatePromotionTarget));
 
 export default router;
