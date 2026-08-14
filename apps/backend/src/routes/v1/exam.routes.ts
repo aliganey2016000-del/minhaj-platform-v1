@@ -10,7 +10,7 @@ import * as paperController from '../../controllers/exam-paper.controller';
 import * as appealController from '../../controllers/exam-appeal.controller';
 import * as attemptController from '../../controllers/exam-attempt.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
+import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -22,7 +22,7 @@ router.get('/browse', roleMiddleware(['student']), asyncHandler(examController.b
 router.get('/my/seating', roleMiddleware(['student']), asyncHandler(seatController.getMySeating));
 router.get('/my/attendance', roleMiddleware(['student']), asyncHandler(examAttendanceController.getMyHistory));
 router.get('/my/active', roleMiddleware(['student']), asyncHandler(attemptController.getActiveExams));
-router.get('/my/appeals', roleMiddleware(['student']), asyncHandler(appealController.getMy));
+router.get('/my/appeals', roleMiddleware(['student']), asyncHandler(examAttemptController.getMy));
 router.get('/attendance/aggregate', adminOrTeacher, asyncHandler(examAttendanceController.getAggregateReport));
 
 router.post('/bulk-delete', adminOrTeacher, asyncHandler(examController.bulkRemove));
@@ -39,7 +39,9 @@ router.patch('/seating-plan/:id', adminOrTeacher, asyncHandler(masterSeatControl
 router.delete('/seating-plan/:id', adminOrTeacher, asyncHandler(masterSeatController.remove));
 router.post('/seating-plan/import-preview', adminOrTeacher, upload.single('file'), asyncHandler(masterSeatController.previewImport));
 router.post('/seating-plan/import', adminOrTeacher, upload.single('file'), asyncHandler(masterSeatController.importExcel));
-router.post('/seating-plan/auto-generate', adminOrTeacher, asyncHandler(autoSeatController.generate));
+// Automatic room assignment changes many student records at once, so only
+// administrators may execute it. org_admin is tenant-scoped inside the service.
+router.post('/seating-plan/auto-generate', adminOnly, asyncHandler(autoSeatController.generate));
 
 router.get('/', adminOrTeacher, asyncHandler(examController.getAll));
 router.post('/', adminOrTeacher, asyncHandler(examController.create));
@@ -61,11 +63,11 @@ router.delete('/:id/seating', adminOrTeacher, asyncHandler(seatController.clearF
 router.get('/:id/attendance', adminOrTeacher, asyncHandler(examAttendanceController.getForExam));
 router.post('/:id/attendance', adminOrTeacher, asyncHandler(examAttendanceController.bulkMark));
 router.get('/:id/attendance/:studentId/logs', adminOrTeacher, asyncHandler(examAttendanceController.getAuditLogs));
-router.get('/:id/paper', adminOrTeacher, asyncHandler(paperController.getForExam));
-router.put('/:id/paper', adminOrTeacher, asyncHandler(paperController.upsert));
-router.post('/:id/paper/submit', adminOrTeacher, asyncHandler(paperController.submit));
-router.patch('/:id/paper/review', adminOrTeacher, asyncHandler(paperController.review));
-router.post('/:id/appeals', roleMiddleware(['student']), asyncHandler(appealController.create));
+router.get('/:id/paper', adminOrTeacher, asyncHandler(examPaperController.getForExam));
+router.put('/:id/paper', adminOrTeacher, asyncHandler(examPaperController.upsert));
+router.post('/:id/paper/submit', adminOrTeacher, asyncHandler(examPaperController.submit));
+router.patch('/:id/paper/review', adminOrTeacher, asyncHandler(examPaperController.review));
+router.post('/:id/appeals', roleMiddleware(['student']), asyncHandler(examAppealController.create));
 router.post('/:id/attempt/start', roleMiddleware(['student']), asyncHandler(attemptController.start));
 router.get('/:id/attempt', roleMiddleware(['student']), asyncHandler(attemptController.getMine));
 router.patch('/:id/attempt', roleMiddleware(['student']), asyncHandler(attemptController.saveAnswers));
