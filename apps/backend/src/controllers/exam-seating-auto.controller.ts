@@ -30,8 +30,6 @@ function roundRobinMix(students: any[]): any[] {
     buckets.set(id, bucket);
   }
 
-  // Keep the class-mixing strategy random within each class while the
-  // round-robin pass guarantees that a room is not filled by one class first.
   for (const bucket of buckets.values()) {
     for (let i = bucket.length - 1; i > 0; i -= 1) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -52,6 +50,37 @@ function roundRobinMix(students: any[]): any[] {
     }
   }
   return mixed;
+}
+
+const effectiveCapacity = (room: any, perRoom: number) =>
+  Math.min(Number(room.capacity) || 0, perRoom);
+
+function classCounts(students: any[]) {
+  const counts = new Map<string, number>();
+  for (const student of students) {
+    const label = classLabel(student) || 'Unclassified';
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+function roomReport(rooms: any[], assignments: any[], perRoom: number) {
+  return rooms.map(room => {
+    const assigned = assignments.filter(a => String(a.roomId) === String(room._id));
+    return {
+      roomId: room._id,
+      room: room.name,
+      building: room.building,
+      capacity: Number(room.capacity) || 0,
+      usableCapacity: effectiveCapacity(room, perRoom),
+      students: assigned.length,
+      remainingCapacity: Math.max(effectiveCapacity(room, perRoom) - assigned.length, 0),
+      classes: classCounts(assigned.map(a => a.student)),
+      source: room.source || 'class-room',
+    };
+  });
 }
 
 export const generate = async (req: Request, res: Response) => {
@@ -78,9 +107,6 @@ export const generate = async (req: Request, res: Response) => {
   }
   if (!['none', 'sequential'].includes(seatMode)) throw new BadRequestError('Invalid seat mode');
 
-  // Exam seating is an organization-owned academic record. A single master
-  // plan must never span multiple organizations because rooms, students and
-  // historical seating are all tenant-scoped by `school`.
   let targetSchoolId: string | null = null;
   if (req.user?.role === 'org_admin') {
     targetSchoolId = String((req.user as any)?.organizationId || '');
@@ -101,9 +127,6 @@ export const generate = async (req: Request, res: Response) => {
     ? classIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)
     : [];
 
-  // Empty department/class selections intentionally mean "All" within the
-  // selected organization. If both are supplied, classIds remain the most
-  // specific selection but must also satisfy the selected department scope.
   const classFilter: any = { status: 'active', school: targetSchoolId };
   if (normalizedClassIds.length) classFilter._id = { $in: normalizedClassIds };
   if (normalizedDepartmentIds.length) classFilter.department = { $in: normalizedDepartmentIds };
@@ -143,17 +166,15 @@ export const generate = async (req: Request, res: Response) => {
   );
   if (!selected.length) throw new BadRequestError('No active students matched the selected filters');
 
-  // The class Room value is the source of truth for which physical rooms are
-  // eligible. The Rooms registry supplies the physical capacity/building.
   const roomNames = Array.from(new Set(targetClasses.map(c => norm(c.room)).filter(Boolean)));
   if (!roomNames.length) throw new BadRequestError('The selected classes have no Rooms configured');
 
   const roomQuery: any = { school: targetSchoolId, name: { $in: roomNames } };
-  const rooms = await ExamRoom.find(roomQuery).sort({ building: 1, name: 1 }).lean();
-  rooms.forEach(r => assertOwnOrg(req, r, 'school'));
+  const configuredClassRooms = await ExamRoom.find(roomQuery).sort({ building: 1, name: 1 }).lean();
+  configuredClassRooms.forEach(r => assertOwnOrg(req, r, 'school'));
 
   const roomsByName = new Map<string, any[]>();
-  for (const room of rooms) {
+  for (const room of configuredClassRooms) {
     const list = roomsByName.get(key(room.name)) || [];
     list.push(room);
     roomsByName.set(key(room.name), list);
@@ -164,38 +185,67 @@ export const generate = async (req: Request, res: Response) => {
     throw new BadRequestError(`Room records are missing for: ${missingRooms.join(', ')}. Open Rooms and create/fix those rooms first.`);
   }
 
-  // A class currently stores its physical room by name. If the same name is
-  // reused in multiple buildings, choosing one silently would be unsafe, so
-  // fail clearly until the class assignment identifies one physical room.
   const ambiguousRooms = roomNames.filter(name => (roomsByName.get(key(name)) || []).length > 1);
   if (ambiguousRooms.length) {
     throw new BadRequestError(`Room names are ambiguous across buildings: ${ambiguousRooms.join(', ')}. Each class must point to one physical room before seating can be generated.`);
   }
 
-  const selectedRooms = roomNames
+  const classRooms = roomNames
     .map(name => roomsByName.get(key(name))?.[0])
-    .filter(Boolean) as any[];
+    .filter(Boolean)
+    .map(room => ({ ...room, source: 'class-room' }));
 
-  // `maxPerRoom` is the exam-group limit requested by the administrator
-  // (10–15). A physical room can have a larger configured capacity, but the
-  // generator will never place more than this exam-group limit in one room.
-  const effectiveRoomCapacity = (room: any) => Math.min(Number(room.capacity) || 0, perRoom);
-  const usableCapacity = selectedRooms.reduce((sum, room) => sum + effectiveRoomCapacity(room), 0);
+  // One exam group occupies one physical room. The configured room capacity
+  // is still preserved for reporting, but the administrator's 10–15 group
+  // limit is the usable capacity for this seating run.
+  let selectedRooms = [...classRooms];
+  let usableCapacity = selectedRooms.reduce((sum, room) => sum + effectiveCapacity(room, perRoom), 0);
+  const requiredGroups = Math.ceil(selected.length / perRoom);
+
+  // If the classes' assigned rooms cannot hold everyone, automatically add
+  // unused rooms from the same organization. This solves the common case
+  // where class rooms are insufficient while keeping the class-room mapping
+  // as the primary source of truth.
   if (usableCapacity < selected.length) {
+    const selectedRoomIds = new Set(selectedRooms.map(room => String(room._id)));
+    const additionalRooms = await ExamRoom.find({
+      school: targetSchoolId,
+      _id: { $nin: Array.from(selectedRoomIds).map(id => new mongoose.Types.ObjectId(id)) },
+      capacity: { $gt: 0 },
+    })
+      .sort({ capacity: -1, building: 1, name: 1 })
+      .lean();
+
+    additionalRooms.forEach(r => assertOwnOrg(req, r, 'school'));
+    for (const room of additionalRooms) {
+      if (usableCapacity >= selected.length) break;
+      selectedRooms.push({ ...room, source: 'additional-room' });
+      usableCapacity += effectiveCapacity(room, perRoom);
+    }
+  }
+
+  if (usableCapacity < selected.length) {
+    const currentlyUsable = selectedRooms.reduce((sum, room) => sum + effectiveCapacity(room, perRoom), 0);
+    const remaining = selected.length - currentlyUsable;
+    const report = selectedRooms.map(room => `${room.name} (${room.building}) ${effectiveCapacity(room, perRoom)} usable`).join('; ');
     throw new BadRequestError(
-      `Not enough usable room capacity. ${selected.length} students need ${Math.ceil(selected.length / perRoom)} groups of ${perRoom} or fewer, but the selected class rooms provide ${usableCapacity} usable seats.`
+      `SEATING CAPACITY SHORTAGE | Students: ${selected.length} | Required groups: ${requiredGroups} | Usable capacity: ${currentlyUsable} | Remaining students: ${remaining} | Rooms: ${report} | Resolution: add/select at least ${Math.ceil(remaining / perRoom)} more usable room(s) or reduce the student scope.`
     );
   }
 
   const mixed = roundRobinMix(selected);
-  const groups: any[][] = [];
+  const assignments: Array<{ roomId: any; student: any; seat: string }> = [];
   let cursor = 0;
   for (const room of selectedRooms) {
-    const capacity = effectiveRoomCapacity(room);
+    const capacity = effectiveCapacity(room, perRoom);
     if (capacity <= 0) continue;
     const group = mixed.slice(cursor, cursor + capacity);
     cursor += group.length;
-    if (group.length) groups.push(group);
+    group.forEach((student, index) => assignments.push({
+      roomId: room._id,
+      student,
+      seat: seatMode === 'sequential' ? `S${String(index + 1).padStart(2, '0')}` : '',
+    }));
     if (cursor >= mixed.length) break;
   }
 
@@ -211,36 +261,40 @@ export const generate = async (req: Request, res: Response) => {
   }
   if (overwrite) await ExamSeatingPlan.deleteMany({ ...scope, student: { $in: selectedIds } });
 
-  const docs: any[] = [];
-  groups.forEach((group, roomIndex) => group.forEach((student, index) => docs.push({
-    student: student._id,
-    room: selectedRooms[roomIndex]._id,
-    deskNumber: seatMode === 'sequential' ? `S${String(index + 1).padStart(2, '0')}` : '',
+  const docs: any[] = assignments.map(a => ({
+    student: a.student._id,
+    room: a.roomId,
+    deskNumber: a.seat,
     academicYear: year,
     examType: type,
     school: targetSchoolId,
-  })));
+  }));
 
   await ExamSeatingPlan.insertMany(docs);
+
+  const breakdown = roomReport(selectedRooms, assignments, perRoom);
+  const assignedByClass = classCounts(assignments.map(a => a.student));
+
   return ApiResponse.success(res, {
     academicYear: year,
     examType: type,
     students: selected.length,
-    rooms: groups.length,
+    assigned: assignments.length,
+    remaining: selected.length - assignments.length,
+    requiredGroups,
+    rooms: breakdown.length,
     studentsPerRoom: perRoom,
     seatMode,
     mixedClasses: true,
+    totalConfiguredCapacity: selectedRooms.reduce((sum, room) => sum + (Number(room.capacity) || 0), 0),
+    totalUsableCapacity: usableCapacity,
+    additionalRoomsUsed: breakdown.filter(r => r.source === 'additional-room').length,
     selectedClasses: targetClasses.map(c => ({
       _id: c._id,
       name: norm([c.title, c.section].filter(Boolean).join(' ')),
       room: c.room,
     })),
-    roomBreakdown: groups.map((g, i) => ({
-      room: selectedRooms[i].name,
-      building: selectedRooms[i].building,
-      capacity: selectedRooms[i].capacity,
-      students: g.length,
-      classes: Array.from(new Set(g.map(s => classLabel(s)).filter(Boolean))),
-    })),
-  }, `Generated seating for ${selected.length} students across ${groups.length} mixed-class rooms`);
+    classBreakdown: assignedByClass,
+    roomBreakdown: breakdown,
+  }, `Generated seating for ${selected.length} students across ${breakdown.length} mixed-class rooms`);
 };
