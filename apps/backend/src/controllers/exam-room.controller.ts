@@ -12,6 +12,7 @@ import SeatAllocation from '../models/seat-allocation.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
+import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 
 const DEFAULT_BUILDING = 'Main Campus';
 const FALLBACK_CAPACITY = 30;
@@ -189,6 +190,7 @@ export const exportRooms = async (req: Request, res: Response): Promise<void> =>
 export const importRooms = async (req: Request, res: Response): Promise<Response> => {
   if (req.user?.role === 'teacher') throw new BadRequestError('Teachers cannot import exam rooms.');
   if (!req.file?.buffer) throw new BadRequestError('Excel file is required');
+  assertSafeSpreadsheetUpload(req.file);
 
   const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
