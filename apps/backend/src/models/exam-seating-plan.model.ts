@@ -20,14 +20,13 @@ const schema = new Schema<IExamSeatingPlan>({
   academicYear: { type: String, required: true, trim: true, index: true },
   examType: { type: String, enum: ['mid', 'final'], required: true, index: true },
   school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
-}, { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } });
+}, { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; if (typeof ret.deskNumber === 'string' && ret.deskNumber.startsWith('__ROOM_ONLY__')) ret.deskNumber = ''; return ret; } } });
 
-// Auto-generation supports "Room only" mode, where no real seat number is
-// requested. MongoDB still requires a non-empty value because deskNumber is
-// part of a unique index, so store a deterministic internal placeholder.
-// The API/UI can treat the __ROOM_ONLY__ prefix as "no seat assigned".
+// Room-only generation still needs a non-empty database value because
+// deskNumber participates in the unique room/seat index. The placeholder is
+// deterministic per student and is hidden again by the JSON transform above.
 schema.pre('validate', function(next) {
-  if (!this.deskNumber) {
+  if (!this.deskNumber && this.student) {
     this.deskNumber = `__ROOM_ONLY__${this.student.toString()}`;
   }
   next();
