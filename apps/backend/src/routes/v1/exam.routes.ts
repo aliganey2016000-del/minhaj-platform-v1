@@ -22,7 +22,7 @@ router.get('/browse', roleMiddleware(['student']), asyncHandler(examController.b
 router.get('/my/seating', roleMiddleware(['student']), asyncHandler(seatController.getMySeating));
 router.get('/my/attendance', roleMiddleware(['student']), asyncHandler(examAttendanceController.getMyHistory));
 router.get('/my/active', roleMiddleware(['student']), asyncHandler(attemptController.getActiveExams));
-router.get('/my/appeals', roleMiddleware(['student']), asyncHandler(attemptController.getMy));
+router.get('/my/appeals', roleMiddleware(['student']), asyncHandler(appealController.getMy));
 router.get('/attendance/aggregate', adminOrTeacher, asyncHandler(examAttendanceController.getAggregateReport));
 
 router.post('/bulk-delete', adminOrTeacher, asyncHandler(examController.bulkRemove));
