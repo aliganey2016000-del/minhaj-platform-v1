@@ -72,6 +72,5 @@ router.post('/:id/attempt/start', roleMiddleware(['student']), asyncHandler(atte
 router.get('/:id/attempt', roleMiddleware(['student']), asyncHandler(attemptController.getMine));
 router.patch('/:id/attempt', roleMiddleware(['student']), asyncHandler(attemptController.saveAnswers));
 router.post('/:id/attempt/submit', roleMiddleware(['student']), asyncHandler(attemptController.submit));
-router.post('/:id/attempt/submit', roleMiddleware(['student']), asyncHandler(attemptController.submit));
 router.get('/:id/review', roleMiddleware(['student']), asyncHandler(attemptController.getReview));
 export default router;
