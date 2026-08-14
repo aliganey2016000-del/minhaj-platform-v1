@@ -20,6 +20,67 @@ const FALLBACK_CAPACITY = 30;
 const clean = (value: unknown) => String(value ?? '').trim();
 
 /**
+ * Reconcile the Exam Room registry with Manage Classes.
+ *
+ * The class record stores the room by name, so existing class assignments
+ * must be materialized into ExamRoom even when the assignment predates the
+ * Exam Seating Center feature. Room + Building is the identity; therefore a
+ * missing class room is created in Main Campus and an existing room is reused.
+ */
+async function syncRoomsFromClasses(roomFilter: Record<string, unknown> = {}) {
+  const school = (roomFilter as any).school;
+  const classFilter: Record<string, unknown> = { room: { $nin: ['', null] } };
+  if (school) classFilter.school = school;
+
+  const classes = await ClassModel.find(classFilter).select('school room').lean();
+  if (!classes.length) return;
+
+  const unique = new Map<string, { school: any; name: string; building: string }>();
+  for (const cls of classes as any[]) {
+    const name = clean(cls.room);
+    if (!name) continue;
+    const key = `${cls.school ? String(cls.school) : 'null'}::${name.toLowerCase()}::${DEFAULT_BUILDING.toLowerCase()}`;
+    if (!unique.has(key)) unique.set(key, { school: cls.school || null, name, building: DEFAULT_BUILDING });
+  }
+
+  if (!unique.size) return;
+
+  const existing = await ExamRoom.find({
+    $or: Array.from(unique.values()).map((room) => ({
+      school: room.school,
+      name: room.name,
+      building: room.building,
+    })),
+  }).select('school name building').lean();
+
+  const existingKeys = new Set(existing.map((room: any) =>
+    `${room.school ? String(room.school) : 'null'}::${clean(room.name).toLowerCase()}::${clean(room.building || DEFAULT_BUILDING).toLowerCase()}`
+  ));
+
+  const missing = Array.from(unique.values()).filter((room) =>
+    !existingKeys.has(`${room.school ? String(room.school) : 'null'}::${room.name.toLowerCase()}::${room.building.toLowerCase()}`)
+  );
+
+  if (!missing.length) return;
+
+  await ExamRoom.bulkWrite(missing.map((room) => ({
+    updateOne: {
+      filter: { school: room.school, name: room.name, building: room.building },
+      update: {
+        $setOnInsert: {
+          name: room.name,
+          building: room.building,
+          capacity: FALLBACK_CAPACITY,
+          capacityMode: 'auto',
+          school: room.school,
+        },
+      },
+      upsert: true,
+    },
+  })));
+}
+
+/**
  * Auto capacity is the maximum active-student count across the classes/shifts
  * using the same room. Manual capacity edits/imports are never overwritten.
  */
@@ -75,6 +136,9 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     (scopedFilter as any).school = teacher?.school || null;
   }
 
+  // Important: do this on every Rooms load so rooms already assigned in
+  // Manage Classes appear immediately; admins do not need to re-save classes.
+  await syncRoomsFromClasses(scopedFilter as Record<string, unknown>);
   await syncAutoCapacities(scopedFilter as Record<string, unknown>);
 
   const rooms = await ExamRoom.find(scopedFilter).sort({ building: 1, name: 1 }).lean();
@@ -165,6 +229,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
 // GET /exam-rooms/export
 export const exportRooms = async (req: Request, res: Response): Promise<void> => {
   const filter = applyOrgFilter(req, {}, 'school');
+  await syncRoomsFromClasses(filter as Record<string, unknown>);
   await syncAutoCapacities(filter as Record<string, unknown>);
   const rooms = await ExamRoom.find(filter).sort({ building: 1, name: 1 }).lean();
 
@@ -185,8 +250,6 @@ export const exportRooms = async (req: Request, res: Response): Promise<void> =>
 };
 
 // POST /exam-rooms/import
-// Import is capacity-focused: Room + Building identify the record. Existing
-// records are updated; a same-named room in a different building is a new room.
 export const importRooms = async (req: Request, res: Response): Promise<Response> => {
   if (req.user?.role === 'teacher') throw new BadRequestError('Teachers cannot import exam rooms.');
   if (!req.file?.buffer) throw new BadRequestError('Excel file is required');
@@ -229,8 +292,6 @@ export const importRooms = async (req: Request, res: Response): Promise<Response
       continue;
     }
 
-    // Same room name in another building is intentionally allowed and becomes
-    // a separate room because Room + Building is the unique identity.
     await ExamRoom.create({
       name,
       building,
