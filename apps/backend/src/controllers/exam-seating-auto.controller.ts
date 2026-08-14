@@ -195,17 +195,10 @@ export const generate = async (req: Request, res: Response) => {
     .filter(Boolean)
     .map(room => ({ ...room, source: 'class-room' }));
 
-  // One exam group occupies one physical room. The configured room capacity
-  // is still preserved for reporting, but the administrator's 10–15 group
-  // limit is the usable capacity for this seating run.
   let selectedRooms = [...classRooms];
   let usableCapacity = selectedRooms.reduce((sum, room) => sum + effectiveCapacity(room, perRoom), 0);
   const requiredGroups = Math.ceil(selected.length / perRoom);
 
-  // If the classes' assigned rooms cannot hold everyone, automatically add
-  // unused rooms from the same organization. This solves the common case
-  // where class rooms are insufficient while keeping the class-room mapping
-  // as the primary source of truth.
   if (usableCapacity < selected.length) {
     const selectedRoomIds = new Set(selectedRooms.map(room => String(room._id)));
     const additionalRooms = await ExamRoom.find({
@@ -264,7 +257,7 @@ export const generate = async (req: Request, res: Response) => {
   const docs: any[] = assignments.map(a => ({
     student: a.student._id,
     room: a.roomId,
-    deskNumber: a.seat,
+    deskNumber: a.seat || `__ROOM_ONLY__${String(a.student._id)}`,
     academicYear: year,
     examType: type,
     school: targetSchoolId,
