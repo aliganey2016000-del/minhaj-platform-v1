@@ -279,6 +279,36 @@ async function main() {
   assert((g7ScienceAfterRepeat as any)?.enrolledStudents === 1, `enrolledStudents not double-counted on repeat (got ${(g7ScienceAfterRepeat as any)?.enrolledStudents})`);
 
   // -------------------------------------------------------------------
+  section('SECURITY: GLOBAL admin — student.school stays A, classId from School B');
+  // -------------------------------------------------------------------
+  // assertOwnsOrg alone is a no-op for the unscoped `admin` role, so it
+  // cannot be trusted to prove the target class belongs to the STUDENT's
+  // own organization — only that the caller is allowed to touch it (which
+  // is trivially true for admin, everywhere). Grace still belongs to
+  // `school` (School A); this classId belongs to `school2` (School B), and
+  // this request does NOT also change her `school` field, so the explicit
+  // classDoc.school === student.school check must reject it even for the
+  // global admin token.
+  const graceBefore = await Student.findById(grace._id).lean();
+  const g7ScienceBefore = await Course.findById(g7Science._id).lean();
+  const otherOrgClassStudentCountBefore = await Student.countDocuments({ class: otherOrgClass._id });
+
+  const crossSchoolAsAdmin = await request(app).patch(`/api/v1/students/${grace._id}`).set('Authorization', `Bearer ${adminToken}`)
+    .send({ classId: otherOrgClass._id.toString() }); // no `school` field sent — Grace stays in School A
+  assert(crossSchoolAsAdmin.status === 400, `global admin: student.school=A + classId from School B is rejected (got ${crossSchoolAsAdmin.status}, body: ${JSON.stringify(crossSchoolAsAdmin.body).slice(0, 250)})`);
+
+  const graceAfterRejected = await Student.findById(grace._id).lean();
+  assert(String((graceAfterRejected as any)?.class) === String((graceBefore as any)?.class), 'Grace.class unchanged after the rejected cross-school attempt');
+  assert(String((graceAfterRejected as any)?.school) === String((graceBefore as any)?.school), 'Grace.school unchanged after the rejected cross-school attempt');
+  const graceCoursesAfterRejected = ((graceAfterRejected as any)?.enrolledCourses || []).map((id: any) => String(id));
+  const graceCoursesBefore = ((graceBefore as any)?.enrolledCourses || []).map((id: any) => String(id));
+  assert(JSON.stringify(graceCoursesAfterRejected) === JSON.stringify(graceCoursesBefore), `Grace.enrolledCourses unchanged after the rejected attempt (before: ${JSON.stringify(graceCoursesBefore)}, after: ${JSON.stringify(graceCoursesAfterRejected)})`);
+  const g7ScienceAfterRejected = await Course.findById(g7Science._id).lean();
+  assert((g7ScienceAfterRejected as any)?.enrolledStudents === (g7ScienceBefore as any)?.enrolledStudents, `Grade7 Science enrolledStudents counter unchanged (got ${(g7ScienceAfterRejected as any)?.enrolledStudents})`);
+  const otherOrgClassStudentCountAfter = await Student.countDocuments({ class: otherOrgClass._id });
+  assert(otherOrgClassStudentCountAfter === otherOrgClassStudentCountBefore, 'otherOrgClass (School B) still has no students linked to it');
+
+  // -------------------------------------------------------------------
   section('SECURITY: cross-organization isolation (org_admin, forged schoolId)');
   // -------------------------------------------------------------------
   const orgAdminUser = await User.create({ email: 'orgadmin@test.local', password: 'Password123!', role: 'org_admin', organizationId: school._id });

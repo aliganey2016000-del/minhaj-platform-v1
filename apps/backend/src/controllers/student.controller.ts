@@ -644,10 +644,28 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     if (classId) {
       const classDoc = await ClassModel.findById(classId).populate('department', 'name');
       if (!classDoc) throw new NotFoundError('Class not found');
-      // Validates the target class belongs to the student's own organization
-      // (org_admin gets ForbiddenError otherwise) — same guard used
-      // everywhere else a class is assigned (create(), approve()).
+      // Validates the CALLER may access the target class's org (org_admin
+      // gets ForbiddenError otherwise) — same guard used everywhere else a
+      // class is assigned (create(), approve()). This alone is NOT enough:
+      // it's a no-op for the global `admin` role (unscoped by design), so
+      // it can't be trusted to also prove the class belongs to THIS
+      // student's own organization.
       assertOwnsOrg(req, classDoc, 'school');
+      // Explicit data-consistency check, independent of caller role —
+      // student.school already reflects any `school` value from this same
+      // request (set above, before this block runs), so a legitimate
+      // "move both school and class together" call is still allowed as
+      // long as they end up consistent with each other. What's rejected is
+      // a class from a DIFFERENT organization than the student ends up in
+      // — e.g. a global admin setting school=A, class=<a Class in B>,
+      // which would silently grant cross-organization course enrollment
+      // via reassignStudentClassCourses below. A deliberate cross-school
+      // transfer needs its own coordinated workflow (school + class +
+      // every tenant-linked field + enrollment moved together in one
+      // reviewed step) — not this ordinary class-edit endpoint.
+      if (String(classDoc.school) !== String(student.school || '')) {
+        throw new BadRequestError('Target class does not belong to this student\'s organization.');
+      }
       const dept = (classDoc as any).department;
       (student as any).department = typeof dept === 'string' ? dept : dept?.name || undefined;
       (student as any).shiftMode = classDoc.shiftMode;
