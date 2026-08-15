@@ -215,10 +215,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const { title, description, category, level, duration, fee, teacher, school, class: classId, maxStudents, syllabus, prerequisites } = req.body;
 
   // Generate slug from English title
-  const slug = title.en
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  const slug = slugify(title.en);
 
   // Check for duplicate slug
   const existing = await Course.findOne({ slug });
@@ -322,10 +319,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   // If title.en changed, regenerate slug
   if (updates.title && (updates.title as any).en) {
-    updates.slug = (updates.title as any).en
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+    updates.slug = slugify((updates.title as any).en);
   }
 
   if (updates.category) {
@@ -852,8 +846,24 @@ function getField(row: Record<string, any>, ...names: string[]): unknown {
   return undefined;
 }
 
+/**
+ * Slugify a title for use as a Course's unique URL identifier. Keeps any
+ * Unicode letter/number (not just a-z0-9) so non-Latin titles — Arabic,
+ * Somali, etc. — still produce a usable slug instead of stripping down to
+ * nothing. Falls back to a timestamp-based slug for the rare title that's
+ * entirely punctuation/symbols, so `slug` (required + unique on Course) is
+ * never left empty.
+ */
+const DIACRITICS_REGEX = new RegExp('[\\u0300-\\u036f]', 'g');
+
 function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const base = s
+    .normalize('NFKD')
+    .replace(DIACRITICS_REGEX, '') // strip diacritics (café -> cafe)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-') // any Unicode letter/number is kept
+    .replace(/^-+|-+$/g, '');
+  return base || `course-${Date.now().toString(36)}`;
 }
 
 const VALID_LEVELS = ['beginner', 'intermediate', 'advanced'];
