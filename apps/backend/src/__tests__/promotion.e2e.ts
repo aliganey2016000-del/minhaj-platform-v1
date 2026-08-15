@@ -308,6 +308,25 @@ async function main() {
   const otherOrgClassStudentCountAfter = await Student.countDocuments({ class: otherOrgClass._id });
   assert(otherOrgClassStudentCountAfter === otherOrgClassStudentCountBefore, 'otherOrgClass (School B) still has no students linked to it');
 
+  // The sharper case: global admin changes `school` ITSELF (a genuine
+  // attempted org transfer, not just a mismatched class), with or without
+  // classId in the same request. Must be rejected outright — this endpoint
+  // has no coordinated way to move User.organizationId, Parent linkage, or
+  // any other tenant-linked field along with it.
+  const schoolTransferAttempt = await request(app).patch(`/api/v1/students/${grace._id}`).set('Authorization', `Bearer ${adminToken}`)
+    .send({ school: school2._id.toString(), classId: otherOrgClass._id.toString() });
+  assert(schoolTransferAttempt.status === 400, `global admin: direct student.school transfer attempt (School A -> B) is rejected (got ${schoolTransferAttempt.status}, body: ${JSON.stringify(schoolTransferAttempt.body).slice(0, 250)})`);
+  const graceAfterTransferAttempt = await Student.findById(grace._id).lean();
+  assert(String((graceAfterTransferAttempt as any)?.school) === String((graceBefore as any)?.school), 'Grace.school still School A after the rejected transfer attempt');
+  assert(String((graceAfterTransferAttempt as any)?.class) === String((graceBefore as any)?.class), 'Grace.class unchanged after the rejected transfer attempt');
+
+  // Sanity check: a same-value "no-op" school field (a real-world edit form
+  // that echoes every field back unchanged) must NOT be rejected — only an
+  // actual attempted change is blocked.
+  const noOpSchoolUpdate = await request(app).patch(`/api/v1/students/${grace._id}`).set('Authorization', `Bearer ${adminToken}`)
+    .send({ school: String((graceBefore as any)?.school) });
+  assert(noOpSchoolUpdate.status === 200, `re-sending the SAME school value (no-op) is still allowed (got ${noOpSchoolUpdate.status})`);
+
   // -------------------------------------------------------------------
   section('SECURITY: cross-organization isolation (org_admin, forged schoolId)');
   // -------------------------------------------------------------------

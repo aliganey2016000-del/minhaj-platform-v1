@@ -632,8 +632,41 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     await Profile.findByIdAndUpdate(student.profile, profileUpdate);
   }
 
-  // org_admin can never move a student to a different organization.
-  if (school !== undefined && req.user?.role !== 'org_admin') student.school = school || undefined;
+  // Cross-organization student transfer is NOT supported by this ordinary
+  // edit endpoint, for ANY role — including the global `admin`, who would
+  // otherwise be able to move a student's `school` here with nothing else
+  // kept in sync: User.organizationId (set once at account creation,
+  // src/controllers/student.controller.ts ~line 547, never resynced),
+  // Parent linkage, and any other tenant-linked field all stay pointed at
+  // the old org. A student's own login DOES re-resolve their JWT's
+  // organizationId fresh from Student.school every time (see
+  // auth.controller.ts resolveEffectiveOrganization), so that one field
+  // isn't itself a live session leak — but the rest genuinely would drift,
+  // and enumerating/patching every such field here would be exactly the
+  // kind of piecemeal fix that's easy to get wrong. If this becomes a real
+  // requirement, it needs a dedicated, reviewed transfer workflow that
+  // moves school + class + every tenant-linked field + enrollment
+  // together in one coordinated step — not a side effect of this endpoint.
+  // Only blocks an actual TRANSFER (student already has a real school, and
+  // this would change it to a different one). Assigning a school for the
+  // first time to a student who doesn't have one yet — the same
+  // "unclaimed, not another tenant's data" case tenant-scope.ts's own
+  // assertOwnsOrg already treats specially — is unaffected; that's what
+  // approve() already does for a self-registered student, and this keeps
+  // an equivalent first-time assignment usable via the ordinary edit form.
+  if (school !== undefined) {
+    if (student.school && String(school || '') !== String(student.school)) {
+      throw new BadRequestError(
+        "Changing a student's organization is not supported here. This requires a dedicated cross-organization transfer workflow, which does not exist yet."
+      );
+    }
+    // org_admin still never assigns this field at all (even a first-time
+    // assignment) — unchanged from the original behavior; only a global
+    // admin performing a genuine first-time assignment (or a same-value
+    // no-op) reaches here.
+    if (req.user?.role !== 'org_admin') student.school = school || undefined;
+  }
+
   const previousClassId = student.class ? student.class.toString() : undefined;
   let classChanged = false;
   if (classId !== undefined) {
@@ -651,18 +684,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       // it can't be trusted to also prove the class belongs to THIS
       // student's own organization.
       assertOwnsOrg(req, classDoc, 'school');
-      // Explicit data-consistency check, independent of caller role —
-      // student.school already reflects any `school` value from this same
-      // request (set above, before this block runs), so a legitimate
-      // "move both school and class together" call is still allowed as
-      // long as they end up consistent with each other. What's rejected is
-      // a class from a DIFFERENT organization than the student ends up in
-      // — e.g. a global admin setting school=A, class=<a Class in B>,
-      // which would silently grant cross-organization course enrollment
-      // via reassignStudentClassCourses below. A deliberate cross-school
-      // transfer needs its own coordinated workflow (school + class +
-      // every tenant-linked field + enrollment moved together in one
-      // reviewed step) — not this ordinary class-edit endpoint.
+      // Belt-and-suspenders: student.school can no longer change in this
+      // same request (rejected above), so this should be unreachable in
+      // practice — kept as an explicit, role-independent invariant check
+      // rather than relying solely on the guard above never having a gap.
       if (String(classDoc.school) !== String(student.school || '')) {
         throw new BadRequestError('Target class does not belong to this student\'s organization.');
       }
