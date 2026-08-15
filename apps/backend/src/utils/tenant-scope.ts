@@ -19,16 +19,6 @@ import Teacher from '../models/teacher.model';
 import Parent from '../models/parent.model';
 import Course from '../models/course.model';
 
-/**
- * Returns a copy of `filter` with the tenant field constrained to the
- * caller's own organization when they are `org_admin`. Admin/teacher get
- * the filter back unchanged (full cross-tenant visibility).
- *
- * Matches the org_admin's own org OR records with no org assigned yet
- * (e.g. a self-registered student pending approval) — those aren't another
- * tenant's data, they're unclaimed, and an org_admin must still be able to
- * see and claim them into their own organization.
- */
 export function applyOrgFilter<T extends Record<string, unknown>>(
   req: Request,
   filter: T,
@@ -36,8 +26,6 @@ export function applyOrgFilter<T extends Record<string, unknown>>(
 ): T {
   if (req.user?.role === 'org_admin') {
     if (!req.user.organizationId) {
-      // org_admin with no organization bound to their account — show nothing
-      // rather than accidentally leaking cross-tenant data.
       return { ...filter, [field]: null } as T;
     }
     return { ...filter, [field]: { $in: [req.user.organizationId, null] } } as T;
@@ -45,30 +33,20 @@ export function applyOrgFilter<T extends Record<string, unknown>>(
   return filter;
 }
 
-/**
- * Throws ForbiddenError if the caller is `org_admin` and the given document
- * belongs to a DIFFERENT organization. A document with no org assigned yet
- * is treated as unclaimed, not another tenant's — org_admin may act on it
- * (e.g. approving a pending student into their own org). No-op for
- * admin/teacher, and for a null/undefined document (let the caller's own
- * NotFoundError handle that).
- */
 export function assertOwnsOrg(req: Request, doc: any, field = 'school'): void {
   if (!doc) return;
   if (req.user?.role !== 'org_admin') return;
 
   const docOrgId = doc[field]?._id ? doc[field]._id.toString() : doc[field]?.toString();
-  if (!docOrgId) return; // unclaimed — allowed
+  if (!docOrgId) return;
   if (!req.user.organizationId || docOrgId !== req.user.organizationId) {
     throw new ForbiddenError("You do not have permission to access another organization's data.");
   }
 }
 
-/**
- * For create endpoints: returns the organizationId an org_admin's new
- * record must be stamped with, overriding anything the client sent.
- * Returns the client-provided value unchanged for admin/teacher.
- */
+// Backward-compatible alias used by the Excel seating import controller.
+export const assertOwnOrg = assertOwnsOrg;
+
 export function resolveOrgIdForCreate(req: Request, clientProvidedValue?: unknown): unknown {
   if (req.user?.role === 'org_admin') {
     return req.user.organizationId;
@@ -76,37 +54,16 @@ export function resolveOrgIdForCreate(req: Request, clientProvidedValue?: unknow
   return clientProvidedValue;
 }
 
-/**
- * Returns the Teacher document linked to the authenticated user, or null if
- * the caller isn't a teacher (or has no Teacher record yet). Unlike
- * org_admin, a teacher's org/scope isn't in the JWT — it lives on their own
- * Teacher document — so this always requires a DB lookup.
- */
 export async function getOwnTeacherRecord(req: Request) {
   if (req.user?.role !== 'teacher') return null;
   return Teacher.findOne({ user: req.user.userId });
 }
 
-/**
- * Returns the Parent document linked to the authenticated user, or null if
- * the caller isn't a parent (or has no Parent record yet).
- */
 export async function getOwnParentRecord(req: Request) {
   if (req.user?.role !== 'parent') return null;
   return Parent.findOne({ user: req.user.userId });
 }
 
-/**
- * Throws ForbiddenError unless the caller may view this student's data:
- *   - admin: always allowed (full global access)
- *   - org_admin: only their own organization (via assertOwnsOrg)
- *   - teacher: only students enrolled in one of the teacher's own courses
- *   - student: only their own record
- *   - parent: only their own linked children
- *
- * `student` should have `user` and `enrolledCourses` available (populated
- * or raw ObjectIds are both fine — only `.toString()` is used).
- */
 export async function assertCanAccessStudent(req: Request, student: any): Promise<void> {
   if (!student) return;
   const role = req.user?.role;
@@ -151,14 +108,6 @@ export async function assertCanAccessStudent(req: Request, student: any): Promis
   throw new ForbiddenError('You do not have permission to access this data.');
 }
 
-/**
- * Throws ForbiddenError if the caller is a `teacher` and the given exam's
- * course isn't assigned to them. No-op for admin/org_admin (org isolation
- * for those two is handled separately via assertOwnsOrg on the exam itself).
- *
- * `exam` should have a `course` field — either a raw ObjectId or a
- * populated course document/ref.
- */
 export async function assertOwnsExamIfTeacher(req: Request, exam: { course: any }): Promise<void> {
   if (req.user?.role !== 'teacher') return;
   const teacher = await getOwnTeacherRecord(req);

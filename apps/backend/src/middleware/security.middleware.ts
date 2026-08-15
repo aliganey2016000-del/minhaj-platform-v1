@@ -13,10 +13,20 @@ import { Request, Response, NextFunction } from 'express';
 
 /**
  * Enforce HTTPS in production
- * Redirect HTTP to HTTPS with appropriate security headers
+ * Redirect HTTP to HTTPS with appropriate security headers.
+ *
+ * The internal health endpoint is intentionally exempt because Docker's
+ * healthcheck runs inside the container over plain HTTP; redirecting it to
+ * HTTPS would make the container appear unhealthy even when the API is up.
  */
 export const enforceHttps = (req: Request, res: Response, next: NextFunction): void => {
-  if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') {
+  const isHealthCheck = req.path === '/api/v1/health';
+
+  if (
+    process.env.NODE_ENV === 'production' &&
+    !isHealthCheck &&
+    req.header('x-forwarded-proto') !== 'https'
+  ) {
     return res.redirect(301, `https://${req.header('host')}${req.url}`);
   }
   next();
