@@ -24,7 +24,7 @@ import ensureStudentRecord from '../utils/ensure-student';
 import Course from '../models/course.model';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, assertCanAccessStudent, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
-import { syncStudentCourseEnrollment } from '../services/enrollment.service';
+import { syncStudentCourseEnrollment, reassignStudentClassCourses } from '../services/enrollment.service';
 
 // Nested-populate the guardian's actual email/phone/name — a shallow
 // `.populate(PARENT_POPULATE)` leaves those as raw ObjectIds, which
@@ -634,13 +634,19 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   // org_admin can never move a student to a different organization.
   if (school !== undefined && req.user?.role !== 'org_admin') student.school = school || undefined;
+  const previousClassId = student.class ? student.class.toString() : undefined;
+  let classChanged = false;
   if (classId !== undefined) {
+    classChanged = String(classId || '') !== String(previousClassId || '');
     student.class = classId || undefined;
     // Re-cascade Department + Shift/Learning Mode from the newly selected
     // Class — kept in sync whenever a student is moved to a different class.
     if (classId) {
       const classDoc = await ClassModel.findById(classId).populate('department', 'name');
       if (!classDoc) throw new NotFoundError('Class not found');
+      // Validates the target class belongs to the student's own organization
+      // (org_admin gets ForbiddenError otherwise) — same guard used
+      // everywhere else a class is assigned (create(), approve()).
       assertOwnsOrg(req, classDoc, 'school');
       const dept = (classDoc as any).department;
       (student as any).department = typeof dept === 'string' ? dept : dept?.name || undefined;
@@ -693,6 +699,13 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   }
 
   await student.save();
+
+  // Only after the class field itself has actually saved — keeps a
+  // mid-update validation failure elsewhere from leaving course links
+  // reassigned while the class change itself didn't take effect.
+  if (classChanged) {
+    await reassignStudentClassCourses(student._id as mongoose.Types.ObjectId, previousClassId, classId || undefined);
+  }
 
   const updated = await Student.findById(student._id)
     .populate('user', 'email role isActive isVerified preferredLanguage')

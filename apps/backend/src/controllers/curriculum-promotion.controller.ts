@@ -93,7 +93,7 @@ async function resolvePromotionDecision(
   const targetCourseCount = await Course.countDocuments({
     school: schoolId,
     class: targetClass._id,
-    status: { $in: ['draft', 'published'] },
+    status: 'published', // draft courses aren't ready for students — same rule as every other enroll/access path in this codebase (course.controller.ts's admin-enroll, self-enroll, and listing filters)
   });
 
   if (targetCourseCount === 0) {
@@ -267,7 +267,7 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
     const targetCourses = await Course.find({
       school: schoolId,
       class: targetClass._id,
-      status: { $in: ['draft', 'published'] },
+      status: 'published', // draft courses aren't ready for students — same rule as every other enroll/access path in this codebase (course.controller.ts's admin-enroll, self-enroll, and listing filters)
     }).select('_id');
 
     const sourceCourses = await Course.find({ school: schoolId, class: cls._id }).select('_id');
@@ -337,7 +337,7 @@ export const validatePromotionTarget = async (req: Request, res: Response): Prom
 
   const target = await getTargetClass(schoolId, source, targetAcademicYear);
   const courses = target
-    ? await Course.find({ school: schoolId, class: target._id, status: { $in: ['draft', 'published'] } }).select('_id title')
+    ? await Course.find({ school: schoolId, class: target._id, status: 'published' }).select('_id title')
     : [];
 
   return ApiResponse.success(res, {
