@@ -124,6 +124,11 @@ export function PaymentsOverview() {
                 <p className="font-semibold">Payment History</p>
                 <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Search & filter all transactions</p>
               </Link>
+              <Link to="/admin/payments/reports" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
+                <p className="text-2xl mb-2">📊</p>
+                <p className="font-semibold">Reports</p>
+                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Collection, reconciliation & overdue</p>
+              </Link>
             </div>
           </>
         )}

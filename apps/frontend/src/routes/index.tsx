@@ -158,6 +158,9 @@ const PaymentsRecord = lazy(() =>
 const PaymentsHistory = lazy(() =>
   import('../features/admin/pages/payments-history').then((m) => ({ default: m.PaymentsHistory }))
 );
+const PaymentsReports = lazy(() =>
+  import('../features/admin/pages/payments-reports').then((m) => ({ default: m.PaymentsReports }))
+);
 const PaymentsBulk = lazy(() =>
   import('../features/admin/pages/payments-bulk').then((m) => ({ default: m.PaymentsBulk }))
 );
@@ -420,6 +423,7 @@ export const router = createBrowserRouter([
       { path: 'payments/bulk', element: L(<PaymentsBulk />) },
       { path: 'payments/balances', element: L(<PaymentsBalances />) },
       { path: 'payments/history', element: L(<PaymentsHistory />) },
+      { path: 'payments/reports', element: L(<PaymentsReports />) },
       { path: 'payments/fee-structures', element: L(<FeeStructuresManage />) },
       { path: 'payments/invoices', element: L(<InvoicesManage />) },
       { path: 'certificates', element: L(<CertificatesManage />) },

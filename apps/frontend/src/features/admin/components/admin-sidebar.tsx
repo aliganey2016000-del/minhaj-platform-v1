@@ -24,7 +24,7 @@ import {
   PieChart, CreditCard, History, Zap, Award, MessagesSquare, Megaphone,
   Newspaper, PartyPopper, Image, ShieldCheck, Settings, Compass, TrendingUp,
   ScrollText, User, KeyRound, LogOut, Percent, ClipboardEdit, PanelLeftClose, PanelLeftOpen,
-  Trash2, FileText, Receipt,
+  Trash2, FileText, Receipt, FileBarChart,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -93,6 +93,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/payments/bulk',           label: 'Bulk Collect',    icon: Zap },
       { path: '/admin/payments/balances',       label: 'Student Balances', icon: BarChart3 },
       { path: '/admin/payments/history',        label: 'Payment History', icon: History },
+      { path: '/admin/payments/reports',        label: 'Reports',         icon: FileBarChart },
     ],
   },
   {
