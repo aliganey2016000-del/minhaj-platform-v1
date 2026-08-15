@@ -571,6 +571,8 @@ interface CourseCardProps {
   onSetAccessMode: (course: Course) => void;
   onSetVideoGating: (course: Course) => void;
   onTeacherPermission: (course: Course) => void;
+  onGateReport: (course: Course) => void;
+  gateAccuracy?: { firstAttemptAccuracy: number; questionsAttempted: number };
 }
 
 function CourseCard({
@@ -586,6 +588,8 @@ function CourseCard({
   onSetAccessMode,
   onSetVideoGating,
   onTeacherPermission,
+  onGateReport,
+  gateAccuracy,
 }: CourseCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [thumbnailBroken, setThumbnailBroken] = useState(false);
@@ -659,6 +663,22 @@ function CourseCard({
         <span className={`absolute top-3 right-3 rounded-full px-2.5 py-0.5 text-xs font-semibold shadow-sm ${statusColors[course.status] || 'bg-gray-100 text-gray-600'}`}>
           {course.status}
         </span>
+        {/* Interactive Gate accuracy badge — only shown once at least one
+            Stop & Check question has actually been answered in this course. */}
+        {gateAccuracy && gateAccuracy.questionsAttempted > 0 && (
+          <span
+            title={`Interactive Gate: ${gateAccuracy.firstAttemptAccuracy}% first-attempt accuracy across ${gateAccuracy.questionsAttempted} question(s) answered`}
+            className={`absolute top-3 left-3 rounded-full px-2.5 py-0.5 text-xs font-semibold shadow-sm ${
+              gateAccuracy.firstAttemptAccuracy >= 80
+                ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                : gateAccuracy.firstAttemptAccuracy >= 50
+                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                  : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+            }`}
+          >
+            🎯 {gateAccuracy.firstAttemptAccuracy}%
+          </span>
+        )}
       </div>
 
       {/* Card Body */}
@@ -733,6 +753,15 @@ function CourseCard({
                 >
                   <span className="w-4 text-center flex-shrink-0">👥</span>
                   <span>View Enrolled Students</span>
+                </button>
+
+                {/* Interactive Gate Report */}
+                <button
+                  onClick={() => handleAction(() => onGateReport(course))}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"
+                >
+                  <span className="w-4 text-center flex-shrink-0">🎯</span>
+                  <span>Interactive Gate Report</span>
                 </button>
 
                 {/* Duplicate */}
@@ -1183,6 +1212,19 @@ export function CoursesManage() {
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState('');
   const [importResult, setImportResult] = useState<{ totalRows: number; created: number; updated?: number; failed: number; errors: { row: number; message: string }[] } | null>(null);
+  const [gateAccuracyMap, setGateAccuracyMap] = useState<Record<string, { firstAttemptAccuracy: number; questionsAttempted: number }>>({});
+
+  useEffect(() => {
+    api.get('/courses/gate-accuracy-summary')
+      .then(({ data }) => {
+        const map: Record<string, { firstAttemptAccuracy: number; questionsAttempted: number }> = {};
+        for (const row of data.data || []) {
+          map[row.courseId] = { firstAttemptAccuracy: row.firstAttemptAccuracy, questionsAttempted: row.questionsAttempted };
+        }
+        setGateAccuracyMap(map);
+      })
+      .catch(() => { /* badge is a nice-to-have — a failed fetch just hides it */ });
+  }, []);
 
   const fetchCourses = useCallback(async () => {
     try {
@@ -1281,6 +1323,10 @@ export function CoursesManage() {
 
   const handleBuildContent = (course: Course) => {
     navigate(`/admin/courses/${course._id}/builder`);
+  };
+
+  const handleGateReport = (course: Course) => {
+    navigate(`/admin/courses/${course._id}/gate-report`);
   };
 
   const handleViewStudents = (course: Course) => {
@@ -1595,6 +1641,8 @@ export function CoursesManage() {
                 onSetAccessMode={setAccessModeCourse}
                 onSetVideoGating={handleOpenVideoGating}
                 onTeacherPermission={handleTeacherPermission}
+                onGateReport={handleGateReport}
+                gateAccuracy={gateAccuracyMap[course._id]}
               />
             ))}
           </div>

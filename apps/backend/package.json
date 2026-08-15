@@ -7,7 +7,8 @@
     "build": "npm config set cache /tmp/.npm-cache && npm install --include=dev --cache /tmp/.npm-cache && tsc",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",
-    "test:promotion": "ts-node src/__tests__/promotion.e2e.ts"
+    "test:promotion": "ts-node src/__tests__/promotion.e2e.ts",
+    "test:gate-report": "ts-node src/__tests__/gate-report.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

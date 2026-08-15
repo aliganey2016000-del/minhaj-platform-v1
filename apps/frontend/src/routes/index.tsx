@@ -116,6 +116,9 @@ const AdminDashboard = lazy(() =>
 const CoursesManage = lazy(() =>
   import('../features/admin/pages/courses-manage').then((m) => ({ default: m.CoursesManage }))
 );
+const CourseGateReport = lazy(() =>
+  import('../features/admin/pages/course-gate-report').then((m) => ({ default: m.CourseGateReport }))
+);
 const CourseGradebook = lazy(() =>
   import('../features/admin/pages/course-gradebook').then((m) => ({ default: m.CourseGradebook }))
 );
@@ -397,6 +400,7 @@ export const router = createBrowserRouter([
           { index: true, element: L(<CoursesManage />) },
           { path: ':courseId/builder', element: L(<CourseBuilder />) },
           { path: ':courseId/gradebook', element: L(<CourseGradebook />) },
+          { path: ':courseId/gate-report', element: L(<CourseGateReport />) },
           { path: ':courseId/lessons/:lessonId/edit', element: L(<LessonEditPage />) },
           { path: ':courseId/quizzes/:quizId/edit', element: L(<QuizEditPage />) },
           { path: ':courseId/exams/:itemId/paper/edit', element: L(<ExamPaperEditPage />) },
@@ -455,6 +459,7 @@ export const router = createBrowserRouter([
       // Route guard in TeacherCourseBuilder checks permission and redirects to student view if denied
       { path: 'courses/:courseId/builder', element: L(<TeacherCourseBuilder />) },
       { path: 'courses/:courseId/gradebook', element: L(<CourseGradebook basePath="/teacher" />) },
+      { path: 'courses/:courseId/gate-report', element: L(<CourseGateReport basePath="/teacher" />) },
       { path: 'courses/:courseId/lessons/:lessonId/edit', element: L(<TeacherLessonEditPage />) },
       { path: 'courses/:courseId/quizzes/:quizId/edit', element: L(<TeacherQuizEditPage />) },
       { path: 'courses/:courseId/exams/:itemId/paper/edit', element: L(<TeacherExamPaperEditPage />) },

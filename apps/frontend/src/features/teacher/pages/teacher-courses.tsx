@@ -142,6 +142,12 @@ function ThreeDotsMenu({ courseId }: { courseId: string }) {
               <BarChart3 className="h-3 w-3 inline" />
               {lang === 'so' ? 'Falanqayn' : lang === 'ar' ? 'تحليلات' : 'View Analytics'}
             </button>
+            <button
+              onClick={() => navigateTo(`/teacher/courses/${courseId}/gate-report`)}
+              className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors"
+            >
+              🎯 {lang === 'so' ? 'Warbixinta Su\'aalaha' : lang === 'ar' ? 'تقرير الأسئلة' : 'Gate Report'}
+            </button>
           </div>,
           document.body,
         )}

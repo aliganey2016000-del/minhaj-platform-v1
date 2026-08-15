@@ -18,11 +18,14 @@
  *   POST /:id/enroll       — Enroll student
  *   POST /:id/unenroll     — Unenroll student
  *   GET  /:id/students     — Get enrolled students
+ *   GET  /:id/gate-report  — Interactive Gate accuracy report (per-student/per-lesson)
+ *   GET  /gate-accuracy-summary — Interactive Gate accuracy per course (course-list badges)
  */
 
 import { Router } from 'express';
 import multer from 'multer';
 import * as courseController from '../../controllers/course.controller';
+import * as gateReportController from '../../controllers/gate-report.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { roleMiddleware, adminOnly, adminOrTeacher } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -46,6 +49,15 @@ router.get(
   authMiddleware,
   adminOrTeacher,
   asyncHandler(courseController.getAllAdmin)
+);
+
+// GET /api/v1/courses/gate-accuracy-summary — Interactive Gate first-attempt
+// accuracy per course (admin/teacher, scoped) — for course-list badges.
+router.get(
+  '/gate-accuracy-summary',
+  authMiddleware,
+  adminOrTeacher,
+  asyncHandler(gateReportController.getGateAccuracySummary)
 );
 
 // GET /api/v1/courses — List published courses (with filtering)
@@ -93,6 +105,15 @@ router.patch(
   authMiddleware,
   roleMiddleware(['admin', 'org_admin', 'teacher']),
   asyncHandler(courseController.toggleLive)
+);
+
+// GET /api/v1/courses/:id/gate-report — Interactive Gate accuracy report,
+// per-student and per-lesson, for this course (admin/teacher, scoped)
+router.get(
+  '/:id/gate-report',
+  authMiddleware,
+  adminOrTeacher,
+  asyncHandler(gateReportController.getCourseGateReport)
 );
 
 // GET /api/v1/courses/:id/students — Get enrolled students (admin/teacher)
