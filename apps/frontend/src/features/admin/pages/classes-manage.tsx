@@ -207,9 +207,11 @@ interface PromotionGroup {
   batch?: string;
   gradeLevel?: number;
   studentCount?: number;
-  action: 'promote-new' | 'promote-existing' | 'graduate' | 'already-promoted';
+  action: 'promote-new' | 'promote-existing' | 'graduate' | 'already-promoted' | 'skipped';
   targetTitle?: string;
+  targetCourseCount?: number;
   opensNewIntake?: boolean;
+  reason?: string;
 }
 
 interface PromotionResult {
@@ -260,6 +262,10 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
 
   const promotable = groups.filter(g => g.action === 'promote-new' || g.action === 'promote-existing' || g.action === 'graduate');
   const alreadyPromoted = groups.filter(g => g.action === 'already-promoted');
+  // Target class missing, or exists with zero courses — execution will skip
+  // these with zero students moved. Must be shown explicitly (not silently
+  // dropped) so the preview never promises something execution won't do.
+  const skippedGroups = groups.filter(g => g.action === 'skipped');
   const totalStudents = promotable.reduce((sum, g) => sum + (g.studentCount || 0), 0);
 
   const handleConfirm = async () => {
@@ -356,6 +362,17 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
 
             {alreadyPromoted.length > 0 && (
               <p className="text-xs text-[var(--color-text-tertiary)]">{alreadyPromoted.length} class(es) already promoted this cycle — skipped automatically.</p>
+            )}
+
+            {skippedGroups.length > 0 && (
+              <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-3">
+                <p className="text-xs font-semibold text-red-700 dark:text-red-300 mb-1">⚠ {skippedGroups.length} class(es) will be SKIPPED — no target curriculum ready:</p>
+                <div className="space-y-0.5">
+                  {skippedGroups.map(g => (
+                    <p key={g.classId} className="text-xs text-red-600 dark:text-red-400">{g.title} ({g.section}) — {g.reason}</p>
+                  ))}
+                </div>
+              </div>
             )}
 
             {missingGradeLevel.length > 0 && (

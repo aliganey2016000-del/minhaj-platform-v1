@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import ClassModel from '../models/class.model';
+import ClassModel, { IClass } from '../models/class.model';
 import Student from '../models/student.model';
 import Course from '../models/course.model';
 import ApiResponse from '../utils/api-response';
@@ -62,12 +62,50 @@ async function getTargetClass(schoolId: string, source: any, targetAcademicYear:
   }).sort({ createdAt: 1 });
 }
 
-async function countCourses(schoolId: string, classId: mongoose.Types.ObjectId) {
-  return Course.countDocuments({
+interface PromotionDecision {
+  targetClass: mongoose.HydratedDocument<IClass> | null;
+  targetCourseCount: number;
+  willSkip: boolean;
+  reason?: string;
+}
+
+// The SINGLE place that decides, for one non-graduating class, whether a
+// promotion target exists and is ready. getPromotionPreview and promoteAll
+// both call this — neither re-derives the skip condition independently — so
+// "preview says ready" and "execution actually proceeds" can't drift apart
+// again the way they did before (preview used to label a target with zero
+// courses 'promote-new' while promoteAll skipped it outright).
+async function resolvePromotionDecision(
+  schoolId: string,
+  cls: any,
+  targetAcademicYear: string
+): Promise<PromotionDecision> {
+  const targetClass = await getTargetClass(schoolId, cls, targetAcademicYear);
+  if (!targetClass) {
+    return {
+      targetClass: null,
+      targetCourseCount: 0,
+      willSkip: true,
+      reason: `No Grade ${cls.gradeLevel + 1} target class exists for ${targetAcademicYear}.`,
+    };
+  }
+
+  const targetCourseCount = await Course.countDocuments({
     school: schoolId,
-    class: classId,
+    class: targetClass._id,
     status: { $in: ['draft', 'published'] },
   });
+
+  if (targetCourseCount === 0) {
+    return {
+      targetClass,
+      targetCourseCount: 0,
+      willSkip: true,
+      reason: 'Target class exists but has no courses. Create/link the target curriculum first; no student will be moved.',
+    };
+  }
+
+  return { targetClass, targetCourseCount, willSkip: false };
 }
 
 export const getPromotionPreview = async (req: Request, res: Response): Promise<Response> => {
@@ -130,8 +168,7 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
       continue;
     }
 
-    const targetClass = await getTargetClass(schoolId, cls, targetAcademicYear);
-    const targetCourseCount = targetClass ? await countCourses(schoolId, targetClass._id) : 0;
+    const decision = await resolvePromotionDecision(schoolId, cls, targetAcademicYear);
 
     groups.push({
       classId: cls._id,
@@ -139,15 +176,13 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
       section: cls.section,
       gradeLevel: cls.gradeLevel,
       studentCount,
-      action: targetCourseCount > 0 ? 'promote-existing' : 'promote-new',
-      targetClassId: targetClass?._id,
-      targetTitle: targetClass?.title,
-      targetCourseCount,
+      action: decision.willSkip ? 'skipped' : 'promote-existing',
+      targetClassId: decision.targetClass?._id as mongoose.Types.ObjectId | undefined,
+      targetTitle: decision.targetClass?.title,
+      targetCourseCount: decision.targetCourseCount,
       sourceCourseCount,
       opensNewIntake: false,
-      reason: targetClass
-        ? targetCourseCount > 0 ? undefined : 'Target class exists but has no courses.'
-        : `No Grade ${cls.gradeLevel + 1} target class exists for ${targetAcademicYear}.`,
+      reason: decision.reason,
     });
   }
 
@@ -213,38 +248,27 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
       continue;
     }
 
-    const targetClass = await getTargetClass(schoolId, cls, targetAcademicYear);
-    if (!targetClass) {
+    const decision = await resolvePromotionDecision(schoolId, cls, targetAcademicYear);
+    if (decision.willSkip) {
       skipped += 1;
       results.push({
         classId: cls._id,
         title: cls.title,
         action: 'skipped',
-        reason: `No target Grade ${cls.gradeLevel + 1} class exists for ${targetAcademicYear}`,
+        targetClassId: decision.targetClass?._id,
+        targetTitle: decision.targetClass?.title,
+        reason: decision.reason,
         studentsMoved: 0,
       });
       continue;
     }
+    const targetClass = decision.targetClass!;
 
     const targetCourses = await Course.find({
       school: schoolId,
       class: targetClass._id,
       status: { $in: ['draft', 'published'] },
     }).select('_id');
-
-    if (targetCourses.length === 0) {
-      skipped += 1;
-      results.push({
-        classId: cls._id,
-        title: cls.title,
-        action: 'skipped',
-        targetClassId: targetClass._id,
-        targetTitle: targetClass.title,
-        reason: 'Target class has no courses. Create/link the target curriculum first; no student was moved.',
-        studentsMoved: 0,
-      });
-      continue;
-    }
 
     const sourceCourses = await Course.find({ school: schoolId, class: cls._id }).select('_id');
     const sourceCourseIds = new Set(sourceCourses.map((c) => c._id.toString()));
