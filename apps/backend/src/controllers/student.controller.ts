@@ -24,6 +24,7 @@ import ensureStudentRecord from '../utils/ensure-student';
 import Course from '../models/course.model';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, assertCanAccessStudent, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
+import { syncStudentCourseEnrollment } from '../services/enrollment.service';
 
 // Nested-populate the guardian's actual email/phone/name — a shallow
 // `.populate(PARENT_POPULATE)` leaves those as raw ObjectIds, which
@@ -574,6 +575,11 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     await syncGuardian(student, resolvedSchool, { guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship });
     if (student.isModified('parent')) await student.save();
   }
+
+  // Grant access to the class's existing courses immediately — without this,
+  // a new student's enrolledCourses stays empty and they see zero courses
+  // and get ForbiddenError'd out of quizzes/assignments for their own class.
+  if (classId) await syncStudentCourseEnrollment(student._id as mongoose.Types.ObjectId, classId);
 
   const newStudentDocId = student._id;
 
@@ -1543,6 +1549,11 @@ export const approve = async (req: Request, res: Response): Promise<Response> =>
     .populate('class', 'title section');
 
   if (!student) throw new NotFoundError('Student');
+
+  // A pending/self-registered student had no real class until this moment —
+  // grant access to that class's existing courses now, same as create().
+  await syncStudentCourseEnrollment(student._id as mongoose.Types.ObjectId, classId);
+
   return ApiResponse.success(res, student, 'Student approved successfully');
 };
 

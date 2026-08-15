@@ -13,6 +13,7 @@ import Student from '../models/student.model';
 import Profile from '../models/profile.model';
 import School from '../models/school.model';
 import ClassModel from '../models/class.model';
+import { syncStudentCourseEnrollment } from '../services/enrollment.service';
 
 // ---------------------------------------------------------------------------
 // Ensure a Student record exists for the given userId.
@@ -74,6 +75,11 @@ export async function ensureStudentRecord(
     school: publicSchool._id,
     class: publicClass._id,
   });
+
+  // Grant access to Public Class's existing courses, same as the admin
+  // create()/approve() paths — otherwise this auto-provisioned student sees
+  // zero courses despite being placed in a real class.
+  await syncStudentCourseEnrollment(student._id as mongoose.Types.ObjectId, publicClass._id);
 
   return student;
 }
