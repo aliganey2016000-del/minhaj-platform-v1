@@ -25,6 +25,7 @@ import { getBlockQuestions } from '../../admin/pages/course-builder.types';
 import { checkGateAnswerOffline } from '../../../lib/offline-gate';
 import { getGateProgress, patchGateProgress, queueAction, queueVideoProgress } from '../../../lib/offline-store';
 import { sanitizeHtml } from '../../../lib/sanitize-html';
+import { detectTextDirection } from '../../../lib/text-direction';
 
 type Phase = 'loading' | 'reading' | 'ready' | 'question_open' | 'question_retry' | 'cleared';
 
@@ -429,10 +430,13 @@ export function InteractiveGateLessonView({ lesson, courseId, onGateCleared }: I
           className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4 lg:p-5 space-y-4"
         >
           {block.title && (
-            <h3 className="text-base font-bold text-[var(--color-text-primary)]">{block.title}</h3>
+            <h3 dir={detectTextDirection(block.title)} className="text-base font-bold text-[var(--color-text-primary)]">{block.title}</h3>
           )}
           <div
-            className="prose prose-sm dark:prose-invert max-w-none text-[var(--color-text-primary)] [&_p]:mb-3 [&_p]:leading-relaxed"
+            dir={detectTextDirection(block.content)}
+            className={`prose prose-sm dark:prose-invert max-w-none text-[var(--color-text-primary)] [&_p]:mb-3 [&_p]:leading-relaxed ${
+              detectTextDirection(block.content) === 'rtl' ? 'text-justify [&_p]:text-justify' : ''
+            }`}
             dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.content) }}
           />
 

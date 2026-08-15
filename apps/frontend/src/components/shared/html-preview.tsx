@@ -22,6 +22,7 @@
 
 import { useRef, useState, useMemo, useEffect } from 'react';
 import { sanitizeHtml } from '../../lib/sanitize-html';
+import { detectTextDirection } from '../../lib/text-direction';
 import { useTheme } from '../../store/theme-context';
 
 // Reports this document's own height to the parent via postMessage on every
@@ -72,6 +73,12 @@ export function hasScripts(html: string): boolean {
  * The author's own <style> blocks (if any) will override these base rules.
  */
 function buildShellForFragment(bodyHtml: string, isDark: boolean): string {
+  // No author ever set a `dir` on this fragment (that's the BlockDirection
+  // editor toggle, saved per-paragraph) — most bulk-imported or plain-typed
+  // Arabic/Somali lesson text never gets one. Pick a sensible default for
+  // the whole body from majority script; explicit per-element `dir=` inside
+  // the content still wins locally over this default.
+  const defaultDir = detectTextDirection(bodyHtml);
   // Colors are baked in directly from the HOST app's actual theme (the
   // `dark` class on <html>, via useTheme()) rather than a
   // `@media (prefers-color-scheme)` query — that query reflects the OS
@@ -84,7 +91,7 @@ function buildShellForFragment(bodyHtml: string, isDark: boolean): string {
   const codeBg = isDark ? '#1e293b' : '#f1f5f9';
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="${defaultDir}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -100,10 +107,12 @@ function buildShellForFragment(bodyHtml: string, isDark: boolean): string {
       line-height: 1.7;
       color: ${textColor};
       background: ${bgColor};
+      text-align: ${defaultDir === 'rtl' ? 'justify' : 'left'};
     }
     h1, h2, h3, h4, h5, h6 { margin: 0 0 0.5em 0; }
     p { margin: 0 0 0.75em 0; line-height: 1.65; }
     ul, ol { padding-left: 1.25rem; margin: 0 0 0.75em 0; }
+    [dir="rtl"] ul, [dir="rtl"] ol { padding-left: 0; padding-right: 1.25rem; }
     li { font-size: 0.875rem; }
     a { color: #2563eb; text-decoration: underline; }
     img { border-radius: 0.75rem; max-width: 100%; }
@@ -117,7 +126,10 @@ function buildShellForFragment(bodyHtml: string, isDark: boolean): string {
       padding: 0.125rem 0.375rem;
     }
     pre { padding: 1rem; overflow-x: auto; margin-bottom: 0.75rem; }
-    [dir="rtl"] { text-align: right; line-height: 1.9; }
+    /* An element with its OWN explicit dir (e.g. from the lesson editor's
+       per-paragraph direction toggle) always overrides this body default. */
+    [dir="rtl"] { text-align: justify; line-height: 1.9; }
+    [dir="ltr"] { text-align: left; }
   </style>
 </head>
 <body>${bodyHtml}${RESIZE_REPORTER_SCRIPT}</body>
