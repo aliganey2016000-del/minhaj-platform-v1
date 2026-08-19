@@ -284,20 +284,61 @@ export function StudentCourseLearn() {
   // leaving the page) rather than on open, so Start/End/Duration reflect
   // actual time spent instead of a zero-duration "opened" point event.
   // Best-effort: never blocks the UI.
+  //
+  // React's cleanup above only runs for an SPA navigation (dependency
+  // change or a client-side route change unmounting this component) — a
+  // hard tab close, browser-back out of the app, or full page reload skips
+  // it entirely, silently losing that entire viewing session. `pagehide`
+  // (fires reliably for all of those, including bfcache) plus
+  // `visibilitychange` (tab backgrounded/switched, which pagehide misses)
+  // cover the rest, using a `keepalive` fetch since a request started
+  // during unload must be allowed to outlive the page — a plain axios call
+  // would be aborted before it reaches the network.
   useEffect(() => {
     if (!currentItem || !courseId) return;
     const item = currentItem.item as any;
-    const openedAt = Date.now();
-    return () => {
-      const durationSeconds = Math.round((Date.now() - openedAt) / 1000);
+    let segmentStartedAt = Date.now();
+
+    const flush = (useBeacon: boolean) => {
+      const now = Date.now();
+      const durationSeconds = Math.round((now - segmentStartedAt) / 1000);
+      segmentStartedAt = now;
       if (durationSeconds < 1) return; // ignore instant navigations
-      api.post('/activity/event', {
+      const payload = {
         type: item.type === 'lesson' ? 'lesson_view' : 'course_view',
         course: courseId,
         lessonId: item._id,
         resourceName: item.title,
         durationSeconds,
-      }).catch(() => {});
+      };
+      if (useBeacon) {
+        const token = localStorage.getItem('accessToken');
+        try {
+          fetch('/api/v1/activity/event', {
+            method: 'POST',
+            keepalive: true,
+            headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            body: JSON.stringify(payload),
+          }).catch(() => {});
+        } catch { /* best-effort — keepalive fetch can throw synchronously mid-unload in some browsers */ }
+      } else {
+        api.post('/activity/event', payload).catch(() => {});
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) flush(true);
+      else segmentStartedAt = Date.now(); // resumed — don't count backgrounded time as watched
+    };
+    const handlePageHide = () => flush(true);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      flush(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeItemIdx, courseId]);
@@ -972,16 +1013,27 @@ function LessonView({ lesson, courseId }: { lesson: LessonItem; courseId: string
   const [imageVisible, setImageVisible] = useState(true);
   const videoStartRef = useRef<number | null>(null);
   const lastReportedRef = useRef(0);
+  const youtubeIframeId = useId();
+  const vimeoIframeRef = useRef<HTMLIFrameElement>(null);
+
+  // This component isn't remounted when the student moves to a different
+  // lesson (no `key` on <LessonView> at the call site) — reset the watch
+  // session markers so a new lesson's video doesn't inherit a stale start
+  // time from whatever was last playing.
+  useEffect(() => {
+    videoStartRef.current = null;
+    lastReportedRef.current = 0;
+  }, [lesson._id]);
 
   // Reports watch progress at most once every 15s while playing, plus once
   // on pause/end — good enough resolution for the activity timeline without
-  // spamming the endpoint on every timeupdate tick (which fires ~4x/sec).
-  const reportVideoProgress = (el: HTMLVideoElement, final = false) => {
+  // spamming the endpoint on every timeupdate/poll tick.
+  const reportVideoProgress = (currentTime: number, duration: number, final = false) => {
     const now = Date.now();
     if (!final && now - lastReportedRef.current < 15000) return;
     lastReportedRef.current = now;
     if (videoStartRef.current === null) videoStartRef.current = now;
-    const percent = el.duration > 0 ? Math.min(100, Math.round((el.currentTime / el.duration) * 100)) : 0;
+    const percent = duration > 0 ? Math.min(100, Math.round((currentTime / duration) * 100)) : 0;
     api.post('/activity/event', {
       type: 'video_progress',
       course: courseId,
@@ -990,9 +1042,82 @@ function LessonView({ lesson, courseId }: { lesson: LessonItem; courseId: string
       percent,
       durationSeconds: Math.round((now - videoStartRef.current) / 1000),
       status: final && percent >= 95 ? 'completed' : 'in_progress',
-      metadata: { startTime: 0, endTime: Math.round(el.currentTime) },
+      metadata: { startTime: 0, endTime: Math.round(currentTime) },
     }).catch(() => {});
   };
+
+  // YouTube embeds expose none of their playback state to the parent page
+  // by default — a plain <iframe> has no timeupdate/pause/ended events like
+  // a native <video> does. The official IFrame Player API binds to the
+  // SAME existing iframe (given `enablejsapi=1` in its src) and reports
+  // real position via postMessage, which is the only way "how much did they
+  // actually watch" can be tracked for a YouTube embed.
+  useEffect(() => {
+    if (video.type !== 'youtube' || !videoVisible) return;
+    let cancelled = false;
+    let player: import('../../../lib/embed-player-api').YouTubePlayer | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+    import('../../../lib/embed-player-api').then(({ loadYouTubeApi }) => loadYouTubeApi()).then(() => {
+      if (cancelled || !window.YT) return;
+      const iframeEl = document.getElementById(youtubeIframeId);
+      if (!iframeEl) return;
+      const YT = window.YT;
+      const flush = (final: boolean) => {
+        if (!player) return;
+        reportVideoProgress(player.getCurrentTime(), player.getDuration(), final);
+      };
+      new YT.Player(iframeEl, {
+        events: {
+          onReady: (e: any) => { player = e.target; },
+          onStateChange: (e: any) => {
+            if (e.data === YT.PlayerState.PLAYING) {
+              if (pollInterval) clearInterval(pollInterval);
+              pollInterval = setInterval(() => flush(false), 15000);
+            } else {
+              if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+              if (e.data === YT.PlayerState.PAUSED) flush(true);
+              if (e.data === YT.PlayerState.ENDED) flush(true);
+            }
+          },
+        },
+      });
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (pollInterval) clearInterval(pollInterval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [video.type, video.id, videoVisible, youtubeIframeId, lesson._id]);
+
+  // Same idea as the YouTube effect above, using the official Vimeo Player
+  // SDK bound to the existing iframe instead of hand-rolling the postMessage
+  // protocol — Vimeo's `timeupdate` event already fires at a native cadence,
+  // so it's throttled through the same reportVideoProgress 15s gate.
+  useEffect(() => {
+    if (video.type !== 'vimeo' || !videoVisible) return;
+    let cancelled = false;
+
+    import('../../../lib/embed-player-api').then(({ loadVimeoApi }) => loadVimeoApi()).then(() => {
+      if (cancelled || !window.Vimeo || !vimeoIframeRef.current) return;
+      const player = new window.Vimeo.Player(vimeoIframeRef.current);
+      player.on('timeupdate', (data: { seconds: number; duration: number }) => {
+        reportVideoProgress(data.seconds, data.duration, false);
+      });
+      player.on('pause', async () => {
+        const [current, duration] = await Promise.all([player.getCurrentTime(), player.getDuration()]);
+        reportVideoProgress(current, duration, true);
+      });
+      player.on('ended', async () => {
+        const [current, duration] = await Promise.all([player.getCurrentTime(), player.getDuration()]);
+        reportVideoProgress(current, duration, true);
+      });
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [video.type, video.id, videoVisible, lesson._id]);
 
   const showUnavailable = lesson.videoUrl && (video.type === null || embedFailed);
   const hasVideo = video.type !== null || !!showUnavailable;
@@ -1012,7 +1137,8 @@ function LessonView({ lesson, courseId }: { lesson: LessonItem; courseId: string
       {videoVisible && video.type === 'youtube' && !embedFailed && (
         <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black">
           <iframe
-            src={`https://www.youtube-nocookie.com/embed/${video.id}?rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3`}
+            id={youtubeIframeId}
+            src={`https://www.youtube-nocookie.com/embed/${video.id}?rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
             title="Course Video"
             className="absolute inset-0 w-full h-full"
             allow="autoplay; fullscreen"
@@ -1025,6 +1151,7 @@ function LessonView({ lesson, courseId }: { lesson: LessonItem; courseId: string
       {videoVisible && video.type === 'vimeo' && !embedFailed && (
         <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black">
           <iframe
+            ref={vimeoIframeRef}
             src={`https://player.vimeo.com/video/${video.id}?title=0&byline=0&portrait=0&dnt=1`}
             title="Course Video"
             className="absolute inset-0 w-full h-full"
@@ -1043,9 +1170,9 @@ function LessonView({ lesson, courseId }: { lesson: LessonItem; courseId: string
             preload="metadata"
             controlsList="nodownload noremoteplayback"
             disablePictureInPicture
-            onTimeUpdate={(e) => reportVideoProgress(e.currentTarget)}
-            onPause={(e) => reportVideoProgress(e.currentTarget, true)}
-            onEnded={(e) => reportVideoProgress(e.currentTarget, true)}
+            onTimeUpdate={(e) => reportVideoProgress(e.currentTarget.currentTime, e.currentTarget.duration, false)}
+            onPause={(e) => reportVideoProgress(e.currentTarget.currentTime, e.currentTarget.duration, true)}
+            onEnded={(e) => reportVideoProgress(e.currentTarget.currentTime, e.currentTarget.duration, true)}
           >
             <source src={video.id} />
             <p className="text-white p-4 text-sm text-center">Your browser does not support the video tag.</p>

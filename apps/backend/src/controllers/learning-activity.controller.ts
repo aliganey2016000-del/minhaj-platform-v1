@@ -14,6 +14,7 @@ import Student from '../models/student.model';
 import Course from '../models/course.model';
 import Progress from '../models/progress.model';
 import QuizAttempt from '../models/quiz-attempt.model';
+import LessonBlockProgress from '../models/lesson-block-progress.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, getOwnTeacherRecord } from '../utils/tenant-scope';
@@ -39,6 +40,52 @@ async function assertCanViewStudent(req: Request, studentId: string): Promise<vo
   if (!ids || !ids.some((id) => id.toString() === studentId)) {
     throw new ForbiddenError('You do not have access to this student.');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Interactive Gate ("Stop & Check") first-attempt accuracy, per student —
+// blended into the "Avg Quiz Score" figures below alongside traditional
+// QuizAttempt scores. Deliberately mirrors gate-report.controller.ts's
+// FIRST-ATTEMPT-ONLY logic rather than averaging the raw attempt log
+// (LearningActivity), which would double-count retries and skew the score
+// upward, since a gate block can always be retried until correct.
+// ---------------------------------------------------------------------------
+async function gateFirstAttemptStats(studentIds: mongoose.Types.ObjectId[]): Promise<Map<string, { avgScore: number; attempts: number }>> {
+  if (studentIds.length === 0) return new Map();
+  const rows = await LessonBlockProgress.aggregate([
+    { $match: { student: { $in: studentIds } } },
+    { $unwind: '$attempts' },
+    { $sort: { 'attempts.attemptedAt': 1 } },
+    {
+      $group: {
+        _id: { student: '$student', lessonId: '$lessonId', blockIndex: '$attempts.blockIndex', questionIndex: '$attempts.questionIndex' },
+        firstCorrect: { $first: '$attempts.correct' },
+      },
+    },
+    {
+      $group: {
+        _id: '$_id.student',
+        questionsAttempted: { $sum: 1 },
+        firstAttemptCorrect: { $sum: { $cond: ['$firstCorrect', 1, 0] } },
+      },
+    },
+  ]);
+  const map = new Map<string, { avgScore: number; attempts: number }>();
+  for (const r of rows) {
+    map.set(r._id.toString(), {
+      avgScore: r.questionsAttempted ? (r.firstAttemptCorrect / r.questionsAttempted) * 100 : 0,
+      attempts: r.questionsAttempted,
+    });
+  }
+  return map;
+}
+
+/** Weighted average of two (score, count) pairs — each gate question counts the same as one traditional quiz attempt. */
+function blendScores(a: { avgScore: number; attempts: number } | undefined, b: { avgScore: number; attempts: number } | undefined): { avgScore: number | null; attempts: number } {
+  const attempts = (a?.attempts || 0) + (b?.attempts || 0);
+  if (attempts === 0) return { avgScore: null, attempts: 0 };
+  const avgScore = ((a?.avgScore || 0) * (a?.attempts || 0) + (b?.avgScore || 0) * (b?.attempts || 0)) / attempts;
+  return { avgScore, attempts };
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +183,7 @@ export const getRoster = async (req: Request, res: Response): Promise<Response> 
   ]);
 
   const studentIds = students.map((s: any) => s._id);
-  const [lastActivities, avgScores] = await Promise.all([
+  const [lastActivities, avgScores, gateStats] = await Promise.all([
     LearningActivity.aggregate([
       { $match: { student: { $in: studentIds } } },
       { $sort: { createdAt: -1 } },
@@ -146,6 +193,7 @@ export const getRoster = async (req: Request, res: Response): Promise<Response> 
       { $match: { student: { $in: studentIds } } },
       { $group: { _id: '$student', avgScore: { $avg: '$percentage' }, attempts: { $sum: 1 } } },
     ]),
+    gateFirstAttemptStats(studentIds),
   ]);
   const lastActivityMap = new Map(lastActivities.map((a: any) => [a._id.toString(), a]));
   const avgScoreMap = new Map(avgScores.map((a: any) => [a._id.toString(), a]));
@@ -154,6 +202,7 @@ export const getRoster = async (req: Request, res: Response): Promise<Response> 
     const userId = s.user?._id?.toString();
     const last = lastActivityMap.get(s._id.toString());
     const scoreInfo = avgScoreMap.get(s._id.toString());
+    const blended = blendScores(scoreInfo, gateStats.get(s._id.toString()));
     return {
       _id: s._id,
       studentId: s.studentId,
@@ -164,8 +213,8 @@ export const getRoster = async (req: Request, res: Response): Promise<Response> 
       lastSeenAt: s.user?.lastSeenAt || null,
       lastActivityAt: last?.lastActivityAt || null,
       lastActivityType: last?.lastActivityType || null,
-      avgQuizScore: scoreInfo ? Math.round(scoreInfo.avgScore) : null,
-      quizAttempts: scoreInfo?.attempts || 0,
+      avgQuizScore: blended.avgScore != null ? Math.round(blended.avgScore) : null,
+      quizAttempts: blended.attempts,
     };
   });
 
@@ -228,7 +277,7 @@ export const getAnalytics = async (req: Request, res: Response): Promise<Respons
 
   const sid = new mongoose.Types.ObjectId(studentId);
 
-  const [durationAgg, dailyAgg, progressDocs, quizAgg, lastEvent, videoAgg] = await Promise.all([
+  const [durationAgg, dailyAgg, progressDocs, quizAgg, lastEvent, videoAgg, gateStatsMap] = await Promise.all([
     LearningActivity.aggregate([
       { $match: { student: sid, durationSeconds: { $gt: 0 } } },
       { $group: { _id: null, totalSeconds: { $sum: '$durationSeconds' } } },
@@ -248,7 +297,9 @@ export const getAnalytics = async (req: Request, res: Response): Promise<Respons
       { $match: { student: sid, type: 'video_progress' } },
       { $group: { _id: null, avgPercent: { $avg: '$percent' } } },
     ]),
+    gateFirstAttemptStats([sid]),
   ]);
+  const blendedQuiz = blendScores(quizAgg[0] ? { avgScore: quizAgg[0].avgScore, attempts: quizAgg[0].attempts } : undefined, gateStatsMap.get(studentId));
 
   // Learning streak — consecutive days (ending today or yesterday) with at least one activity.
   const activeDays = await LearningActivity.aggregate([
@@ -279,8 +330,12 @@ export const getAnalytics = async (req: Request, res: Response): Promise<Respons
       totalItems: p.totalItems,
       lastAccessed: p.lastAccessed,
     })),
-    avgQuizScore: quizAgg[0] ? Math.round(quizAgg[0].avgScore) : null,
-    quizAttempts: quizAgg[0]?.attempts || 0,
+    // Blended with Interactive Gate first-attempt accuracy (see
+    // gateFirstAttemptStats above) — quizzesPassed stays QuizAttempt-only
+    // since "passed" is a whole-quiz concept with no equivalent at the
+    // single-question Gate block granularity.
+    avgQuizScore: blendedQuiz.avgScore != null ? Math.round(blendedQuiz.avgScore) : null,
+    quizAttempts: blendedQuiz.attempts,
     quizzesPassed: quizAgg[0]?.passed || 0,
     avgVideoCompletion: videoAgg[0]?.avgPercent ? Math.round(videoAgg[0].avgPercent) : null,
     learningStreakDays: streak,

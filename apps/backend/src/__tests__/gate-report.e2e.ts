@@ -216,6 +216,30 @@ async function main() {
   assert(crossOrgSummary.status === 200 && (crossOrgSummary.body?.data || []).length === 0, `org_admin from a different org sees no rows for this course (got ${JSON.stringify(crossOrgSummary.body?.data)})`);
 
   // -------------------------------------------------------------------
+  section('STUDENT ACTIVITY INTEGRATION — Gate answers now logged + blended into Avg Quiz Score');
+  // -------------------------------------------------------------------
+  const roster = await request(app).get('/api/v1/activity/roster').set('Authorization', `Bearer ${teacherToken}`);
+  assert(roster.status === 200, `teacher can fetch the roster (status ${roster.status})`);
+  const rosterRows = roster.body?.data || [];
+  const yusufRoster = rosterRows.find((r: any) => r._id === yusuf.student._id.toString());
+  const laylaRoster = rosterRows.find((r: any) => r._id === layla.student._id.toString());
+  assert(yusufRoster?.avgQuizScore === 50, `roster: Yusuf's avgQuizScore is 50 (blended from Gate first-attempt, no traditional QuizAttempts exist) (got ${yusufRoster?.avgQuizScore})`);
+  assert(yusufRoster?.quizAttempts === 2, `roster: Yusuf's quizAttempts is 2 (his 2 distinct gate questions) (got ${yusufRoster?.quizAttempts})`);
+  assert(laylaRoster?.avgQuizScore === 100, `roster: Layla's avgQuizScore is 100 (got ${laylaRoster?.avgQuizScore})`);
+
+  const yusufAnalytics = await request(app).get(`/api/v1/activity/analytics/${yusuf.student._id}`).set('Authorization', `Bearer ${teacherToken}`);
+  assert(yusufAnalytics.status === 200, `teacher can fetch Yusuf's analytics (status ${yusufAnalytics.status})`);
+  assert(yusufAnalytics.body?.data?.avgQuizScore === 50, `analytics: Yusuf's avgQuizScore is 50 (got ${yusufAnalytics.body?.data?.avgQuizScore})`);
+  assert(yusufAnalytics.body?.data?.quizAttempts === 2, `analytics: Yusuf's quizAttempts is 2 (got ${yusufAnalytics.body?.data?.quizAttempts})`);
+
+  const yusufTimeline = await request(app).get(`/api/v1/activity/timeline/${yusuf.student._id}`).set('Authorization', `Bearer ${teacherToken}`);
+  assert(yusufTimeline.status === 200, `teacher can fetch Yusuf's timeline (status ${yusufTimeline.status})`);
+  const gateEvents = (yusufTimeline.body?.data || []).filter((e: any) => e.type === 'quiz_attempt' && e.metadata?.source === 'interactive_gate');
+  // Every submit call logs one event, including the wrong first attempt AND the retry — 3 total for Yusuf (wrong, retry, block 1).
+  assert(gateEvents.length === 3, `timeline: all 3 of Yusuf's gate answer submissions (incl. the wrong one and the retry) are logged (got ${gateEvents.length})`);
+  assert(gateEvents.some((e: any) => e.status === 'failed'), 'timeline: the wrong first attempt is logged with status=failed');
+
+  // -------------------------------------------------------------------
   console.log(`\n${'='.repeat(60)}`);
   if (failures === 0) {
     console.log('ALL CHECKS PASSED (0 failures)');

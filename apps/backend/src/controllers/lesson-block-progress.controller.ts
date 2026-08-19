@@ -15,6 +15,7 @@ import LessonBlockProgress from '../models/lesson-block-progress.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
+import { logActivityFromRequest } from '../utils/learning-activity-logger';
 
 // A block's Stop & Check questions, normalizing the legacy singular
 // `question` field (lessons saved before multi-question support) into the
@@ -118,6 +119,30 @@ export const submitBlockAnswer = async (req: Request, res: Response): Promise<Re
   }
 
   await progress.save();
+
+  // Feeds the Student Activity timeline — this endpoint previously never
+  // logged anything, so every Interactive Gate ("Stop & Check") answer was
+  // invisible there even though the traditional Quiz feature's equivalent
+  // (quiz.controller.ts submitQuiz) always has. Only logged when there's an
+  // actual question to grade — a question-less block just auto-advances and
+  // isn't a graded attempt. `Avg Quiz Score`/`Video Completion` tiles stay
+  // QuizAttempt-driven as before; this is timeline visibility only, not a
+  // second scoring system layered on top of the first-attempt-only Gate
+  // Report (see gate-report.controller.ts) which remains the source of
+  // truth for gate accuracy.
+  if (question) {
+    void logActivityFromRequest(req, {
+      student: student._id,
+      school: (student as any).school,
+      type: 'quiz_attempt',
+      course: courseId,
+      lessonId,
+      resourceName: question.question || lesson.title,
+      status: correct ? 'passed' : 'failed',
+      percent: correct ? 100 : 0,
+      metadata: { source: 'interactive_gate', blockIndex, questionIndex },
+    });
+  }
 
   return ApiResponse.success(res, {
     correct,
