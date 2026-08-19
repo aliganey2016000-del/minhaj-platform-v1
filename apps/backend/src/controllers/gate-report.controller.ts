@@ -158,6 +158,12 @@ export const getCourseGateReport = async (req: Request, res: Response): Promise<
       studentId,
       name: studentNameMap.get(studentId) || 'Unknown Student',
       firstAttemptAccuracy: round1((s.firstAttemptCorrect / s.questionsAttempted) * 100),
+      // Raw correct/attempted fraction — grows as the student progresses
+      // through more blocks over multiple sessions (e.g. 6/8 after 2
+      // blocks, 10/12 once a 3rd block is answered later), each question
+      // counted once by its FIRST attempt regardless of how many times it
+      // took to retry into a correct answer.
+      questionsCorrect: s.firstAttemptCorrect,
       questionsAttempted: s.questionsAttempted,
       totalAttempts: s.totalAttempts,
       lessonsStarted: lessonsStartedByStudent.get(studentId)?.size || 0,
@@ -172,6 +178,7 @@ export const getCourseGateReport = async (req: Request, res: Response): Promise<
       lessonTitle: lessonTitleMap.get(lessonId) || 'Untitled Lesson',
       firstAttemptAccuracy: round1((l.firstAttemptCorrect / l.questionsAttempted) * 100),
       studentsAttempted: l.studentIds.size,
+      questionsCorrect: l.firstAttemptCorrect,
       questionsAttempted: l.questionsAttempted,
       totalAttempts: l.totalAttempts,
     }))
@@ -185,6 +192,7 @@ export const getCourseGateReport = async (req: Request, res: Response): Promise<
     course: { _id: course._id, title: (course as any).title },
     studentsCount: perStudentMap.size,
     overallFirstAttemptAccuracy: totalQuestionsAttempted ? round1((totalFirstCorrect / totalQuestionsAttempted) * 100) : 0,
+    totalQuestionsCorrect: totalFirstCorrect,
     totalQuestionsAttempted,
     totalAttempts,
     perStudent,

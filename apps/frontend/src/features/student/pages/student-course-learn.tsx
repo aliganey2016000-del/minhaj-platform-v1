@@ -886,9 +886,13 @@ export function StudentCourseLearn() {
                 {currentItem.item.type === 'lesson' && (
                   (currentItem.item as LessonItem).deliveryMode === 'interactive_gate' ? (
                     <InteractiveGateLessonView
+                      key={(currentItem.item as LessonItem)._id}
                       lesson={currentItem.item as LessonItem}
                       courseId={courseId!}
                       onGateCleared={() => setGateCleared((prev) => new Set(prev).add(activeItemIdx))}
+                      onFinishLesson={isCurrentItemCompleted ? goToNext : handleMarkComplete}
+                      finishing={markingComplete}
+                      isCompleted={isCurrentItemCompleted}
                     />
                   ) : (
                     <LessonView lesson={currentItem.item as LessonItem} courseId={courseId!} />

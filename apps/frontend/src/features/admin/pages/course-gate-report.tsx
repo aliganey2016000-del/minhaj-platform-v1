@@ -18,6 +18,7 @@ interface StudentRow {
   studentId: string;
   name: string;
   firstAttemptAccuracy: number;
+  questionsCorrect: number;
   questionsAttempted: number;
   totalAttempts: number;
   lessonsStarted: number;
@@ -30,6 +31,7 @@ interface LessonRow {
   lessonTitle: string;
   firstAttemptAccuracy: number;
   studentsAttempted: number;
+  questionsCorrect: number;
   questionsAttempted: number;
   totalAttempts: number;
 }
@@ -38,6 +40,7 @@ interface GateReport {
   course: { _id: string; title: { en: string; so?: string; ar?: string } };
   studentsCount: number;
   overallFirstAttemptAccuracy: number;
+  totalQuestionsCorrect: number;
   totalQuestionsAttempted: number;
   totalAttempts: number;
   perStudent: StudentRow[];
@@ -106,7 +109,7 @@ export function CourseGateReport({ basePath = '/admin' }: CourseGateReportProps)
             <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4">
               <p className="text-xs text-[var(--color-text-tertiary)] mb-1">Overall Accuracy</p>
               <p className={`text-2xl font-bold ${accuracyColor(report.overallFirstAttemptAccuracy)}`}>{report.overallFirstAttemptAccuracy}%</p>
-              <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">first attempt only</p>
+              <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">{report.totalQuestionsCorrect}/{report.totalQuestionsAttempted} correct, first attempt only</p>
             </div>
             <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4">
               <p className="text-xs text-[var(--color-text-tertiary)] mb-1">Students</p>
@@ -146,7 +149,7 @@ export function CourseGateReport({ basePath = '/admin' }: CourseGateReportProps)
                       <td className="px-4 py-2.5 text-[var(--color-text-secondary)]">{l.totalAttempts}</td>
                       <td className="px-4 py-2.5">
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${accuracyBg(l.firstAttemptAccuracy)} ${accuracyColor(l.firstAttemptAccuracy)}`}>
-                          {l.firstAttemptAccuracy}%
+                          {l.questionsCorrect}/{l.questionsAttempted} ({l.firstAttemptAccuracy}%)
                         </span>
                       </td>
                     </tr>
@@ -180,7 +183,7 @@ export function CourseGateReport({ basePath = '/admin' }: CourseGateReportProps)
                       <td className="px-4 py-2.5 text-[var(--color-text-secondary)]">{s.totalAttempts}</td>
                       <td className="px-4 py-2.5">
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${accuracyBg(s.firstAttemptAccuracy)} ${accuracyColor(s.firstAttemptAccuracy)}`}>
-                          {s.firstAttemptAccuracy}%
+                          {s.questionsCorrect}/{s.questionsAttempted} ({s.firstAttemptAccuracy}%)
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-xs text-[var(--color-text-tertiary)]">{new Date(s.lastActivityAt).toLocaleDateString()}</td>

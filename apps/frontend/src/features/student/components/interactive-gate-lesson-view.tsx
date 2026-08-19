@@ -29,10 +29,40 @@ import { detectTextDirection } from '../../../lib/text-direction';
 
 type Phase = 'loading' | 'reading' | 'ready' | 'question_open' | 'question_retry' | 'cleared';
 
+interface GateAttempt {
+  blockIndex: number;
+  questionIndex: number;
+  correct: boolean;
+  attemptedAt: string;
+}
+
 interface InteractiveGateLessonViewProps {
   lesson: LessonItem;
   courseId: string;
   onGateCleared: () => void;
+  /** Marks the lesson complete and advances to the next course item — shown as the completion report's "Next Lesson" button. */
+  onFinishLesson?: () => void;
+  finishing?: boolean;
+  isCompleted?: boolean;
+}
+
+/**
+ * First-attempt-only accuracy over the raw attempt log — a block can always
+ * be retried until correct, so counting every attempt would trend every
+ * score toward 100% and say nothing about how well the student actually
+ * understood the material. Mirrors gate-report.controller.ts's server-side
+ * aggregation exactly, just computed client-side from the same `attempts`
+ * array the progress endpoint already returns.
+ */
+function summarizeAttempts(attempts: GateAttempt[]): { correct: number; total: number } {
+  const firstByQuestion = new Map<string, boolean>();
+  for (const a of [...attempts].sort((x, y) => new Date(x.attemptedAt).getTime() - new Date(y.attemptedAt).getTime())) {
+    const key = `${a.blockIndex}.${a.questionIndex}`;
+    if (!firstByQuestion.has(key)) firstByQuestion.set(key, a.correct);
+  }
+  const total = firstByQuestion.size;
+  const correct = [...firstByQuestion.values()].filter(Boolean).length;
+  return { correct, total };
 }
 
 // ---------------------------------------------------------------------------
@@ -108,8 +138,9 @@ function loadVimeoPlayerAPI(): Promise<void> {
   });
 }
 
-export function InteractiveGateLessonView({ lesson, courseId, onGateCleared }: InteractiveGateLessonViewProps) {
+export function InteractiveGateLessonView({ lesson, courseId, onGateCleared, onFinishLesson, finishing, isCompleted }: InteractiveGateLessonViewProps) {
   const blocks = lesson.contentBlocks || [];
+  const [attempts, setAttempts] = useState<GateAttempt[]>([]);
   const [currentBlockIndex, setCurrentBlockIndex] = useState(0);
   // Which of the current block's (possibly several) Stop & Check questions
   // is being shown — always reset to 0 when the block itself changes.
@@ -156,12 +187,14 @@ export function InteractiveGateLessonView({ lesson, courseId, onGateCleared }: I
         clearedCheckpoints?: number[];
         unlockedBlockIndex?: number;
         gateCompleted?: boolean;
+        attempts?: GateAttempt[];
       } | null = null;
 
       if (navigator.onLine) {
         try {
           const { data } = await api.get(`/courses/${courseId}/lessons/${lesson._id}/gate`);
           progress = data.data;
+          setAttempts(progress?.attempts || []);
           // Refresh the local mirror so a later offline session (or a
           // reload right after the connection drops) resumes from here.
           if (progress) {
@@ -271,12 +304,46 @@ export function InteractiveGateLessonView({ lesson, courseId, onGateCleared }: I
   }
 
   if (phase === 'cleared') {
+    const { correct, total } = summarizeAttempts(attempts);
+    const wrong = total - correct;
+    const pct = total > 0 ? Math.round((correct / total) * 100) : null;
     return (
       <div className="space-y-4">
         {videoPlayer}
-        <div className="rounded-2xl bg-green-50 dark:bg-green-950/20 border-2 border-green-300 dark:border-green-700 p-6 text-center">
-          <p className="text-3xl mb-2">✅</p>
-          <p className="text-sm font-bold text-green-700 dark:text-green-300">You've cleared every gate in this lesson.</p>
+        <div className="rounded-2xl bg-green-50 dark:bg-green-950/20 border-2 border-green-300 dark:border-green-700 p-6 text-center space-y-4">
+          <div>
+            <p className="text-3xl mb-2">✅</p>
+            <p className="text-sm font-bold text-green-700 dark:text-green-300">You've cleared every gate in this lesson.</p>
+          </div>
+          {total > 0 && (
+            <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto">
+              <div className="rounded-xl bg-white/60 dark:bg-black/20 p-3">
+                <p className="text-lg font-bold text-[var(--color-text-primary)]">{total}</p>
+                <p className="text-[10px] text-[var(--color-text-tertiary)]">Questions</p>
+              </div>
+              <div className="rounded-xl bg-white/60 dark:bg-black/20 p-3">
+                <p className="text-lg font-bold text-green-600 dark:text-green-400">{correct}</p>
+                <p className="text-[10px] text-[var(--color-text-tertiary)]">Correct</p>
+              </div>
+              <div className="rounded-xl bg-white/60 dark:bg-black/20 p-3">
+                <p className="text-lg font-bold text-red-600 dark:text-red-400">{wrong}</p>
+                <p className="text-[10px] text-[var(--color-text-tertiary)]">Wrong</p>
+              </div>
+            </div>
+          )}
+          {pct !== null && (
+            <p className="text-xs text-green-700/80 dark:text-green-300/80">{pct}% correct on the first try (retries not counted against you)</p>
+          )}
+          {onFinishLesson && (
+            <button
+              type="button"
+              onClick={onFinishLesson}
+              disabled={finishing}
+              className="w-full max-w-xs mx-auto flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-bold text-white hover:bg-primary-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+            >
+              {finishing ? 'Saving...' : isCompleted ? 'Next Lesson →' : 'Done — Next Lesson →'}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -334,6 +401,9 @@ export function InteractiveGateLessonView({ lesson, courseId, onGateCleared }: I
         const correct = activeQuestion
           ? await checkGateAnswerOffline(lesson._id, 'block', `${currentBlockIndex}.${currentQuestionIndex}`, answerToSubmit, activeQuestion.answerHash)
           : true;
+        if (activeQuestion) {
+          setAttempts((prev) => [...prev, { blockIndex: currentBlockIndex, questionIndex: currentQuestionIndex, correct, attemptedAt: new Date().toISOString() }]);
+        }
 
         if (correct) {
           setRetryExplanation('');
@@ -371,6 +441,9 @@ export function InteractiveGateLessonView({ lesson, courseId, onGateCleared }: I
 
     try {
       const { data } = await api.post(url, { answer: answerToSubmit, questionIndex: currentQuestionIndex });
+      if (activeQuestion) {
+        setAttempts((prev) => [...prev, { blockIndex: currentBlockIndex, questionIndex: currentQuestionIndex, correct: data.data.correct, attemptedAt: new Date().toISOString() }]);
+      }
       if (data.data.correct) {
         setSelectedAnswer(null);
         setRetryExplanation('');

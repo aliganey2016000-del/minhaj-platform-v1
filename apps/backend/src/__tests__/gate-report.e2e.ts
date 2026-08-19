@@ -216,6 +216,82 @@ async function main() {
   assert(crossOrgSummary.status === 200 && (crossOrgSummary.body?.data || []).length === 0, `org_admin from a different org sees no rows for this course (got ${JSON.stringify(crossOrgSummary.body?.data)})`);
 
   // -------------------------------------------------------------------
+  section('CUMULATIVE PROGRESS ACROSS SESSIONS — 6/8 after 2 blocks, then 10/12 after a 3rd');
+  // -------------------------------------------------------------------
+  // Reproduces the exact scenario requested: a lesson with several 4-question
+  // blocks. Session 1 — the student answers 2 blocks (8 questions), missing
+  // 2 of them (retried into a correct answer, but the FIRST attempt is what
+  // counts) -> 6/8 correct = 75%. Session 2 (a separate later visit) — they
+  // proceed into a 3rd block and answer all 4 of ITS questions correctly on
+  // the first try -> cumulative 10/12 correct ~= 83.3%. Nothing resets
+  // between "sessions" here since progress is stored per (student, lesson)
+  // regardless of how many separate visits it took.
+  const progressLessonId = new mongoose.Types.ObjectId();
+  function fourQBlock(order: number) {
+    return {
+      _id: new mongoose.Types.ObjectId(), order, content: `<p>Block ${order + 1} passage...</p>`, minReadSeconds: 5,
+      questions: Array.from({ length: 4 }, (_, qi) => ({
+        question: `Block ${order + 1} Q${qi + 1}`, type: 'mcq', options: ['A', 'B', 'C', 'D'], correctIndex: 0, aiGenerated: false,
+      })),
+    };
+  }
+  await CourseContent.updateOne(
+    { _id: content._id },
+    {
+      $push: {
+        'chapters.0.items': {
+          _id: progressLessonId, title: 'Lesson 2: Cumulative Progress', type: 'lesson', status: 'published',
+          deliveryMode: 'interactive_gate', order: 1, duration: 10, attachments: [],
+          contentBlocks: [fourQBlock(0), fourQBlock(1), fourQBlock(2)],
+        },
+      },
+    }
+  );
+
+  const hodan = await makeStudent('Hodan');
+  async function answerQ(token: string, blockIndex: number, questionIndex: number, ans: unknown) {
+    return request(app)
+      .post(`/api/v1/courses/${course._id}/lessons/${progressLessonId}/gate/blocks/${blockIndex}/answer`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ answer: ans, questionIndex });
+  }
+
+  // --- "Session 1": blocks 0 and 1, 4 questions each, 1 wrong-then-retried per block (2 wrong total of 8) ---
+  for (const blockIndex of [0, 1]) {
+    for (let qi = 0; qi < 4; qi++) {
+      if (qi === 0) {
+        const wrong = await answerQ(hodan.token, blockIndex, qi, 3); // wrong first attempt
+        assert(wrong.status === 200 && wrong.body?.data?.correct === false, `Hodan block ${blockIndex} Q${qi} first attempt is WRONG (status ${wrong.status})`);
+        const retry = await answerQ(hodan.token, blockIndex, qi, 0); // retried correct
+        assert(retry.status === 200 && retry.body?.data?.correct === true, `Hodan block ${blockIndex} Q${qi} retry is correct`);
+      } else {
+        const ok = await answerQ(hodan.token, blockIndex, qi, 0);
+        assert(ok.status === 200 && ok.body?.data?.correct === true, `Hodan block ${blockIndex} Q${qi} correct on first try (status ${ok.status})`);
+      }
+    }
+  }
+
+  const reportAfterSession1 = await request(app).get(`/api/v1/courses/${course._id}/gate-report`).set('Authorization', `Bearer ${teacherToken}`);
+  const hodanAfterSession1 = reportAfterSession1.body?.data?.perStudent?.find((s: any) => s.name === 'Hodan Student');
+  assert(hodanAfterSession1?.questionsCorrect === 6 && hodanAfterSession1?.questionsAttempted === 8, `after session 1: Hodan is 6/8 (got ${hodanAfterSession1?.questionsCorrect}/${hodanAfterSession1?.questionsAttempted})`);
+  assert(hodanAfterSession1?.firstAttemptAccuracy === 75, `after session 1: Hodan's accuracy is 75% (got ${hodanAfterSession1?.firstAttemptAccuracy})`);
+
+  // --- "Session 2" (later visit): block 2, all 4 questions correct on the first try ---
+  for (let qi = 0; qi < 4; qi++) {
+    const ok = await answerQ(hodan.token, 2, qi, 0);
+    assert(ok.status === 200 && ok.body?.data?.correct === true, `Hodan block 2 Q${qi} correct on first try (session 2) (status ${ok.status})`);
+  }
+
+  const reportAfterSession2 = await request(app).get(`/api/v1/courses/${course._id}/gate-report`).set('Authorization', `Bearer ${teacherToken}`);
+  const hodanAfterSession2 = reportAfterSession2.body?.data?.perStudent?.find((s: any) => s.name === 'Hodan Student');
+  assert(hodanAfterSession2?.questionsCorrect === 10 && hodanAfterSession2?.questionsAttempted === 12, `after session 2: Hodan is CUMULATIVELY 10/12, not reset (got ${hodanAfterSession2?.questionsCorrect}/${hodanAfterSession2?.questionsAttempted})`);
+  assert(hodanAfterSession2?.firstAttemptAccuracy === 83.3, `after session 2: Hodan's accuracy is 83.3% (got ${hodanAfterSession2?.firstAttemptAccuracy})`);
+
+  // The lesson-level row for "Lesson 2: Cumulative Progress" should show the same 10/12 total.
+  const progressLessonRow = reportAfterSession2.body?.data?.perLesson?.find((l: any) => l.lessonId === progressLessonId.toString());
+  assert(progressLessonRow?.questionsCorrect === 10 && progressLessonRow?.questionsAttempted === 12, `perLesson row for the cumulative-progress lesson is also 10/12 (got ${progressLessonRow?.questionsCorrect}/${progressLessonRow?.questionsAttempted})`);
+
+  // -------------------------------------------------------------------
   section('STUDENT ACTIVITY INTEGRATION — Gate answers now logged + blended into Avg Quiz Score');
   // -------------------------------------------------------------------
   const roster = await request(app).get('/api/v1/activity/roster').set('Authorization', `Bearer ${teacherToken}`);
