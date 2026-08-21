@@ -27,6 +27,24 @@ const teacherCourseScope = async (req: Request, _res: Response, next: NextFuncti
   }
 };
 
+// Read-side scope: teacher attendance reports/history must not expose another
+// teacher's course data just because the caller knows a courseId.
+const teacherReadCourseScope = async (req: Request, _res: Response, next: NextFunction) => {
+  try {
+    if (req.user?.role !== 'teacher') return next();
+    const courseId = req.query.courseId;
+    if (typeof courseId !== 'string' || !courseId) {
+      throw new ForbiddenError('Course is required for teacher attendance reports.');
+    }
+    const teacher = await Teacher.findOne({ user: req.user.userId }).select('_id').lean();
+    const course = teacher ? await Course.findOne({ _id: courseId, teacher: teacher._id }).select('_id').lean() : null;
+    if (!course) throw new ForbiddenError('You can only view attendance for courses assigned to you.');
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+};
+
 router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendance));
 router.get('/my/courses', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendanceByCourse));
 router.get('/my/course-history', roleMiddleware(['student']), asyncHandler(attendanceController.getMyCourseHistory));
@@ -34,10 +52,10 @@ router.post('/', adminOrTeacher, teacherCourseScope, asyncHandler(attendanceCont
 // Unlocking a locked session is a platform-Admin-only power — org_admin
 // (who is the one submitting/getting locked out) cannot self-unlock.
 router.patch('/unlock', roleMiddleware(['admin']), asyncHandler(attendanceController.unlockSession));
-router.get('/course', asyncHandler(attendanceController.getByCourseAndDate));
-router.get('/report', asyncHandler(attendanceController.getCourseReport));
-router.get('/insights', asyncHandler(attendanceController.getReportInsights));
-router.get('/history', asyncHandler(attendanceController.getStudentCourseHistory));
+router.get('/course', teacherReadCourseScope, asyncHandler(attendanceController.getByCourseAndDate));
+router.get('/report', teacherReadCourseScope, asyncHandler(attendanceController.getCourseReport));
+router.get('/insights', teacherReadCourseScope, asyncHandler(attendanceController.getReportInsights));
+router.get('/history', teacherReadCourseScope, asyncHandler(attendanceController.getStudentCourseHistory));
 router.get('/student/:studentId', asyncHandler(attendanceController.getStudentSummary));
 
 export default router;
