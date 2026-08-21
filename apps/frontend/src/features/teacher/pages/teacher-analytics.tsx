@@ -1,96 +1,113 @@
-/**
- * Teacher Analytics — Class Performance Dashboard within assigned courses
- */
-import { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
-import { TrendingUp, Users, Target, BookOpen, BarChart3, AlertCircle, Zap, Star } from 'lucide-react';
+/** Teacher Analytics — actionable, teacher-scoped performance overview. */
+import { useEffect, useState } from 'react';
+import { AlertTriangle, BarChart3, BookOpen, TrendingDown, Users } from 'lucide-react';
 import api from '../../../lib/axios';
 
 export function TeacherAnalytics() {
-  const { t, i18n } = useTranslation();
-  const lang = i18n.language as 'en' | 'so' | 'ar';
-  const [courses, setCourses] = useState<any[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState('');
   const [analytics, setAnalytics] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get('/courses?limit=100');
-        setCourses(data.data?.results || data.data?.data || []);
-      } catch {}
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedCourse) return;
-    (async () => {
-      setLoading(true);
-      try {
-        const { data } = await api.get(`/teacher-portal/courses/${selectedCourse}/analytics`);
+        setLoading(true);
+        const { data } = await api.get('/teacher-portal/analytics/overview');
         setAnalytics(data.data);
       } catch (err: any) {
         setError(err.response?.data?.message || 'Failed to load analytics');
-      } finally { setLoading(false); }
+      } finally {
+        setLoading(false);
+      }
     })();
-  }, [selectedCourse]);
+  }, []);
+
+  if (loading) return <div className="flex items-center justify-center py-24"><div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600" /></div>;
+  if (error) return <div className="m-6 rounded-xl bg-red-50 p-4 text-sm text-red-700">{error}</div>;
+
+  const summary = analytics?.summary || {};
+  const risk = analytics?.atRiskStudents || [];
+  const declining = analytics?.decliningStudents || [];
+  const difficult = analytics?.difficultAssignments || [];
+  const courses = analytics?.coursePerformance || [];
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
-      <h1 className="text-2xl font-extrabold text-[var(--color-text-primary)] mb-6">
-        {lang === 'so' ? 'Falanqaynta Fasalka' : lang === 'ar' ? 'تحليلات الصف' : 'Class Analytics'}
-      </h1>
+    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-extrabold text-[var(--color-text-primary)]">Teacher Analytics</h1>
+        <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Actionable signals from the last {analytics?.windowDays || 28} days.</p>
+      </div>
 
-      <select value={selectedCourse} onChange={(e) => setSelectedCourse(e.target.value)}
-        className="w-full sm:w-80 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:border-emerald-500 outline-none mb-6">
-        <option value="">{lang === 'so' ? '-- Dooro koorso --' : '-- Select a course --'}</option>
-        {courses.map((c: any) => <option key={c._id} value={c._id}>{typeof c.title === 'object' ? c.title.en : c.title}</option>)}
-      </select>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          ['Students', summary.students ?? 0, Users],
+          ['Graded submissions', summary.gradedSubmissions ?? 0, BookOpen],
+          ['Average grade', summary.averageGrade == null ? '—' : `${summary.averageGrade}%`, BarChart3],
+          ['Pending submissions', summary.pendingSubmissions ?? 0, AlertTriangle],
+        ].map(([label, value, Icon]: any) => (
+          <div key={label} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4">
+            <Icon className="h-5 w-5 text-emerald-600 mb-3" />
+            <p className="text-2xl font-extrabold text-[var(--color-text-primary)]">{value}</p>
+            <p className="text-xs text-[var(--color-text-tertiary)]">{label}</p>
+          </div>
+        ))}
+      </div>
 
-      {error && <div className="mb-4 rounded-xl bg-red-50 p-4"><AlertCircle className="h-5 w-5 text-red-500 inline mr-2" /><span className="text-sm text-red-600">{error}</span></div>}
+      <div className="grid lg:grid-cols-2 gap-6">
+        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
+          <div className="flex items-center gap-2 mb-4"><AlertTriangle className="h-5 w-5 text-amber-600" /><h2 className="font-bold">Students needing attention</h2></div>
+          <div className="space-y-2">
+            {risk.length ? risk.map((s: any) => (
+              <div key={s.studentId} className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-3">
+                <span className="font-semibold text-sm flex-1">{s.name}</span>
+                <span className="text-xs">{s.average == null ? '—' : `${s.average}%`}</span>
+                <span className="text-xs text-amber-700">{s.riskReasons.length} signals</span>
+              </div>
+            )) : <p className="text-sm text-[var(--color-text-tertiary)]">No current risk signals.</p>}
+          </div>
+        </section>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20"><div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600" /></div>
-      ) : analytics ? (
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-            {[
-              { label: lang === 'so' ? 'Ardayda' : 'Students', value: analytics.totalStudents, icon: Users, color: 'text-blue-600 bg-blue-50' },
-              { label: lang === 'so' ? 'Gudbinta' : 'Submissions', value: analytics.totalSubmissions, icon: BookOpen, color: 'text-purple-600 bg-purple-50' },
-              { label: lang === 'so' ? 'Qiimeeyay' : 'Graded', value: analytics.gradedCount, icon: Star, color: 'text-emerald-600 bg-emerald-50' },
-              { label: lang === 'so' ? 'Sugaya' : 'Pending', value: analytics.pendingCount, icon: Target, color: 'text-amber-600 bg-amber-50' },
-              { label: lang === 'so' ? 'Celceliska' : 'Avg Grade', value: `${analytics.avgClassGrade}%`, icon: TrendingUp, color: 'text-rose-600 bg-rose-50' },
-            ].map((card) => (
-              <div key={card.label} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4">
-                <div className={`inline-flex p-2 rounded-lg ${card.color} mb-2`}><card.icon className="h-4 w-4" /></div>
-                <p className="text-xl font-extrabold">{card.value}</p>
-                <p className="text-[10px] text-[var(--color-text-tertiary)]">{card.label}</p>
+        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
+          <div className="flex items-center gap-2 mb-4"><TrendingDown className="h-5 w-5 text-rose-600" /><h2 className="font-bold">Performance declining</h2></div>
+          <div className="space-y-2">
+            {declining.length ? declining.map((s: any) => (
+              <div key={s.studentId} className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-3">
+                <span className="font-semibold text-sm flex-1">{s.name}</span>
+                <span className="text-xs font-bold text-rose-600">{s.decline}%</span>
+              </div>
+            )) : <p className="text-sm text-[var(--color-text-tertiary)]">No significant decline detected.</p>}
+          </div>
+        </section>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
+          <h2 className="font-bold mb-4">Assignments students find difficult</h2>
+          <div className="space-y-2">
+            {difficult.length ? difficult.map((a: any) => (
+              <div key={a.assignmentId} className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-3">
+                <span className="font-semibold text-sm flex-1 truncate">{a.title}</span>
+                <span className="text-xs font-bold">{a.average}%</span>
+                <span className="text-[11px] text-[var(--color-text-tertiary)]">{a.submissions} graded</span>
+              </div>
+            )) : <p className="text-sm text-[var(--color-text-tertiary)]">Not enough graded submissions yet.</p>}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
+          <h2 className="font-bold mb-4">Course performance</h2>
+          <div className="space-y-3">
+            {courses.map((c: any) => (
+              <div key={c.courseId}>
+                <div className="flex justify-between text-sm mb-1"><span className="font-semibold">{c.title?.en || 'Untitled'}</span><span>{c.average == null ? '—' : `${c.average}%`}</span></div>
+                <div className="h-2 rounded-full bg-[var(--color-surface-secondary)] overflow-hidden"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${c.average || 0}%` }} /></div>
               </div>
             ))}
           </div>
+        </section>
+      </div>
 
-          <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-6">
-            <h2 className="text-sm font-bold text-[var(--color-text-primary)] mb-4">
-              {lang === 'so' ? 'Waxqabadka Ardayga' : 'Student Performance'}
-            </h2>
-            <div className="space-y-3">
-              {(analytics.studentPerformance || []).map((sp: any) => (
-                <div key={sp.studentId} className="flex items-center gap-3 rounded-lg bg-[var(--color-surface-secondary)] px-4 py-3">
-                  <span className="text-sm font-semibold flex-1">{sp.name}</span>
-                  <span className="text-xs text-amber-600"><Zap className="h-3 w-3 inline" /> {sp.xp} XP</span>
-                  <span className="text-xs text-[var(--color-text-tertiary)]">{sp.submissionsCount} subs</span>
-                  <span className="text-xs font-bold text-emerald-600">{sp.averageGrade !== null ? `${sp.averageGrade}%` : '—'}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="text-center py-20"><BarChart3 className="h-16 w-16 text-[var(--color-text-tertiary)] mx-auto mb-4" /><p className="text-sm text-[var(--color-text-tertiary)]">{lang === 'so' ? 'Dooro koorso' : 'Select a course to view analytics'}</p></div>
-      )}
+      <p className="text-[11px] text-[var(--color-text-tertiary)]">Analytics are decision-support signals for teacher review, not causal conclusions.</p>
     </div>
   );
 }
