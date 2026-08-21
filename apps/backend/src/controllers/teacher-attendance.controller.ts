@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import mongoose from 'mongoose';
 import Course from '../models/course.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
