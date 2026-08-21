@@ -100,5 +100,68 @@ studentSchema.pre<IStudent>('validate', async function (next) {
   next();
 });
 
+/**
+ * Central safeguard: bulk promotion currently uses updateOne(), while the
+ * enrollment service uses save(). This query hook keeps both paths on the
+ * same enrollment-history source of truth without duplicating promotion code.
+ */
+studentSchema.post('updateOne', async function () {
+  const update: any = this.getUpdate() || {};
+  const set = update.$set || {};
+  const changedClass = set.class !== undefined;
+  const graduated = set.status === 'graduated';
+  if (!changedClass && !graduated) return;
+
+  const query: any = this.getQuery();
+  const student = await mongoose.model<IStudent>('Student').findOne(query).select('class grade enrolledCourses enrollmentHistory status');
+  if (!student) return;
+
+  if (graduated) {
+    let changed = false;
+    for (const entry of student.enrollmentHistory || []) {
+      if (entry.status === 'active') {
+        entry.status = 'graduated';
+        entry.endedAt = new Date();
+        changed = true;
+      }
+    }
+    if (changed) await student.save();
+    return;
+  }
+
+  if (!student.class) return;
+  const ClassModel = mongoose.model('Class');
+  const cls: any = await ClassModel.findById(student.class).select('_id title academicYear');
+  if (!cls?.academicYear) return;
+
+  const history = student.enrollmentHistory || [];
+  const existing = history.find(
+    (entry: any) => String(entry.class) === String(cls._id) && entry.academicYear === cls.academicYear && entry.status === 'active',
+  );
+  if (existing) {
+    existing.courses = (student.enrolledCourses || []).map((id) => new mongoose.Types.ObjectId(id));
+    await student.save();
+    return;
+  }
+
+  const now = new Date();
+  for (const entry of history) {
+    if (entry.status === 'active') {
+      entry.status = 'completed';
+      entry.endedAt = now;
+    }
+  }
+  history.push({
+    academicYear: cls.academicYear,
+    class: cls._id,
+    grade: cls.title,
+    courses: (student.enrolledCourses || []).map((id) => new mongoose.Types.ObjectId(id)),
+    status: 'active',
+    startedAt: now,
+  });
+  student.enrollmentHistory = history;
+  await student.save();
+});
+
 const Student = mongoose.model<IStudent>('Student', studentSchema);
 export default Student;
