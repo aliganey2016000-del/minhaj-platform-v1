@@ -42,8 +42,8 @@ router.patch('/courses/:courseId/video-gating', asyncHandler(teacherPortalContro
 // ── Gradebook & Assignments ──
 router.get('/courses/:courseId/submissions', asyncHandler(teacherPortalController.getCourseSubmissions));
 router.get('/submissions/:submissionId', asyncHandler(teacherPortalController.getSubmissionDetail));
-router.patch('/submissions/:submissionId/grade', validateTeacherGrade, asyncHandler(teacherPortalController.gradeSubmission));
-router.post('/submissions/:submissionId/feedback', validateTeacherFeedback, asyncHandler(teacherPortalController.addFeedback));
+router.patch('/submissions/:submissionId/grade', asyncHandler(validateTeacherGrade), asyncHandler(teacherPortalController.gradeSubmission));
+router.post('/submissions/:submissionId/feedback', asyncHandler(validateTeacherFeedback), asyncHandler(teacherPortalController.addFeedback));
 
 // ── Analytics within teacher scope ──
 router.get('/courses/:courseId/analytics', asyncHandler(teacherPortalController.getCourseAnalytics));
