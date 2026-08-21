@@ -1,225 +1,104 @@
 /**
  * Student Model
  * Extends User & Profile with student-specific academic data.
- * Tracks enrollment, courses, attendance logs (summary), and academic results (summary).
+ * Tracks current enrollment, reusable courses, and academic enrollment history.
  */
 
 import mongoose, { Schema, Document } from 'mongoose';
 
-// ---------------------------------------------------------------------------
-// TypeScript Interface
-// ---------------------------------------------------------------------------
+export interface IStudentEnrollmentHistory {
+  academicYear: string;
+  class: mongoose.Types.ObjectId;
+  grade?: string;
+  courses: mongoose.Types.ObjectId[];
+  status: 'active' | 'completed' | 'graduated';
+  startedAt: Date;
+  endedAt?: Date;
+}
 
 export interface IStudent extends Document {
   _id: mongoose.Types.ObjectId;
   user: mongoose.Types.ObjectId;
   profile: mongoose.Types.ObjectId;
-  studentId: string;             // unique e.g. STU-2026-0001
+  studentId: string;
   parent?: mongoose.Types.ObjectId;
   enrollmentDate: Date;
   status: 'active' | 'inactive' | 'graduated' | 'suspended';
   approvalStatus: 'pending' | 'approved' | 'rejected';
   school?: mongoose.Types.ObjectId;
   class?: mongoose.Types.ObjectId;
-  // Denormalized from the selected Class at enroll/edit time — Class.department
-  // and Class.shiftMode are plain String enum fields (no separate Department
-  // collection exists in this schema), so these mirror that same shape rather
-  // than a ref to a nonexistent model.
   department?: 'Primary' | 'Middle School' | 'Secondary';
   shiftMode?: 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
   grade?: string;
   medicalNotes?: string;
   enrolledCourses: mongoose.Types.ObjectId[];
+  enrollmentHistory: IStudentEnrollmentHistory[];
 
-  // Summary fields for fast dashboard lookups
   attendancePercentage?: number;
   gpa?: number;
-    totalFees?: number;          // total amount expected from this student
-    totalFeesPaid?: number;      // sum of completed payments
-    totalFeesDue?: number;       // remaining = totalFees - totalFeesPaid (computed)
-    discount?: number;           // total discount granted
+  totalFees?: number;
+  totalFeesPaid?: number;
+  totalFeesDue?: number;
+  discount?: number;
 
   createdAt: Date;
   updatedAt: Date;
 }
 
-// ---------------------------------------------------------------------------
-// Schema
-// ---------------------------------------------------------------------------
+const enrollmentHistorySchema = new Schema<IStudentEnrollmentHistory>(
+  {
+    academicYear: { type: String, required: true, trim: true },
+    class: { type: Schema.Types.ObjectId, ref: 'Class', required: true },
+    grade: { type: String, default: null },
+    courses: [{ type: Schema.Types.ObjectId, ref: 'Course' }],
+    status: { type: String, enum: ['active', 'completed', 'graduated'], required: true },
+    startedAt: { type: Date, required: true },
+    endedAt: { type: Date, default: null },
+  },
+  { _id: true }
+);
 
 const studentSchema = new Schema<IStudent>(
   {
-    user: {
-      type: Schema.Types.ObjectId,
-      ref: 'User',
-      required: [true, 'User reference is required'],
-      unique: true,
-    },
-    profile: {
-      type: Schema.Types.ObjectId,
-      ref: 'Profile',
-      required: [true, 'Profile reference is required'],
-      unique: true,
-    },
-    // Uniqueness is enforced per-organization (see the compound index below),
-    // not globally — two different schools may each run their own "STU-0001"
-    // numbering without colliding. An admin can type a custom value (e.g. to
-    // match a school's existing paper records) or leave it blank and let the
-    // pre-validate hook below auto-generate one.
-    studentId: {
-      type: String,
-      required: [true, 'Student ID is required'],
-      trim: true,
-      uppercase: true,
-    },
-    parent: {
-      type: Schema.Types.ObjectId,
-      ref: 'Parent',
-      default: null,
-      index: true,
-    },
-    enrollmentDate: {
-      type: Date,
-      required: [true, 'Enrollment date is required'],
-      default: Date.now,
-    },
-    status: {
-      type: String,
-      required: true,
-      enum: {
-        values: ['active', 'inactive', 'graduated', 'suspended'],
-        message: '{VALUE} is not a valid student status',
-      },
-      default: 'active',
-      index: true,
-    },
-    approvalStatus: {
-      type: String,
-      enum: ['pending', 'approved', 'rejected'],
-      default: 'approved',
-      index: true,
-    },
-    school: {
-      type: Schema.Types.ObjectId,
-      ref: 'School',
-      default: null,
-      index: true,
-    },
-    class: {
-      type: Schema.Types.ObjectId,
-      ref: 'Class',
-      default: null,
-      index: true,
-    },
-    department: {
-      type: String,
-      enum: ['Primary', 'Middle School', 'Secondary'],
-      default: null,
-      index: true,
-    },
-    shiftMode: {
-      type: String,
-      enum: ['Morning', 'Afternoon', 'Evening', 'Virtual'],
-      default: null,
-      index: true,
-    },
-    grade: {
-      type: String,
-      default: null,
-    },
-    medicalNotes: {
-      type: String,
-      default: null,
-      maxlength: [500, 'Medical notes cannot exceed 500 characters'],
-    },
-    enrolledCourses: [
-      {
-        type: Schema.Types.ObjectId,
-        ref: 'Course',
-      },
-    ],
-
-    // Dashboard summary fields (updated by service layer periodically)
-    attendancePercentage: {
-      type: Number,
-      default: null,
-      min: 0,
-      max: 100,
-    },
-    gpa: {
-      type: Number,
-      default: null,
-      min: 0,
-      max: 4.0,
-    },
-    totalFees: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-    totalFeesPaid: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-    totalFeesDue: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-    discount: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
+    user: { type: Schema.Types.ObjectId, ref: 'User', required: [true, 'User reference is required'], unique: true },
+    profile: { type: Schema.Types.ObjectId, ref: 'Profile', required: [true, 'Profile reference is required'], unique: true },
+    studentId: { type: String, required: [true, 'Student ID is required'], trim: true, uppercase: true },
+    parent: { type: Schema.Types.ObjectId, ref: 'Parent', default: null, index: true },
+    enrollmentDate: { type: Date, required: [true, 'Enrollment date is required'], default: Date.now },
+    status: { type: String, required: true, enum: ['active', 'inactive', 'graduated', 'suspended'], default: 'active', index: true },
+    approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved', index: true },
+    school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
+    class: { type: Schema.Types.ObjectId, ref: 'Class', default: null, index: true },
+    department: { type: String, enum: ['Primary', 'Middle School', 'Secondary'], default: null, index: true },
+    shiftMode: { type: String, enum: ['Morning', 'Afternoon', 'Evening', 'Virtual'], default: null, index: true },
+    grade: { type: String, default: null },
+    medicalNotes: { type: String, default: null, maxlength: [500, 'Medical notes cannot exceed 500 characters'] },
+    enrolledCourses: [{ type: Schema.Types.ObjectId, ref: 'Course' }],
+    enrollmentHistory: { type: [enrollmentHistorySchema], default: [] },
+    attendancePercentage: { type: Number, default: null, min: 0, max: 100 },
+    gpa: { type: Number, default: null, min: 0, max: 4.0 },
+    totalFees: { type: Number, default: 0, min: 0 },
+    totalFeesPaid: { type: Number, default: 0, min: 0 },
+    totalFeesDue: { type: Number, default: 0, min: 0 },
+    discount: { type: Number, default: 0, min: 0 },
   },
-  {
-    timestamps: true,
-    toJSON: {
-      transform(_doc: any, ret: any) {
-        delete ret.__v;
-        return ret;
-      },
-    },
-  }
+  { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );
 
-// ---------------------------------------------------------------------------
-// Indexes
-// ---------------------------------------------------------------------------
-
 studentSchema.index({ enrollmentDate: -1 });
-
-// Compound index for filtering students by status + enrollment
 studentSchema.index({ status: 1, enrollmentDate: -1 });
-
-// Tenant-scoped department/shift lookups (Manage Students directory filters)
 studentSchema.index({ school: 1, department: 1 });
 studentSchema.index({ school: 1, shiftMode: 1 });
-
-// Student ID only needs to be unique WITHIN an organization, not across the
-// whole platform — this replaces the old field-level `unique: true`.
 studentSchema.index({ school: 1, studentId: 1 }, { unique: true });
-
-// ---------------------------------------------------------------------------
-// Auto-generate Student ID Pre-save Hook
-// ---------------------------------------------------------------------------
 
 studentSchema.pre<IStudent>('validate', async function (next) {
   if (this.isNew && !this.studentId) {
     const currentYear = new Date().getFullYear();
-    // Scoped to this student's own school so each organization gets its own
-    // independent sequence instead of sharing one platform-wide counter.
     const count = await mongoose.model('Student').countDocuments(this.school ? { school: this.school } : {});
-    const paddedCount = String(count + 1).padStart(4, '0');
-    this.studentId = `STU-${currentYear}-${paddedCount}`;
+    this.studentId = `STU-${currentYear}-${String(count + 1).padStart(4, '0')}`;
   }
   next();
 });
-
-// ---------------------------------------------------------------------------
-// Model Export
-// ---------------------------------------------------------------------------
 
 const Student = mongoose.model<IStudent>('Student', studentSchema);
 export default Student;
