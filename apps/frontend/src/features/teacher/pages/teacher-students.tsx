@@ -1,93 +1,53 @@
-/** Teacher-scoped student directory, including the linked guardian contact. */
+/** Teacher-scoped student directory and attendance workspace. */
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, BookOpen, Mail, Search, Users } from 'lucide-react';
+import { AlertCircle, BookOpen, CalendarCheck, Check, Mail, Search, Save, Users } from 'lucide-react';
 import api from '../../../lib/axios';
 
+interface CourseRef { _id: string; title?: { en?: string } }
 interface Student {
-  _id: string;
-  studentId: string;
-  status: string;
-  attendancePercentage?: number;
-  gpa?: number;
+  _id: string; studentId: string; status: string; attendancePercentage?: number; gpa?: number;
   profile?: { firstName?: string; lastName?: string; avatar?: string };
-  user?: { email?: string };
-  class?: { title?: string; section?: string };
-  enrolledCourses?: { _id: string; title?: { en?: string } }[];
-  parent?: {
-    relationship?: string;
-    user?: { email?: string; phone?: string };
-    profile?: { firstName?: string; lastName?: string };
-  };
+  user?: { email?: string }; class?: { title?: string; section?: string };
+  enrolledCourses?: CourseRef[];
+  parent?: { relationship?: string; user?: { email?: string; phone?: string }; profile?: { firstName?: string; lastName?: string } };
 }
+interface AttendanceRecord { student: { _id: string }; status: string; locked?: boolean }
+type Status = 'present' | 'absent' | 'late' | 'excused';
+const statuses: { value: Status; label: string; key: string }[] = [
+  { value: 'present', label: 'Present', key: 'P' }, { value: 'absent', label: 'Absent', key: 'A' },
+  { value: 'late', label: 'Late', key: 'L' }, { value: 'excused', label: 'Excused', key: 'E' },
+];
 
 export function TeacherStudents() {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [query, setQuery] = useState('');
+  const [students, setStudents] = useState<Student[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [query, setQuery] = useState('');
+  const [attendanceCourse, setAttendanceCourse] = useState(''); const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [attendance, setAttendance] = useState<Record<string, Status>>({}); const [attendanceLocked, setAttendanceLocked] = useState(false); const [attendanceLoading, setAttendanceLoading] = useState(false); const [attendanceSaving, setAttendanceSaving] = useState(false); const [attendanceMessage, setAttendanceMessage] = useState('');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        // The API applies the teacher's course scope server-side, so a teacher
-        // can never expand this list to another teacher's students.
-        const { data } = await api.get('/students', { params: { limit: 100, status: 'active' } });
-        setStudents(data.data || []);
-      } catch (err: any) {
-        setError(err.response?.data?.message || 'Failed to load your students');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  useEffect(() => { (async () => { try { const { data } = await api.get('/students', { params: { limit: 100, status: 'active' } }); setStudents(data.data || []); } catch (err: any) { setError(err.response?.data?.message || 'Failed to load your students'); } finally { setLoading(false); } })(); }, []);
 
-  const filteredStudents = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    if (!term) return students;
-    return students.filter((student) => {
-      const name = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`;
-      const guardian = `${student.parent?.profile?.firstName || ''} ${student.parent?.profile?.lastName || ''}`;
-      return [name, guardian, student.studentId, student.user?.email].some((value) => value?.toLowerCase().includes(term));
-    });
-  }, [query, students]);
+  const courses = useMemo(() => { const map = new Map<string, CourseRef>(); students.forEach((student) => student.enrolledCourses?.forEach((course) => { if (course?._id) map.set(course._id, course); })); return [...map.values()].sort((a, b) => (a.title?.en || '').localeCompare(b.title?.en || '')); }, [students]);
+  const attendanceStudents = useMemo(() => attendanceCourse ? students.filter((student) => student.enrolledCourses?.some((course) => course._id === attendanceCourse)) : [], [attendanceCourse, students]);
+
+  useEffect(() => { if (!attendanceCourse && courses[0]?._id) setAttendanceCourse(courses[0]._id); }, [attendanceCourse, courses]);
+  useEffect(() => { if (!attendanceCourse) return; (async () => { setAttendanceLoading(true); setAttendanceMessage(''); try { const { data } = await api.get('/attendance/course', { params: { courseId: attendanceCourse, date: attendanceDate } }); const existing: AttendanceRecord[] = data.data || []; const next: Record<string, Status> = {}; existing.forEach((record) => { if (record.student?._id) next[record.student._id] = record.status as Status; }); setAttendance(next); setAttendanceLocked(existing.some((record) => record.locked)); } catch (err: any) { setError(err.response?.data?.message || 'Failed to load attendance'); setAttendance({}); } finally { setAttendanceLoading(false); } })(); }, [attendanceCourse, attendanceDate]);
+
+  const filteredStudents = useMemo(() => { const term = query.trim().toLowerCase(); if (!term) return students; return students.filter((student) => { const name = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`; const guardian = `${student.parent?.profile?.firstName || ''} ${student.parent?.profile?.lastName || ''}`; return [name, guardian, student.studentId, student.user?.email].some((value) => value?.toLowerCase().includes(term)); }); }, [query, students]);
+  const setAttendanceStatus = (studentId: string, status: Status) => setAttendance((prev) => ({ ...prev, [studentId]: status }));
+  const markAll = (status: Status) => { const next: Record<string, Status> = {}; attendanceStudents.forEach((student) => { next[student._id] = status; }); setAttendance(next); };
+  const saveAttendance = async () => { if (!attendanceCourse || attendanceStudents.length === 0) return; if (attendanceStudents.some((student) => !attendance[student._id])) { setError('Please mark every student before saving attendance.'); return; } setAttendanceSaving(true); setError(''); setAttendanceMessage(''); try { await api.post('/attendance', { course: attendanceCourse, date: attendanceDate, records: attendanceStudents.map((student) => ({ student: student._id, status: attendance[student._id] })) }); setAttendanceLocked(true); setAttendanceMessage('Attendance saved and locked.'); } catch (err: any) { setError(err.response?.data?.message || 'Failed to save attendance'); } finally { setAttendanceSaving(false); } };
 
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600" /></div>;
-
-  return (
-    <div className="mx-auto max-w-6xl p-4 md:p-6 lg:p-8">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-extrabold text-[var(--color-text-primary)]">My Students</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Students enrolled in your assigned courses and their guardian contacts.</p>
-        </div>
-        <label className="relative block w-full sm:w-72">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search students or guardians" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2.5 pl-9 pr-3 text-sm" />
-        </label>
-      </div>
-
-      {error && <div className="mb-4 flex gap-3 rounded-xl bg-red-50 p-4 text-sm text-red-700"><AlertCircle className="h-5 w-5 shrink-0" />{error}</div>}
-      {!error && <div className="mb-4 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]"><Users className="h-4 w-4 text-emerald-600" />{filteredStudents.length} student{filteredStudents.length === 1 ? '' : 's'}</div>}
-
-      <div className="grid gap-4 md:grid-cols-2">
-        {filteredStudents.map((student) => {
-          const name = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || 'Unnamed student';
-          const guardianName = `${student.parent?.profile?.firstName || ''} ${student.parent?.profile?.lastName || ''}`.trim();
-          return <article key={student._id} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-700">{name.charAt(0)}</div>
-              <div className="min-w-0 flex-1"><h2 className="truncate font-bold text-[var(--color-text-primary)]">{name}</h2><p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId} · {student.class ? `${student.class.title} ${student.class.section || ''}` : 'No class assigned'}</p></div>
-              <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-700">{student.status}</span>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div><p className="text-[var(--color-text-tertiary)]">Attendance</p><p className="font-semibold">{student.attendancePercentage ?? '—'}{student.attendancePercentage !== undefined ? '%' : ''}</p></div><div><p className="text-[var(--color-text-tertiary)]">GPA</p><p className="font-semibold">{student.gpa ?? '—'}</p></div></div>
-            <div className="mt-4 border-t border-[var(--color-border-subtle)] pt-3"><p className="mb-1 flex items-center gap-1 text-xs font-semibold text-[var(--color-text-secondary)]"><BookOpen className="h-3.5 w-3.5" /> Your courses</p><p className="text-xs text-[var(--color-text-tertiary)]">{student.enrolledCourses?.map((course) => course.title?.en || 'Untitled course').join(', ') || 'No course data'}</p></div>
-            <div className="mt-4 rounded-xl bg-[var(--color-surface-secondary)] p-3"><p className="text-xs font-semibold text-[var(--color-text-secondary)]">Guardian</p>{guardianName ? <><p className="mt-1 text-sm font-medium">{guardianName}{student.parent?.relationship ? ` (${student.parent.relationship})` : ''}</p><p className="mt-1 flex items-center gap-1 text-xs text-[var(--color-text-tertiary)]"><Mail className="h-3.5 w-3.5" />{student.parent?.user?.email || student.parent?.user?.phone || 'No contact details'}</p></> : <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">No guardian linked by the administrator.</p>}</div>
-          </article>;
-        })}
-      </div>
-      {!error && filteredStudents.length === 0 && <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] p-12 text-center text-sm text-[var(--color-text-tertiary)]">No students match your search or are enrolled in your courses yet.</div>}
-    </div>
-  );
+  return <div className="mx-auto max-w-6xl p-4 md:p-6 lg:p-8">
+    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-2xl font-extrabold text-[var(--color-text-primary)]">My Students</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Students enrolled in your assigned courses and their guardian contacts.</p></div><label className="relative block w-full sm:w-72"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search students or guardians" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2.5 pl-9 pr-3 text-sm" /></label></div>
+    {error && <div className="mb-4 flex gap-3 rounded-xl bg-red-50 p-4 text-sm text-red-700"><AlertCircle className="h-5 w-5 shrink-0" />{error}</div>}
+    {courses.length > 0 && <section className="mb-8 overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] shadow-sm"><div className="flex flex-col gap-4 border-b border-[var(--color-border-subtle)] p-5 lg:flex-row lg:items-end lg:justify-between"><div><div className="flex items-center gap-2 text-emerald-600"><CalendarCheck className="h-5 w-5" /><h2 className="font-bold">Take Attendance</h2></div><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Only students in the selected course are shown. Saved sessions are locked.</p></div><div className="flex flex-col gap-2 sm:flex-row"><select value={attendanceCourse} onChange={(e) => setAttendanceCourse(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm">{courses.map((course) => <option key={course._id} value={course._id}>{course.title?.en || 'Untitled course'}</option>)}</select><input type="date" value={attendanceDate} onChange={(e) => setAttendanceDate(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm" /></div></div>
+      {attendanceMessage && <div className="border-b border-emerald-100 bg-emerald-50 px-5 py-3 text-sm text-emerald-700">{attendanceMessage}</div>}
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border-subtle)] p-4"><span className="mr-2 text-xs text-[var(--color-text-tertiary)]">Quick mark:</span>{statuses.map((status) => <button key={status.value} type="button" disabled={attendanceLocked || attendanceLoading} onClick={() => markAll(status.value)} className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs font-semibold disabled:opacity-50">All {status.label}</button>)}<button type="button" disabled={attendanceLocked || attendanceSaving || attendanceLoading || attendanceStudents.length === 0} onClick={saveAttendance} className="ml-auto inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Save className="h-3.5 w-3.5" />{attendanceSaving ? 'Saving…' : 'Save Attendance'}</button></div>
+      {attendanceLoading ? <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">Loading attendance…</div> : <div className="divide-y divide-[var(--color-border-subtle)]">{attendanceStudents.map((student) => { const name = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || 'Unnamed student'; const value = attendance[student._id]; return <div key={student._id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">{name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId}</p></div><div className="flex gap-1.5">{statuses.map((status) => <button key={status.value} type="button" disabled={attendanceLocked} aria-pressed={value === status.value} onClick={() => setAttendanceStatus(student._id, status.value)} className={`h-9 min-w-9 rounded-lg border px-2 text-xs font-bold ${value === status.value ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-[var(--color-border-default)]'} disabled:opacity-50`}>{status.key}</button>)}{value && <Check className="ml-1 self-center text-emerald-600" />}</div></div>; })}{attendanceStudents.length === 0 && <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">No students are enrolled in this course.</div>}</div>}
+    </section>}
+    <div className="mb-4 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]"><Users className="h-4 w-4 text-emerald-600" />{filteredStudents.length} student{filteredStudents.length === 1 ? '' : 's'}</div>
+    <div className="grid gap-4 md:grid-cols-2">{filteredStudents.map((student) => { const name = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || 'Unnamed student'; const guardianName = `${student.parent?.profile?.firstName || ''} ${student.parent?.profile?.lastName || ''}`.trim(); return <article key={student._id} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5 shadow-sm"><div className="flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-700">{name.charAt(0)}</div><div className="min-w-0 flex-1"><h2 className="truncate font-bold text-[var(--color-text-primary)]">{name}</h2><p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId} · {student.class ? `${student.class.title} ${student.class.section || ''}` : 'No class assigned'}</p></div><span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-700">{student.status}</span></div><div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div><p className="text-[var(--color-text-tertiary)]">Attendance</p><p className="font-semibold">{student.attendancePercentage ?? '—'}{student.attendancePercentage !== undefined ? '%' : ''}</p></div><div><p className="text-[var(--color-text-tertiary)]">GPA</p><p className="font-semibold">{student.gpa ?? '—'}</p></div></div><div className="mt-4 border-t border-[var(--color-border-subtle)] pt-3"><p className="mb-1 flex items-center gap-1 text-xs font-semibold text-[var(--color-text-secondary)]"><BookOpen className="h-3.5 w-3.5" /> Your courses</p><p className="text-xs text-[var(--color-text-tertiary)]">{student.enrolledCourses?.map((course) => course.title?.en || 'Untitled course').join(', ') || 'No course data'}</p></div><div className="mt-4 rounded-xl bg-[var(--color-surface-secondary)] p-3"><p className="text-xs font-semibold text-[var(--color-text-secondary)]">Guardian</p>{guardianName ? <><p className="mt-1 text-sm font-medium">{guardianName}{student.parent?.relationship ? ` (${student.parent.relationship})` : ''}</p><p className="mt-1 flex items-center gap-1 text-xs text-[var(--color-text-tertiary)]"><Mail className="h-3.5 w-3.5" />{student.parent?.user?.email || student.parent?.user?.phone || 'No contact details'}</p></> : <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">No guardian linked by the administrator.</p>}</div></article>; })}</div>
+    {!error && filteredStudents.length === 0 && <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] p-12 text-center text-sm text-[var(--color-text-tertiary)]">No students match your search or are enrolled in your courses yet.</div>}
+  </div>;
 }
-
 export default TeacherStudents;
