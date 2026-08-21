@@ -59,54 +59,24 @@ export function TeacherAnalytics() {
   const courses = analytics?.coursePerformance || [];
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-[var(--color-text-primary)]">Teacher Analytics</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Actionable signals from the last {analytics?.windowDays || 28} days.</p>
-        </div>
-        <button onClick={() => void fetchAnalytics()} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors" aria-label="Refresh analytics">
-          <RefreshCw className="h-3.5 w-3.5" /> Refresh
-        </button>
+    <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-4 sm:space-y-6 overflow-x-hidden">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+        <div className="min-w-0"><h1 className="text-xl sm:text-2xl font-extrabold text-[var(--color-text-primary)]">Teacher Analytics</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Actionable signals from the last {analytics?.windowDays || 28} days.</p></div>
+        <button onClick={() => void fetchAnalytics()} className="self-start inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors min-h-10" aria-label="Refresh analytics"><RefreshCw className="h-3.5 w-3.5" /> Refresh</button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          ['Students', summary.students ?? 0, Users],
-          ['Graded submissions', summary.gradedSubmissions ?? 0, BookOpen],
-          ['Average grade', summary.averageGrade == null ? '—' : `${summary.averageGrade}%`, BarChart3],
-          ['Pending submissions', summary.pendingSubmissions ?? 0, AlertTriangle],
-        ].map(([label, value, Icon]: any) => (
-          <div key={label} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4">
-            <Icon className="h-5 w-5 text-emerald-600 mb-3" />
-            <p className="text-2xl font-extrabold text-[var(--color-text-primary)]">{value}</p>
-            <p className="text-xs text-[var(--color-text-tertiary)]">{label}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {[['Students', summary.students ?? 0, Users], ['Graded submissions', summary.gradedSubmissions ?? 0, BookOpen], ['Average grade', summary.averageGrade == null ? '—' : `${summary.averageGrade}%`, BarChart3], ['Pending submissions', summary.pendingSubmissions ?? 0, AlertTriangle]].map(([label, value, Icon]: any) => <div key={label} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-3 sm:p-4 min-w-0"><Icon className="h-5 w-5 text-emerald-600 mb-2 sm:mb-3" /><p className="text-xl sm:text-2xl font-extrabold text-[var(--color-text-primary)] truncate">{value}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{label}</p></div>)}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
-          <div className="flex items-center gap-2 mb-4"><AlertTriangle className="h-5 w-5 text-amber-600" /><h2 className="font-bold">Students needing attention</h2></div>
-          <div className="space-y-2">{risk.length ? risk.map((s: any) => <div key={s.studentId} className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-3"><span className="font-semibold text-sm flex-1">{s.name}</span><span className="text-xs">{s.average == null ? '—' : `${s.average}%`}</span><span className="text-xs text-amber-700">{s.riskReasons.length} signals</span></div>) : <p className="text-sm text-[var(--color-text-tertiary)]">No current risk signals.</p>}</div>
-        </section>
-
-        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
-          <div className="flex items-center gap-2 mb-4"><TrendingDown className="h-5 w-5 text-rose-600" /><h2 className="font-bold">Performance declining</h2></div>
-          <div className="space-y-2">{declining.length ? declining.map((s: any) => <div key={s.studentId} className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-3"><span className="font-semibold text-sm flex-1">{s.name}</span><span className="text-xs font-bold text-rose-600">{s.decline}%</span></div>) : <p className="text-sm text-[var(--color-text-tertiary)]">No significant decline detected.</p>}</div>
-        </section>
+      <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
+        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4 sm:p-5 min-w-0"><div className="flex items-center gap-2 mb-4"><AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" /><h2 className="font-bold truncate">Students needing attention</h2></div><div className="space-y-2">{risk.length ? risk.map((s: any) => <div key={s.studentId} className="flex items-center gap-2 sm:gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-3 min-w-0"><span className="font-semibold text-sm flex-1 min-w-0 truncate">{s.name}</span><span className="text-xs shrink-0">{s.average == null ? '—' : `${s.average}%`}</span><span className="hidden sm:inline text-xs text-amber-700 shrink-0">{s.riskReasons.length} signals</span></div>) : <p className="text-sm text-[var(--color-text-tertiary)]">No current risk signals.</p>}</div></section>
+        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4 sm:p-5 min-w-0"><div className="flex items-center gap-2 mb-4"><TrendingDown className="h-5 w-5 text-rose-600 shrink-0" /><h2 className="font-bold truncate">Performance declining</h2></div><div className="space-y-2">{declining.length ? declining.map((s: any) => <div key={s.studentId} className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-3 min-w-0"><span className="font-semibold text-sm flex-1 min-w-0 truncate">{s.name}</span><span className="text-xs font-bold text-rose-600 shrink-0">{s.decline}%</span></div>) : <p className="text-sm text-[var(--color-text-tertiary)]">No significant decline detected.</p>}</div></section>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
-          <h2 className="font-bold mb-4">Assignments students find difficult</h2>
-          <div className="space-y-2">{difficult.length ? difficult.map((a: any) => <div key={a.assignmentId} className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-3"><span className="font-semibold text-sm flex-1 truncate">{a.title}</span><span className="text-xs font-bold">{a.average}%</span><span className="text-[11px] text-[var(--color-text-tertiary)]">{a.submissions} graded</span></div>) : <p className="text-sm text-[var(--color-text-tertiary)]">Not enough graded submissions yet.</p>}</div>
-        </section>
-
-        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
-          <h2 className="font-bold mb-4">Course performance</h2>
-          {courses.length ? <div className="space-y-3">{courses.map((c: any) => <div key={c.courseId}><div className="flex justify-between text-sm mb-1"><span className="font-semibold">{c.title?.en || 'Untitled'}</span><span>{c.average == null ? '—' : `${c.average}%`}</span></div><div className="h-2 rounded-full bg-[var(--color-surface-secondary)] overflow-hidden"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${c.average || 0}%` }} /></div></div>)}</div> : <p className="text-sm text-[var(--color-text-tertiary)]">No course performance data is available yet.</p>}
-        </section>
+      <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
+        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4 sm:p-5 min-w-0"><h2 className="font-bold mb-4">Assignments students find difficult</h2><div className="space-y-2">{difficult.length ? difficult.map((a: any) => <div key={a.assignmentId} className="flex items-center gap-2 sm:gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-3 min-w-0"><span className="font-semibold text-sm flex-1 min-w-0 truncate">{a.title}</span><span className="text-xs font-bold shrink-0">{a.average}%</span><span className="hidden sm:inline text-[11px] text-[var(--color-text-tertiary)] shrink-0">{a.submissions} graded</span></div>) : <p className="text-sm text-[var(--color-text-tertiary)]">Not enough graded submissions yet.</p>}</div></section>
+        <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4 sm:p-5 min-w-0"><h2 className="font-bold mb-4">Course performance</h2>{courses.length ? <div className="space-y-3">{courses.map((c: any) => <div key={c.courseId} className="min-w-0"><div className="flex justify-between gap-3 text-sm mb-1"><span className="font-semibold min-w-0 truncate">{c.title?.en || 'Untitled'}</span><span className="shrink-0">{c.average == null ? '—' : `${c.average}%`}</span></div><div className="h-2 rounded-full bg-[var(--color-surface-secondary)] overflow-hidden"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${c.average || 0}%` }} /></div></div>)}</div> : <p className="text-sm text-[var(--color-text-tertiary)]">No course performance data is available yet.</p>}</section>
       </div>
 
       <p className="text-[11px] text-[var(--color-text-tertiary)]">Analytics are decision-support signals for teacher review, not causal conclusions.</p>
