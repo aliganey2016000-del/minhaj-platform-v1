@@ -12,16 +12,19 @@ import { roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import * as teacherPortalController from '../../controllers/teacher-portal.controller';
 import * as teacherDashboardController from '../../controllers/teacher-dashboard.controller';
+import * as teacherAttendanceController from '../../controllers/teacher-attendance.controller';
 
 const router = Router();
 
-// All routes require teacher role
 router.use(authMiddleware);
 router.use(roleMiddleware(['teacher']));
 
 // ── Dashboard ──
 router.get('/dashboard', asyncHandler(teacherDashboardController.getDashboard));
 router.get('/dashboard/gamification', asyncHandler(teacherPortalController.getGamificationOverview));
+
+// ── Attendance ──
+router.get('/courses/:courseId/attendance-roster', asyncHandler(teacherAttendanceController.getRoster));
 
 // ── Quiz Management (within teacher's assigned courses) ──
 router.get('/courses/:courseId/quizzes', asyncHandler(teacherPortalController.getCourseQuizzes));
