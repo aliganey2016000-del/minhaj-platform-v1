@@ -1,1 +1,22 @@
-.teacher-dashboard-modern{display:grid;gap:24px}.teacher-dashboard-modern .dashboard-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.teacher-dashboard-modern .dashboard-header h1{margin:0;font-size:clamp(1.5rem,3vw,2rem);letter-spacing:-.02em}.teacher-dashboard-modern .dashboard-header p{margin:6px 0 0;color:var(--muted-foreground)}.teacher-dashboard-modern .kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.teacher-dashboard-modern .kpi-card{padding:20px;border:1px solid var(--border);border-radius:16px;background:var(--card);box-shadow:0 4px 18px rgb(0 0 0 / .04)}.teacher-dashboard-modern .kpi-label{font-size:.82rem;color:var(--muted-foreground);font-weight:600}.teacher-dashboard-modern .kpi-value{margin-top:8px;font-size:1.8rem;font-weight:750;letter-spacing:-.03em}.teacher-dashboard-modern .content-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(280px,1fr);gap:16px}.teacher-dashboard-modern .panel{border:1px solid var(--border);border-radius:16px;background:var(--card);padding:20px}.teacher-dashboard-modern .panel h2{margin:0 0 16px;font-size:1rem}.teacher-dashboard-modern .quick-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.teacher-dashboard-modern .quick-action{min-height:92px;text-align:left;border:1px solid var(--border);border-radius:12px;padding:14px;background:transparent;transition:transform .15s ease,box-shadow .15s ease}.teacher-dashboard-modern .quick-action:hover{transform:translateY(-1px);box-shadow:0 5px 16px rgb(0 0 0 / .06)}@media (max-width:900px){.teacher-dashboard-modern .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.teacher-dashboard-modern .content-grid{grid-template-columns:1fr}}@media (max-width:560px){.teacher-dashboard-modern{gap:16px}.teacher-dashboard-modern .kpi-grid{grid-template-columns:1fr}.teacher-dashboard-modern .quick-actions{grid-template-columns:1fr}.teacher-dashboard-modern .kpi-card,.teacher-dashboard-modern .panel{padding:16px}}
+/* Teacher Dashboard Phase 2: style the existing live dashboard content without changing its data flow. */
+main:has(a[href="/teacher/courses"]) { --teacher-panel-radius: 18px; }
+main:has(a[href="/teacher/courses"]) > div { max-width: 1320px; }
+main:has(a[href="/teacher/courses"]) .grid.grid-cols-2.lg\:grid-cols-4 { gap: 18px; }
+main:has(a[href="/teacher/courses"]) .grid.grid-cols-2.lg\:grid-cols-4 > div { border-radius: var(--teacher-panel-radius); padding: 20px; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+main:has(a[href="/teacher/courses"]) .grid.grid-cols-2.lg\:grid-cols-4 > div:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgb(0 0 0 / .07); }
+main:has(a[href="/teacher/courses"]) section.rounded-2xl { border-radius: var(--teacher-panel-radius); box-shadow: 0 6px 24px rgb(0 0 0 / .045); }
+main:has(a[href="/teacher/courses"]) section.rounded-2xl > div:first-child { min-height: 62px; }
+main:has(a[href="/teacher/courses"]) section.rounded-2xl a:hover { background: color-mix(in srgb, var(--color-surface-tertiary) 75%, transparent); }
+main:has(a[href="/teacher/courses"]) button { transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease; }
+main:has(a[href="/teacher/courses"]) button:hover { transform: translateY(-1px); }
+main:has(a[href="/teacher/courses"]) .lg\:grid-cols-3 { align-items: start; }
+main:has(a[href="/teacher/courses"]) .lg\:grid-cols-3 > .lg\:col-span-2 { min-width: 0; }
+@media (max-width: 640px) {
+  main:has(a[href="/teacher/courses"]) > div { padding: 16px; }
+  main:has(a[href="/teacher/courses"]) .grid.grid-cols-2.lg\:grid-cols-4 { grid-template-columns: 1fr; }
+  main:has(a[href="/teacher/courses"]) section.rounded-2xl > div { padding-left: 16px; padding-right: 16px; }
+  main:has(a[href="/teacher/courses"]) .grid.grid-cols-2.gap-3 { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  main:has(a[href="/teacher/courses"]) * { scroll-behavior: auto !important; transition: none !important; animation-duration: .01ms !important; }
+}
