@@ -1,234 +1,121 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  AlertCircle,
-  CalendarCheck,
-  Check,
-  CheckCheck,
-  ClipboardCheck,
-  Clock3,
-  Loader2,
-  Save,
-  Users,
-} from 'lucide-react';
+import { AlertCircle, BarChart3, CalendarCheck, Check, ClipboardList, Clock3, Loader2, Save, Users } from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface Course { _id: string; title?: { en?: string }; }
 interface Student { _id: string; studentId?: string; profile?: { firstName?: string; lastName?: string }; }
-interface AttendanceRecord { student: { _id: string }; status: string; locked?: boolean; }
+interface Schedule { _id: string; dayOfWeek: number; startTime: string; endTime: string; course?: Course; class?: { title?: string; section?: string }; }
+interface AttendanceRecord { _id?: string; student?: { _id: string; studentId?: string; profile?: { firstName?: string; lastName?: string } }; status: Status; date: string; locked?: boolean; schedule?: { _id?: string; startTime?: string; endTime?: string }; }
 type Status = 'present' | 'absent' | 'late' | 'excused';
+type Tab = 'take' | 'records' | 'reports';
 
-const statuses: { value: Status; label: string; short: string; key: string }[] = [
-  { value: 'present', label: 'Present', short: 'Present', key: 'P' },
-  { value: 'absent', label: 'Absent', short: 'Absent', key: 'A' },
-  { value: 'late', label: 'Late', short: 'Late', key: 'L' },
-  { value: 'excused', label: 'Excused', short: 'Excused', key: 'E' },
+const statuses: { value: Status; label: string; key: string }[] = [
+  { value: 'present', label: 'Present', key: 'P' }, { value: 'absent', label: 'Absent', key: 'A' },
+  { value: 'late', label: 'Late', key: 'L' }, { value: 'excused', label: 'Excused', key: 'E' },
 ];
 
-const statusStyles: Record<Status, string> = {
-  present: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300',
-  absent: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300',
-  late: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
-  excused: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300',
+const localDate = () => {
+  const d = new Date(); const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
+const prettyDate = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 
 export function TeacherAttendance() {
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [courseId, setCourseId] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [records, setRecords] = useState<Record<string, Status>>({});
-  const [locked, setLocked] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [rosterLoading, setRosterLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [tab, setTab] = useState<Tab>('take');
+  const [courses, setCourses] = useState<Course[]>([]); const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([]);
+  const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null); const [students, setStudents] = useState<Student[]>([]);
+  const [marks, setMarks] = useState<Record<string, Status>>({}); const [locked, setLocked] = useState(false);
+  const [loading, setLoading] = useState(true); const [rosterLoading, setRosterLoading] = useState(false); const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(''); const [message, setMessage] = useState('');
+  const [recordCourse, setRecordCourse] = useState(''); const [recordFrom, setRecordFrom] = useState(localDate()); const [recordTo, setRecordTo] = useState(localDate());
+  const [records, setRecords] = useState<AttendanceRecord[]>([]); const [recordsLoading, setRecordsLoading] = useState(false);
+  const [reportCourse, setReportCourse] = useState(''); const [reportFrom, setReportFrom] = useState(localDate()); const [reportTo, setReportTo] = useState(localDate());
+  const [reportRecords, setReportRecords] = useState<AttendanceRecord[]>([]); const [reportLoading, setReportLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get('/teacher-portal/dashboard');
-        const active = data.data?.activeCourses || [];
-        setCourses(active);
-        if (active[0]?._id) setCourseId(active[0]._id);
-      } catch (err: any) {
-        setError(err.response?.data?.message || 'Failed to load your courses');
-      } finally {
-        setLoading(false);
-      }
+        const [dashboard, schedule] = await Promise.all([api.get('/teacher-portal/dashboard'), api.get('/class-schedules/my-teaching')]);
+        const active: Course[] = dashboard.data?.data?.activeCourses || []; const allSchedules: Schedule[] = schedule.data?.data || [];
+        const today = new Date().getDay();
+        setCourses(active); setTodaySchedules(allSchedules.filter((s) => s.dayOfWeek === today).sort((a, b) => a.startTime.localeCompare(b.startTime)));
+        if (active[0]?._id) { setRecordCourse(active[0]._id); setReportCourse(active[0]._id); }
+      } catch (err: any) { setError(err.response?.data?.message || 'Failed to load attendance page'); }
+      finally { setLoading(false); }
     })();
   }, []);
 
-  useEffect(() => {
-    if (!courseId) return;
-    (async () => {
-      setRosterLoading(true);
-      setError('');
-      setMessage('');
-      try {
-        const [rosterResponse, attendanceResponse] = await Promise.all([
-          api.get(`/teacher-portal/courses/${courseId}/attendance-roster`),
-          api.get('/attendance/course', { params: { courseId, date } }),
-        ]);
-        const roster: Student[] = rosterResponse.data?.data || [];
-        const existing: AttendanceRecord[] = attendanceResponse.data?.data || [];
-        const next: Record<string, Status> = {};
-        existing.forEach((record) => {
-          if (record.student?._id) next[record.student._id] = record.status as Status;
-        });
-        setStudents(roster);
-        setRecords(next);
-        setLocked(existing.some((record) => record.locked));
-      } catch (err: any) {
-        setError(err.response?.data?.message || 'Failed to load attendance roster');
-        setStudents([]);
-        setRecords({});
-      } finally {
-        setRosterLoading(false);
-      }
-    })();
-  }, [courseId, date]);
-
-  const counts = useMemo(() => {
-    const values = Object.values(records);
-    return {
-      marked: values.length,
-      present: values.filter((value) => value === 'present').length,
-      absent: values.filter((value) => value === 'absent').length,
-      late: values.filter((value) => value === 'late').length,
-      excused: values.filter((value) => value === 'excused').length,
-    };
-  }, [records]);
-
-  const completion = students.length ? Math.round((counts.marked / students.length) * 100) : 0;
-  const selectedCourse = courses.find((course) => course._id === courseId);
-
-  const setStatus = (studentId: string, status: Status) => {
-    setRecords((prev) => ({ ...prev, [studentId]: status }));
-    setMessage('');
-    setError('');
-  };
-
-  const markAll = (status: Status) => {
-    const next: Record<string, Status> = {};
-    students.forEach((student) => { next[student._id] = status; });
-    setRecords(next);
-    setMessage('');
-    setError('');
-  };
-
-  const save = async () => {
-    if (!courseId || students.length === 0) return;
-    if (counts.marked !== students.length) {
-      setError(`Please mark all ${students.length} students before saving.`);
-      return;
-    }
-    setSaving(true);
-    setError('');
-    setMessage('');
+  const loadTakeAttendance = async (schedule: Schedule) => {
+    const courseId = schedule.course?._id; if (!courseId) return;
+    setSelectedSchedule(schedule); setRosterLoading(true); setError(''); setMessage('');
     try {
-      await api.post('/attendance', {
-        course: courseId,
-        date,
-        records: students.map((student) => ({ student: student._id, status: records[student._id] })),
-      });
-      setLocked(true);
-      setMessage('Attendance saved and locked successfully.');
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save attendance');
-    } finally {
-      setSaving(false);
-    }
+      const [rosterResponse, attendanceResponse] = await Promise.all([
+        api.get(`/teacher-portal/courses/${courseId}/attendance-roster`),
+        api.get('/attendance/course', { params: { courseId, date: localDate(), schedule: schedule._id } }),
+      ]);
+      const roster: Student[] = rosterResponse.data?.data || []; const existing: AttendanceRecord[] = attendanceResponse.data?.data || [];
+      const next: Record<string, Status> = {}; existing.forEach((r) => { if (r.student?._id) next[r.student._id] = r.status; });
+      setStudents(roster); setMarks(next); setLocked(existing.some((r) => r.locked));
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to load this class attendance'); setStudents([]); setMarks({}); }
+    finally { setRosterLoading(false); }
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="rounded-2xl bg-emerald-50 p-3 dark:bg-emerald-950/30"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div>
-          <p className="text-sm text-[var(--color-text-tertiary)]">Loading attendance workspace…</p>
-        </div>
-      </div>
-    );
-  }
+  const saveAttendance = async () => {
+    if (!selectedSchedule?.course?._id || !students.length) return;
+    if (Object.keys(marks).length !== students.length) { setError(`Mark all ${students.length} students before saving.`); return; }
+    setSaving(true); setError(''); setMessage('');
+    try {
+      await api.post('/attendance', { course: selectedSchedule.course._id, schedule: selectedSchedule._id, date: localDate(), records: students.map((s) => ({ student: s._id, status: marks[s._id] })) });
+      setLocked(true); setMessage('Attendance saved and locked.');
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to save attendance'); }
+    finally { setSaving(false); }
+  };
 
-  return (
-    <div className="mx-auto max-w-7xl p-4 pb-28 md:p-6 md:pb-32 lg:p-8 lg:pb-12">
-      <header className="mb-6 rounded-3xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5 shadow-sm md:p-7">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-              <CalendarCheck className="h-3.5 w-3.5" /> Teacher workspace
-            </div>
-            <h1 className="text-2xl font-black tracking-tight text-[var(--color-text-primary)] md:text-3xl">Attendance</h1>
-            <p className="mt-1 max-w-2xl text-sm text-[var(--color-text-tertiary)]">Take attendance quickly, review the session at a glance, then lock it once it is submitted.</p>
-          </div>
-          <div className="grid w-full gap-2 sm:grid-cols-2 lg:w-auto lg:min-w-[430px]">
-            <label className="relative">
-              <span className="sr-only">Course</span>
-              <select value={courseId} onChange={(e) => setCourseId(e.target.value)} className="w-full appearance-none rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm font-semibold text-[var(--color-text-primary)] outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20">
-                {courses.map((course) => <option key={course._id} value={course._id}>{course.title?.en || 'Untitled course'}</option>)}
-              </select>
-            </label>
-            <label className="relative">
-              <span className="sr-only">Attendance date</span>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm font-semibold text-[var(--color-text-primary)] outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20" />
-            </label>
-          </div>
-        </div>
-      </header>
+  const loadRecords = async () => {
+    if (!recordCourse) return; setRecordsLoading(true); setError('');
+    try { const { data } = await api.get('/attendance/course', { params: { courseId: recordCourse, dateFrom: recordFrom, dateTo: recordTo } }); setRecords(data.data || []); }
+    catch (err: any) { setError(err.response?.data?.message || 'Failed to load attendance records'); }
+    finally { setRecordsLoading(false); }
+  };
 
-      {error && <div className="mb-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"><AlertCircle className="mt-0.5 h-5 w-5 shrink-0" /><span>{error}</span></div>}
-      {message && <div className="mb-5 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"><CheckCheck className="h-5 w-5 shrink-0" /><span>{message}</span></div>}
+  const loadReport = async () => {
+    if (!reportCourse) return; setReportLoading(true); setError('');
+    try { const { data } = await api.get('/attendance/course', { params: { courseId: reportCourse, dateFrom: reportFrom, dateTo: reportTo } }); setReportRecords(data.data || []); }
+    catch (err: any) { setError(err.response?.data?.message || 'Failed to load attendance report'); }
+    finally { setReportLoading(false); }
+  };
 
-      {courses.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-14 text-center">
-          <Users className="mx-auto mb-4 h-10 w-10 text-[var(--color-text-tertiary)]" />
-          <p className="font-semibold text-[var(--color-text-primary)]">No active courses</p>
-          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">You have no active courses assigned yet.</p>
-        </div>
-      ) : (
-        <>
-          <section className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: 'Students', value: students.length, icon: Users, tone: 'text-slate-600 bg-slate-100 dark:bg-slate-900/60 dark:text-slate-300' },
-              { label: 'Present', value: counts.present, icon: Check, tone: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300' },
-              { label: 'Absent', value: counts.absent, icon: AlertCircle, tone: 'text-red-600 bg-red-50 dark:bg-red-950/40 dark:text-red-300' },
-              { label: 'Late', value: counts.late, icon: Clock3, tone: 'text-amber-600 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300' },
-            ].map((stat) => <div key={stat.label} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4 shadow-sm"><div className={`mb-3 inline-flex rounded-xl p-2 ${stat.tone}`}><stat.icon className="h-4 w-4" /></div><p className="text-xl font-black text-[var(--color-text-primary)]">{stat.value}</p><p className="mt-0.5 text-xs font-medium text-[var(--color-text-tertiary)]">{stat.label}</p></div>)}
-          </section>
+  const report = useMemo(() => {
+    const total = reportRecords.length; const present = reportRecords.filter((r) => r.status === 'present').length; const absent = reportRecords.filter((r) => r.status === 'absent').length;
+    const late = reportRecords.filter((r) => r.status === 'late').length; const excused = reportRecords.filter((r) => r.status === 'excused').length;
+    const students = new Set(reportRecords.map((r) => r.student?._id).filter(Boolean)).size;
+    return { total, present, absent, late, excused, students, rate: total ? Math.round(((present + late * 0.5) / total) * 100) : 0 };
+  }, [reportRecords]);
 
-          <section className="overflow-hidden rounded-3xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] shadow-sm">
-            <div className="border-b border-[var(--color-border-subtle)] p-4 md:p-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2"><h2 className="text-base font-bold text-[var(--color-text-primary)]">{selectedCourse?.title?.en || 'Attendance roster'}</h2>{locked && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">LOCKED</span>}</div>
-                  <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{date} · {counts.marked} of {students.length} marked · {completion}% complete</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {statuses.map((status) => <button key={status.value} type="button" disabled={locked || rosterLoading} onClick={() => markAll(status.value)} className={`rounded-xl border px-3 py-2 text-xs font-bold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 ${statusStyles[status.value]}`}>All {status.label}</button>)}
-                </div>
-              </div>
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]"><div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${completion}%` }} /></div>
-            </div>
+  const statusClass = (status: Status) => status === 'present' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : status === 'absent' ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' : status === 'late' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300';
 
-            {rosterLoading ? <div className="flex min-h-72 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div> : <div className="divide-y divide-[var(--color-border-subtle)]">{students.map((student, index) => {
-              const name = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || 'Unnamed student';
-              const value = records[student._id];
-              return <div key={student._id} className="group flex flex-col gap-3 p-4 transition hover:bg-[var(--color-surface-tertiary)] sm:flex-row sm:items-center sm:justify-between md:px-5">
-                <div className="flex min-w-0 items-center gap-3"><span className="w-7 text-xs font-bold text-[var(--color-text-tertiary)]">{String(index + 1).padStart(2, '0')}</span><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-sm font-black text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name.charAt(0).toUpperCase()}</div><div className="min-w-0"><p className="truncate text-sm font-bold text-[var(--color-text-primary)]">{name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId || 'No student ID'}</p></div></div>
-                <div className="flex items-center gap-1.5 sm:pl-4" role="group" aria-label={`Attendance for ${name}`}>{statuses.map((status) => <button key={status.value} type="button" disabled={locked} aria-pressed={value === status.value} onClick={() => setStatus(student._id, status.value)} className={`h-10 min-w-10 rounded-xl border px-2.5 text-xs font-black transition ${value === status.value ? `${statusStyles[status.value]} ring-2 ring-current/10` : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20'} disabled:cursor-not-allowed disabled:opacity-50`}>{status.key}<span className="sr-only"> {status.short}</span></button>)}{value && <Check className="ml-1 h-4 w-4 text-emerald-600" />}</div>
-              </div>;
-            })}{students.length === 0 && <div className="p-14 text-center"><ClipboardCheck className="mx-auto mb-3 h-9 w-9 text-[var(--color-text-tertiary)]" /><p className="text-sm font-semibold text-[var(--color-text-primary)]">No students enrolled</p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">There are no students in this course roster.</p></div>}</div>}
-          </section>
+  if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div>;
 
-          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]/95 p-3 backdrop-blur md:static md:mt-5 md:rounded-2xl md:border md:p-4">
-            <div className="mx-auto flex max-w-7xl items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold text-[var(--color-text-primary)]">{locked ? 'Session locked' : `${counts.marked}/${students.length} students marked`}</p><p className="hidden text-xs text-[var(--color-text-tertiary)] sm:block">{locked ? 'This attendance session has been submitted.' : 'Mark everyone before saving.'}</p></div><button type="button" onClick={save} disabled={locked || saving || rosterLoading || students.length === 0} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><Save className="h-4 w-4" />{saving ? 'Saving…' : locked ? 'Saved' : 'Save attendance'}</button></div>
-          </div>
-        </>
-      )}
-    </div>
-  );
+  return <div className="mx-auto max-w-6xl p-4 md:p-6 lg:p-8">
+    <header className="mb-5"><div className="flex items-center gap-2 text-emerald-600"><CalendarCheck className="h-5 w-5" /><span className="text-xs font-bold uppercase tracking-wide">Teacher</span></div><h1 className="mt-1 text-2xl font-black text-[var(--color-text-primary)]">Attendance</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Take today’s attendance, review records, or view a course report.</p></header>
+
+    <nav className="mb-5 flex overflow-x-auto rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-1">
+      {([['take', 'Take Attendance', CalendarCheck], ['records', 'Records', ClipboardList], ['reports', 'Reports', BarChart3]] as const).map(([value, label, Icon]) => <button key={value} type="button" onClick={() => setTab(value)} className={`flex min-w-max flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition ${tab === value ? 'bg-emerald-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}><Icon className="h-4 w-4" />{label}</button>)}
+    </nav>
+
+    {error && <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+    {message && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">{message}</div>}
+
+    {tab === 'take' && <div className="space-y-4">
+      <div className="flex items-end justify-between gap-3"><div><h2 className="text-lg font-bold text-[var(--color-text-primary)]">Today’s classes</h2><p className="text-xs text-[var(--color-text-tertiary)]">Only classes on your teaching timetable are shown.</p></div><span className="text-xs font-semibold text-[var(--color-text-tertiary)]">{prettyDate(localDate())}</span></div>
+      {todaySchedules.length === 0 ? <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-12 text-center"><CalendarCheck className="mx-auto mb-3 h-9 w-9 text-[var(--color-text-tertiary)]" /><p className="font-semibold text-[var(--color-text-primary)]">No classes scheduled today</p><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Your scheduled teaching sessions will appear here.</p></div> : <div className="grid gap-3 md:grid-cols-2">{todaySchedules.map((schedule) => { const selected = selectedSchedule?._id === schedule._id; return <button key={schedule._id} type="button" onClick={() => void loadTakeAttendance(schedule)} className={`text-left rounded-2xl border bg-[var(--color-surface-primary)] p-4 transition hover:-translate-y-0.5 hover:shadow-md ${selected ? 'border-emerald-500 ring-2 ring-emerald-500/10' : 'border-[var(--color-border-subtle)]'}`}><div className="flex items-start justify-between gap-3"><div><p className="text-base font-bold text-[var(--color-text-primary)]">{schedule.course?.title?.en || 'Untitled course'}</p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{schedule.class ? `${schedule.class.title || ''} ${schedule.class.section || ''}`.trim() : 'Class'}</p></div><span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><Clock3 className="h-3.5 w-3.5" />{schedule.startTime}–{schedule.endTime}</span></div></button>; })}</div>}
+      {selectedSchedule && <section className="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]"><div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-bold text-[var(--color-text-primary)]">{selectedSchedule.course?.title?.en}</h3><p className="text-xs text-[var(--color-text-tertiary)]">{selectedSchedule.startTime}–{selectedSchedule.endTime} · {students.length} students{locked ? ' · Locked' : ''}</p></div><div className="flex flex-wrap gap-2">{statuses.map((s) => <button key={s.value} type="button" disabled={locked || rosterLoading} onClick={() => setMarks(Object.fromEntries(students.map((st) => [st._id, s.value])))} className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs font-bold disabled:opacity-50">All {s.label}</button>)}<button type="button" onClick={() => void saveAttendance()} disabled={locked || saving || rosterLoading || !students.length} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white disabled:opacity-50"><Save className="h-3.5 w-3.5" />{saving ? 'Saving…' : 'Save'}</button></div></div>{rosterLoading ? <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div> : <div className="divide-y divide-[var(--color-border-subtle)]">{students.map((student, i) => { const name = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || 'Unnamed student'; const value = marks[student._id]; return <div key={student._id} className="flex items-center justify-between gap-3 p-3 md:px-4"><div className="flex min-w-0 items-center gap-3"><span className="w-5 text-xs text-[var(--color-text-tertiary)]">{i + 1}</span><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-xs font-black text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{name.charAt(0)}</div><div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--color-text-primary)]">{name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId || 'No ID'}</p></div></div><div className="flex gap-1">{statuses.map((s) => <button key={s.value} type="button" disabled={locked} aria-pressed={value === s.value} onClick={() => setMarks((prev) => ({ ...prev, [student._id]: s.value }))} className={`h-9 min-w-9 rounded-lg border px-2 text-xs font-black ${value === s.value ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'} disabled:opacity-50`}>{s.key}</button>)}</div></div>)}{!students.length && <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">No students are enrolled in this course.</div>}</div>}</section>}
+    </div>}
+
+    {tab === 'records' && <section className="space-y-4"><div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4"><div className="grid gap-3 md:grid-cols-[1.5fr_1fr_1fr_auto]"><select value={recordCourse} onChange={(e) => setRecordCourse(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm font-semibold">{courses.map((c) => <option key={c._id} value={c._id}>{c.title?.en || 'Untitled course'}</option>)}</select><input type="date" value={recordFrom} onChange={(e) => setRecordFrom(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /><input type="date" value={recordTo} onChange={(e) => setRecordTo(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /><button type="button" onClick={() => void loadRecords()} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white">Load</button></div></div><div className="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]">{recordsLoading ? <div className="p-12 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin text-emerald-600" /></div> : records.length ? <div className="divide-y divide-[var(--color-border-subtle)]">{records.map((record, i) => { const name = `${record.student?.profile?.firstName || ''} ${record.student?.profile?.lastName || ''}`.trim() || record.student?.studentId || 'Student'; return <div key={record._id || `${record.date}-${record.student?._id}-${i}`} className="flex items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-[var(--color-text-primary)]">{name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{prettyDate(record.date)}{record.schedule?.startTime ? ` · ${record.schedule.startTime}–${record.schedule.endTime}` : ''}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${statusClass(record.status)}`}>{record.status}</span></div>})}</div> : <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No attendance records for this range.</div>}</div></section>}
+
+    {tab === 'reports' && <section className="space-y-4"><div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4"><div className="grid gap-3 md:grid-cols-[1.5fr_1fr_1fr_auto]"><select value={reportCourse} onChange={(e) => setReportCourse(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm font-semibold">{courses.map((c) => <option key={c._id} value={c._id}>{c.title?.en || 'Untitled course'}</option>)}</select><input type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /><input type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /><button type="button" onClick={() => void loadReport()} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white">Generate</button></div></div><div className="grid grid-cols-2 gap-3 md:grid-cols-5">{[['Students', report.students], ['Attendance', report.total], ['Present', report.present], ['Absent', report.absent], ['Rate', `${report.rate}%`]].map(([label, value]) => <div key={String(label)} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4"><p className="text-xl font-black text-[var(--color-text-primary)]">{value}</p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{label}</p></div>)}</div>{reportLoading ? <div className="p-12 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin text-emerald-600" /></div> : <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5"><div className="mb-4 flex items-center gap-2"><BarChart3 className="h-4 w-4 text-emerald-600" /><h3 className="font-bold text-[var(--color-text-primary)]">Attendance breakdown</h3></div><div className="grid gap-3 sm:grid-cols-4">{statuses.map((s) => { const value = reportRecords.filter((r) => r.status === s.value).length; const pct = report.total ? Math.round((value / report.total) * 100) : 0; return <div key={s.value}><div className="mb-1 flex justify-between text-xs"><span>{s.label}</span><span>{value} · {pct}%</span></div><div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} /></div></div>; })}</div><p className="mt-4 text-xs text-[var(--color-text-tertiary)]">{reportFrom} → {reportTo}. Late attendance counts as half credit in the rate.</p></div>}</section>}
+  </div>;
 }
 
 export default TeacherAttendance;
