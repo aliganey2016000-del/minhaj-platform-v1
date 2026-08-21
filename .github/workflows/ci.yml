@@ -54,6 +54,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/frontend/package-lock.json
 
+      # Keep frontend installation deterministic from package-lock.json.
       - name: Install dependencies
         run: npm ci
 
