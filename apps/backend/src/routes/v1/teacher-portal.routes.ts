@@ -10,6 +10,7 @@ import { Router } from 'express';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
+import { validateTeacherFeedback, validateTeacherGrade } from '../../middleware/teacher-grading-validation.middleware';
 import * as teacherPortalController from '../../controllers/teacher-portal.controller';
 import * as teacherDashboardController from '../../controllers/teacher-dashboard.controller';
 import * as teacherAttendanceController from '../../controllers/teacher-attendance.controller';
@@ -41,8 +42,8 @@ router.patch('/courses/:courseId/video-gating', asyncHandler(teacherPortalContro
 // ── Gradebook & Assignments ──
 router.get('/courses/:courseId/submissions', asyncHandler(teacherPortalController.getCourseSubmissions));
 router.get('/submissions/:submissionId', asyncHandler(teacherPortalController.getSubmissionDetail));
-router.patch('/submissions/:submissionId/grade', asyncHandler(teacherPortalController.gradeSubmission));
-router.post('/submissions/:submissionId/feedback', asyncHandler(teacherPortalController.addFeedback));
+router.patch('/submissions/:submissionId/grade', asyncHandler(validateTeacherGrade), asyncHandler(teacherPortalController.gradeSubmission));
+router.post('/submissions/:submissionId/feedback', asyncHandler(validateTeacherFeedback), asyncHandler(teacherPortalController.addFeedback));
 
 // ── Analytics within teacher scope ──
 router.get('/courses/:courseId/analytics', asyncHandler(teacherPortalController.getCourseAnalytics));
