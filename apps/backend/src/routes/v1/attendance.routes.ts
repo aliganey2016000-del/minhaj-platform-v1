@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as attendanceController from '../../controllers/attendance.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { adminOnly, roleMiddleware } from '../../middleware/role.middleware';
+import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
@@ -11,7 +11,7 @@ router.use(authMiddleware);
 router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendance));
 router.get('/my/courses', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendanceByCourse));
 router.get('/my/course-history', roleMiddleware(['student']), asyncHandler(attendanceController.getMyCourseHistory));
-router.post('/', adminOnly, asyncHandler(attendanceController.markBulk));
+router.post('/', adminOrTeacher, asyncHandler(attendanceController.markBulk));
 // Unlocking a locked session is a platform-Admin-only power — org_admin
 // (who is the one submitting/getting locked out) cannot self-unlock.
 router.patch('/unlock', roleMiddleware(['admin']), asyncHandler(attendanceController.unlockSession));
