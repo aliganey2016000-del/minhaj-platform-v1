@@ -4,9 +4,7 @@ import { Request, Response } from 'express';
 import Course from '../models/course.model';
 import Student from '../models/student.model';
 import Attendance from '../models/attendance.model';
-import Assignment from '../models/assignment.model';
 import AssignmentSubmission from '../models/assignment-submission.model';
-import Profile from '../models/profile.model';
 import ApiResponse from '../utils/api-response';
 import { ForbiddenError } from '../utils/api-error';
 import { getOwnTeacherRecord } from '../utils/tenant-scope';
@@ -27,7 +25,7 @@ export const getOverview = async (req: Request, res: Response): Promise<Response
   }
 
   const students = await Student.find({ enrolledCourses: { $in: courseIds }, status: 'active' })
-    .select('_id studentId profile enrolledCourses')
+    .select('_id studentId profile')
     .populate({ path: 'profile', select: 'firstName lastName avatar' })
     .lean();
   const studentIds = students.map((s: any) => s._id);
@@ -44,7 +42,6 @@ export const getOverview = async (req: Request, res: Response): Promise<Response
     ]),
   ]);
 
-  const studentMap = new Map(students.map((s: any) => [String(s._id), s]));
   const attMap = new Map<string, { total: number; present: number; late: number; absent: number; excused: number }>();
   for (const row of attendanceRows as any[]) {
     const key = String(row._id.student);
@@ -70,7 +67,9 @@ export const getOverview = async (req: Request, res: Response): Promise<Response
       (age <= 14 * 24 * 60 * 60 * 1000 ? row.recent : row.prior).push(percentage);
       const aid = String(s.assignment?._id || s.assignment);
       const a = assignmentStats.get(aid) || { title: s.assignment?.title || 'Untitled', sum: 0, count: 0 };
-      a.sum += percentage; a.count += 1; assignmentStats.set(aid, a);
+      a.sum += percentage;
+      a.count += 1;
+      assignmentStats.set(aid, a);
     }
     stats.set(sid, row);
   }
