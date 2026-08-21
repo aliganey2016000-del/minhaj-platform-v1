@@ -14,6 +14,7 @@ import { validateTeacherFeedback, validateTeacherGrade } from '../../middleware/
 import * as teacherPortalController from '../../controllers/teacher-portal.controller';
 import * as teacherDashboardController from '../../controllers/teacher-dashboard.controller';
 import * as teacherAttendanceController from '../../controllers/teacher-attendance.controller';
+import * as teacherStudentController from '../../controllers/teacher-student.controller';
 
 const router = Router();
 
@@ -26,6 +27,9 @@ router.get('/dashboard/gamification', asyncHandler(teacherPortalController.getGa
 
 // ── Attendance ──
 router.get('/courses/:courseId/attendance-roster', asyncHandler(teacherAttendanceController.getRoster));
+
+// ── Student Profile & Progress ──
+router.get('/students/:studentId/profile', asyncHandler(teacherStudentController.getStudentProfile));
 
 // ── Quiz Management (within teacher's assigned courses) ──
 router.get('/courses/:courseId/quizzes', asyncHandler(teacherPortalController.getCourseQuizzes));
