@@ -6,6 +6,7 @@ import Course from '../models/course.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { completeStudentEnrollmentHistory, reassignStudentClassCourses } from '../services/enrollment.service';
 
 interface PromotionGroup {
   classId: mongoose.Types.ObjectId;
@@ -69,12 +70,6 @@ interface PromotionDecision {
   reason?: string;
 }
 
-// The SINGLE place that decides, for one non-graduating class, whether a
-// promotion target exists and is ready. getPromotionPreview and promoteAll
-// both call this — neither re-derives the skip condition independently — so
-// "preview says ready" and "execution actually proceeds" can't drift apart
-// again the way they did before (preview used to label a target with zero
-// courses 'promote-new' while promoteAll skipped it outright).
 async function resolvePromotionDecision(
   schoolId: string,
   cls: any,
@@ -93,7 +88,7 @@ async function resolvePromotionDecision(
   const targetCourseCount = await Course.countDocuments({
     school: schoolId,
     class: targetClass._id,
-    status: 'published', // draft courses aren't ready for students — same rule as every other enroll/access path in this codebase (course.controller.ts's admin-enroll, self-enroll, and listing filters)
+    status: 'published',
   });
 
   if (targetCourseCount === 0) {
@@ -233,13 +228,18 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
       continue;
     }
 
-    const students = await Student.find({ class: cls._id, status: 'active' }).select('_id enrolledCourses').lean();
+    const students = await Student.find({ class: cls._id, status: 'active' }).select('_id').lean();
 
     if (cls.isGraduatingGrade) {
-      const { modifiedCount } = await Student.updateMany(
-        { _id: { $in: students.map((s) => s._id) }, status: 'active' },
-        { $set: { status: 'graduated' } },
-      );
+      let modifiedCount = 0;
+      for (const student of students) {
+        const result = await Student.updateOne(
+          { _id: student._id, status: 'active' },
+          { $set: { status: 'graduated' } },
+        );
+        modifiedCount += result.modifiedCount;
+        await completeStudentEnrollmentHistory(student._id, 'graduated');
+      }
       cls.promotedAt = new Date();
       cls.status = 'completed';
       await cls.save();
@@ -267,31 +267,13 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
     const targetCourses = await Course.find({
       school: schoolId,
       class: targetClass._id,
-      status: 'published', // draft courses aren't ready for students — same rule as every other enroll/access path in this codebase (course.controller.ts's admin-enroll, self-enroll, and listing filters)
+      status: 'published',
     }).select('_id');
 
     const sourceCourses = await Course.find({ school: schoolId, class: cls._id }).select('_id');
-    const sourceCourseIds = new Set(sourceCourses.map((c) => c._id.toString()));
-    const targetCourseIds = targetCourses.map((c) => c._id.toString());
 
     for (const student of students) {
-      const oldIds = (student.enrolledCourses || []).map((id) => id.toString());
-      const nextIds = oldIds.filter((id) => !sourceCourseIds.has(id));
-      for (const targetId of targetCourseIds) {
-        if (!nextIds.includes(targetId)) nextIds.push(targetId);
-      }
-
-      await Student.updateOne(
-        { _id: student._id, status: 'active' },
-        {
-          $set: {
-            class: targetClass._id,
-            shiftMode: targetClass.shiftMode,
-            grade: targetClass.title,
-            enrolledCourses: nextIds.map((id) => new mongoose.Types.ObjectId(id)),
-          },
-        },
-      );
+      await reassignStudentClassCourses(student._id, cls._id, targetClass._id);
     }
 
     const affectedCourseIds = [...sourceCourses.map((c) => c._id), ...targetCourses.map((c) => c._id)];
