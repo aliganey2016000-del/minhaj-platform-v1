@@ -125,7 +125,7 @@ async function main() {
     lastName: 'Flow',
     gender: 'male',
   });
-  await Teacher.create({
+  const teacher = await Teacher.create({
     user: teacherUser._id,
     profile: teacherProfile._id,
     school: school._id,
@@ -134,7 +134,7 @@ async function main() {
     coursePermission: 'COURSE_BUILDER',
     status: 'active',
   });
-  await Course.updateOne({ _id: grade2Math._id }, { $set: { teacher: teacherUser._id } });
+  await Course.updateOne({ _id: grade2Math._id }, { $set: { teacher: teacher._id } });
   const teacherToken = tokenFor(teacherUser._id.toString(), 'teacher', school._id.toString());
 
   const createStudentRes = await request(app)
