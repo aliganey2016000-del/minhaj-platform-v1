@@ -15,6 +15,7 @@ import * as teacherPortalController from '../../controllers/teacher-portal.contr
 import * as teacherDashboardController from '../../controllers/teacher-dashboard.controller';
 import * as teacherAttendanceController from '../../controllers/teacher-attendance.controller';
 import * as teacherStudentController from '../../controllers/teacher-student.controller';
+import * as teacherAnalyticsController from '../../controllers/teacher-analytics.controller';
 
 const router = Router();
 
@@ -50,6 +51,7 @@ router.patch('/submissions/:submissionId/grade', asyncHandler(validateTeacherGra
 router.post('/submissions/:submissionId/feedback', asyncHandler(validateTeacherFeedback), asyncHandler(teacherPortalController.addFeedback));
 
 // ── Analytics within teacher scope ──
+router.get('/analytics/overview', asyncHandler(teacherAnalyticsController.getOverview));
 router.get('/courses/:courseId/analytics', asyncHandler(teacherPortalController.getCourseAnalytics));
 router.get('/students/:studentId/analytics', asyncHandler(teacherPortalController.getStudentAnalytics));
 
