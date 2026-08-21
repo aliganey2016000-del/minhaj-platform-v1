@@ -9,7 +9,8 @@
     "lint": "eslint src --ext .ts",
     "test:promotion": "ts-node src/__tests__/promotion.e2e.ts",
     "test:teacher-promotion": "ts-node src/__tests__/teacher-promotion.e2e.ts",
-    "test:gate-report": "ts-node src/__tests__/gate-report.e2e.ts"
+    "test:gate-report": "ts-node src/__tests__/gate-report.e2e.ts",
+    "test:teacher-authz": "ts-node src/__tests__/teacher-authz.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",
@@ -33,7 +34,7 @@
     "pdf-parse": "^1.1.1",
     "pdfkit": "^0.19.1",
     "socket.io": "^4.8.3",
-    "web-push": "^3.6.7",
+    "web-push": "^3.6.0",
     "xlsx": "^0.18.5",
     "xss-clean": "^0.1.4"
   },
@@ -53,7 +54,7 @@
     "@types/web-push": "^3.6.4",
     "mongodb-memory-server": "^11.2.0",
     "nodemon": "^3.1.4",
-    "supertest": "^7.2.2",
+    "socket.io": "^4.8.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.4"
   }
