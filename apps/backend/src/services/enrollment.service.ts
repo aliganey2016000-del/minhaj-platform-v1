@@ -18,22 +18,16 @@ async function recalcEnrolledStudents(courseIds: Iterable<string>): Promise<void
 
 async function syncEnrollmentHistory(
   student: any,
-  oldClassId: mongoose.Types.ObjectId | string | null | undefined,
-  newClassId: mongoose.Types.ObjectId | string | null | undefined,
+  newClassId: mongoose.Types.ObjectId | string,
   newCourseIds: string[],
-  studentStatus: 'active' | 'graduated' = 'active',
 ): Promise<void> {
-  if (!newClassId) return;
   const newClass = await ClassModel.findById(newClassId).select('_id title academicYear');
   if (!newClass || !newClass.academicYear) return;
 
   const history = Array.isArray(student.enrollmentHistory) ? student.enrollmentHistory : [];
   const now = new Date();
   const sameCurrent = history.find(
-    (entry: any) =>
-      String(entry.class) === String(newClass._id) &&
-      entry.academicYear === newClass.academicYear &&
-      entry.status === 'active',
+    (entry: any) => String(entry.class) === String(newClass._id) && entry.academicYear === newClass.academicYear && entry.status === 'active',
   );
 
   if (sameCurrent) {
@@ -43,7 +37,7 @@ async function syncEnrollmentHistory(
 
   for (const entry of history) {
     if (entry.status === 'active' && String(entry.class) !== String(newClass._id)) {
-      entry.status = studentStatus === 'graduated' ? 'graduated' : 'completed';
+      entry.status = 'completed';
       entry.endedAt = now;
     }
   }
@@ -53,25 +47,44 @@ async function syncEnrollmentHistory(
     class: newClass._id,
     grade: newClass.title,
     courses: newCourseIds.map((id) => new mongoose.Types.ObjectId(id)),
-    status: studentStatus,
+    status: 'active',
     startedAt: now,
   });
   student.enrollmentHistory = history;
 }
 
+/** Closes the student's current academic enrollment without deleting it. */
+export async function completeStudentEnrollmentHistory(
+  studentId: mongoose.Types.ObjectId | string,
+  status: 'completed' | 'graduated' = 'completed',
+): Promise<void> {
+  const student = await Student.findById(studentId).select('enrollmentHistory');
+  if (!student) return;
+  const now = new Date();
+  let changed = false;
+  for (const entry of student.enrollmentHistory || []) {
+    if (entry.status === 'active') {
+      entry.status = status;
+      entry.endedAt = now;
+      changed = true;
+    }
+  }
+  if (changed) await student.save();
+}
+
 export async function reassignStudentClassCourses(
   studentId: mongoose.Types.ObjectId | string,
   oldClassId: mongoose.Types.ObjectId | string | null | undefined,
-  newClassId: mongoose.Types.ObjectId | string | null | undefined
+  newClassId: mongoose.Types.ObjectId | string | null | undefined,
 ): Promise<void> {
   if (String(oldClassId || '') === String(newClassId || '')) return;
 
   const student = await Student.findById(studentId).select('enrolledCourses enrollmentHistory');
-  if (!student) return;
+  if (!student || !newClassId) return;
 
   const [oldCourses, newCourses] = await Promise.all([
     oldClassId ? Course.find({ class: oldClassId }).select('_id') : Promise.resolve([]),
-    newClassId ? Course.find({ class: newClassId, status: 'published' }).select('_id') : Promise.resolve([]),
+    Course.find({ class: newClassId, status: 'published' }).select('_id'),
   ]);
 
   const oldCourseIds = new Set(oldCourses.map((c) => c._id.toString()));
@@ -79,7 +92,7 @@ export async function reassignStudentClassCourses(
   const newCourseIds = newCourses.map((c) => c._id.toString());
   const nextIds = Array.from(new Set([...keptIds, ...newCourseIds]));
 
-  await syncEnrollmentHistory(student, oldClassId, newClassId, newCourseIds);
+  await syncEnrollmentHistory(student, newClassId, newCourseIds);
   student.enrolledCourses = nextIds.map((id) => new mongoose.Types.ObjectId(id));
   await student.save();
 
@@ -89,7 +102,7 @@ export async function reassignStudentClassCourses(
 /** New student (no prior class) — assigns existing published courses and opens the first history entry. */
 export async function syncStudentCourseEnrollment(
   studentId: mongoose.Types.ObjectId | string,
-  classId: mongoose.Types.ObjectId | string | null | undefined
+  classId: mongoose.Types.ObjectId | string | null | undefined,
 ): Promise<void> {
   await reassignStudentClassCourses(studentId, null, classId);
 }
