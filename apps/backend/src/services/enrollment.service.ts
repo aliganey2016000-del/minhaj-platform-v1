@@ -79,7 +79,9 @@ export async function reassignStudentClassCourses(
 ): Promise<void> {
   if (String(oldClassId || '') === String(newClassId || '')) return;
 
-  const student = await Student.findById(studentId).select('enrolledCourses enrollmentHistory');
+  // `class` is the source of truth for the student's current placement.
+  // Keep it loaded here because this service is also used by promotion.
+  const student = await Student.findById(studentId).select('class enrolledCourses enrollmentHistory');
   if (!student || !newClassId) return;
 
   const [oldCourses, newCourses] = await Promise.all([
@@ -93,6 +95,7 @@ export async function reassignStudentClassCourses(
   const nextIds = Array.from(new Set([...keptIds, ...newCourseIds]));
 
   await syncEnrollmentHistory(student, newClassId, newCourseIds);
+  student.class = new mongoose.Types.ObjectId(String(newClassId));
   student.enrolledCourses = nextIds.map((id) => new mongoose.Types.ObjectId(id));
   await student.save();
 
