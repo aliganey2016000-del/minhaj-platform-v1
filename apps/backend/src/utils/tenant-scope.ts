@@ -1,16 +1,10 @@
 /**
- * Tenant Scope Helpers — multi-tenant data isolation for org_admin.
+ * Tenant Scope Helpers — multi-tenant data isolation for org_admin and
+ * teacher-owned resources.
  *
- * Super admin (`admin`) and `teacher` see everything, unscoped. `org_admin`
- * must only ever see/modify records belonging to their own organization
- * (`req.user.organizationId`, embedded in the JWT at login).
- *
- * Usage:
- *   const filter = applyOrgFilter(req, { status: 'active' }, 'school');
- *   const students = await Student.find(filter);
- *
- *   const doc = await Student.findById(id);
- *   assertOwnsOrg(req, doc, 'school'); // throws ForbiddenError if mismatched
+ * Teacher ownership is always resolved from Course.teacher, the canonical
+ * assignment field. Controllers should use these helpers rather than
+ * reimplementing ownership queries independently.
  */
 
 import { Request } from 'express';
@@ -18,6 +12,7 @@ import { ForbiddenError } from './api-error';
 import Teacher from '../models/teacher.model';
 import Parent from '../models/parent.model';
 import Course from '../models/course.model';
+import AssignmentSubmission from '../models/assignment-submission.model';
 
 export function applyOrgFilter<T extends Record<string, unknown>>(
   req: Request,
@@ -34,9 +29,7 @@ export function applyOrgFilter<T extends Record<string, unknown>>(
 }
 
 export function assertOwnsOrg(req: Request, doc: any, field = 'school'): void {
-  if (!doc) return;
-  if (req.user?.role !== 'org_admin') return;
-
+  if (!doc || req.user?.role !== 'org_admin') return;
   const docOrgId = doc[field]?._id ? doc[field]._id.toString() : doc[field]?.toString();
   if (!docOrgId) return;
   if (!req.user.organizationId || docOrgId !== req.user.organizationId) {
@@ -48,9 +41,7 @@ export function assertOwnsOrg(req: Request, doc: any, field = 'school'): void {
 export const assertOwnOrg = assertOwnsOrg;
 
 export function resolveOrgIdForCreate(req: Request, clientProvidedValue?: unknown): unknown {
-  if (req.user?.role === 'org_admin') {
-    return req.user.organizationId;
-  }
+  if (req.user?.role === 'org_admin') return req.user.organizationId;
   return clientProvidedValue;
 }
 
@@ -62,6 +53,36 @@ export async function getOwnTeacherRecord(req: Request) {
 export async function getOwnParentRecord(req: Request) {
   if (req.user?.role !== 'parent') return null;
   return Parent.findOne({ user: req.user.userId });
+}
+
+/**
+ * Canonical teacher -> course authorization check.
+ * Always resolves ownership from Course.teacher, never Teacher.courses[].
+ */
+export async function assertTeacherOwnsCourse(req: Request, courseId: unknown): Promise<void> {
+  if (req.user?.role !== 'teacher') return;
+
+  const teacher = await getOwnTeacherRecord(req);
+  const id = courseId?.toString();
+  const ownsCourse = teacher && id
+    ? await Course.exists({ _id: id, teacher: teacher._id })
+    : null;
+
+  if (!ownsCourse) {
+    throw new ForbiddenError('You can only manage courses assigned to you.');
+  }
+}
+
+/**
+ * Canonical teacher -> submission authorization check.
+ * Submission access is derived through its Course.teacher relationship.
+ */
+export async function assertTeacherOwnsSubmission(req: Request, submission: any): Promise<void> {
+  if (req.user?.role !== 'teacher') return;
+  if (!submission) throw new ForbiddenError('Submission is not accessible.');
+
+  const courseId = submission.course?._id ?? submission.course;
+  await assertTeacherOwnsCourse(req, courseId);
 }
 
 export async function assertCanAccessStudent(req: Request, student: any): Promise<void> {
@@ -110,11 +131,15 @@ export async function assertCanAccessStudent(req: Request, student: any): Promis
 
 export async function assertOwnsExamIfTeacher(req: Request, exam: { course: any }): Promise<void> {
   if (req.user?.role !== 'teacher') return;
-  const teacher = await getOwnTeacherRecord(req);
-  const courseId = (exam.course as any)?._id ? (exam.course as any)._id.toString() : (exam.course as any)?.toString();
-  const course = courseId ? await Course.findById(courseId).select('teacher').lean() : null;
-  const courseTeacherId = (course as any)?.teacher?.toString();
-  if (!teacher || !course || courseTeacherId !== teacher._id.toString()) {
-    throw new ForbiddenError('You can only manage exams for your own courses.');
-  }
+  await assertTeacherOwnsCourse(req, exam.course?._id ?? exam.course);
+}
+
+/**
+ * AssignmentSubmission import is intentionally retained here so consumers can
+ * share a typed resource-level guard without duplicating the course lookup.
+ */
+export async function assertTeacherCanAccessSubmission(req: Request, submissionId: unknown): Promise<void> {
+  if (req.user?.role !== 'teacher') return;
+  const submission = await AssignmentSubmission.findById(submissionId).select('course').lean();
+  await assertTeacherOwnsSubmission(req, submission);
 }
