@@ -3,12 +3,10 @@
  *
  * Shares the underlying AdminLayout shell structure (sidebar, header, grid)
  * but locks the navigation to teacher-scoped pages only.
- * Teachers CANNOT access: financial records, tenant settings, user deletion,
- * school-wide admin routes, or global system configurations.
  */
 
 import { Outlet, useLocation } from 'react-router-dom';
-import { TeacherSidebar } from './teacher-sidebar';
+import { TeacherSidebarV2 } from './teacher-sidebar-v2';
 import { DashboardHeader } from '../../shared/components/dashboard-header';
 
 export function TeacherLayout() {
@@ -17,7 +15,7 @@ export function TeacherLayout() {
 
   return (
     <div className="min-h-screen bg-[var(--color-surface-secondary)]">
-      <TeacherSidebar />
+      <TeacherSidebarV2 />
       <div className="lg:ml-64 min-h-screen">
         <DashboardHeader showGreeting={isDashboardRoot} />
         <Outlet />
