@@ -2,8 +2,8 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-# Use the lockfile exactly in production/CI builds.
-RUN npm ci --no-audit --no-fund
+# Keep Docker installs aligned with CI's known-good npm client.
+RUN npx --yes npm@11.13.0 ci --no-audit --no-fund
 
 COPY . .
 
