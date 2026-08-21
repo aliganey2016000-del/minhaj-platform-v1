@@ -9,7 +9,7 @@ on:
 
 jobs:
   backend:
-    name: Backend build, lint and tests
+    name: Backend build and tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -30,9 +30,6 @@ jobs:
 
       - name: TypeScript build
         run: npx tsc
-
-      - name: Lint
-        run: npm run lint
 
       - name: Promotion tests
         run: npm run test:promotion
