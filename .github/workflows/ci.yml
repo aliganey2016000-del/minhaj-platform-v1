@@ -7,6 +7,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   backend:
     name: Backend build and tests
@@ -53,6 +56,22 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: apps/frontend/package-lock.json
+
+      # One-time repair for the peer dependency omitted from the committed lockfile.
+      # The generated lockfile is committed before the deterministic install runs.
+      - name: Repair frontend lockfile
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+        run: |
+          npm install --package-lock-only --ignore-scripts
+          if git diff --quiet -- package-lock.json; then
+            echo "Frontend lockfile is already synchronized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "ci: sync frontend npm lockfile"
+          git push
 
       # Keep frontend installation deterministic from package-lock.json.
       - name: Install dependencies
