@@ -11,6 +11,7 @@ import { authMiddleware } from '../../middleware/auth.middleware';
 import { roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { validateTeacherFeedback, validateTeacherGrade } from '../../middleware/teacher-grading-validation.middleware';
+import { validateTeacherAssessment } from '../../middleware/teacher-assessment-validation.middleware';
 import * as teacherPortalController from '../../controllers/teacher-portal.controller';
 import * as teacherDashboardController from '../../controllers/teacher-dashboard.controller';
 import * as teacherAttendanceController from '../../controllers/teacher-attendance.controller';
@@ -35,8 +36,8 @@ router.get('/students/:studentId/profile', asyncHandler(teacherStudentController
 // ── Quiz Management (within teacher's assigned courses) ──
 router.get('/courses/:courseId/quizzes', asyncHandler(teacherPortalController.getCourseQuizzes));
 router.get('/courses/:courseId/quizzes/:quizId', asyncHandler(teacherPortalController.getQuizById));
-router.post('/courses/:courseId/quizzes', asyncHandler(teacherPortalController.createQuiz));
-router.patch('/courses/:courseId/quizzes/:quizId', asyncHandler(teacherPortalController.updateQuiz));
+router.post('/courses/:courseId/quizzes', asyncHandler(validateTeacherAssessment), asyncHandler(teacherPortalController.createQuiz));
+router.patch('/courses/:courseId/quizzes/:quizId', asyncHandler(validateTeacherAssessment), asyncHandler(teacherPortalController.updateQuiz));
 router.delete('/courses/:courseId/quizzes/:quizId', asyncHandler(teacherPortalController.deleteQuiz));
 
 // ── Lesson / Content Management ──
