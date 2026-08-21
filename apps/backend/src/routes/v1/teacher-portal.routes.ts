@@ -11,6 +11,7 @@ import { authMiddleware } from '../../middleware/auth.middleware';
 import { roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import * as teacherPortalController from '../../controllers/teacher-portal.controller';
+import * as teacherDashboardController from '../../controllers/teacher-dashboard.controller';
 
 const router = Router();
 
@@ -19,7 +20,7 @@ router.use(authMiddleware);
 router.use(roleMiddleware(['teacher']));
 
 // ── Dashboard ──
-router.get('/dashboard', asyncHandler(teacherPortalController.getDashboard));
+router.get('/dashboard', asyncHandler(teacherDashboardController.getDashboard));
 router.get('/dashboard/gamification', asyncHandler(teacherPortalController.getGamificationOverview));
 
 // ── Quiz Management (within teacher's assigned courses) ──
