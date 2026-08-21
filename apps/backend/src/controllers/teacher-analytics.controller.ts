@@ -37,7 +37,7 @@ export const getOverview = async (req: Request, res: Response): Promise<Response
       .populate({ path: 'assignment', select: 'title totalMarks' })
       .lean(),
     Attendance.aggregate([
-      { $match: { student: { $in: studentIds } } },
+      { $match: { course: { $in: courseIds }, student: { $in: studentIds }, date: { $gte: since } } },
       { $group: { _id: { student: '$student', status: '$status' }, count: { $sum: 1 } } },
     ]),
   ]);
@@ -54,6 +54,7 @@ export const getOverview = async (req: Request, res: Response): Promise<Response
 
   const stats = new Map<string, { graded: number; pending: number; scoreSum: number; recent: number[]; prior: number[] }>();
   const assignmentStats = new Map<string, { title: string; sum: number; count: number }>();
+  const courseStats = new Map<string, { sum: number; count: number }>();
   for (const s of submissions as any[]) {
     const sid = String(s.student);
     const row = stats.get(sid) || { graded: 0, pending: 0, scoreSum: 0, recent: [], prior: [] };
@@ -70,6 +71,12 @@ export const getOverview = async (req: Request, res: Response): Promise<Response
       a.sum += percentage;
       a.count += 1;
       assignmentStats.set(aid, a);
+
+      const cid = String(s.course);
+      const course = courseStats.get(cid) || { sum: 0, count: 0 };
+      course.sum += percentage;
+      course.count += 1;
+      courseStats.set(cid, course);
     }
     stats.set(sid, row);
   }
@@ -100,9 +107,9 @@ export const getOverview = async (req: Request, res: Response): Promise<Response
     .sort((a, b) => a.average - b.average).slice(0, 10);
 
   const coursePerformance = courses.map((course: any) => {
-    const rows = submissions.filter((s: any) => String(s.course) === String(course._id) && (s.status === 'graded' || s.status === 'returned') && Number(s.assignment?.totalMarks) > 0 && typeof s.score === 'number');
-    const average = rows.length ? clamp(rows.reduce((sum: number, s: any) => sum + (s.score / Number(s.assignment.totalMarks)) * 100, 0) / rows.length) : null;
-    return { courseId: course._id, title: course.title, status: course.status, average, gradedSubmissions: rows.length };
+    const row = courseStats.get(String(course._id));
+    const average = row?.count ? clamp(row.sum / row.count) : null;
+    return { courseId: course._id, title: course.title, status: course.status, average, gradedSubmissions: row?.count || 0 };
   });
 
   const graded = submissions.filter((s: any) => (s.status === 'graded' || s.status === 'returned') && Number(s.assignment?.totalMarks) > 0 && typeof s.score === 'number');
