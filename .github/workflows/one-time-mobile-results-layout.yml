@@ -1,0 +1,70 @@
+name: One-time mobile results layout
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-layout:
+    if: ${{ !contains(github.event.head_commit.message, 'chore: apply mobile results layout') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply compact responsive student rows
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('apps/frontend/src/features/admin/pages/results-entry.tsx')
+          text = path.read_text()
+
+          old = '<table className="w-full text-sm table-fixed">'
+          new = '<table className="w-full text-sm table-fixed results-entry-table">'
+          assert old in text, 'results table marker not found'
+          text = text.replace(old, new, 1)
+
+          old = '<col style={{ width: \'26%\' }} />'
+          new = '<col className="student-col" style={{ width: \'26%\' }} />'
+          assert old in text, 'student column marker not found'
+          text = text.replace(old, new, 1)
+
+          old = '<col key={slot} style={{ width: `${56 / visibleSlots.length}%` }} />'
+          new = '<col key={slot} className="score-col" style={{ width: `${56 / visibleSlots.length}%` }} />'
+          assert old in text, 'score column marker not found'
+          text = text.replace(old, new, 1)
+
+          old = '<p className="font-medium truncate leading-tight">{s.studentName || \'Unknown Student\'}</p>'
+          new = '<p className="student-name font-semibold leading-tight break-words whitespace-normal">{s.studentName || \'Unknown Student\'}</p>'
+          assert old in text, 'student name marker not found'
+          text = text.replace(old, new, 1)
+
+          old = '<td className="px-4 py-1.5" key={slot}>'
+          new = '<td className="score-cell px-2 py-1.5 sm:px-4" key={slot}>'
+          assert old in text, 'score cell marker not found'
+          text = text.replace(old, new)
+
+          old = 'className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 disabled:opacity-30 placeholder:text-slate-400 dark:placeholder:text-slate-500 ${'
+          new = 'className={`w-full min-w-0 h-9 sm:h-auto rounded-lg border px-1.5 sm:px-2.5 py-1.5 text-center sm:text-left text-xs font-mono focus:outline-none focus:ring-2 disabled:opacity-30 placeholder:text-slate-400 dark:placeholder:text-slate-500 ${'
+          assert old in text, 'score input marker not found'
+          text = text.replace(old, new, 1)
+
+          style_marker = '            <div className="overflow-x-auto">'
+          style = '''            <style>{`\n              .results-entry-table { table-layout: fixed; }\n              .results-entry-table .student-col { width: 26%; }\n              .results-entry-table .score-col { width: 14%; }\n              @media (max-width: 639px) {\n                .results-entry-table .student-col { width: 42%; }\n                .results-entry-table .score-col { width: 14.5%; }\n                .results-entry-table th:first-child,\n                .results-entry-table td:first-child { padding-left: 10px; padding-right: 6px; vertical-align: top; }\n                .results-entry-table .student-name { overflow-wrap: anywhere; }\n                .results-entry-table .score-cell { vertical-align: top; }\n                .results-entry-table .score-cell input { font-size: 12px; }\n              }\n            `}</style>\n            <div className="overflow-x-auto">'''
+          assert style_marker in text, 'table container marker not found'
+          text = text.replace(style_marker, style, 1)
+
+          path.write_text(text)
+
+      - name: Commit and remove one-time workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/frontend/src/features/admin/pages/results-entry.tsx
+          git rm .github/workflows/one-time-mobile-results-layout.yml
+          git commit -m "chore: apply mobile results layout"
+          git push
