@@ -10,51 +10,29 @@
 
 @layer base {
   :root {
-    /* Background surfaces — cool slate neutrals (was a warm cream/beige tint
-       that read as dated next to the rest of the UI; the page canvas below
-       was already on this same cool family, so secondary/tertiary now just
-       step down from it instead of clashing). */
     --color-surface-primary: #ffffff;
     --color-surface-secondary: #f8fafc;
     --color-surface-tertiary: #f1f5f9;
     --color-surface-elevated: #ffffff;
-    /* Body/page canvas only — a hair off pure white so white cards (which
-       stay on --color-surface-primary) actually separate from the page
-       instead of relying on border alone. */
     --color-page-background: #f8fafc;
-
-    /* Text */
     --color-text-primary: #0f172a;
     --color-text-secondary: #475569;
-    /* Was #94a3b8 (slate-400) — only ~2.6:1 against the cream/white surfaces
-       above, failing WCAG AA (4.5:1) for normal text. slate-500 keeps the
-       same muted/tertiary feel at ~4.8:1. */
     --color-text-tertiary: #64748b;
     --color-text-inverse: #ffffff;
-
-    /* Brand */
     --color-brand-primary: #059669;
     --color-brand-primary-hover: #047857;
     --color-brand-accent: #d97706;
     --color-brand-accent-hover: #b45309;
-
-    /* Borders */
     --color-border-default: #e2e8f0;
     --color-border-subtle: #f1f5f9;
-
-    /* Glass Morphism */
     --glass-bg: rgba(255, 255, 255, 0.65);
     --glass-bg-strong: rgba(255, 255, 255, 0.85);
     --glass-border: rgba(255, 255, 255, 0.3);
     --glass-blur: blur(24px);
-
-    /* Shadows */
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
     --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
     --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.08);
     --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.12);
-
-    /* Radii */
     --radius-sm: 0.375rem;
     --radius-md: 0.75rem;
     --radius-lg: 1rem;
@@ -67,24 +45,19 @@
     --color-surface-tertiary: #0f172a;
     --color-surface-elevated: #1e293b;
     --color-page-background: #060a10;
-
     --color-text-primary: #f1f5f9;
     --color-text-secondary: #cbd5e1;
     --color-text-tertiary: #94a3b8;
     --color-text-inverse: #0f172a;
-
     --color-brand-primary: #10b981;
     --color-brand-primary-hover: #34d399;
     --color-brand-accent: #f59e0b;
     --color-brand-accent-hover: #fbbf24;
-
     --color-border-default: #1e293b;
     --color-border-subtle: #0f172a;
-
     --glass-bg: rgba(10, 15, 26, 0.6);
     --glass-bg-strong: rgba(10, 15, 26, 0.85);
     --glass-border: rgba(255, 255, 255, 0.06);
-
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
@@ -97,9 +70,7 @@
    ========================================================================== */
 
 @layer base {
-  * {
-    @apply border-[var(--color-border-default)];
-  }
+  * { @apply border-[var(--color-border-default)]; }
 
   html {
     @apply scroll-smooth antialiased;
@@ -108,12 +79,8 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* RTL support for Arabic */
-  html[dir='rtl'] {
-    direction: rtl;
-  }
+  html[dir='rtl'] { direction: rtl; }
 
-  /* Arabic font via lang attribute */
   html[lang='ar'] body {
     font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif;
   }
@@ -123,25 +90,13 @@
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 
-  /* Smooth theme transitions */
-  body,
-  .theme-transition {
+  body, .theme-transition {
     transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
   }
 
-  /* Selection styling */
-  ::selection {
-    @apply bg-primary-500/20 text-primary-800;
-  }
-
-  .dark ::selection {
-    @apply bg-primary-400/30 text-primary-200;
-  }
-
-  /* Focus ring */
-  :focus-visible {
-    @apply outline-2 outline-offset-2 outline-primary-500;
-  }
+  ::selection { @apply bg-primary-500/20 text-primary-800; }
+  .dark ::selection { @apply bg-primary-400/30 text-primary-200; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-primary-500; }
 }
 
 /* ==========================================================================
@@ -149,7 +104,6 @@
    ========================================================================== */
 
 @layer utilities {
-  /* Glass morphism */
   .glass {
     background: var(--glass-bg);
     backdrop-filter: var(--glass-blur);
@@ -164,7 +118,6 @@
     border: 1px solid var(--glass-border);
   }
 
-  /* Gradient text */
   .text-gradient-gold {
     background: linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%);
     -webkit-background-clip: text;
@@ -179,7 +132,6 @@
     background-clip: text;
   }
 
-  /* Islamic geometric pattern background */
   .bg-geometric {
     background-image:
       radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%),
@@ -194,7 +146,6 @@
       radial-gradient(circle at 50% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 50%);
   }
 
-  /* Subtle grid pattern for dark backgrounds */
   .bg-grid {
     background-image:
       linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
@@ -202,11 +153,7 @@
     background-size: 60px 60px;
   }
 
-  /* Animated underline */
-  .link-underline {
-    position: relative;
-  }
-
+  .link-underline { position: relative; }
   .link-underline::after {
     content: '';
     position: absolute;
@@ -217,28 +164,19 @@
     background: currentColor;
     transition: width 0.3s ease;
   }
+  .link-underline:hover::after { width: 100%; }
 
-  .link-underline:hover::after {
-    width: 100%;
-  }
-
-  /* Hide scrollbar but keep functionality */
   .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
-
-  .hide-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
 }
 
 /* ==========================================================================
    MOBILE GRADEBOOK / ENTER RESULTS
-   The results-entry table is the only table using .table-fixed in the app.
-   On phones each student becomes a compact two-column card: full name + ID
-   first, then the score fields below. This avoids truncating names while
-   using the available screen width instead of wasting horizontal space.
+   Full student identity first, ID directly underneath, score fields below.
+   The desktop spreadsheet remains unchanged; phones use the full card width.
    ========================================================================== */
 @media (max-width: 639px) {
   table.table-fixed {
@@ -246,20 +184,15 @@
     table-layout: auto !important;
   }
 
-  table.table-fixed thead {
-    display: none;
-  }
-
-  table.table-fixed tbody {
-    display: block;
-    width: 100%;
-  }
+  table.table-fixed thead { display: none; }
+  table.table-fixed tbody { display: block; width: 100%; }
 
   table.table-fixed tbody tr {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0;
     width: 100%;
-    padding: 0.45rem 0.65rem;
+    padding: 0.45rem 0.55rem;
     border-bottom: 1px solid var(--color-border-subtle);
     box-sizing: border-box;
   }
@@ -267,19 +200,26 @@
   table.table-fixed tbody tr > td {
     min-width: 0;
     width: auto !important;
-    padding: 0.35rem 0.35rem !important;
+    padding: 0.3rem 0.3rem !important;
     box-sizing: border-box;
   }
 
-  /* Student identity occupies the complete first row. */
+  /* Identity row: full name on top, student ID immediately underneath. */
   table.table-fixed tbody tr > td:first-child {
     grid-column: 1 / -1;
-    padding: 0.35rem 0.35rem 0.5rem !important;
+    padding: 0.35rem 0.3rem 0.55rem !important;
+    vertical-align: top;
   }
 
   table.table-fixed tbody tr > td:first-child > div {
     width: 100%;
     align-items: flex-start;
+    gap: 0.6rem;
+  }
+
+  table.table-fixed tbody tr > td:first-child > div > div {
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   table.table-fixed tbody tr > td:first-child p {
@@ -291,23 +231,28 @@
     line-height: 1.25;
   }
 
+  table.table-fixed tbody tr > td:first-child p:first-child {
+    font-size: 0.92rem;
+    font-weight: 700;
+  }
+
   table.table-fixed tbody tr > td:first-child code {
     display: block;
     margin-top: 0.12rem;
     line-height: 1.15;
+    font-size: 0.68rem;
   }
 
-  /* Organization/department is intentionally omitted on mobile. */
-  table.table-fixed tbody tr > td:nth-child(2) {
-    display: none !important;
-  }
+  /* Organization/department is intentionally hidden on mobile. */
+  table.table-fixed tbody tr > td:nth-child(2) { display: none !important; }
 
-  /* Score fields become compact labelled inputs. */
+  /* Four score fields: compact 2×2 grid under the student identity. */
   table.table-fixed tbody tr > td:nth-child(3),
   table.table-fixed tbody tr > td:nth-child(4),
   table.table-fixed tbody tr > td:nth-child(5),
   table.table-fixed tbody tr > td:nth-child(6) {
     display: block;
+    min-width: 0;
   }
 
   table.table-fixed tbody tr > td:nth-child(3)::before,
@@ -315,11 +260,12 @@
   table.table-fixed tbody tr > td:nth-child(5)::before,
   table.table-fixed tbody tr > td:nth-child(6)::before {
     display: block;
-    margin: 0 0 0.25rem;
-    font-size: 0.66rem;
+    margin: 0 0 0.22rem;
+    font-size: 0.64rem;
     line-height: 1;
     font-weight: 700;
     color: var(--color-text-tertiary);
+    white-space: nowrap;
   }
 
   table.table-fixed tbody tr > td:nth-child(3)::before { content: 'Mid Exam'; }
@@ -331,8 +277,9 @@
     min-width: 0;
     width: 100%;
     min-height: 2.35rem;
-    padding: 0.5rem 0.6rem !important;
-    font-size: 0.85rem !important;
+    padding: 0.48rem 0.5rem !important;
+    font-size: 0.82rem !important;
+    text-align: center;
     box-sizing: border-box;
   }
 
