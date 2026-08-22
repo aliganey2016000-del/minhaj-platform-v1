@@ -27,6 +27,9 @@ const SuganhubLandingPage = lazy(() =>
 const TeacherAttendance = lazy(() =>
   import('../features/teacher/pages/teacher-attendance').then((m) => ({ default: m.TeacherAttendance }))
 );
+const TeacherTakeAttendance = lazy(() =>
+  import('../features/teacher/pages/teacher-take-attendance').then((m) => ({ default: m.TeacherTakeAttendance }))
+);
 const TeacherLayout = lazy(() =>
   import('../features/teacher/components/teacher-layout').then((m) => ({ default: m.TeacherLayout }))
 );
@@ -88,6 +91,14 @@ export const publicRoutes: RouteObject[] = [
         element: (
           <Suspense fallback={<PageLoader />}>
             <TeacherAttendance />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'take/:scheduleId',
+        element: (
+          <Suspense fallback={<PageLoader />}>
+            <TeacherTakeAttendance />
           </Suspense>
         ),
       },
