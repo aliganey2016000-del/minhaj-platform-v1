@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import mongoSanitize from 'express-mongo-sanitize';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
@@ -66,8 +66,8 @@ app.use(addApiVersionHeader);
 // ---------------------------------------------------------------------------
 // Body Parsing
 // ---------------------------------------------------------------------------
-// Authentication rate limiting below keys failed attempts by BOTH IP and
-// account email, so the request body must be parsed before that limiter runs.
+// Authentication rate limiting below keys failed attempts by account and IP,
+// so the request body must be parsed before those limiters run.
 app.use(requestTimeout());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -92,12 +92,15 @@ const limiter = rateLimit({
   skip: (req) => req.path === '/v1/health', // Skip health checks — req.path is relative to the '/api/' mount point
 });
 
-// Stricter rate limiting for authentication endpoints.
-// IMPORTANT: key by IP + normalized email rather than IP alone. Otherwise,
-// five failed logins for one account can block every other user sharing the
-// same public IP (school Wi-Fi, office NAT, mobile carrier, etc.).
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+// Authentication protection uses TWO independent limits:
+// 1) Account limit: five failed attempts for one normalized email in 10 min.
+//    This follows the account across changing IP addresses.
+// 2) IP limit: thirty failed authentication attempts from one IP in 10 min.
+//    This prevents an attacker from rotating email addresses to evade the
+//    account limit, while still allowing legitimate users on shared networks.
+// Successful requests are removed from both counters.
+const authAccountLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
@@ -113,13 +116,28 @@ const authLimiter = rateLimit({
     const email = typeof req.body?.email === 'string'
       ? req.body.email.trim().toLowerCase()
       : 'unknown-account';
-    return `${ipKeyGenerator(req.ip || '')}:${email}`;
+    return `account:${email}`;
   },
 });
 
+const authIpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    statusCode: 429,
+    message: 'Too many login attempts from this network, please try again later',
+    data: null,
+    errors: null,
+  },
+  skipSuccessfulRequests: true,
+});
+
 app.use('/api/', limiter);
-app.use('/api/v1/auth/login', authLimiter);
-app.use('/api/v1/auth/register', authLimiter);
+app.use('/api/v1/auth/login', authAccountLimiter, authIpLimiter);
+app.use('/api/v1/auth/register', authAccountLimiter, authIpLimiter);
 
 // ---------------------------------------------------------------------------
 // Data Sanitization
