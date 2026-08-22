@@ -38,4 +38,27 @@ const teacherSchema = new Schema<ITeacher>(
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );
 
+// Teacher IDs are generated in several places (manual create, bulk import,
+// etc.). A simple count-based generator can reuse an existing ID after
+// deletions or partial imports. Before saving a new teacher, ensure the
+// proposed ID is unique and move it to the next free number when necessary.
+teacherSchema.pre('save', async function (next) {
+  if (!this.isNew || !this.teacherId) return next();
+
+  const TeacherModel = this.constructor as mongoose.Model<ITeacher>;
+  const existing = await TeacherModel.exists({ teacherId: this.teacherId, _id: { $ne: this._id } });
+  if (!existing) return next();
+
+  const match = this.teacherId.match(/^TCH-(\d{4})-(\d+)$/);
+  const year = match?.[1] || String(new Date().getFullYear());
+  let nextNumber = match ? parseInt(match[2], 10) + 1 : 1;
+
+  while (await TeacherModel.exists({ teacherId: `TCH-${year}-${String(nextNumber).padStart(4, '0')}` })) {
+    nextNumber += 1;
+  }
+
+  this.teacherId = `TCH-${year}-${String(nextNumber).padStart(4, '0')}`;
+  next();
+});
+
 export default mongoose.model<ITeacher>('Teacher', teacherSchema);
