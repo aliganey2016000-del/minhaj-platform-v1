@@ -592,7 +592,7 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
             onChange={(e) => handleEntryChange(s.studentId, slot, sanitizeNumericInput(e.target.value))}
             onKeyDown={opts?.onKeyDown}
             disabled={!active}
-            className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 disabled:opacity-30 placeholder:text-slate-400 dark:placeholder:text-slate-500 ${
+            className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono font-bold text-[var(--color-text-primary)] focus:outline-none focus:ring-2 disabled:opacity-30 placeholder:text-slate-400 dark:placeholder:text-slate-500 ${
               fieldError
                 ? 'border-red-400 bg-[var(--color-surface-primary)] focus:ring-red-500/30'
                 : filled
@@ -768,8 +768,8 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                       {initials(s.studentName.split(' ')[0], s.studentName.split(' ').slice(1).join(' '))}
                     </span>
                     <div className="min-w-0">
-                      <p className="font-medium truncate leading-tight text-sm">{s.studentName || 'Unknown Student'}</p>
-                      <code className="text-[10px] text-[var(--color-text-tertiary)]">{s.studentCode}</code>
+                      <p className="font-bold truncate leading-tight text-sm text-[var(--color-text-primary)]">{s.studentName || 'Unknown Student'}</p>
+                      <code className="text-[10px] font-semibold text-[var(--color-text-secondary)]">{s.studentCode}</code>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -777,7 +777,7 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                       const zeroWeight = roster.slots[slot] && roster.slots[slot]!.weight === 0;
                       return (
                         <div key={slot}>
-                          <label className="mb-1 flex items-center gap-1 text-[10px] font-medium text-[var(--color-text-tertiary)]">
+                          <label className="mb-1 flex items-center gap-1 text-[10px] font-bold text-[var(--color-text-primary)]">
                             {label}
                             {zeroWeight && <AlertTriangle className="h-3 w-3 text-amber-500" strokeWidth={2} />}
                           </label>
