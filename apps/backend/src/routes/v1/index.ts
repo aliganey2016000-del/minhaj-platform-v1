@@ -51,12 +51,9 @@ import pushRoutes from './push.routes';
 import learningActivityRoutes from './learning-activity.routes';
 import gradebookRoutes from './gradebook.routes';
 import gradebookCoursesRoutes from './gradebook-courses.routes';
+import teacherAssignmentGradingRoutes from '../teacher-assignment-grading.routes';
 
 const router = Router();
-
-// ---------------------------------------------------------------------------
-// Mount resource routes
-// ---------------------------------------------------------------------------
 
 router.use('/auth', authRoutes);
 router.use('/courses', courseRoutes);
@@ -106,10 +103,7 @@ router.use('/push', pushRoutes);
 router.use('/activity', learningActivityRoutes);
 router.use('/gradebook-courses', gradebookCoursesRoutes);
 router.use('/gradebook/:courseId', gradebookRoutes);
-
-// ---------------------------------------------------------------------------
-// Health Check Endpoint
-// ---------------------------------------------------------------------------
+router.use('/', teacherAssignmentGradingRoutes);
 
 router.get('/health', (_req, res) => {
   res.status(200).json({
