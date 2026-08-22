@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import mongoSanitize from 'express-mongo-sanitize';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import morgan from 'morgan';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
@@ -64,6 +64,17 @@ app.use(setContentSecurityPolicy);
 app.use(addApiVersionHeader);
 
 // ---------------------------------------------------------------------------
+// Body Parsing
+// ---------------------------------------------------------------------------
+// Authentication rate limiting below keys failed attempts by BOTH IP and
+// account email, so the request body must be parsed before that limiter runs.
+app.use(requestTimeout());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser());
+app.use(securityLogging);
+
+// ---------------------------------------------------------------------------
 // Rate Limiting
 // ---------------------------------------------------------------------------
 const limiter = rateLimit({
@@ -81,10 +92,13 @@ const limiter = rateLimit({
   skip: (req) => req.path === '/v1/health', // Skip health checks — req.path is relative to the '/api/' mount point
 });
 
-// Stricter rate limiting for authentication endpoints
+// Stricter rate limiting for authentication endpoints.
+// IMPORTANT: key by IP + normalized email rather than IP alone. Otherwise,
+// five failed logins for one account can block every other user sharing the
+// same public IP (school Wi-Fi, office NAT, mobile carrier, etc.).
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 requests per 15 minutes
+  windowMs: 15 * 60 * 1000,
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -94,21 +108,18 @@ const authLimiter = rateLimit({
     data: null,
     errors: null,
   },
-  skipSuccessfulRequests: true, // Only count failed requests
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => {
+    const email = typeof req.body?.email === 'string'
+      ? req.body.email.trim().toLowerCase()
+      : 'unknown-account';
+    return `${ipKeyGenerator(req.ip || '')}:${email}`;
+  },
 });
 
 app.use('/api/', limiter);
 app.use('/api/v1/auth/login', authLimiter);
 app.use('/api/v1/auth/register', authLimiter);
-
-// ---------------------------------------------------------------------------
-// Body Parsing
-// ---------------------------------------------------------------------------
-app.use(requestTimeout()); // Request timeout protection
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(cookieParser());
-app.use(securityLogging); // Monitor suspicious patterns — must run after body parsing so req.body is populated
 
 // ---------------------------------------------------------------------------
 // Data Sanitization
