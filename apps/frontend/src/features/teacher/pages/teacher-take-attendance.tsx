@@ -175,12 +175,12 @@ export function TeacherTakeAttendance() {
     : 'Class';
 
   return (
-    <div className="mx-auto max-w-3xl p-4 md:p-6 lg:p-8">
-      <div className="mb-5 flex items-center justify-between gap-3">
+    <div className="mx-auto w-full max-w-3xl p-3 sm:p-4 md:p-6 lg:p-8">
+      <div className="mb-4 flex items-center justify-between gap-3 sm:mb-5">
         <button
           type="button"
           onClick={() => navigate('/teacher/attendance')}
-          className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm font-bold text-[var(--color-text-secondary)]"
+          className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm font-bold text-[var(--color-text-secondary)]"
         >
           <ArrowLeft className="h-4 w-4" />
           Attendance
@@ -188,19 +188,19 @@ export function TeacherTakeAttendance() {
         <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">{localDate()}</span>
       </div>
 
-      <header className="mb-5 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
+      <header className="mb-4 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4 sm:mb-5 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
             <div className="mb-2 flex items-center gap-2 text-emerald-600">
-              <CalendarCheck className="h-5 w-5" />
+              <CalendarCheck className="h-5 w-5 shrink-0" />
               <span className="text-xs font-bold uppercase tracking-wide">Take Attendance</span>
             </div>
-            <h1 className="text-2xl font-black text-[var(--color-text-primary)]">
+            <h1 className="break-words text-2xl font-black leading-tight text-[var(--color-text-primary)] sm:text-3xl">
               {schedule?.course?.title?.en || 'Course'}
             </h1>
             <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{className}</p>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+          <span className="inline-flex w-fit shrink-0 items-center gap-1 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
             <Clock3 className="h-4 w-4" />
             {schedule?.startTime}–{schedule?.endTime}
           </span>
@@ -211,32 +211,31 @@ export function TeacherTakeAttendance() {
       {message && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">{message}</div>}
 
       <section className="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]">
-        <div className="border-b border-[var(--color-border-subtle)] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="font-bold text-[var(--color-text-primary)]">Students</h2>
-              <p className="text-xs text-[var(--color-text-tertiary)]">
-                {students.length} active student{students.length === 1 ? '' : 's'}{locked ? ' · Attendance locked' : ''}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {statuses.map((status) => (
-                <button
-                  key={status.value}
-                  type="button"
-                  disabled={locked || !students.length}
-                  onClick={() => markAll(status.value)}
-                  className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-secondary)] disabled:opacity-50"
-                >
-                  All {status.label}
-                </button>
-              ))}
-            </div>
+        <div className="border-b border-[var(--color-border-subtle)] p-4 sm:p-5">
+          <div className="mb-3">
+            <h2 className="font-bold text-[var(--color-text-primary)]">Students</h2>
+            <p className="text-xs text-[var(--color-text-tertiary)]">
+              {students.length} active student{students.length === 1 ? '' : 's'}{locked ? ' · Attendance locked' : ''}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            {statuses.map((status) => (
+              <button
+                key={status.value}
+                type="button"
+                disabled={locked || !students.length}
+                onClick={() => markAll(status.value)}
+                className="min-h-10 rounded-lg border border-[var(--color-border-default)] px-2 py-2 text-xs font-bold text-[var(--color-text-secondary)] transition hover:bg-[var(--color-surface-secondary)] disabled:opacity-50 sm:px-3"
+              >
+                All {status.label}
+              </button>
+            ))}
           </div>
         </div>
 
         {students.length === 0 ? (
-          <div className="p-12 text-center">
+          <div className="p-10 text-center sm:p-12">
             <p className="font-semibold text-[var(--color-text-primary)]">No active students found.</p>
             <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
               This course has no active students in its attendance roster.
@@ -249,27 +248,30 @@ export function TeacherTakeAttendance() {
               const selected = marks[student._id];
 
               return (
-                <div key={student._id} className="flex items-center justify-between gap-3 p-4">
-                  <div className="flex min-w-0 items-center gap-3">
+                <div key={student._id} className="p-4 sm:flex sm:items-center sm:gap-3 sm:px-5">
+                  <div className="grid min-w-0 grid-cols-[20px_40px_minmax(0,1fr)] items-center gap-3 sm:flex sm:flex-1">
                     <span className="w-5 text-xs text-[var(--color-text-tertiary)]">{index + 1}</span>
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-sm font-black text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                       {name.charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-[var(--color-text-primary)]">{name}</p>
-                      <p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId || 'No ID'}</p>
+                      <p className="break-words text-sm font-bold leading-5 text-[var(--color-text-primary)] sm:text-[15px]">
+                        {name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{student.studentId || 'No ID'}</p>
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 gap-1">
+                  <div className="mt-3 ml-8 grid grid-cols-4 gap-2 sm:mt-0 sm:ml-auto sm:flex sm:shrink-0 sm:gap-1">
                     {statuses.map((status) => (
                       <button
                         key={status.value}
                         type="button"
                         title={status.label}
+                        aria-label={`${status.label} — ${name}`}
                         disabled={locked}
                         onClick={() => setMarks((current) => ({ ...current, [student._id]: status.value }))}
-                        className={`flex h-9 w-9 items-center justify-center rounded-lg border text-xs font-black transition disabled:opacity-60 ${
+                        className={`flex min-h-11 w-full items-center justify-center rounded-lg border text-sm font-black transition disabled:opacity-60 sm:h-9 sm:min-h-0 sm:w-9 sm:text-xs ${
                           selected === status.value
                             ? statusClasses[status.value]
                             : 'border-[var(--color-border-default)] text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)]'
@@ -285,12 +287,12 @@ export function TeacherTakeAttendance() {
           </div>
         )}
 
-        <div className="border-t border-[var(--color-border-subtle)] p-4">
+        <div className="border-t border-[var(--color-border-subtle)] p-4 sm:p-5">
           <button
             type="button"
             onClick={() => void save()}
             disabled={locked || saving || !students.length}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
             {saving ? 'Saving…' : locked ? 'Attendance Saved' : 'Save Attendance'}
