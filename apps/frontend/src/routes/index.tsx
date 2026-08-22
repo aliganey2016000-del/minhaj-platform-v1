@@ -15,317 +15,113 @@ import { authRoutes } from './auth-routes';
 // Lazy-loaded components
 // ---------------------------------------------------------------------------
 
-const StudentLayout = lazy(() =>
-  import('../features/student/components/student-layout').then((m) => ({ default: m.StudentLayout }))
-);
-const StudentDashboard = lazy(() =>
-  import('../features/student/pages/student-dashboard').then((m) => ({ default: m.StudentDashboard }))
-);
-const StudentCourses = lazy(() =>
-  import('../features/student/pages/student-courses').then((m) => ({ default: m.StudentCourses }))
-);
-const StudentAvailable = lazy(() =>
-  import('../features/student/pages/student-available').then((m) => ({ default: m.StudentAvailable }))
-);
-const StudentAssignments = lazy(() =>
-  import('../features/student/pages/student-assignments').then((m) => ({ default: m.StudentAssignments }))
-);
-const StudentAssignmentDetail = lazy(() =>
-  import('../features/student/pages/student-assignment-detail').then((m) => ({ default: m.StudentAssignmentDetail }))
-);
-const StudentDownloads = lazy(() =>
-  import('../features/student/pages/student-downloads').then((m) => ({ default: m.StudentDownloads }))
-);
-const StudentExams = lazy(() =>
-  import('../features/student/pages/student-exams').then((m) => ({ default: m.StudentExams }))
-);
-const StudentExamResults = lazy(() =>
-  import('../features/student/pages/student-exam-results').then((m) => ({ default: m.StudentExamResults }))
-);
-const StudentExamSeating = lazy(() =>
-  import('../features/student/pages/student-exam-seating').then((m) => ({ default: m.StudentExamSeating }))
-);
-const StudentExamAttendance = lazy(() =>
-  import('../features/student/pages/student-exam-attendance').then((m) => ({ default: m.StudentExamAttendance }))
-);
-const StudentExamActive = lazy(() =>
-  import('../features/student/pages/student-exam-active').then((m) => ({ default: m.StudentExamActive }))
-);
-const StudentExamReview = lazy(() =>
-  import('../features/student/pages/student-exam-review').then((m) => ({ default: m.StudentExamReview }))
-);
-const StudentExamAppeals = lazy(() =>
-  import('../features/student/pages/student-exam-appeals').then((m) => ({ default: m.StudentExamAppeals }))
-);
-const StudentAttendance = lazy(() =>
-  import('../features/student/pages/student-attendance').then((m) => ({ default: m.StudentAttendance }))
-);
-const StudentCertificates = lazy(() =>
-  import('../features/student/pages/student-certificates').then((m) => ({ default: m.StudentCertificates }))
-);
-const StudentBookmarks = lazy(() =>
-  import('../features/student/pages/student-bookmarks').then((m) => ({ default: m.StudentBookmarks }))
-);
-const StudentNotifications = lazy(() =>
-  import('../features/student/pages/student-notifications').then((m) => ({ default: m.StudentNotifications }))
-);
-const StudentProfileView = lazy(() =>
-  import('../features/student/pages/student-profile').then((m) => ({ default: m.StudentProfile }))
-);
-const StudentSettings = lazy(() =>
-  import('../features/student/pages/student-settings').then((m) => ({ default: m.StudentSettings }))
-);
-const StudentCourseLearn = lazy(() =>
-  import('../features/student/pages/student-course-learn').then((m) => ({ default: m.StudentCourseLearn }))
-);
-const StudentSchedule = lazy(() =>
-  import('../features/student/pages/student-schedule').then((m) => ({ default: m.StudentSchedule }))
-);
-const StudentPayments = lazy(() =>
-  import('../features/student/pages/student-payments').then((m) => ({ default: m.StudentPayments }))
-);
-const StudentCourseDetail = lazy(() =>
-  import('../features/student/pages/student-course-detail').then((m) => ({ default: m.StudentCourseDetail }))
-);
-const StudentAiTutor = lazy(() =>
-  import('../features/student/pages/student-ai-tutor').then((m) => ({ default: m.StudentAiTutor }))
-);
-const StudentQuizTake = lazy(() =>
-  import('../features/student/pages/student-quiz-take').then((m) => ({ default: m.StudentQuizTake }))
-);
-const StudentAnalytics = lazy(() =>
-  import('../features/student/pages/student-analytics').then((m) => ({ default: m.StudentAnalytics }))
-);
+const StudentLayout = lazy(() => import('../features/student/components/student-layout').then((m) => ({ default: m.StudentLayout })));
+const StudentDashboard = lazy(() => import('../features/student/pages/student-dashboard').then((m) => ({ default: m.StudentDashboard })));
+const StudentCourses = lazy(() => import('../features/student/pages/student-courses').then((m) => ({ default: m.StudentCourses })));
+const StudentAvailable = lazy(() => import('../features/student/pages/student-available').then((m) => ({ default: m.StudentAvailable })));
+const StudentAssignments = lazy(() => import('../features/student/pages/student-assignments').then((m) => ({ default: m.StudentAssignments })));
+const StudentAssignmentDetail = lazy(() => import('../features/student/pages/student-assignment-detail').then((m) => ({ default: m.StudentAssignmentDetail })));
+const StudentDownloads = lazy(() => import('../features/student/pages/student-downloads').then((m) => ({ default: m.StudentDownloads })));
+const StudentExams = lazy(() => import('../features/student/pages/student-exams').then((m) => ({ default: m.StudentExams })));
+const StudentExamResults = lazy(() => import('../features/student/pages/student-exam-results').then((m) => ({ default: m.StudentExamResults })));
+const StudentExamSeating = lazy(() => import('../features/student/pages/student-exam-seating').then((m) => ({ default: m.StudentExamSeating })));
+const StudentExamAttendance = lazy(() => import('../features/student/pages/student-exam-attendance').then((m) => ({ default: m.StudentExamAttendance })));
+const StudentExamActive = lazy(() => import('../features/student/pages/student-exam-active').then((m) => ({ default: m.StudentExamActive })));
+const StudentExamReview = lazy(() => import('../features/student/pages/student-exam-review').then((m) => ({ default: m.StudentExamReview })));
+const StudentExamAppeals = lazy(() => import('../features/student/pages/student-exam-appeals').then((m) => ({ default: m.StudentExamAppeals })));
+const StudentAttendance = lazy(() => import('../features/student/pages/student-attendance').then((m) => ({ default: m.StudentAttendance })));
+const StudentCertificates = lazy(() => import('../features/student/pages/student-certificates').then((m) => ({ default: m.StudentCertificates })));
+const StudentBookmarks = lazy(() => import('../features/student/pages/student-bookmarks').then((m) => ({ default: m.StudentBookmarks })));
+const StudentNotifications = lazy(() => import('../features/student/pages/student-notifications').then((m) => ({ default: m.StudentNotifications })));
+const StudentProfileView = lazy(() => import('../features/student/pages/student-profile').then((m) => ({ default: m.StudentProfile })));
+const StudentSettings = lazy(() => import('../features/student/pages/student-settings').then((m) => ({ default: m.StudentSettings })));
+const StudentCourseLearn = lazy(() => import('../features/student/pages/student-course-learn').then((m) => ({ default: m.StudentCourseLearn })));
+const StudentSchedule = lazy(() => import('../features/student/pages/student-schedule').then((m) => ({ default: m.StudentSchedule })));
+const StudentPayments = lazy(() => import('../features/student/pages/student-payments').then((m) => ({ default: m.StudentPayments })));
+const StudentCourseDetail = lazy(() => import('../features/student/pages/student-course-detail').then((m) => ({ default: m.StudentCourseDetail })));
+const StudentAiTutor = lazy(() => import('../features/student/pages/student-ai-tutor').then((m) => ({ default: m.StudentAiTutor })));
+const StudentQuizTake = lazy(() => import('../features/student/pages/student-quiz-take').then((m) => ({ default: m.StudentQuizTake })));
+const StudentAnalytics = lazy(() => import('../features/student/pages/student-analytics').then((m) => ({ default: m.StudentAnalytics })));
 
 // ── Admin Portal ──
-const AdminLayout = lazy(() =>
-  import('../features/admin/components/admin-layout').then((m) => ({ default: m.AdminLayout }))
-);
-const AdminGuard = lazy(() =>
-  import('../features/admin/components/admin-guard').then((m) => ({ default: m.AdminGuard }))
-);
-const ParentLayout = lazy(() =>
-  import('../features/parent/components/parent-layout').then((m) => ({ default: m.ParentLayout }))
-);
-const ParentPayments = lazy(() =>
-  import('../features/parent/pages/parent-payments').then((m) => ({ default: m.ParentPayments }))
-);
-const AdminDashboard = lazy(() =>
-  import('../features/admin/pages/admin-dashboard').then((m) => ({ default: m.AdminDashboard }))
-);
-const CoursesManage = lazy(() =>
-  import('../features/admin/pages/courses-manage').then((m) => ({ default: m.CoursesManage }))
-);
-const CourseGateReport = lazy(() =>
-  import('../features/admin/pages/course-gate-report').then((m) => ({ default: m.CourseGateReport }))
-);
-const CourseGradebook = lazy(() =>
-  import('../features/admin/pages/course-gradebook').then((m) => ({ default: m.CourseGradebook }))
-);
-const CourseBuilder = lazy(() =>
-  import('../features/admin/pages/course-builder').then((m) => ({ default: m.CourseBuilder }))
-);
-const LessonEditPage = lazy(() =>
-  import('../features/admin/pages/lesson-edit-page').then((m) => ({ default: m.LessonEditPage }))
-);
-const QuizEditPage = lazy(() =>
-  import('../features/admin/pages/quiz-edit-page').then((m) => ({ default: m.QuizEditPage }))
-);
-const ExamPaperEditPage = lazy(() =>
-  import('../features/admin/pages/exam-paper-edit-page').then((m) => ({ default: m.ExamPaperEditPage }))
-);
-const CoursePreview = lazy(() =>
-  import('../features/admin/pages/course-preview').then((m) => ({ default: m.CoursePreview }))
-);
-const SchoolsManage = lazy(() =>
-  import('../features/admin/pages/schools-manage').then((m) => ({ default: m.SchoolsManage }))
-);
-const UsersManage = lazy(() =>
-  import('../features/admin/pages/users-manage').then((m) => ({ default: m.UsersManage }))
-);
-const StudentsManage = lazy(() =>
-  import('../features/admin/pages/students-manage').then((m) => ({ default: m.StudentsManage }))
-);
-const StudentReport = lazy(() =>
-  import('../features/admin/pages/student-report').then((m) => ({ default: m.StudentReport }))
-);
-const StudentActivity = lazy(() =>
-  import('../features/admin/pages/student-activity').then((m) => ({ default: m.StudentActivity }))
-);
-const PaymentsOverview = lazy(() =>
-  import('../features/admin/pages/payments-overview').then((m) => ({ default: m.PaymentsOverview }))
-);
-const PaymentsRecord = lazy(() =>
-  import('../features/admin/pages/payments-record').then((m) => ({ default: m.PaymentsRecord }))
-);
-const PaymentsHistory = lazy(() =>
-  import('../features/admin/pages/payments-history').then((m) => ({ default: m.PaymentsHistory }))
-);
-const PaymentsReports = lazy(() =>
-  import('../features/admin/pages/payments-reports').then((m) => ({ default: m.PaymentsReports }))
-);
-const PaymentsBulk = lazy(() =>
-  import('../features/admin/pages/payments-bulk').then((m) => ({ default: m.PaymentsBulk }))
-);
-const PaymentsBalances = lazy(() =>
-  import('../features/admin/pages/payments-balances').then((m) => ({ default: m.PaymentsBalances }))
-);
-const FeeStructuresManage = lazy(() =>
-  import('../features/admin/pages/fee-structures-manage').then((m) => ({ default: m.FeeStructuresManage }))
-);
-const InvoicesManage = lazy(() =>
-  import('../features/admin/pages/invoices-manage').then((m) => ({ default: m.InvoicesManage }))
-);
-const AttendanceManage = lazy(() =>
-  import('../features/admin/pages/attendance-manage').then((m) => ({ default: m.AttendanceManage }))
-);
-const SchedulesManage = lazy(() =>
-  import('../features/admin/pages/schedules-manage').then((m) => ({ default: m.SchedulesManage }))
-);
-const ClassesManage = lazy(() =>
-  import('../features/admin/pages/classes-manage').then((m) => ({ default: m.ClassesManage }))
-);
-const TeachersManage = lazy(() =>
-  import('../features/admin/pages/teachers-manage').then((m) => ({ default: m.TeachersManage }))
-);
-const ParentsManage = lazy(() =>
-  import('../features/admin/pages/parents-manage').then((m) => ({ default: m.ParentsManage }))
-);
-const ExamsManage = lazy(() =>
-  import('../features/admin/pages/exams-manage').then((m) => ({ default: m.ExamsManage }))
-);
-const ResultsView = lazy(() =>
-  import('../features/admin/pages/results-view').then((m) => ({ default: m.ResultsView }))
-);
-const ResultsEntry = lazy(() =>
-  import('../features/admin/pages/results-entry').then((m) => ({ default: m.ResultsEntry }))
-);
-const ExamRoomsManage = lazy(() =>
-  import('../features/admin/pages/exam-rooms-manage').then((m) => ({ default: m.ExamRoomsManage }))
-);
-const ExamAttendanceManage = lazy(() =>
-  import('../features/admin/pages/exam-attendance-manage').then((m) => ({ default: m.ExamAttendanceManage }))
-);
-const ExamPapersManage = lazy(() =>
-  import('../features/admin/pages/exam-papers-manage').then((m) => ({ default: m.ExamPapersManage }))
-);
-const ExamPaperReviewPage = lazy(() =>
-  import('../features/admin/pages/exam-paper-review-page').then((m) => ({ default: m.ExamPaperReviewPage }))
-);
-const ExamComplianceManage = lazy(() =>
-  import('../features/admin/pages/exam-compliance-manage').then((m) => ({ default: m.ExamComplianceManage }))
-);
-const GradingRulesManage = lazy(() =>
-  import('../features/admin/pages/grading-rules-manage').then((m) => ({ default: m.GradingRulesManage }))
-);
-const CertificatesManage = lazy(() =>
-  import('../features/admin/pages/certificates-manage').then((m) => ({ default: m.CertificatesManage }))
-);
-const AssignmentsManage = lazy(() =>
-  import('../features/admin/pages/assignments-manage').then((m) => ({ default: m.AssignmentsManage }))
-);
-const AnnouncementsManage = lazy(() =>
-  import('../features/admin/pages/announcements-manage').then((m) => ({ default: m.AnnouncementsManage }))
-);
-const NewsManage = lazy(() =>
-  import('../features/admin/pages/news-manage').then((m) => ({ default: m.NewsManage }))
-);
-const EventsManage = lazy(() =>
-  import('../features/admin/pages/events-manage').then((m) => ({ default: m.EventsManage }))
-);
-const GalleryManage = lazy(() =>
-  import('../features/admin/pages/gallery-manage').then((m) => ({ default: m.GalleryManage }))
-);
-const RolesManage = lazy(() =>
-  import('../features/admin/pages/roles-manage').then((m) => ({ default: m.RolesManage }))
-);
-const SettingsManage = lazy(() =>
-  import('../features/admin/pages/settings-manage').then((m) => ({ default: m.SettingsManage }))
-);
-const SidebarSettingsManage = lazy(() =>
-  import('../features/admin/pages/sidebar-settings-manage').then((m) => ({ default: m.SidebarSettingsManage }))
-);
-const OrgAdminSidebarManage = lazy(() =>
-  import('../features/admin/pages/org-admin-sidebar-manage').then((m) => ({ default: m.OrgAdminSidebarManage }))
-);
-const AnalyticsManage = lazy(() =>
-  import('../features/admin/pages/analytics-manage').then((m) => ({ default: m.AnalyticsManage }))
-);
-const ActivityLogsManage = lazy(() =>
-  import('../features/admin/pages/activity-logs-manage').then((m) => ({ default: m.ActivityLogsManage }))
-);
-const TrashManage = lazy(() =>
-  import('../features/admin/pages/trash-manage').then((m) => ({ default: m.TrashManage }))
-);
-const ProfileManage = lazy(() =>
-  import('../features/admin/pages/profile-manage').then((m) => ({ default: m.ProfileManage }))
-);
-const PortalPage = lazy(() =>
-  import('../features/shared/pages/portal-page').then((m) => ({ default: m.PortalPage }))
-);
-const ForumPage = lazy(() =>
-  import('../features/shared/pages/forum-page').then((m) => ({ default: m.ForumPage }))
-);
+const AdminLayout = lazy(() => import('../features/admin/components/admin-layout').then((m) => ({ default: m.AdminLayout })));
+const AdminGuard = lazy(() => import('../features/admin/components/admin-guard').then((m) => ({ default: m.AdminGuard })));
+const ParentLayout = lazy(() => import('../features/parent/components/parent-layout').then((m) => ({ default: m.ParentLayout })));
+const ParentPayments = lazy(() => import('../features/parent/pages/parent-payments').then((m) => ({ default: m.ParentPayments })));
+const AdminDashboard = lazy(() => import('../features/admin/pages/admin-dashboard').then((m) => ({ default: m.AdminDashboard })));
+const CoursesManage = lazy(() => import('../features/admin/pages/courses-manage').then((m) => ({ default: m.CoursesManage })));
+const CourseGateReport = lazy(() => import('../features/admin/pages/course-gate-report').then((m) => ({ default: m.CourseGateReport })));
+const CourseGradebook = lazy(() => import('../features/admin/pages/course-gradebook').then((m) => ({ default: m.CourseGradebook })));
+const CourseBuilder = lazy(() => import('../features/admin/pages/course-builder').then((m) => ({ default: m.CourseBuilder })));
+const LessonEditPage = lazy(() => import('../features/admin/pages/lesson-edit-page').then((m) => ({ default: m.LessonEditPage })));
+const QuizEditPage = lazy(() => import('../features/admin/pages/quiz-edit-page').then((m) => ({ default: m.QuizEditPage })));
+const ExamPaperEditPage = lazy(() => import('../features/admin/pages/exam-paper-edit-page').then((m) => ({ default: m.ExamPaperEditPage })));
+const CoursePreview = lazy(() => import('../features/admin/pages/course-preview').then((m) => ({ default: m.CoursePreview })));
+const SchoolsManage = lazy(() => import('../features/admin/pages/schools-manage').then((m) => ({ default: m.SchoolsManage })));
+const UsersManage = lazy(() => import('../features/admin/pages/users-manage').then((m) => ({ default: m.UsersManage })));
+const StudentsManage = lazy(() => import('../features/admin/pages/students-manage').then((m) => ({ default: m.StudentsManage })));
+const StudentReport = lazy(() => import('../features/admin/pages/student-report').then((m) => ({ default: m.StudentReport })));
+const StudentActivity = lazy(() => import('../features/admin/pages/student-activity').then((m) => ({ default: m.StudentActivity })));
+const PaymentsOverview = lazy(() => import('../features/admin/pages/payments-overview').then((m) => ({ default: m.PaymentsOverview })));
+const PaymentsRecord = lazy(() => import('../features/admin/pages/payments-record').then((m) => ({ default: m.PaymentsRecord })));
+const PaymentsHistory = lazy(() => import('../features/admin/pages/payments-history').then((m) => ({ default: m.PaymentsHistory })));
+const PaymentsReports = lazy(() => import('../features/admin/pages/payments-reports').then((m) => ({ default: m.PaymentsReports })));
+const PaymentsBulk = lazy(() => import('../features/admin/pages/payments-bulk').then((m) => ({ default: m.PaymentsBulk })));
+const PaymentsBalances = lazy(() => import('../features/admin/pages/payments-balances').then((m) => ({ default: m.PaymentsBalances })));
+const FeeStructuresManage = lazy(() => import('../features/admin/pages/fee-structures-manage').then((m) => ({ default: m.FeeStructuresManage })));
+const InvoicesManage = lazy(() => import('../features/admin/pages/invoices-manage').then((m) => ({ default: m.InvoicesManage })));
+const AttendanceManage = lazy(() => import('../features/admin/pages/attendance-manage').then((m) => ({ default: m.AttendanceManage })));
+const SchedulesManage = lazy(() => import('../features/admin/pages/schedules-manage').then((m) => ({ default: m.SchedulesManage })));
+const ClassesManage = lazy(() => import('../features/admin/pages/classes-manage').then((m) => ({ default: m.ClassesManage })));
+const TeachersManage = lazy(() => import('../features/admin/pages/teachers-manage').then((m) => ({ default: m.TeachersManage })));
+const ParentsManage = lazy(() => import('../features/admin/pages/parents-manage').then((m) => ({ default: m.ParentsManage })));
+const ExamsManage = lazy(() => import('../features/admin/pages/exams-manage').then((m) => ({ default: m.ExamsManage })));
+const ResultsView = lazy(() => import('../features/admin/pages/results-view').then((m) => ({ default: m.ResultsView })));
+const ResultsEntry = lazy(() => import('../features/admin/pages/results-entry').then((m) => ({ default: m.ResultsEntry })));
+const ExamRoomsManage = lazy(() => import('../features/admin/pages/exam-rooms-manage').then((m) => ({ default: m.ExamRoomsManage })));
+const ExamAttendanceManage = lazy(() => import('../features/admin/pages/exam-attendance-manage').then((m) => ({ default: m.ExamAttendanceManage })));
+const ExamPapersManage = lazy(() => import('../features/admin/pages/exam-papers-manage').then((m) => ({ default: m.ExamPapersManage })));
+const ExamPaperReviewPage = lazy(() => import('../features/admin/pages/exam-paper-review-page').then((m) => ({ default: m.ExamPaperReviewPage })));
+const ExamComplianceManage = lazy(() => import('../features/admin/pages/exam-compliance-manage').then((m) => ({ default: m.ExamComplianceManage })));
+const GradingRulesManage = lazy(() => import('../features/admin/pages/grading-rules-manage').then((m) => ({ default: m.GradingRulesManage })));
+const CertificatesManage = lazy(() => import('../features/admin/pages/certificates-manage').then((m) => ({ default: m.CertificatesManage })));
+const AssignmentsManage = lazy(() => import('../features/admin/pages/assignments-manage').then((m) => ({ default: m.AssignmentsManage })));
+const AnnouncementsManage = lazy(() => import('../features/admin/pages/announcements-manage').then((m) => ({ default: m.AnnouncementsManage })));
+const NewsManage = lazy(() => import('../features/admin/pages/news-manage').then((m) => ({ default: m.NewsManage })));
+const EventsManage = lazy(() => import('../features/admin/pages/events-manage').then((m) => ({ default: m.EventsManage })));
+const GalleryManage = lazy(() => import('../features/admin/pages/gallery-manage').then((m) => ({ default: m.GalleryManage })));
+const RolesManage = lazy(() => import('../features/admin/pages/roles-manage').then((m) => ({ default: m.RolesManage })));
+const SettingsManage = lazy(() => import('../features/admin/pages/settings-manage').then((m) => ({ default: m.SettingsManage })));
+const SidebarSettingsManage = lazy(() => import('../features/admin/pages/sidebar-settings-manage').then((m) => ({ default: m.SidebarSettingsManage })));
+const OrgAdminSidebarManage = lazy(() => import('../features/admin/pages/org-admin-sidebar-manage').then((m) => ({ default: m.OrgAdminSidebarManage })));
+const AnalyticsManage = lazy(() => import('../features/admin/pages/analytics-manage').then((m) => ({ default: m.AnalyticsManage })));
+const ActivityLogsManage = lazy(() => import('../features/admin/pages/activity-logs-manage').then((m) => ({ default: m.ActivityLogsManage })));
+const TrashManage = lazy(() => import('../features/admin/pages/trash-manage').then((m) => ({ default: m.TrashManage })));
+const ProfileManage = lazy(() => import('../features/admin/pages/profile-manage').then((m) => ({ default: m.ProfileManage })));
+const PortalPage = lazy(() => import('../features/shared/pages/portal-page').then((m) => ({ default: m.PortalPage })));
+const ForumPage = lazy(() => import('../features/shared/pages/forum-page').then((m) => ({ default: m.ForumPage })));
 
 // ── Teacher Portal ──
-const TeacherLayout = lazy(() =>
-  import('../features/teacher/components/teacher-layout').then((m) => ({ default: m.TeacherLayout }))
-);
-const TeacherGuard = lazy(() =>
-  import('../features/teacher/components/teacher-guard').then((m) => ({ default: m.TeacherGuard }))
-);
-const TeacherDashboard = lazy(() =>
-  import('../features/teacher/pages/teacher-dashboard').then((m) => ({ default: m.TeacherDashboard }))
-);
-const TeacherCourses = lazy(() =>
-  import('../features/teacher/pages/teacher-courses').then((m) => ({ default: m.TeacherCourses }))
-);
-const TeacherQuizzes = lazy(() =>
-  import('../features/teacher/pages/teacher-quizzes').then((m) => ({ default: m.TeacherQuizzes }))
-);
-const TeacherLessons = lazy(() =>
-  import('../features/teacher/pages/teacher-lessons').then((m) => ({ default: m.TeacherLessons }))
-);
-const TeacherGradebook = lazy(() =>
-  import('../features/teacher/pages/teacher-gradebook').then((m) => ({ default: m.TeacherGradebook }))
-);
-const TeacherStudents = lazy(() =>
-  import('../features/teacher/pages/teacher-students').then((m) => ({ default: m.TeacherStudents }))
-);
-const TeacherActivity = lazy(() =>
-  import('../features/admin/pages/student-activity').then((m) => ({ default: m.StudentActivity }))
-);
-const TeacherAnalytics = lazy(() =>
-  import('../features/teacher/pages/teacher-analytics').then((m) => ({ default: m.TeacherAnalytics }))
-);
-const TeacherSchedule = lazy(() =>
-  import('../features/teacher/pages/teacher-schedule').then((m) => ({ default: m.TeacherSchedule }))
-);
-const TeacherCourseBuilder = lazy(() =>
-  import('../features/teacher/pages/teacher-course-builder').then((m) => ({ default: m.TeacherCourseBuilder }))
-);
-const TeacherAssignments = lazy(() =>
-  import('../features/admin/pages/assignments-manage').then((m) => ({ default: m.AssignmentsManage }))
-);
-const TeacherProfile = lazy(() =>
-  import('../features/admin/pages/profile-manage').then((m) => ({ default: m.ProfileManage }))
-);
-const TeacherSettings = lazy(() =>
-  import('../features/student/pages/student-settings').then((m) => ({ default: m.StudentSettings }))
-);
-const TeacherGamification = lazy(() =>
-  import('../features/teacher/pages/teacher-gamification').then((m) => ({ default: m.TeacherGamification }))
-);
-// Reuse admin edit pages for teacher portal (they work with course content API)
-const TeacherLessonEditPage = lazy(() =>
-  import('../features/admin/pages/lesson-edit-page').then((m) => ({ default: m.LessonEditPage }))
-);
-const TeacherQuizEditPage = lazy(() =>
-  import('../features/admin/pages/quiz-edit-page').then((m) => ({ default: m.QuizEditPage }))
-);
-const TeacherExamPaperEditPage = lazy(() =>
-  import('../features/admin/pages/exam-paper-edit-page').then((m) => ({ default: m.ExamPaperEditPage }))
-);
+const TeacherLayout = lazy(() => import('../features/teacher/components/teacher-layout').then((m) => ({ default: m.TeacherLayout })));
+const TeacherGuard = lazy(() => import('../features/teacher/components/teacher-guard').then((m) => ({ default: m.TeacherGuard })));
+const TeacherDashboard = lazy(() => import('../features/teacher/pages/teacher-dashboard').then((m) => ({ default: m.TeacherDashboard })));
+const TeacherCourses = lazy(() => import('../features/teacher/pages/teacher-courses').then((m) => ({ default: m.TeacherCourses })));
+const TeacherQuizzes = lazy(() => import('../features/teacher/pages/teacher-quizzes').then((m) => ({ default: m.TeacherQuizzes })));
+const TeacherLessons = lazy(() => import('../features/teacher/pages/teacher-lessons').then((m) => ({ default: m.TeacherLessons })));
+const TeacherGradebook = lazy(() => import('../features/teacher/pages/teacher-gradebook').then((m) => ({ default: m.TeacherGradebook })));
+const TeacherStudents = lazy(() => import('../features/teacher/pages/teacher-students').then((m) => ({ default: m.TeacherStudents })));
+const TeacherActivity = lazy(() => import('../features/admin/pages/student-activity').then((m) => ({ default: m.StudentActivity })));
+const TeacherAnalytics = lazy(() => import('../features/teacher/pages/teacher-analytics').then((m) => ({ default: m.TeacherAnalytics })));
+const TeacherSchedule = lazy(() => import('../features/teacher/pages/teacher-schedule').then((m) => ({ default: m.TeacherSchedule })));
+const TeacherCourseBuilder = lazy(() => import('../features/teacher/pages/teacher-course-builder').then((m) => ({ default: m.TeacherCourseBuilder })));
+const TeacherAssignments = lazy(() => import('../features/teacher/pages/teacher-assignments').then((m) => ({ default: m.TeacherAssignments })));
+const TeacherAssignmentReview = lazy(() => import('../features/teacher/pages/teacher-assignment-review').then((m) => ({ default: m.TeacherAssignmentReview })));
+const TeacherProfile = lazy(() => import('../features/admin/pages/profile-manage').then((m) => ({ default: m.ProfileManage })));
+const TeacherSettings = lazy(() => import('../features/student/pages/student-settings').then((m) => ({ default: m.StudentSettings })));
+const TeacherGamification = lazy(() => import('../features/teacher/pages/teacher-gamification').then((m) => ({ default: m.TeacherGamification })));
+const TeacherLessonEditPage = lazy(() => import('../features/admin/pages/lesson-edit-page').then((m) => ({ default: m.LessonEditPage })));
+const TeacherQuizEditPage = lazy(() => import('../features/admin/pages/quiz-edit-page').then((m) => ({ default: m.QuizEditPage })));
+const TeacherExamPaperEditPage = lazy(() => import('../features/admin/pages/exam-paper-edit-page').then((m) => ({ default: m.ExamPaperEditPage })));
 
 function PageLoader() {
   return (
@@ -340,15 +136,9 @@ function PageLoader() {
 
 const L = (el: JSX.Element) => <Suspense fallback={<PageLoader />}>{el}</Suspense>;
 
-// ---------------------------------------------------------------------------
-// Router
-// ---------------------------------------------------------------------------
-
 export const router = createBrowserRouter([
   ...publicRoutes,
   ...authRoutes,
-
-  // ── Student Portal ──
   {
     path: 'student',
     element: L(<StudentLayout />),
@@ -382,8 +172,6 @@ export const router = createBrowserRouter([
       { path: 'settings', element: L(<StudentSettings />) },
     ],
   },
-
-  // ── Admin Portal (guarded: teachers/students/parents evicted to their portals) ──
   {
     path: 'admin',
     element: L(<AdminGuard><AdminLayout /></AdminGuard>),
@@ -394,19 +182,16 @@ export const router = createBrowserRouter([
       { path: 'activity', element: L(<StudentActivity />) },
       { path: 'parents', element: L(<ParentsManage />) },
       { path: 'teachers', element: L(<TeachersManage />) },
-      {
-        path: 'courses',
-        children: [
-          { index: true, element: L(<CoursesManage />) },
-          { path: ':courseId/builder', element: L(<CourseBuilder />) },
-          { path: ':courseId/gradebook', element: L(<CourseGradebook />) },
-          { path: ':courseId/gate-report', element: L(<CourseGateReport />) },
-          { path: ':courseId/lessons/:lessonId/edit', element: L(<LessonEditPage />) },
-          { path: ':courseId/quizzes/:quizId/edit', element: L(<QuizEditPage />) },
-          { path: ':courseId/exams/:itemId/paper/edit', element: L(<ExamPaperEditPage />) },
-          { path: ':courseId/preview', element: L(<CoursePreview />) },
-        ],
-      },
+      { path: 'courses', children: [
+        { index: true, element: L(<CoursesManage />) },
+        { path: ':courseId/builder', element: L(<CourseBuilder />) },
+        { path: ':courseId/gradebook', element: L(<CourseGradebook />) },
+        { path: ':courseId/gate-report', element: L(<CourseGateReport />) },
+        { path: ':courseId/lessons/:lessonId/edit', element: L(<LessonEditPage />) },
+        { path: ':courseId/quizzes/:quizId/edit', element: L(<QuizEditPage />) },
+        { path: ':courseId/exams/:itemId/paper/edit', element: L(<ExamPaperEditPage />) },
+        { path: ':courseId/preview', element: L(<CoursePreview />) },
+      ] },
       { path: 'schools', element: L(<SchoolsManage />) },
       { path: 'users', element: L(<UsersManage />) },
       { path: 'classes', element: L(<ClassesManage />) },
@@ -446,8 +231,6 @@ export const router = createBrowserRouter([
       { path: 'profile', element: L(<ProfileManage />) },
     ],
   },
-
-  // ── Teacher Portal (STRICTLY SANDBOXED — RBAC Guard) ──
   {
     path: 'teacher',
     element: L(<TeacherGuard><TeacherLayout /></TeacherGuard>),
@@ -455,8 +238,6 @@ export const router = createBrowserRouter([
       { index: true, element: L(<TeacherDashboard />) },
       { path: 'courses', element: L(<TeacherCourses />) },
       { path: 'courses/:courseId', element: L(<TeacherAnalytics />) },
-      // ✅ COURSE_BUILDER permission: Full course authoring (chapters, lessons, quizzes, assignments)
-      // Route guard in TeacherCourseBuilder checks permission and redirects to student view if denied
       { path: 'courses/:courseId/builder', element: L(<TeacherCourseBuilder />) },
       { path: 'courses/:courseId/gradebook', element: L(<CourseGradebook basePath="/teacher" />) },
       { path: 'courses/:courseId/gate-report', element: L(<CourseGateReport basePath="/teacher" />) },
@@ -478,10 +259,9 @@ export const router = createBrowserRouter([
       { path: 'profile', element: L(<TeacherProfile />) },
       { path: 'settings', element: L(<TeacherSettings />) },
       { path: 'assignments', element: L(<TeacherAssignments />) },
+      { path: 'assignments/:id/review', element: L(<TeacherAssignmentReview />) },
     ],
   },
-
-  // ── Parent Portal ──
   {
     path: 'parent',
     element: L(<ParentLayout />),
