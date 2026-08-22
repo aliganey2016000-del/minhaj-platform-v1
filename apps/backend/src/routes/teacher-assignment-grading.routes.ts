@@ -1,39 +1,84 @@
 import { Router } from 'express';
-import { prisma } from '../lib/prisma';
-import { requireAuth } from '../middleware/auth';
+import mongoose from 'mongoose';
+import Assignment from '../models/assignment.model';
+import AssignmentSubmission from '../models/assignment-submission.model';
+import Course from '../models/course.model';
+import { authMiddleware } from '../middleware/auth.middleware';
+import { roleMiddleware } from '../middleware/role.middleware';
+import { asyncHandler } from '../middleware/async-handler.middleware';
+import { getOwnTeacherRecord } from '../utils/tenant-scope';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 
 const router = Router();
 
-router.patch('/assignment-submissions/:submissionId/grade', requireAuth, async (req, res) => {
-  const { submissionId } = req.params;
-  const { grade, feedback } = req.body ?? {};
+/**
+ * Teacher grading endpoint used by the teacher assignment review UI.
+ * The project uses Mongoose (not Prisma), so this route deliberately follows
+ * the existing model/middleware stack.
+ */
+router.patch(
+  '/assignment-submissions/:submissionId/grade',
+  authMiddleware,
+  roleMiddleware(['teacher', 'admin', 'org_admin']),
+  asyncHandler(async (req, res) => {
+    const { submissionId } = req.params;
+    const { grade, feedback } = req.body ?? {};
 
-  if (grade !== null && grade !== undefined && (typeof grade !== 'number' || Number.isNaN(grade) || grade < 0)) {
-    return res.status(400).json({ message: 'Grade must be a non-negative number or null.' });
-  }
+    if (!mongoose.isValidObjectId(submissionId)) {
+      throw new BadRequestError('Invalid submission id');
+    }
 
-  const submission = await prisma.assignmentSubmission.findUnique({
-    where: { id: submissionId },
-    include: { assignment: true },
-  });
+    if (grade !== null && grade !== undefined) {
+      if (typeof grade !== 'number' || !Number.isFinite(grade) || grade < 0) {
+        throw new BadRequestError('Grade must be a non-negative number or null.');
+      }
+    }
 
-  if (!submission) return res.status(404).json({ message: 'Submission not found.' });
+    if (feedback !== undefined && feedback !== null && typeof feedback !== 'string') {
+      throw new BadRequestError('Feedback must be text.');
+    }
 
-  if (grade !== null && grade !== undefined && submission.assignment.maxPoints != null && grade > submission.assignment.maxPoints) {
-    return res.status(400).json({ message: `Grade cannot exceed ${submission.assignment.maxPoints}.` });
-  }
+    const submission = await AssignmentSubmission.findById(submissionId).lean();
+    if (!submission) throw new NotFoundError('Submission');
 
-  const updated = await prisma.assignmentSubmission.update({
-    where: { id: submissionId },
-    data: {
-      grade: grade ?? null,
-      feedback: typeof feedback === 'string' ? feedback.trim() || null : null,
-      gradedAt: grade == null ? null : new Date(),
-      status: grade == null ? 'SUBMITTED' : 'GRADED',
-    },
-  });
+    const assignment = await Assignment.findById(submission.assignment)
+      .select('totalMarks')
+      .lean();
+    if (!assignment) throw new NotFoundError('Assignment');
 
-  return res.json({ data: updated });
-});
+    // Teachers may grade only submissions belonging to courses they teach.
+    if (req.user?.role === 'teacher') {
+      const teacher = await getOwnTeacherRecord(req);
+      if (!teacher) throw new ForbiddenError('Teacher record not found');
+
+      const ownedCourse = await Course.findOne({
+        _id: submission.course,
+        teacher: teacher._id,
+      }).select('_id').lean();
+
+      if (!ownedCourse) {
+        throw new ForbiddenError('This submission belongs to a course you do not teach.');
+      }
+    }
+
+    if (grade !== null && grade !== undefined && grade > assignment.totalMarks) {
+      throw new BadRequestError(`Grade cannot exceed ${assignment.totalMarks}.`);
+    }
+
+    const updated = await AssignmentSubmission.findByIdAndUpdate(
+      submissionId,
+      {
+        score: grade ?? null,
+        feedback: typeof feedback === 'string' ? feedback.trim() : '',
+        gradedAt: grade == null ? null : new Date(),
+        gradedBy: grade == null ? null : new mongoose.Types.ObjectId(req.user!.userId),
+        status: grade == null ? 'submitted' : 'graded',
+      },
+      { new: true, runValidators: true }
+    ).lean();
+
+    return res.json({ data: updated });
+  })
+);
 
 export default router;
