@@ -1,19 +1,7 @@
-/**
- * Main Route Configuration
- *
- * Combines public, auth, admin, student, parent, and teacher routes.
- * Uses createBrowserRouter for React Router v6 data API.
- * Teacher portal is strictly sandboxed — no admin routes or finance access.
- */
-
 import { createBrowserRouter } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { publicRoutes } from './public-routes';
 import { authRoutes } from './auth-routes';
-
-// ---------------------------------------------------------------------------
-// Lazy-loaded components
-// ---------------------------------------------------------------------------
 
 const StudentLayout = lazy(() => import('../features/student/components/student-layout').then((m) => ({ default: m.StudentLayout })));
 const StudentDashboard = lazy(() => import('../features/student/pages/student-dashboard').then((m) => ({ default: m.StudentDashboard })));
@@ -43,7 +31,6 @@ const StudentAiTutor = lazy(() => import('../features/student/pages/student-ai-t
 const StudentQuizTake = lazy(() => import('../features/student/pages/student-quiz-take').then((m) => ({ default: m.StudentQuizTake })));
 const StudentAnalytics = lazy(() => import('../features/student/pages/student-analytics').then((m) => ({ default: m.StudentAnalytics })));
 
-// ── Admin Portal ──
 const AdminLayout = lazy(() => import('../features/admin/components/admin-layout').then((m) => ({ default: m.AdminLayout })));
 const AdminGuard = lazy(() => import('../features/admin/components/admin-guard').then((m) => ({ default: m.AdminGuard })));
 const ParentLayout = lazy(() => import('../features/parent/components/parent-layout').then((m) => ({ default: m.ParentLayout })));
@@ -101,7 +88,6 @@ const ProfileManage = lazy(() => import('../features/admin/pages/profile-manage'
 const PortalPage = lazy(() => import('../features/shared/pages/portal-page').then((m) => ({ default: m.PortalPage })));
 const ForumPage = lazy(() => import('../features/shared/pages/forum-page').then((m) => ({ default: m.ForumPage })));
 
-// ── Teacher Portal ──
 const TeacherLayout = lazy(() => import('../features/teacher/components/teacher-layout').then((m) => ({ default: m.TeacherLayout })));
 const TeacherGuard = lazy(() => import('../features/teacher/components/teacher-guard').then((m) => ({ default: m.TeacherGuard })));
 const TeacherDashboard = lazy(() => import('../features/teacher/pages/teacher-dashboard').then((m) => ({ default: m.TeacherDashboard })));
@@ -122,164 +108,36 @@ const TeacherGamification = lazy(() => import('../features/teacher/pages/teacher
 const TeacherLessonEditPage = lazy(() => import('../features/admin/pages/lesson-edit-page').then((m) => ({ default: m.LessonEditPage })));
 const TeacherQuizEditPage = lazy(() => import('../features/admin/pages/quiz-edit-page').then((m) => ({ default: m.QuizEditPage })));
 const TeacherExamPaperEditPage = lazy(() => import('../features/admin/pages/exam-paper-edit-page').then((m) => ({ default: m.ExamPaperEditPage })));
+const TeacherExams = lazy(() => import('../features/teacher/pages/teacher-exams').then((m) => ({ default: m.TeacherExams })));
+const TeacherExamAttendance = lazy(() => import('../features/teacher/pages/teacher-exam-attendance').then((m) => ({ default: m.TeacherExamAttendance })));
+const TeacherExamAttendanceRoster = lazy(() => import('../features/teacher/pages/teacher-exam-attendance-roster').then((m) => ({ default: m.TeacherExamAttendanceRoster })));
+const TeacherExamPapers = lazy(() => import('../features/teacher/pages/teacher-exam-papers').then((m) => ({ default: m.TeacherExamPapers })));
+const TeacherExamPaper = lazy(() => import('../features/teacher/pages/teacher-exam-paper').then((m) => ({ default: m.TeacherExamPaper })));
+const TeacherExamIncidents = lazy(() => import('../features/teacher/pages/teacher-exam-incidents').then((m) => ({ default: m.TeacherExamIncidents })));
 
 function PageLoader() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-primary)]">
-      <div className="flex flex-col items-center gap-4">
-        <div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
-        <p className="text-sm text-[var(--color-text-tertiary)]">Loading...</p>
-      </div>
-    </div>
-  );
+  return <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-primary)]"><div className="flex flex-col items-center gap-4"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /><p className="text-sm text-[var(--color-text-tertiary)]">Loading...</p></div></div>;
 }
-
 const L = (el: JSX.Element) => <Suspense fallback={<PageLoader />}>{el}</Suspense>;
 
 export const router = createBrowserRouter([
   ...publicRoutes,
   ...authRoutes,
-  {
-    path: 'student',
-    element: L(<StudentLayout />),
-    children: [
-      { index: true, element: L(<StudentDashboard />) },
-      { path: 'courses', element: L(<StudentCourses />) },
-      { path: 'courses/:courseId', element: L(<StudentCourseDetail />) },
-      { path: 'courses/:courseId/learn', element: L(<StudentCourseLearn />) },
-      { path: 'courses/:courseId/ai-tutor', element: L(<StudentAiTutor />) },
-      { path: 'courses/:courseId/quiz/:quizId/take', element: L(<StudentQuizTake />) },
-      { path: 'analytics', element: L(<StudentAnalytics />) },
-      { path: 'schedule', element: L(<StudentSchedule />) },
-      { path: 'available', element: L(<StudentAvailable />) },
-      { path: 'assignments', element: L(<StudentAssignments />) },
-      { path: 'assignments/:assignmentId', element: L(<StudentAssignmentDetail />) },
-      { path: 'exams', element: L(<StudentExams />) },
-      { path: 'exams/seating', element: L(<StudentExamSeating />) },
-      { path: 'exams/active', element: L(<StudentExamActive />) },
-      { path: 'exams/:examId/review', element: L(<StudentExamReview />) },
-      { path: 'exams/attendance', element: L(<StudentExamAttendance />) },
-      { path: 'exams/results', element: L(<StudentExamResults />) },
-      { path: 'exams/appeals', element: L(<StudentExamAppeals />) },
-      { path: 'certificates', element: L(<StudentCertificates />) },
-      { path: 'attendance', element: L(<StudentAttendance />) },
-      { path: 'downloads', element: L(<StudentDownloads />) },
-      { path: 'bookmarks', element: L(<StudentBookmarks />) },
-      { path: 'payments', element: L(<StudentPayments />) },
-      { path: 'notifications', element: L(<StudentNotifications />) },
-      { path: 'forum', element: L(<ForumPage />) },
-      { path: 'profile', element: L(<StudentProfileView />) },
-      { path: 'settings', element: L(<StudentSettings />) },
-    ],
-  },
-  {
-    path: 'admin',
-    element: L(<AdminGuard><AdminLayout /></AdminGuard>),
-    children: [
-      { index: true, element: L(<AdminDashboard />) },
-      { path: 'students', element: L(<StudentsManage />) },
-      { path: 'students/report', element: L(<StudentReport />) },
-      { path: 'activity', element: L(<StudentActivity />) },
-      { path: 'parents', element: L(<ParentsManage />) },
-      { path: 'teachers', element: L(<TeachersManage />) },
-      { path: 'courses', children: [
-        { index: true, element: L(<CoursesManage />) },
-        { path: ':courseId/builder', element: L(<CourseBuilder />) },
-        { path: ':courseId/gradebook', element: L(<CourseGradebook />) },
-        { path: ':courseId/gate-report', element: L(<CourseGateReport />) },
-        { path: ':courseId/lessons/:lessonId/edit', element: L(<LessonEditPage />) },
-        { path: ':courseId/quizzes/:quizId/edit', element: L(<QuizEditPage />) },
-        { path: ':courseId/exams/:itemId/paper/edit', element: L(<ExamPaperEditPage />) },
-        { path: ':courseId/preview', element: L(<CoursePreview />) },
-      ] },
-      { path: 'schools', element: L(<SchoolsManage />) },
-      { path: 'users', element: L(<UsersManage />) },
-      { path: 'classes', element: L(<ClassesManage />) },
-      { path: 'schedules', element: L(<SchedulesManage />) },
-      { path: 'attendance', element: L(<AttendanceManage />) },
-      { path: 'assignments', element: L(<AssignmentsManage />) },
-      { path: 'exams', element: L(<ExamsManage />) },
-      { path: 'exams/rooms', element: L(<ExamRoomsManage />) },
-      { path: 'exams/attendance', element: L(<ExamAttendanceManage />) },
-      { path: 'exams/papers', element: L(<ExamPapersManage />) },
-      { path: 'exams/:examId/paper/review', element: L(<ExamPaperReviewPage />) },
-      { path: 'exams/compliance', element: L(<ExamComplianceManage />) },
-      { path: 'exams/grading-rules', element: L(<GradingRulesManage />) },
-      { path: 'results', element: L(<ResultsView />) },
-      { path: 'results/enter', element: L(<ResultsEntry />) },
-      { path: 'payments', element: L(<PaymentsOverview />) },
-      { path: 'payments/record', element: L(<PaymentsRecord />) },
-      { path: 'payments/bulk', element: L(<PaymentsBulk />) },
-      { path: 'payments/balances', element: L(<PaymentsBalances />) },
-      { path: 'payments/history', element: L(<PaymentsHistory />) },
-      { path: 'payments/reports', element: L(<PaymentsReports />) },
-      { path: 'payments/fee-structures', element: L(<FeeStructuresManage />) },
-      { path: 'payments/invoices', element: L(<InvoicesManage />) },
-      { path: 'certificates', element: L(<CertificatesManage />) },
-      { path: 'announcements', element: L(<AnnouncementsManage />) },
-      { path: 'news', element: L(<NewsManage />) },
-      { path: 'events', element: L(<EventsManage />) },
-      { path: 'gallery', element: L(<GalleryManage />) },
-      { path: 'roles', element: L(<RolesManage />) },
-      { path: 'settings', element: L(<SettingsManage />) },
-      { path: 'settings/sidebar', element: L(<SidebarSettingsManage />) },
-      { path: 'settings/org-sidebar', element: L(<OrgAdminSidebarManage />) },
-      { path: 'analytics', element: L(<AnalyticsManage />) },
-      { path: 'logs', element: L(<ActivityLogsManage />) },
-      { path: 'trash', element: L(<TrashManage />) },
-      { path: 'forum', element: L(<ForumPage />) },
-      { path: 'profile', element: L(<ProfileManage />) },
-    ],
-  },
-  {
-    path: 'teacher',
-    element: L(<TeacherGuard><TeacherLayout /></TeacherGuard>),
-    children: [
-      { index: true, element: L(<TeacherDashboard />) },
-      { path: 'courses', element: L(<TeacherCourses />) },
-      { path: 'courses/:courseId', element: L(<TeacherAnalytics />) },
-      { path: 'courses/:courseId/builder', element: L(<TeacherCourseBuilder />) },
-      { path: 'courses/:courseId/gradebook', element: L(<CourseGradebook basePath="/teacher" />) },
-      { path: 'courses/:courseId/gate-report', element: L(<CourseGateReport basePath="/teacher" />) },
-      { path: 'courses/:courseId/lessons/:lessonId/edit', element: L(<TeacherLessonEditPage />) },
-      { path: 'courses/:courseId/quizzes/:quizId/edit', element: L(<TeacherQuizEditPage />) },
-      { path: 'courses/:courseId/exams/:itemId/paper/edit', element: L(<TeacherExamPaperEditPage />) },
-      { path: 'quizzes', element: L(<TeacherQuizzes />) },
-      { path: 'quizzes/create', element: L(<TeacherQuizzes />) },
-      { path: 'lessons', element: L(<TeacherLessons />) },
-      { path: 'gradebook', element: L(<TeacherGradebook />) },
-      { path: 'gradebook/review', element: L(<TeacherGradebook />) },
-      { path: 'results/enter', element: L(<ResultsEntry backFallback="/teacher" />) },
-      { path: 'students', element: L(<TeacherStudents />) },
-      { path: 'activity', element: L(<TeacherActivity basePath="/teacher" />) },
-      { path: 'gamification', element: L(<TeacherGamification />) },
-      { path: 'analytics', element: L(<TeacherAnalytics />) },
-      { path: 'schedule', element: L(<TeacherSchedule />) },
-      { path: 'forum', element: L(<ForumPage />) },
-      { path: 'profile', element: L(<TeacherProfile />) },
-      { path: 'settings', element: L(<TeacherSettings />) },
-      { path: 'assignments', element: L(<TeacherAssignments />) },
-      { path: 'assignments/:id/review', element: L(<TeacherAssignmentReview />) },
-    ],
-  },
-  {
-    path: 'parent',
-    element: L(<ParentLayout />),
-    children: [
-      { index: true, element: L(<PortalPage />) },
-      { path: 'children', element: L(<PortalPage />) },
-      { path: 'attendance', element: L(<PortalPage />) },
-      { path: 'results', element: L(<PortalPage />) },
-      { path: 'fees', element: L(<ParentPayments />) },
-      { path: 'teachers', element: L(<PortalPage />) },
-      { path: 'events', element: L(<PortalPage />) },
-      { path: 'notifications', element: L(<PortalPage />) },
-      { path: 'forum', element: L(<ForumPage />) },
-      { path: 'messages', element: L(<PortalPage />) },
-      { path: 'profile', element: L(<PortalPage />) },
-      { path: 'settings', element: L(<PortalPage />) },
-    ],
-  },
+  { path: 'student', element: L(<StudentLayout />), children: [
+    { index: true, element: L(<StudentDashboard />) }, { path: 'courses', element: L(<StudentCourses />) }, { path: 'courses/:courseId', element: L(<StudentCourseDetail />) }, { path: 'courses/:courseId/learn', element: L(<StudentCourseLearn />) }, { path: 'courses/:courseId/ai-tutor', element: L(<StudentAiTutor />) }, { path: 'courses/:courseId/quiz/:quizId/take', element: L(<StudentQuizTake />) }, { path: 'analytics', element: L(<StudentAnalytics />) }, { path: 'schedule', element: L(<StudentSchedule />) }, { path: 'available', element: L(<StudentAvailable />) }, { path: 'assignments', element: L(<StudentAssignments />) }, { path: 'assignments/:assignmentId', element: L(<StudentAssignmentDetail />) }, { path: 'exams', element: L(<StudentExams />) }, { path: 'exams/seating', element: L(<StudentExamSeating />) }, { path: 'exams/active', element: L(<StudentExamActive />) }, { path: 'exams/:examId/review', element: L(<StudentExamReview />) }, { path: 'exams/attendance', element: L(<StudentExamAttendance />) }, { path: 'exams/results', element: L(<StudentExamResults />) }, { path: 'exams/appeals', element: L(<StudentExamAppeals />) }, { path: 'certificates', element: L(<StudentCertificates />) }, { path: 'attendance', element: L(<StudentAttendance />) }, { path: 'downloads', element: L(<StudentDownloads />) }, { path: 'bookmarks', element: L(<StudentBookmarks />) }, { path: 'payments', element: L(<StudentPayments />) }, { path: 'notifications', element: L(<StudentNotifications />) }, { path: 'forum', element: L(<ForumPage />) }, { path: 'profile', element: L(<StudentProfileView />) }, { path: 'settings', element: L(<StudentSettings />) },
+  ] },
+  { path: 'admin', element: L(<AdminGuard><AdminLayout /></AdminGuard>), children: [
+    { index: true, element: L(<AdminDashboard />) }, { path: 'students', element: L(<StudentsManage />) }, { path: 'students/report', element: L(<StudentReport />) }, { path: 'activity', element: L(<StudentActivity />) }, { path: 'parents', element: L(<ParentsManage />) }, { path: 'teachers', element: L(<TeachersManage />) },
+    { path: 'courses', children: [{ index: true, element: L(<CoursesManage />) }, { path: ':courseId/builder', element: L(<CourseBuilder />) }, { path: ':courseId/gradebook', element: L(<CourseGradebook />) }, { path: ':courseId/gate-report', element: L(<CourseGateReport />) }, { path: ':courseId/lessons/:lessonId/edit', element: L(<LessonEditPage />) }, { path: ':courseId/quizzes/:quizId/edit', element: L(<QuizEditPage />) }, { path: ':courseId/exams/:itemId/paper/edit', element: L(<ExamPaperEditPage />) }, { path: ':courseId/preview', element: L(<CoursePreview />) }] },
+    { path: 'schools', element: L(<SchoolsManage />) }, { path: 'users', element: L(<UsersManage />) }, { path: 'classes', element: L(<ClassesManage />) }, { path: 'schedules', element: L(<SchedulesManage />) }, { path: 'attendance', element: L(<AttendanceManage />) }, { path: 'assignments', element: L(<AssignmentsManage />) }, { path: 'exams', element: L(<ExamsManage />) }, { path: 'exams/rooms', element: L(<ExamRoomsManage />) }, { path: 'exams/attendance', element: L(<ExamAttendanceManage />) }, { path: 'exams/papers', element: L(<ExamPapersManage />) }, { path: 'exams/:examId/paper/review', element: L(<ExamPaperReviewPage />) }, { path: 'exams/compliance', element: L(<ExamComplianceManage />) }, { path: 'exams/grading-rules', element: L(<GradingRulesManage />) }, { path: 'results', element: L(<ResultsView />) }, { path: 'results/enter', element: L(<ResultsEntry />) }, { path: 'payments', element: L(<PaymentsOverview />) }, { path: 'payments/record', element: L(<PaymentsRecord />) }, { path: 'payments/bulk', element: L(<PaymentsBulk />) }, { path: 'payments/balances', element: L(<PaymentsBalances />) }, { path: 'payments/history', element: L(<PaymentsHistory />) }, { path: 'payments/reports', element: L(<PaymentsReports />) }, { path: 'payments/fee-structures', element: L(<FeeStructuresManage />) }, { path: 'payments/invoices', element: L(<InvoicesManage />) }, { path: 'certificates', element: L(<CertificatesManage />) }, { path: 'announcements', element: L(<AnnouncementsManage />) }, { path: 'news', element: L(<NewsManage />) }, { path: 'events', element: L(<EventsManage />) }, { path: 'gallery', element: L(<GalleryManage />) }, { path: 'roles', element: L(<RolesManage />) }, { path: 'settings', element: L(<SettingsManage />) }, { path: 'settings/sidebar', element: L(<SidebarSettingsManage />) }, { path: 'settings/org-sidebar', element: L(<OrgAdminSidebarManage />) }, { path: 'analytics', element: L(<AnalyticsManage />) }, { path: 'logs', element: L(<ActivityLogsManage />) }, { path: 'trash', element: L(<TrashManage />) }, { path: 'forum', element: L(<ForumPage />) }, { path: 'profile', element: L(<ProfileManage />) },
+  ] },
+  { path: 'teacher', element: L(<TeacherGuard><TeacherLayout /></TeacherGuard>), children: [
+    { index: true, element: L(<TeacherDashboard />) }, { path: 'courses', element: L(<TeacherCourses />) }, { path: 'courses/:courseId', element: L(<TeacherAnalytics />) }, { path: 'courses/:courseId/builder', element: L(<TeacherCourseBuilder />) }, { path: 'courses/:courseId/gradebook', element: L(<CourseGradebook basePath="/teacher" />) }, { path: 'courses/:courseId/gate-report', element: L(<CourseGateReport basePath="/teacher" />) }, { path: 'courses/:courseId/lessons/:lessonId/edit', element: L(<TeacherLessonEditPage />) }, { path: 'courses/:courseId/quizzes/:quizId/edit', element: L(<TeacherQuizEditPage />) }, { path: 'courses/:courseId/exams/:itemId/paper/edit', element: L(<TeacherExamPaperEditPage />) },
+    { path: 'quizzes', element: L(<TeacherQuizzes />) }, { path: 'quizzes/create', element: L(<TeacherQuizzes />) }, { path: 'lessons', element: L(<TeacherLessons />) }, { path: 'gradebook', element: L(<TeacherGradebook />) }, { path: 'gradebook/review', element: L(<TeacherGradebook />) }, { path: 'results/enter', element: L(<ResultsEntry backFallback="/teacher" />) }, { path: 'students', element: L(<TeacherStudents />) }, { path: 'activity', element: L(<TeacherActivity basePath="/teacher" />) }, { path: 'gamification', element: L(<TeacherGamification />) }, { path: 'analytics', element: L(<TeacherAnalytics />) }, { path: 'schedule', element: L(<TeacherSchedule />) }, { path: 'forum', element: L(<ForumPage />) }, { path: 'profile', element: L(<TeacherProfile />) }, { path: 'settings', element: L(<TeacherSettings />) }, { path: 'assignments', element: L(<TeacherAssignments />) }, { path: 'assignments/:id/review', element: L(<TeacherAssignmentReview />) },
+    { path: 'exams', element: L(<TeacherExams />) }, { path: 'exam-attendance', element: L(<TeacherExamAttendance />) }, { path: 'exams/:examId/attendance', element: L(<TeacherExamAttendanceRoster />) }, { path: 'exam-papers', element: L(<TeacherExamPapers />) }, { path: 'exams/:examId/paper', element: L(<TeacherExamPaper />) }, { path: 'exam-incidents', element: L(<TeacherExamIncidents />) },
+  ] },
+  { path: 'parent', element: L(<ParentLayout />), children: [
+    { index: true, element: L(<PortalPage />) }, { path: 'children', element: L(<PortalPage />) }, { path: 'attendance', element: L(<PortalPage />) }, { path: 'results', element: L(<PortalPage />) }, { path: 'fees', element: L(<ParentPayments />) }, { path: 'teachers', element: L(<PortalPage />) }, { path: 'events', element: L(<PortalPage />) }, { path: 'notifications', element: L(<PortalPage />) }, { path: 'forum', element: L(<ForumPage />) }, { path: 'messages', element: L(<PortalPage />) }, { path: 'profile', element: L(<PortalPage />) }, { path: 'settings', element: L(<PortalPage />) },
+  ] },
 ]);
-
 export default router;
