@@ -232,3 +232,111 @@
     display: none;
   }
 }
+
+/* ==========================================================================
+   MOBILE GRADEBOOK / ENTER RESULTS
+   The results-entry table is the only table using .table-fixed in the app.
+   On phones each student becomes a compact two-column card: full name + ID
+   first, then the score fields below. This avoids truncating names while
+   using the available screen width instead of wasting horizontal space.
+   ========================================================================== */
+@media (max-width: 639px) {
+  table.table-fixed {
+    width: 100% !important;
+    table-layout: auto !important;
+  }
+
+  table.table-fixed thead {
+    display: none;
+  }
+
+  table.table-fixed tbody {
+    display: block;
+    width: 100%;
+  }
+
+  table.table-fixed tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    width: 100%;
+    padding: 0.45rem 0.65rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+    box-sizing: border-box;
+  }
+
+  table.table-fixed tbody tr > td {
+    min-width: 0;
+    width: auto !important;
+    padding: 0.35rem 0.35rem !important;
+    box-sizing: border-box;
+  }
+
+  /* Student identity occupies the complete first row. */
+  table.table-fixed tbody tr > td:first-child {
+    grid-column: 1 / -1;
+    padding: 0.35rem 0.35rem 0.5rem !important;
+  }
+
+  table.table-fixed tbody tr > td:first-child > div {
+    width: 100%;
+    align-items: flex-start;
+  }
+
+  table.table-fixed tbody tr > td:first-child p {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    line-height: 1.25;
+  }
+
+  table.table-fixed tbody tr > td:first-child code {
+    display: block;
+    margin-top: 0.12rem;
+    line-height: 1.15;
+  }
+
+  /* Organization/department is intentionally omitted on mobile. */
+  table.table-fixed tbody tr > td:nth-child(2) {
+    display: none !important;
+  }
+
+  /* Score fields become compact labelled inputs. */
+  table.table-fixed tbody tr > td:nth-child(3),
+  table.table-fixed tbody tr > td:nth-child(4),
+  table.table-fixed tbody tr > td:nth-child(5),
+  table.table-fixed tbody tr > td:nth-child(6) {
+    display: block;
+  }
+
+  table.table-fixed tbody tr > td:nth-child(3)::before,
+  table.table-fixed tbody tr > td:nth-child(4)::before,
+  table.table-fixed tbody tr > td:nth-child(5)::before,
+  table.table-fixed tbody tr > td:nth-child(6)::before {
+    display: block;
+    margin: 0 0 0.25rem;
+    font-size: 0.66rem;
+    line-height: 1;
+    font-weight: 700;
+    color: var(--color-text-tertiary);
+  }
+
+  table.table-fixed tbody tr > td:nth-child(3)::before { content: 'Mid Exam'; }
+  table.table-fixed tbody tr > td:nth-child(4)::before { content: 'Mid Activity'; }
+  table.table-fixed tbody tr > td:nth-child(5)::before { content: 'Final'; }
+  table.table-fixed tbody tr > td:nth-child(6)::before { content: 'Final Activity'; }
+
+  table.table-fixed tbody tr > td:nth-child(n+3) input {
+    min-width: 0;
+    width: 100%;
+    min-height: 2.35rem;
+    padding: 0.5rem 0.6rem !important;
+    font-size: 0.85rem !important;
+    box-sizing: border-box;
+  }
+
+  table.table-fixed tbody tr > td:nth-child(n+3) p {
+    margin-top: 0.2rem !important;
+  }
+}
