@@ -563,6 +563,59 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
   const anyError = errorKeys.size > 0;
   const anySaved = savedKeys.size > 0;
 
+  // Shared between the desktop table's cells and the mobile card grid below
+  // so both stay in sync (validation, auto-save status, styling) instead of
+  // drifting apart as two hand-maintained copies. `cellRef`/`onKeyDown` are
+  // only meaningful for the desktop table's Excel-style arrow-key
+  // navigation — omitted on mobile, where a plain per-field Tab order is
+  // the natural, expected behavior for a touch keyboard.
+  const renderScoreInput = (
+    s: ManualEntryRosterStudent,
+    slot: ManualEntrySlot,
+    opts?: { cellRef?: (el: HTMLInputElement | null) => void; onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void }
+  ) => {
+    const cat = roster?.slots[slot];
+    const active = !!cat;
+    const max = entryMax(cat?.weight);
+    const fieldError = fieldErrors[s.studentId]?.[slot];
+    const key = `${s.studentId}_${slot}`;
+    const value = entryValues[s.studentId]?.[slot] || '';
+    const filled = active && value !== '' && !fieldError;
+    return (
+      <>
+        <div className="relative">
+          <input
+            ref={opts?.cellRef}
+            type="text"
+            inputMode="decimal"
+            value={value}
+            onChange={(e) => handleEntryChange(s.studentId, slot, sanitizeNumericInput(e.target.value))}
+            onKeyDown={opts?.onKeyDown}
+            disabled={!active}
+            className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 disabled:opacity-30 placeholder:text-slate-400 dark:placeholder:text-slate-500 ${
+              fieldError
+                ? 'border-red-400 bg-[var(--color-surface-primary)] focus:ring-red-500/30'
+                : filled
+                ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 focus:ring-primary-500/30'
+                : active
+                ? 'border-[var(--color-border-default)] bg-amber-50/40 dark:bg-amber-950/10 focus:ring-primary-500/30'
+                : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] focus:ring-primary-500/30'
+            }`}
+            placeholder={active ? `/ ${max}` : 'not set up'}
+          />
+          {active && (
+            <span className="absolute -top-1.5 -right-1.5">
+              {savingKeys.has(key) && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+              {!savingKeys.has(key) && savedKeys.has(key) && <CheckCircle2 className="h-3 w-3 text-emerald-500" strokeWidth={2.5} />}
+              {!savingKeys.has(key) && errorKeys.has(key) && <AlertTriangle className="h-3 w-3 text-red-500" strokeWidth={2.5} />}
+            </span>
+          )}
+        </div>
+        {fieldError && <p className="mt-0.5 text-[10px] leading-tight text-red-500">{fieldError}</p>}
+      </>
+    );
+  };
+
   return (
     <div className="p-6 lg:p-8 pt-20 lg:pt-6">
       <div className="mx-auto max-w-none space-y-4">
@@ -702,11 +755,46 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                 </span>
               ) : null}
             </div>
-            <div className="overflow-x-auto">
+            {/* Mobile (< sm): a data-entry table with 4 score columns has no
+                room to breathe on a phone — table-fixed just crams every
+                column into a sliver instead of scrolling. A stacked card
+                per student, 2 score fields per row, is the usable layout
+                at that width. */}
+            <div className="sm:hidden divide-y divide-[var(--color-border-subtle)]">
+              {roster.students.map((s) => (
+                <div key={s.studentId} className="p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${avatarColor(s.studentId)}`}>
+                      {initials(s.studentName.split(' ')[0], s.studentName.split(' ').slice(1).join(' '))}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-medium truncate leading-tight text-sm">{s.studentName || 'Unknown Student'}</p>
+                      <code className="text-[10px] text-[var(--color-text-tertiary)]">{s.studentCode}</code>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {visibleSlots.map(({ slot, label }) => {
+                      const zeroWeight = roster.slots[slot] && roster.slots[slot]!.weight === 0;
+                      return (
+                        <div key={slot}>
+                          <label className="mb-1 flex items-center gap-1 text-[10px] font-medium text-[var(--color-text-tertiary)]">
+                            {label}
+                            {zeroWeight && <AlertTriangle className="h-3 w-3 text-amber-500" strokeWidth={2} />}
+                          </label>
+                          {renderScoreInput(s, slot)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm table-fixed">
                 <colgroup>
                   <col style={{ width: '26%' }} />
-                  <col className="hidden sm:table-column" style={{ width: '18%' }} />
+                  <col style={{ width: '18%' }} />
                   {visibleSlots.map(({ slot }) => (
                     <col key={slot} style={{ width: `${56 / visibleSlots.length}%` }} />
                   ))}
@@ -714,7 +802,7 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                 <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                   <tr>
                     <th className="text-left px-4 py-2 font-semibold">Student Name / ID</th>
-                    <th className="text-left px-4 py-2 font-semibold hidden sm:table-cell">Organization / Department</th>
+                    <th className="text-left px-4 py-2 font-semibold">Organization / Department</th>
                     {visibleSlots.map(({ slot, label }) => {
                       const zeroWeight = roster.slots[slot] && roster.slots[slot]!.weight === 0;
                       return (
@@ -746,51 +834,17 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-1.5 hidden sm:table-cell text-xs text-[var(--color-text-secondary)] truncate">
+                      <td className="px-4 py-1.5 text-xs text-[var(--color-text-secondary)] truncate">
                         {roster.organization}{roster.organization && s.department ? ' · ' : ''}{s.department}
                       </td>
-                      {visibleSlots.map(({ slot }, si) => {
-                        const cat = roster.slots[slot];
-                        const active = !!cat;
-                        const max = entryMax(cat?.weight);
-                        const fieldError = fieldErrors[s.studentId]?.[slot];
-                        const key = `${s.studentId}_${slot}`;
-                        const value = entryValues[s.studentId]?.[slot] || '';
-                        const filled = active && value !== '' && !fieldError;
-                        return (
-                          <td className="px-4 py-1.5" key={slot}>
-                            <div className="relative">
-                              <input
-                                ref={(el) => { cellRefs.current[`${i}_${si}`] = el; }}
-                                type="text"
-                                inputMode="decimal"
-                                value={value}
-                                onChange={(e) => handleEntryChange(s.studentId, slot, sanitizeNumericInput(e.target.value))}
-                                onKeyDown={(e) => handleCellKeyDown(e, i, si)}
-                                disabled={!active}
-                                className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 disabled:opacity-30 placeholder:text-slate-400 dark:placeholder:text-slate-500 ${
-                                  fieldError
-                                    ? 'border-red-400 bg-[var(--color-surface-primary)] focus:ring-red-500/30'
-                                    : filled
-                                    ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 focus:ring-primary-500/30'
-                                    : active
-                                    ? 'border-[var(--color-border-default)] bg-amber-50/40 dark:bg-amber-950/10 focus:ring-primary-500/30'
-                                    : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] focus:ring-primary-500/30'
-                                }`}
-                                placeholder={active ? `/ ${max}` : 'not set up'}
-                              />
-                              {active && (
-                                <span className="absolute -top-1.5 -right-1.5">
-                                  {savingKeys.has(key) && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
-                                  {!savingKeys.has(key) && savedKeys.has(key) && <CheckCircle2 className="h-3 w-3 text-emerald-500" strokeWidth={2.5} />}
-                                  {!savingKeys.has(key) && errorKeys.has(key) && <AlertTriangle className="h-3 w-3 text-red-500" strokeWidth={2.5} />}
-                                </span>
-                              )}
-                            </div>
-                            {fieldError && <p className="mt-0.5 text-[10px] leading-tight text-red-500">{fieldError}</p>}
-                          </td>
-                        );
-                      })}
+                      {visibleSlots.map(({ slot }, si) => (
+                        <td className="px-4 py-1.5" key={slot}>
+                          {renderScoreInput(s, slot, {
+                            cellRef: (el) => { cellRefs.current[`${i}_${si}`] = el; },
+                            onKeyDown: (e) => handleCellKeyDown(e, i, si),
+                          })}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
