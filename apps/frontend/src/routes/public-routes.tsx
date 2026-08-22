@@ -21,6 +21,19 @@ const SuganhubLandingPage = lazy(() =>
   import('../features/public/pages/suganhub-landing').then((m) => ({ default: m.SuganhubLandingPage }))
 );
 
+// Teacher Attendance is exposed as a dedicated top-level route until the
+// teacher route tree is regenerated. It remains strictly protected by the
+// same TeacherGuard and TeacherLayout used by the teacher portal.
+const TeacherAttendance = lazy(() =>
+  import('../features/teacher/pages/teacher-attendance').then((m) => ({ default: m.TeacherAttendance }))
+);
+const TeacherLayout = lazy(() =>
+  import('../features/teacher/components/teacher-layout').then((m) => ({ default: m.TeacherLayout }))
+);
+const TeacherGuard = lazy(() =>
+  import('../features/teacher/components/teacher-guard').then((m) => ({ default: m.TeacherGuard }))
+);
+
 // Custom domains that get their own dedicated landing page instead of the
 // generic multi-tenant SaaS marketing page. Checked directly against
 // window.location.hostname rather than the subdomain-only TenantContext,
@@ -56,6 +69,30 @@ function PageLoader() {
 // ---------------------------------------------------------------------------
 
 export const publicRoutes: RouteObject[] = [
+  // Dedicated teacher attendance entrypoint. This is role-protected and
+  // renders the same teacher portal shell, so /teacher/attendance no longer
+  // falls through to the generic 404 route while the main teacher route tree
+  // is kept unchanged.
+  {
+    path: 'teacher/attendance',
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <TeacherGuard>
+          <TeacherLayout />
+        </TeacherGuard>
+      </Suspense>
+    ),
+    children: [
+      {
+        index: true,
+        element: (
+          <Suspense fallback={<PageLoader />}>
+            <TeacherAttendance />
+          </Suspense>
+        ),
+      },
+    ],
+  },
   {
     element: (
       <Suspense fallback={<PageLoader />}>
