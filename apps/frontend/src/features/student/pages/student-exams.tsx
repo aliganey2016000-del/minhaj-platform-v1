@@ -252,7 +252,7 @@ export function StudentExams() {
   }, [filtered]);
   const nextExam = [...withState].filter((x) => x.state === 'upcoming' && getStart(x.exam)).sort((a, b) => getStart(a.exam)! - getStart(b.exam)!)[0];
 
-  const getCat = (c: string) => catLabels[c]?.[lang] || c;
+  const getCat = (c: string) => lang === 'en' ? c : catLabels[c]?.[lang] || c;
   const statusCards = [
     { key: 'all' as const, label: 'All', count: counts.all, icon: '▦' },
     { key: 'upcoming' as const, label: 'Upcoming', count: counts.upcoming, icon: '◷' },
