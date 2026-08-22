@@ -431,14 +431,21 @@ export const exportTeachers = async (req: Request, res: Response): Promise<void>
 // ---------------------------------------------------------------------------
 
 export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
+  // 'Organization' is read via getField(row, 'School', 'Organization') in
+  // bulkImport below and is REQUIRED for a global admin (who manages more
+  // than one school, so there's no single org to default to) — omitting it
+  // here previously meant every row of an unmodified downloaded-and-filled
+  // template failed with "School is required for super admin", 0 imported,
+  // no obvious reason why. An org_admin's own organization is still
+  // auto-filled server-side regardless of what's in this column for them.
   const headers = [
     'First Name', 'Last Name', 'Gender', 'Email', 'Password',
-    'Phone', 'Qualification', 'Specialization', 'Experience (years)',
+    'Phone', 'Organization', 'Qualification', 'Specialization', 'Experience (years)',
     'Joining Date', 'Bio',
   ];
   const rows = [[
     'Ahmed', 'Hassan', 'male', 'ahmed.hassan@example.com', '',
-    '+252612345678', 'Bachelor of Islamic Studies', 'Tajweed, Fiqh', '5',
+    '+252612345678', 'Your School Name (required if you manage more than one)', 'Bachelor of Islamic Studies', 'Tajweed, Fiqh', '5',
     '2026-01-15', 'Experienced Quran teacher with 5 years of teaching.',
   ]];
   const buffer = buildXlsxBuffer(headers, rows, 'Teacher Template');

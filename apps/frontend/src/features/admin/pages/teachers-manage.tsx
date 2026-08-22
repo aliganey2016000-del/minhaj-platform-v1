@@ -39,6 +39,14 @@ interface School { _id: string; name: string; status: 'active' | 'inactive'; }
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+// Must match the header names getField() in teacher.controller.ts's
+// bulkImport looks for, and the order of the downloaded template's columns.
+const PASTE_COLUMNS = [
+  'First Name', 'Last Name', 'Gender', 'Email', 'Password', 'Phone',
+  'Organization', 'Qualification', 'Specialization', 'Experience (years)',
+  'Joining Date', 'Bio',
+];
+
 const emptyForm: TeacherForm = {
   email: '', password: '', firstName: '', lastName: '', gender: 'male', phone: '',
   school: '', qualification: '', specialization: '', experience: 0, bio: '',
@@ -382,8 +390,17 @@ export function TeachersManage() {
   const submitPasteImport = async () => {
     const rows = parsePastedRows();
     if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; }
-    if (rows[0].length < 6) { setPasteError('Expected 11 columns (First Name, Last Name, Gender, Email, Password, Phone, Qualification, Specialization, Experience, Joining Date, Bio). Found ' + rows[0].length + '.'); return; }
-    const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
+    if (rows[0].length < 6) { setPasteError('Expected 12 columns (First Name, Last Name, Gender, Email, Password, Phone, Organization, Qualification, Specialization, Experience, Joining Date, Bio). Found ' + rows[0].length + '.'); return; }
+    // The backend reads columns by HEADER NAME (getField in
+    // teacher.controller.ts), not by position — without a header row here,
+    // the first pasted teacher's own values get treated as the header row
+    // (so their fields never get filled in) and every later row fails with
+    // "Email is required" etc. since none of its columns match a known
+    // name. Prepending this fixed header, matching PASTE_COLUMNS below and
+    // the downloaded file-upload template's own header row, is what makes
+    // getField() actually find each field.
+    const header = PASTE_COLUMNS.join(',');
+    const csv = [header, ...rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(','))].join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const file = new File([blob], 'pasted-teachers.csv', { type: 'text/csv' });
     setImporting(true); setError(''); setImportResult(null); setPasteError('');
@@ -434,7 +451,7 @@ export function TeachersManage() {
                 )}
                 {importMode === 'paste' && (
                   <div className="space-y-3">
-                    <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4"><p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below (tab-separated columns, one row per line):</p><p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">First Name &nbsp; Last Name &nbsp; Gender &nbsp; Email &nbsp; Password &nbsp; Phone &nbsp; Qualification &nbsp; Specialization &nbsp; Experience &nbsp; Joining Date &nbsp; Bio</p><textarea value={pasteText} onChange={e => { setPasteText(e.target.value); setPasteError(''); }} rows={8} placeholder={"Paste data from Excel here...\n\nExample:\nAhmed\tHassan\tmale\tahmed@example.com\tchangeme123\t+252612345678\tBachelor of Islamic Studies\tTajweed, Fiqh\t5\t2026-01-15\tExperienced Quran teacher."} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y" /></div>
+                    <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4"><p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below (tab-separated columns, one row per line — no header row needed, it's added automatically):</p><p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">{PASTE_COLUMNS.join('   ')}</p><p className="text-xs text-[var(--color-text-tertiary)] mb-3">Organization: only required if you manage more than one school — leave blank otherwise.</p><textarea value={pasteText} onChange={e => { setPasteText(e.target.value); setPasteError(''); }} rows={8} placeholder={"Paste data from Excel here...\n\nExample:\nAhmed\tHassan\tmale\tahmed@example.com\tchangeme123\t+252612345678\t\tBachelor of Islamic Studies\tTajweed, Fiqh\t5\t2026-01-15\tExperienced Quran teacher."} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y" /></div>
                     {pasteError && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{pasteError}</div>}
                     {parsedRows.length > 0 && (<div className="rounded-xl border border-[var(--color-border-default)] overflow-hidden"><div className="bg-[var(--color-surface-secondary)] px-4 py-2 text-xs font-semibold text-[var(--color-text-tertiary)]">Preview — {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''} parsed</div><div className="max-h-40 overflow-auto"><table className="w-full text-xs"><tbody className="divide-y divide-[var(--color-border-subtle)]">{parsedRows.slice(0, 20).map((row, ri) => (<tr key={ri} className={ri % 2 === 0 ? 'bg-[var(--color-surface-primary)]' : 'bg-[var(--color-surface-secondary)]'}>{row.map((cell, ci) => (<td key={ci} className="px-3 py-1.5 text-[var(--color-text-secondary)] whitespace-nowrap border-r border-[var(--color-border-subtle)] last:border-r-0">{cell}</td>))}</tr>))}</tbody></table></div></div>)}
                   </div>
