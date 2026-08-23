@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import Exam from '../models/exam.model';
 import ExamRoom from '../models/exam-room.model';
+import ClassModel from '../models/class.model';
 import SeatAllocation from '../models/seat-allocation.model';
 import Student from '../models/student.model';
 import School from '../models/school.model';
@@ -12,6 +13,8 @@ import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 
 const REQUIRED_COLUMNS = ['Organization', 'Department', 'Class', 'Shift', 'Student ID', 'Student Name', 'Academic Year', 'Exam Type', 'Room', 'Seat'];
+const DEFAULT_BUILDING = 'Main Campus';
+const FALLBACK_CAPACITY = 30;
 
 interface PreviewRow {
   row: number;
@@ -63,6 +66,57 @@ function trailingSeatNumber(seat: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/**
+ * Exam Seating has its own ExamRoom registry, while Manage Classes stores a
+ * classroom room name. Importing seating should still work when an existing
+ * classroom room has not yet been materialized into ExamRoom. Reconcile the
+ * school's class-room names into ExamRoom before resolving imported rooms.
+ * Existing ExamRoom records are reused and never overwritten.
+ */
+async function syncRoomsFromClasses(schoolId: any): Promise<void> {
+  if (!schoolId) return;
+
+  const classes = await ClassModel.find({
+    school: schoolId,
+    room: { $nin: ['', null] },
+  }).select('school room').lean();
+
+  const unique = new Map<string, string>();
+  for (const cls of classes as any[]) {
+    const name = normalize(cls.room);
+    if (!name) continue;
+    unique.set(name.toLowerCase(), name);
+  }
+
+  if (!unique.size) return;
+
+  const existing = await ExamRoom.find({
+    school: schoolId,
+    name: { $in: Array.from(unique.values()) },
+  }).select('name').lean();
+
+  const existingNames = new Set(existing.map((room: any) => key(room.name)));
+  const missing = Array.from(unique.values()).filter((name) => !existingNames.has(key(name)));
+
+  if (!missing.length) return;
+
+  await ExamRoom.bulkWrite(missing.map((name) => ({
+    updateOne: {
+      filter: { school: schoolId, name, building: DEFAULT_BUILDING },
+      update: {
+        $setOnInsert: {
+          name,
+          building: DEFAULT_BUILDING,
+          capacity: FALLBACK_CAPACITY,
+          capacityMode: 'auto',
+          school: schoolId,
+        },
+      },
+      upsert: true,
+    },
+  })));
+}
+
 async function loadExam(req: Request, examId: string): Promise<any> {
   const exam = await Exam.findById(examId).populate('course', 'title.en school teacher class').populate({ path: 'course.class', select: 'academicYear title section' });
   if (!exam) throw new NotFoundError('Exam');
@@ -87,6 +141,10 @@ async function parseImport(req: Request, examId: string, commit: boolean) {
   const headers = Object.keys(rows[0] || {});
   const missing = REQUIRED_COLUMNS.filter((required) => !headers.some((header) => key(header) === key(required)));
   if (missing.length) throw new BadRequestError(`Missing required columns: ${missing.join(', ')}`);
+
+  // Make existing classroom room names available to the Exam Seating import
+  // even if the Exam Rooms page has never been opened for this school.
+  await syncRoomsFromClasses(exam.school);
 
   const rooms = await ExamRoom.find(exam.school ? { school: exam.school } : {}).lean();
   const roomByKey = new Map<string, any>();
