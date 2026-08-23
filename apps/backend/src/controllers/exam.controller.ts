@@ -9,7 +9,7 @@ import ExamAttempt from '../models/exam-attempt.model';
 import ExamAppeal from '../models/exam-appeal.model';
 import { getAutoScheduleWindow } from '../utils/exam-eligibility';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
 import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, assertOwnsExamIfTeacher, resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
@@ -111,6 +111,19 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   if (!course) throw new NotFoundError('Course');
   assertOwnsOrg(req, course, 'school');
   await assertOwnsExamIfTeacher(req, { course });
+
+  // Same duplicate guard as bulkImport, for a manually-scheduled (not
+  // auto-scheduled) exam — catches an accidental double-submit of the
+  // "Schedule Exam" form.
+  if (!req.body.autoSchedule && req.body.title && req.body.examDate && req.body.startTime) {
+    const dupExam = await Exam.findOne({
+      course: courseId,
+      title: req.body.title,
+      examDate: new Date(req.body.examDate),
+      startTime: req.body.startTime,
+    }).lean();
+    if (dupExam) throw new ConflictError(`An exam titled "${req.body.title}" already exists for this course on that date and time`);
+  }
 
   const payload = {
     ...req.body,
@@ -458,6 +471,24 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   const courseByKey = new Map<string, any>();
   for (const c of allCourses as any[]) courseByKey.set(`${c.school}|||${String((c as any).title?.en || '').trim().toLowerCase()}`, c);
 
+  // Duplicate guard: insertMany below has no uniqueness check at all (the
+  // course+examDate index is for query speed, not for rejecting dupes), so
+  // importing the same file twice — or two files covering overlapping dates
+  // (e.g. a re-exported timetable re-imported after edits) — silently
+  // created a second identical Exam per row, which is exactly what showed
+  // up as every subject appearing twice on the student's exam schedule.
+  // Pre-fetch every existing exam for these courses once and key it the
+  // same way a row is keyed, so a row matching an already-scheduled exam
+  // (same course + title + date + start time) is skipped instead of
+  // inserted again.
+  const existingExams = await Exam.find(
+    { course: { $in: allCourses.map((c: any) => c._id) } },
+    { course: 1, title: 1, examDate: 1, startTime: 1 }
+  ).lean();
+  const existingExamKeys = new Set(
+    existingExams.map((e: any) => `${e.course}|||${String(e.title).trim().toLowerCase()}|||${new Date(e.examDate).toISOString().slice(0, 10)}|||${e.startTime}`)
+  );
+
   // Teacher caller: only allowed to import exams for their own courses.
   let teacherCourseIdSet: Set<string> | null = null;
   if (req.user?.role === 'teacher') {
@@ -521,6 +552,16 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       if (!totalMarks || totalMarks <= 0) throw new Error('Total Marks must be a positive number');
       const passingMarks = Number(passingMarksRaw);
       if (!passingMarks || passingMarks <= 0) throw new Error('Passing Marks must be a positive number');
+
+      // Checked against both already-scheduled exams AND rows already
+      // queued earlier in this same file, so a spreadsheet with the same
+      // row pasted in twice (or exported-then-re-imported unchanged) is
+      // caught either way instead of silently doubling up.
+      const dedupeKey = `${courseDoc._id}|||${examTitle.trim().toLowerCase()}|||${examDate.toISOString().slice(0, 10)}|||${startTime}`;
+      if (existingExamKeys.has(dedupeKey)) {
+        throw new Error(`An exam titled "${examTitle}" already exists for "${courseTitle}" on ${examDate.toISOString().slice(0, 10)} at ${startTime} — skipped to avoid a duplicate`);
+      }
+      existingExamKeys.add(dedupeKey);
 
       documents.push({
         title: examTitle,
