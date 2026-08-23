@@ -2,76 +2,20 @@ import mongoose from 'mongoose';
 import { Request, Response } from 'express';
 import Attendance from '../models/attendance.model';
 import Student from '../models/student.model';
-import Parent from '../models/parent.model';
 import Course from '../models/course.model';
 import School from '../models/school.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
-import WhatsAppMessage from '../models/whatsapp-message.model';
 import ClassSchedule from '../models/class-schedule.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
-import { isWhatsAppConfigured, sendWhatsAppMessage } from '../utils/whatsapp';
 
-async function sendAttendanceAlerts(params: { courseId: string; scheduleId: mongoose.Types.ObjectId | null; date: Date; records: any[]; createdBy?: string }) {
-  const enabled = process.env.WHATSAPP_ATTENDANCE_ALERTS_ENABLED !== 'false';
-  const templateName = process.env.WHATSAPP_ATTENDANCE_TEMPLATE?.trim();
-  const languageCode = process.env.WHATSAPP_ATTENDANCE_TEMPLATE_LANGUAGE?.trim() || 'en_US';
-  if (!enabled || !isWhatsAppConfigured() || !templateName) return;
-  const alertRecords = params.records.filter((r) => ['absent', 'late'].includes(String(r.status).toLowerCase()));
-  if (!alertRecords.length) return;
-
-  const studentIds = alertRecords.map((r) => r.student).filter(Boolean);
-  const students = await Student.find({ _id: { $in: studentIds } }).select('studentId parent profile school').populate('profile', 'firstName lastName').populate('parent', 'phone user school').lean();
-  const studentMap = new Map(students.map((s: any) => [String(s._id), s]));
-  const schedule = params.scheduleId ? await ClassSchedule.findById(params.scheduleId).select('startTime endTime').lean() : null;
-  const course = await Course.findById(params.courseId).select('title').lean();
-
-  await Promise.allSettled(alertRecords.map(async (record) => {
-    const student: any = studentMap.get(String(record.student));
-    if (!student?.parent) return;
-    const parent: any = student.parent;
-    let recipient = String(parent.phone || '').trim();
-    if (!recipient && parent.user) {
-      const user = await User.findById(parent.user).select('phone').lean();
-      recipient = String(user?.phone || '').trim();
-    }
-    if (!recipient) return;
-
-    const status = String(record.status).toLowerCase();
-    const studentName = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId;
-    const statusLabel = status === 'absent' ? 'Absent' : 'Late';
-    const dateLabel = params.date.toLocaleDateString('en-GB', { timeZone: process.env.APP_TIMEZONE || 'Africa/Mogadishu' });
-    const timeLabel = schedule?.startTime && schedule?.endTime ? `${schedule.startTime}–${schedule.endTime}` : '-';
-    const auditBody = `${studentName}|${status}|${params.courseId}|${params.date.toISOString().slice(0, 10)}|${params.scheduleId || 'none'}`;
-
-    const duplicate = await WhatsAppMessage.findOne({ school: student.school || parent.school, parent: parent._id, recipient, templateName, body: auditBody }).select('_id').lean();
-    if (duplicate) return;
-
-    const message = await WhatsAppMessage.create({ school: student.school || parent.school, recipient, parent: parent._id, kind: 'template', templateName, languageCode, body: auditBody, status: 'queued', createdBy: params.createdBy });
-    try {
-      const result = await sendWhatsAppMessage({
-        to: recipient,
-        templateName,
-        languageCode,
-        components: [{ type: 'body', parameters: [
-          { type: 'text', text: studentName },
-          { type: 'text', text: statusLabel },
-          { type: 'text', text: course?.title || 'Class' },
-          { type: 'text', text: dateLabel },
-          { type: 'text', text: timeLabel },
-        ] }],
-      });
-      message.status = 'sent';
-      message.providerMessageId = result.providerMessageId;
-      await message.save();
-    } catch (error: any) {
-      message.status = 'failed';
-      message.error = error?.response?.data?.error?.message || error?.message || 'WhatsApp attendance alert failed';
-      await message.save();
-    }
-  }));
+async function sendAttendanceAlerts(_params: { courseId: string; scheduleId: mongoose.Types.ObjectId | null; date: Date; records: any[]; createdBy?: string }) {
+  // Attendance WhatsApp delivery is centralized in services/attendance-whatsapp-automation.ts,
+  // which wraps Attendance.bulkWrite() at server startup. Keep this compatibility
+  // helper intentionally inert so legacy controller paths cannot double-send alerts.
+  return;
 }
 
 export const markBulk = async (req: Request, res: Response): Promise<Response> => {
