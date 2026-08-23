@@ -6,6 +6,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const file = path.resolve(here, '../src/controllers/teacher.controller.ts');
 let text = fs.readFileSync(file, 'utf8');
 
+const alreadyPatched = text.includes('joiningDate, email, phone, password') && text.includes(".populate('user', 'email phone isVerified isActive')");
+if (alreadyPatched) {
+  console.log('Teacher backend account fields already patched.');
+  process.exit(0);
+}
+
 const oldUpdate = "  const { firstName, lastName, gender, school, qualification, specialization, experience, bio, status, joiningDate } = req.body;";
 const newUpdate = `  const { firstName, lastName, gender, school, qualification, specialization, experience, bio, status, joiningDate, email, phone, password } = req.body;
 
