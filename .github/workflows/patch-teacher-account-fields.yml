@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ !contains(github.event.head_commit.message, 'chore: patch teacher edit account fields') && !contains(github.event.head_commit.message, 'chore: apply teacher edit account fields') }}
+    if: ${{ !contains(github.event.head_commit.message, 'chore: apply teacher edit account fields') && !contains(github.event.head_commit.message, 'fix: apply teacher edit account fields') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +20,7 @@ jobs:
         run: |
           python3 <<'PY'
           from pathlib import Path
+          import re
 
           frontend = Path('apps/frontend/src/features/admin/pages/teachers-manage.tsx')
           text = frontend.read_text()
@@ -28,14 +29,14 @@ jobs:
               "interface TeacherUser { _id: string; email: string; isVerified: boolean; isActive: boolean; }",
               "interface TeacherUser { _id: string; email: string; phone?: string; isVerified: boolean; isActive: boolean; }"
           )
-
           text = text.replace(
               "gender: teacher.profile?.gender || 'male', phone: '',",
-              "gender: teacher.profile?.gender || 'male', phone: teacher.user?.phone || '',"
+              "gender: teacher.profile?.gender || 'male', phone: teacher.user?.phone || '',",
+              1
           )
 
-          old_payload = "const payload = { firstName: form.firstName, lastName: form.lastName, gender: form.gender, school: form.school || undefined, qualification: form.qualification, specialization: form.specialization.split(',').map(s => s.trim()).filter(Boolean), experience: Number(form.experience), bio: form.bio, joiningDate: form.joiningDate, ...(isEdit ? {} : { email: form.email, password: form.password, phone: form.phone || undefined }) };"
-          new_payload = "const payload = { firstName: form.firstName, lastName: form.lastName, gender: form.gender, school: form.school || undefined, qualification: form.qualification, specialization: form.specialization.split(',').map(s => s.trim()).filter(Boolean), experience: Number(form.experience), bio: form.bio, joiningDate: form.joiningDate, ...(isEdit ? { email: form.email, phone: form.phone || undefined, ...(form.password ? { password: form.password } : {}) } : { email: form.email, password: form.password, phone: form.phone || undefined }) };"
+          old_payload = "...(isEdit ? {} : { email: form.email, password: form.password, phone: form.phone || undefined })"
+          new_payload = "...(isEdit ? { email: form.email, phone: form.phone || undefined, ...(form.password ? { password: form.password } : {}) } : { email: form.email, password: form.password, phone: form.phone || undefined })"
           if old_payload not in text:
               raise SystemExit('frontend payload anchor not found')
           text = text.replace(old_payload, new_payload, 1)
@@ -43,22 +44,52 @@ jobs:
           old_account = "{!isEdit && <><div><label className=\"text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block\">Email *</label><input className=\"w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm\" type=\"email\" value={form.email} onChange={e => handleChange('email', e.target.value)} required /></div><div><label className=\"text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block\">Password *</label><input className=\"w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm\" type=\"password\" value={form.password} onChange={e => handleChange('password', e.target.value)} required minLength={8} /></div><div><label className=\"text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block\">Phone</label><input className=\"w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm\" value={form.phone} onChange={e => handleChange('phone', e.target.value)} /></div></>}"
           new_account = "<div className=\"rounded-xl border border-[var(--color-border-default)] p-3 space-y-3\"><p className=\"text-xs font-bold uppercase tracking-wide text-primary-600\">System Account</p><div className=\"grid grid-cols-1 sm:grid-cols-2 gap-3\"><div><label className=\"text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block\">Email *</label><input className=\"w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm\" type=\"email\" value={form.email} onChange={e => handleChange('email', e.target.value)} required /></div><div><label className=\"text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block\">Phone</label><input className=\"w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm\" type=\"tel\" value={form.phone} onChange={e => handleChange('phone', e.target.value)} /></div></div><div><label className=\"text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block\">{isEdit ? 'New Password (optional)' : 'Password *'}</label><input className=\"w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm\" type=\"password\" autoComplete=\"new-password\" value={form.password} onChange={e => handleChange('password', e.target.value)} required={!isEdit} minLength={8} placeholder={isEdit ? 'Leave blank to keep current password' : 'Minimum 8 characters'} /></div></div>"
           if old_account not in text:
-              raise SystemExit('frontend account anchor not found')
+              raise SystemExit('frontend account modal anchor not found')
           text = text.replace(old_account, new_account, 1)
           frontend.write_text(text)
 
           backend = Path('apps/backend/src/controllers/teacher.controller.ts')
           text = backend.read_text()
 
-          old_update_start = "  const { firstName, lastName, gender, school, qualification, specialization, experience, bio, status, joiningDate } = req.body;"
-          new_update_start = "  const { firstName, lastName, gender, school, qualification, specialization, experience, bio, status, joiningDate, email, phone, password } = req.body;\n\n  const user = await User.findById(teacher.user).select('+password');\n  if (!user) throw new NotFoundError('Teacher user');\n\n  if (email !== undefined) {\n    const normalizedEmail = String(email).trim().toLowerCase();\n    if (!normalizedEmail) throw new BadRequestError('Email cannot be empty');\n    const emailOwner = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } }).select('_id');\n    if (emailOwner) throw new ConflictError('A user with this email already exists');\n    user.email = normalizedEmail;\n  }\n\n  if (phone !== undefined) {\n    const normalizedPhone = String(phone).trim();\n    if (normalizedPhone) {\n      const phoneOwner = await User.findOne({ phone: normalizedPhone, _id: { $ne: user._id } }).select('_id');\n      if (phoneOwner) throw new ConflictError('A user with this phone number already exists');\n      user.phone = normalizedPhone;\n    } else {\n      user.phone = undefined;\n    }\n  }\n\n  if (password !== undefined && String(password).length > 0) {\n    if (String(password).length < 8) throw new BadRequestError('Password must be at least 8 characters');\n    user.password = String(password);\n    user.tokenVersion += 1;\n  }\n\n  if (email !== undefined || phone !== undefined || (password !== undefined && String(password).length > 0)) {\n    await user.save();\n  }"
-          if old_update_start not in text:
-              raise SystemExit('backend update anchor not found')
-          text = text.replace(old_update_start, new_update_start, 1)
+          old_update = "  const { firstName, lastName, gender, school, qualification, specialization, experience, bio, status, joiningDate } = req.body;"
+          new_update = """  const { firstName, lastName, gender, school, qualification, specialization, experience, bio, status, joiningDate, email, phone, password } = req.body;
 
-          old_populate = ".populate('user', 'email isVerified isActive')"
-          new_populate = ".populate('user', 'email phone isVerified isActive')"
-          text = text.replace(old_populate, new_populate)
+  const user = await User.findById(teacher.user).select('+password');
+  if (!user) throw new NotFoundError('Teacher user');
+
+  if (email !== undefined) {
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!normalizedEmail) throw new BadRequestError('Email cannot be empty');
+    const emailOwner = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } }).select('_id');
+    if (emailOwner) throw new ConflictError('A user with this email already exists');
+    user.email = normalizedEmail;
+  }
+
+  if (phone !== undefined) {
+    const normalizedPhone = String(phone).trim();
+    if (normalizedPhone) {
+      const phoneOwner = await User.findOne({ phone: normalizedPhone, _id: { $ne: user._id } }).select('_id');
+      if (phoneOwner) throw new ConflictError('A user with this phone number already exists');
+      user.phone = normalizedPhone;
+    } else {
+      user.phone = undefined;
+    }
+  }
+
+  if (password !== undefined && String(password).length > 0) {
+    if (String(password).length < 8) throw new BadRequestError('Password must be at least 8 characters');
+    user.password = String(password);
+    user.tokenVersion += 1;
+  }
+
+  if (email !== undefined || phone !== undefined || (password !== undefined && String(password).length > 0)) {
+    await user.save();
+  }"""
+          if old_update not in text:
+              raise SystemExit('backend update anchor not found')
+          text = text.replace(old_update, new_update, 1)
+          text = text.replace(".populate('user', 'email isVerified isActive')", ".populate('user', 'email phone isVerified isActive')")
+          text = text.replace(".populate('user', 'email isVerified isActive preferredLanguage')", ".populate('user', 'email phone isVerified isActive preferredLanguage')")
           backend.write_text(text)
           PY
 
@@ -66,6 +97,9 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add apps/frontend/src/features/admin/pages/teachers-manage.tsx apps/backend/src/controllers/teacher.controller.ts
-          git diff --cached --quiet && { echo 'No patch needed'; exit 0; }
+          if git diff --cached --quiet; then
+            echo 'No teacher edit changes were needed'
+            exit 0
+          fi
           git commit -m 'chore: apply teacher edit account fields'
           git push
