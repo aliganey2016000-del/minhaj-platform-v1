@@ -69,10 +69,3 @@ jobs:
           git diff --cached --quiet && { echo 'No patch needed'; exit 0; }
           git commit -m 'chore: apply teacher edit account fields'
           git push
-
-      - name: Remove temporary patch workflow
-        if: success()
-        run: |
-          git rm .github/workflows/patch-teacher-edit-account-fields.yml
-          git commit -m 'chore: remove temporary teacher edit patch workflow'
-          git push
