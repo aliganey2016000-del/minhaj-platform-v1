@@ -13,6 +13,48 @@ const api = axios.create({
   },
 });
 
+// Exam dates are calendar dates, not timestamps. A few existing exam records
+// contain the Unix epoch (01/01/1970), which makes the admin calendar show
+// 1970 and causes the effective-status calculation to mark them completed.
+// Treat those legacy/invalid dates as today's local calendar date so the
+// scheduling UI starts from the real current day (23/08/2026 in production)
+// without changing valid historical/future dates.
+function localDateInputValue(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeExamDate(value: unknown): unknown {
+  if (!value) return value;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime()) || date.getFullYear() < 2000) {
+    return localDateInputValue();
+  }
+  return value;
+}
+
+function normalizeExamResponseData(data: any): any {
+  if (!data || typeof data !== 'object') return data;
+
+  const normalizeExam = (exam: any) => {
+    if (!exam || typeof exam !== 'object' || !('examDate' in exam)) return exam;
+    return { ...exam, examDate: normalizeExamDate(exam.examDate) };
+  };
+
+  if (Array.isArray(data.data)) {
+    return { ...data, data: data.data.map(normalizeExam) };
+  }
+  if (Array.isArray(data.data?.exams)) {
+    return { ...data, data: { ...data.data, exams: data.data.exams.map(normalizeExam) } };
+  }
+  if (data.data && typeof data.data === 'object' && 'examDate' in data.data) {
+    return { ...data, data: normalizeExam(data.data) };
+  }
+  return data;
+}
+
 // Request interceptor — attach access token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
@@ -65,9 +107,14 @@ function refreshAccessToken(): Promise<string | null> {
   return refreshPromise;
 }
 
-// Response interceptor — handle 401, refresh token
+// Response interceptor — normalize legacy exam dates, then handle 401/refresh.
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response.config.url?.includes('/exams')) {
+      response.data = normalizeExamResponseData(response.data);
+    }
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
     const isAuthEndpoint = AUTH_ENDPOINTS_EXEMPT_FROM_REFRESH.some((path) => originalRequest?.url?.includes(path));
