@@ -6,6 +6,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const file = path.resolve(here, '../src/features/admin/pages/teachers-manage.tsx');
 let text = fs.readFileSync(file, 'utf8');
 
+const alreadyPatched = text.includes('System Account') && text.includes('New Password (optional)') && text.includes("teacher.user?.phone || ''");
+if (alreadyPatched) {
+  console.log('Teacher edit account fields already patched.');
+  process.exit(0);
+}
+
 text = text.replace(
   "interface TeacherUser { _id: string; email: string; isVerified: boolean; isActive: boolean; }",
   "interface TeacherUser { _id: string; email: string; phone?: string; isVerified: boolean; isActive: boolean; }"
