@@ -2,7 +2,7 @@ import axios from 'axios';
 
 export interface WhatsAppTemplateComponent {
   type: 'body' | 'header' | 'button';
-  parameters?: Array<{ type: 'text'; text: string }>;
+  parameters?: Array<{ type: 'text'; text: any }>;
   sub_type?: string;
   index?: string;
 }
