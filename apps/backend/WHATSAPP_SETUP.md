@@ -18,13 +18,14 @@ Do not put secrets in Docker `ARG`, source files, or Git history.
 
 ## Attendance template
 
-Create and approve a WhatsApp template in Meta Business Manager. The attendance automation sends five body parameters in this order:
+Create and approve a WhatsApp template in Meta Business Manager. The attendance automation sends six body parameters in this order:
 
 1. Student name
 2. Attendance status (`Absent` or `Late`)
-3. Course name (English)
+3. Course name
 4. Date
-5. Session time
+5. Start time
+6. End time
 
 Only `absent` and `late` attendance records generate alerts. Present and Excused records do not send messages.
 
