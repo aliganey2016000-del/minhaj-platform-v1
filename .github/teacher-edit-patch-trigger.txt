@@ -1,0 +1,1 @@
+Temporary trigger for teacher edit account fields patch.
