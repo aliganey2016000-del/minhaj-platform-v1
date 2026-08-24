@@ -61,11 +61,6 @@ function examTypeLabel(milestone?: 'mid' | 'final' | null): string {
   return milestone === 'mid' ? 'Mid Exam' : milestone === 'final' ? 'Final' : '';
 }
 
-function trailingSeatNumber(seat: string): number | null {
-  const match = seat.match(/(\d+)\s*$/);
-  return match ? Number(match[1]) : null;
-}
-
 /**
  * Exam Seating has its own ExamRoom registry, while Manage Classes stores a
  * classroom room name. Importing seating should still work when an existing
@@ -225,11 +220,6 @@ async function parseImport(req: Request, examId: string, commit: boolean) {
       const seatKey = `${room._id.toString()}::${key(result.seat)}`;
       if (seenSeats.has(seatKey)) throw new Error(`Duplicate seat "${result.seat}" in ${room.name}`);
       seenSeats.add(seatKey);
-
-      const seatNumber = trailingSeatNumber(result.seat);
-      if (seatNumber !== null && seatNumber > room.capacity) {
-        throw new Error(`Seat ${result.seat} exceeds ${room.name} capacity (${room.capacity})`);
-      }
 
       const profile = student.profile || {};
       const actualName = normalize([profile.firstName, profile.lastName].filter(Boolean).join(' '));

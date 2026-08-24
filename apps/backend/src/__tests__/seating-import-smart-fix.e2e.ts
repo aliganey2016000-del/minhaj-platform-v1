@@ -1,13 +1,19 @@
 /**
- * Exam Seating import — "smart fix" flow.
+ * Exam Seating import — capacity is advisory, duplicate-seat is still
+ * auto-fixable.
  *
- * When a preview row fails with a capacity-exceeded or duplicate-seat error,
- * the backend now also returns a `suggestion: { room, seat }` pointing at the
- * next free numeric seat across the school's rooms. The frontend's "Apply
- * Fix" button re-validates that one row's suggestion via the new JSON
- * endpoint (POST /exams/seating-plan/validate-rows) instead of forcing the
- * admin to hand-edit the spreadsheet and re-upload, and the final import can
- * then run from the corrected in-memory rows via
+ * The admin asked for room capacity to never block an import — whatever
+ * seat number they enter must be accepted, even past the room's configured
+ * capacity (capacity is a soft planning number, not a hard limit here). A
+ * TRUE conflict — two rows in the same file claiming the exact same
+ * room+seat — is still flagged, and still comes with a
+ * `suggestion: { room, seat }` pointing at the next free numeric seat
+ * across the school's rooms (advisory only — nothing changes until the
+ * admin accepts it via "Apply Fix").
+ *
+ * The frontend's "Apply Fix" button re-validates the corrected row via
+ * POST /exams/seating-plan/validate-rows (JSON body, no file needed), and
+ * once every row is clean, Import runs from those in-memory rows via
  * POST /exams/seating-plan/import-rows — no re-upload needed.
  *
  * Runs the REAL Express app against a real, ephemeral in-memory MongoDB
@@ -83,6 +89,7 @@ async function main() {
 
   const student1 = await makeStudent('TUSMO-301', 'Leyla');
   const student2 = await makeStudent('TUSMO-302', 'Xasan');
+  const student3 = await makeStudent('TUSMO-303', 'Cali');
 
   function buildSeatingFile(rows: any[][]) {
     const headers = ['Organization', 'Department', 'Class', 'Shift', 'Student ID', 'Student Name', 'Academic Year', 'Exam Type', 'Room', 'Seat'];
@@ -94,11 +101,14 @@ async function main() {
 
   const rows = [
     [school.name, 'Grade 9', 'Grade 9 A', 'Morning', student1.studentId, 'Leyla Test', '2026/27', 'Final Exam', 'Room 1', '1'],
-    [school.name, 'Grade 9', 'Grade 9 A', 'Morning', student2.studentId, 'Xasan Test', '2026/27', 'Final Exam', 'Room 1', '2'],
+    // Same room+seat as row 1 — a genuine within-file conflict, still flagged.
+    [school.name, 'Grade 9', 'Grade 9 A', 'Morning', student2.studentId, 'Xasan Test', '2026/27', 'Final Exam', 'Room 1', '1'],
+    // Room 1's capacity is 1 — seat 99 is far past it, but must be ACCEPTED, not blocked.
+    [school.name, 'Grade 9', 'Grade 9 A', 'Morning', student3.studentId, 'Cali Test', '2026/27', 'Final Exam', 'Room 1', '99'],
   ];
 
   // -------------------------------------------------------------------
-  section('PREVIEW IMPORT — second row overflows Room 1 (capacity 1)');
+  section('PREVIEW IMPORT — row 3 exceeds Room 1 capacity but is accepted; row 2 is a true duplicate-seat conflict');
   // -------------------------------------------------------------------
   const previewRes = await request(app)
     .post('/api/v1/exams/seating-plan/import-preview')
@@ -107,8 +117,9 @@ async function main() {
   assert(previewRes.status === 200, `preview succeeds (status ${previewRes.status})`);
   const preview = previewRes.body?.data || [];
   assert(preview[0]?.status === 'valid', `row 1 is valid (got status="${preview[0]?.status}")`);
-  assert(preview[1]?.status === 'error', `row 2 is an error (got status="${preview[1]?.status}")`);
-  assert(preview[1]?.message?.includes('exceeds Room 1 capacity'), `row 2 error message mentions the capacity problem (got "${preview[1]?.message}")`);
+  assert(preview[2]?.status === 'valid', `row 3 (seat 99 in a 1-seat room) is ACCEPTED, capacity is no longer a blocking error (got status="${preview[2]?.status}", message="${preview[2]?.message}")`);
+  assert(preview[1]?.status === 'error', `row 2 is an error — genuine duplicate seat within the file (got status="${preview[1]?.status}")`);
+  assert(preview[1]?.message?.includes('Duplicate seat'), `row 2 error message is about the duplicate seat (got "${preview[1]?.message}")`);
   assert(preview[1]?.suggestion?.room === 'Room 2' && preview[1]?.suggestion?.seat === '1', `row 2 suggests the next free seat, Room 2 seat 1 (got ${JSON.stringify(preview[1]?.suggestion)})`);
 
   // -------------------------------------------------------------------
@@ -122,7 +133,7 @@ async function main() {
     .send({ rows: asJsonRows(fixedRows) });
   assert(revalidateRes.status === 200, `re-validate succeeds (status ${revalidateRes.status})`);
   const revalidated = revalidateRes.body?.data || [];
-  assert(revalidated.every((r: any) => r.status === 'valid'), `both rows are now valid after applying the fix (got statuses ${JSON.stringify(revalidated.map((r: any) => r.status))})`);
+  assert(revalidated.every((r: any) => r.status === 'valid'), `all 3 rows are now valid after applying the fix (got statuses ${JSON.stringify(revalidated.map((r: any) => r.status))})`);
   assert(revalidated[1]?.room === 'Room 2' && revalidated[1]?.seat === '1', `row 2 now targets Room 2 seat 1 (got room="${revalidated[1]?.room}", seat="${revalidated[1]?.seat}")`);
 
   // -------------------------------------------------------------------
@@ -133,11 +144,13 @@ async function main() {
     .set('Authorization', `Bearer ${orgAdminToken}`)
     .send({ rows: asJsonRows(revalidated) });
   assert(importRes.status === 200, `import-rows succeeds (status ${importRes.status})`);
-  assert(importRes.body?.data?.imported === 2, `2 seating assignments imported (got ${JSON.stringify(importRes.body?.data)})`);
+  assert(importRes.body?.data?.imported === 3, `3 seating assignments imported (got ${JSON.stringify(importRes.body?.data)})`);
 
   const saved = await ExamSeatingPlan.find({ school: school._id }).populate('room', 'name').lean();
   const forStudent2: any = saved.find((s: any) => s.student.toString() === (student2._id as any).toString());
   assert((forStudent2?.room as any)?.name === 'Room 2' && forStudent2?.deskNumber === '1', `student2 actually landed in Room 2 seat 1 in the DB (got room="${(forStudent2?.room as any)?.name}", seat="${forStudent2?.deskNumber}")`);
+  const forStudent3: any = saved.find((s: any) => s.student.toString() === (student3._id as any).toString());
+  assert((forStudent3?.room as any)?.name === 'Room 1' && forStudent3?.deskNumber === '99', `student3 landed in Room 1 seat 99 despite the room's capacity being 1 — accepted as requested (got room="${(forStudent3?.room as any)?.name}", seat="${forStudent3?.deskNumber}")`);
 
   // -------------------------------------------------------------------
   console.log(`\n${'='.repeat(60)}`);

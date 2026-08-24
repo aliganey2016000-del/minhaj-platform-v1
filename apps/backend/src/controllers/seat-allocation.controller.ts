@@ -95,9 +95,6 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   if (await SeatAllocation.exists({ exam: exam._id, student: student._id })) throw new BadRequestError('This student is already assigned a seat for this exam');
   if (await SeatAllocation.exists({ exam: exam._id, room: room._id, deskNumber: seat })) throw new BadRequestError(`Seat "${seat}" is already occupied in ${room.name}`);
 
-  const trailingNumber = seat.match(/(\d+)\s*$/);
-  if (trailingNumber && Number(trailingNumber[1]) > room.capacity) throw new BadRequestError(`Seat ${seat} exceeds ${room.name} capacity (${room.capacity})`);
-
   const allocation = await SeatAllocation.create({ exam: exam._id, student: student._id, room: room._id, deskNumber: seat, school: exam.school || null });
   const populated = await SeatAllocation.findById(allocation._id)
     .populate('room', 'name building capacity')
@@ -123,8 +120,6 @@ export const generate = async (req: Request, res: Response): Promise<Response> =
   for (const room of rooms) assertOwnsOrg(req, room, 'school');
   const courseId = (exam.course as any)?._id || exam.course;
   const students = await Student.find({ enrolledCourses: courseId }).sort({ studentId: 1 }).lean();
-  const totalCapacity = rooms.reduce((sum, r) => sum + r.capacity, 0);
-  if (students.length > totalCapacity) throw new BadRequestError(`Not enough seats: ${students.length} enrolled students but only ${totalCapacity} seats across the selected rooms.`);
   await SeatAllocation.deleteMany({ exam: exam._id });
   const docs: { exam: unknown; student: unknown; room: unknown; deskNumber: string; school: unknown }[] = [];
   let studentIdx = 0;
@@ -160,9 +155,6 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (!seat) throw new BadRequestError('Seat is required');
   const room = await ExamRoom.findById(targetRoom).lean();
   if (!room) throw new NotFoundError('Exam room');
-
-  const trailingNumber = seat.match(/(\d+)\s*$/);
-  if (trailingNumber && Number(trailingNumber[1]) > room.capacity) throw new BadRequestError(`Seat ${seat} exceeds ${room.name} capacity (${room.capacity})`);
 
   const occupied = await SeatAllocation.findOne({ exam: exam._id, room: room._id, deskNumber: seat, _id: { $ne: existing._id } }).lean();
   if (occupied) throw new BadRequestError(`Seat "${seat}" is already occupied in ${room.name}`);

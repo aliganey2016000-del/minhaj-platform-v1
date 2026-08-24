@@ -52,8 +52,12 @@ function roundRobinMix(students: any[]): any[] {
   return mixed;
 }
 
+// Room capacity is a soft planning number here, not a hard limit: the admin
+// controls how many students each room can take. We distribute by the chosen
+// "students per room" target and only fall back to the configured capacity
+// when the admin has not set a target (which never happens via the UI).
 const effectiveCapacity = (room: any, perRoom: number) =>
-  Math.min(Number(room.capacity) || 0, perRoom);
+  perRoom || (Number(room.capacity) || 0);
 
 function classCounts(students: any[]) {
   const counts = new Map<string, number>();
@@ -196,54 +200,43 @@ export const generate = async (req: Request, res: Response) => {
     .map(room => ({ ...room, source: 'class-room' }));
 
   let selectedRooms = [...classRooms];
-  let usableCapacity = selectedRooms.reduce((sum, room) => sum + effectiveCapacity(room, perRoom), 0);
   const requiredGroups = Math.ceil(selected.length / perRoom);
 
-  if (usableCapacity < selected.length) {
-    const selectedRoomIds = new Set(selectedRooms.map(room => String(room._id)));
-    const additionalRooms = await ExamRoom.find({
-      school: targetSchoolId,
-      _id: { $nin: Array.from(selectedRoomIds).map(id => new mongoose.Types.ObjectId(id)) },
-      capacity: { $gt: 0 },
-    })
-      .sort({ capacity: -1, building: 1, name: 1 })
-      .lean();
+  // Try to bring in additional rooms when the class-linked rooms look small,
+  // but never hard-block on capacity: the admin owns the final call. Any
+  // students that don't fit a room's target spill into the remaining rooms.
+  const selectedRoomIds = new Set(selectedRooms.map(room => String(room._id)));
+  const additionalRooms = await ExamRoom.find({
+    school: targetSchoolId,
+    _id: { $nin: Array.from(selectedRoomIds).map(id => new mongoose.Types.ObjectId(id)) },
+    capacity: { $gt: 0 },
+  })
+    .sort({ capacity: -1, building: 1, name: 1 })
+    .lean();
 
-    additionalRooms.forEach(r => assertOwnOrg(req, r, 'school'));
-    for (const room of additionalRooms) {
-      if (usableCapacity >= selected.length) break;
-      selectedRooms.push({ ...room, source: 'additional-room' });
-      usableCapacity += effectiveCapacity(room, perRoom);
-    }
-  }
-
-  if (usableCapacity < selected.length) {
-    const currentlyUsable = selectedRooms.reduce((sum, room) => sum + effectiveCapacity(room, perRoom), 0);
-    const remaining = selected.length - currentlyUsable;
-    const report = selectedRooms.map(room => `${room.name} (${room.building}) ${effectiveCapacity(room, perRoom)} usable`).join('; ');
-    throw new BadRequestError(
-      `SEATING CAPACITY SHORTAGE | Students: ${selected.length} | Required groups: ${requiredGroups} | Usable capacity: ${currentlyUsable} | Remaining students: ${remaining} | Rooms: ${report} | Resolution: add/select at least ${Math.ceil(remaining / perRoom)} more usable room(s) or reduce the student scope.`
-    );
+  additionalRooms.forEach(r => assertOwnOrg(req, r, 'school'));
+  for (const room of additionalRooms) {
+    if (selectedRooms.length * perRoom >= selected.length) break;
+    selectedRooms.push({ ...room, source: 'additional-room' });
   }
 
   const mixed = roundRobinMix(selected);
   const assignments: Array<{ roomId: any; student: any; seat: string }> = [];
   let cursor = 0;
-  for (const room of selectedRooms) {
-    const capacity = effectiveCapacity(room, perRoom);
-    if (capacity <= 0) continue;
-    const group = mixed.slice(cursor, cursor + capacity);
+  const usableRooms = selectedRooms.filter(room => effectiveCapacity(room, perRoom) > 0);
+  for (let i = 0; i < usableRooms.length && cursor < mixed.length; i++) {
+    const room = usableRooms[i];
+    const remaining = mixed.length - cursor;
+    // The last usable room absorbs any leftover students so no one is dropped,
+    // even when the total count exceeds the planned capacity.
+    const groupSize = i === usableRooms.length - 1 ? remaining : Math.min(effectiveCapacity(room, perRoom), remaining);
+    const group = mixed.slice(cursor, cursor + groupSize);
     cursor += group.length;
     group.forEach((student, index) => assignments.push({
       roomId: room._id,
       student,
       seat: seatMode === 'sequential' ? `S${String(index + 1).padStart(2, '0')}` : '',
     }));
-    if (cursor >= mixed.length) break;
-  }
-
-  if (cursor !== selected.length) {
-    throw new BadRequestError('The seating generator could not assign every selected student. Increase the available room capacity or select additional rooms.');
   }
 
   const scope: any = { academicYear: year, examType: type, school: targetSchoolId };
@@ -280,7 +273,7 @@ export const generate = async (req: Request, res: Response) => {
     seatMode,
     mixedClasses: true,
     totalConfiguredCapacity: selectedRooms.reduce((sum, room) => sum + (Number(room.capacity) || 0), 0),
-    totalUsableCapacity: usableCapacity,
+    totalUsableCapacity: selectedRooms.reduce((sum, room) => sum + effectiveCapacity(room, perRoom), 0),
     additionalRoomsUsed: breakdown.filter(r => r.source === 'additional-room').length,
     selectedClasses: targetClasses.map(c => ({
       _id: c._id,
