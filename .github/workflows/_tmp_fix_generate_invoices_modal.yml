@@ -1,0 +1,110 @@
+name: Apply Generate Invoices Modal Fix
+
+on:
+  push:
+    paths:
+      - .github/workflows/_tmp_fix_generate_invoices_modal.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ !startsWith(github.event.head_commit.message, 'fix: generate invoices modal') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch modal
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('apps/frontend/src/features/admin/pages/invoices-manage.tsx')
+          text = path.read_text()
+
+          old = '''  const toggleAll = () => {
+    setSelectedIds(visibleStructures.length === selectedIds.length ? [] : visibleStructures.map((fs) => fs._id));
+  };
+
+  const [deptOpen, setDeptOpen] = useState(false);
+  const [structOpen, setStructOpen] = useState(false);
+  const deptRef = useRef<HTMLButtonElement>(null);
+  const structRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const h = (event: MouseEvent) => {
+      if (deptRef.current && !deptRef.current.contains(event.target as Node)) setDeptOpen(false);
+      if (structRef.current && !structRef.current.contains(event.target as Node)) setStructOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+'''
+          new = '''  const toggleAll = () => {
+    const visibleIds = visibleStructures.map((fs) => fs._id);
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+    setSelectedIds(allVisibleSelected ? [] : visibleIds);
+  };
+
+  const [deptOpen, setDeptOpen] = useState(false);
+  const [structOpen, setStructOpen] = useState(false);
+  const deptRef = useRef<HTMLButtonElement>(null);
+  const deptMenuRef = useRef<HTMLDivElement>(null);
+  const structRef = useRef<HTMLButtonElement>(null);
+  const structMenuRef = useRef<HTMLDivElement>(null);
+
+  // These menus are rendered through portals. The document-level mousedown
+  // handler must treat the portal menu itself as inside the dropdown, or the
+  // menu closes before its option click can update React state.
+  useEffect(() => {
+    const h = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (deptOpen && !deptRef.current?.contains(target) && !deptMenuRef.current?.contains(target)) {
+        setDeptOpen(false);
+      }
+      if (structOpen && !structRef.current?.contains(target) && !structMenuRef.current?.contains(target)) {
+        setStructOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [deptOpen, structOpen]);
+
+  // A department change must never leave selected fee structures that are no
+  // longer visible. This also protects against stale selections after a
+  // fee-structure refresh.
+  useEffect(() => {
+    const visibleIds = new Set(visibleStructures.map((fs) => fs._id));
+    setSelectedIds((prev) => prev.filter((id) => visibleIds.has(id)));
+  }, [visibleStructures]);
+'''
+          if old not in text:
+              raise SystemExit('Expected dropdown state block was not found')
+          text = text.replace(old, new, 1)
+
+          old = '''                <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
+          new = '''                <div ref={deptMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
+          if old not in text:
+              raise SystemExit('Department portal not found')
+          text = text.replace(old, new, 1)
+
+          old = '''                <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
+          new = '''                <div ref={structMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
+          if old not in text:
+              raise SystemExit('Fee structure portal not found')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+      - name: Validate and commit final fix
+        run: |
+          git diff --check
+          git diff -- apps/frontend/src/features/admin/pages/invoices-manage.tsx
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/frontend/src/features/admin/pages/invoices-manage.tsx
+          git commit -m "fix: generate invoices modal filtering and selection"
+          git rm .github/workflows/_tmp_fix_generate_invoices_modal.yml
+          git commit --amend --no-edit
+          git push
