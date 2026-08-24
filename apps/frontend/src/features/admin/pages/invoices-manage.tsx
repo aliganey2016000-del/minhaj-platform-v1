@@ -109,6 +109,20 @@ function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructur
     setSelectedIds(visibleStructures.length === selectedIds.length ? [] : visibleStructures.map((fs) => fs._id));
   };
 
+  const [deptOpen, setDeptOpen] = useState(false);
+  const [structOpen, setStructOpen] = useState(false);
+  const deptRef = useRef<HTMLButtonElement>(null);
+  const structRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const h = (event: MouseEvent) => {
+      if (deptRef.current && !deptRef.current.contains(event.target as Node)) setDeptOpen(false);
+      if (structRef.current && !structRef.current.contains(event.target as Node)) setStructOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
   const handleGenerate = async () => {
     if (selectedIds.length === 0 || !period.trim()) return;
     setLoading(true); setError('');
@@ -140,11 +154,18 @@ function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructur
           <div className="space-y-3">
             <div>
               <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Department</label>
-              <select className={ic} value={departmentId} onChange={e => { setDepartmentId(e.target.value); setSelectedIds([]); }}>
-                <option value="">All Departments</option>
-                {departments.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
-              </select>
+              <button ref={deptRef} type="button" onClick={() => setDeptOpen(v => !v)} className={`${ic} flex items-center justify-between text-left`}>
+                <span className={departmentId ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{departmentId ? (departments.find(d => d._id === departmentId)?.name || 'All Departments') : 'All Departments'}</span>
+                <span className={`transition-transform ${deptOpen ? 'rotate-180' : ''}`}>▾</span>
+              </button>
               <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Pick a department to show only the fee structures meant for it.</p>
+              {deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(
+                <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">
+                  <button type="button" onClick={() => { setDepartmentId(''); setSelectedIds([]); setDeptOpen(false); }} className={`flex w-full rounded-lg px-3 py-2 text-left text-sm ${!departmentId ? 'bg-[var(--color-surface-tertiary)] font-semibold' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>All Departments</button>
+                  {departments.map(d => <button key={d._id} type="button" onClick={() => { setDepartmentId(d._id); setSelectedIds([]); setDeptOpen(false); }} className={`flex w-full rounded-lg px-3 py-2 text-left text-sm ${departmentId === d._id ? 'bg-[var(--color-surface-tertiary)] font-semibold' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>{d.name}</button>)}
+                </div>,
+                document.body,
+              ); })()}
             </div>
 
             <div>
@@ -154,19 +175,28 @@ function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructur
                   <button type="button" onClick={toggleAll} className="text-xs font-semibold text-primary-600 hover:underline">{selectedIds.length === visibleStructures.length ? 'Clear all' : 'Select all'}</button>
                 )}
               </div>
-              <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-xl border border-[var(--color-border-default)] p-2">
-                {visibleStructures.length === 0 && <p className="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No fee structures for this department.</p>}
-                {visibleStructures.map(fs => {
-                  const checked = selectedIds.includes(fs._id);
-                  return (
-                    <button key={fs._id} type="button" onClick={() => toggleStructure(fs._id)} className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${checked ? 'border-primary-500 bg-primary-500/10' : 'border-[var(--color-border-default)] hover:bg-[var(--color-surface-tertiary)]'}`}>
-                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{checked ? '✓' : ''}</span>
-                      <span className="min-w-0 flex-1"><span className="block truncate font-medium text-[var(--color-text-primary)]">{fs.title}</span><span className="text-xs text-[var(--color-text-tertiary)]">${(fs.amount ?? 0).toLocaleString()} · {fs.billingCycle.replace('_', ' ')}</span></span>
-                    </button>
-                  );
-                })}
-              </div>
-              {selectedIds.length > 0 && <p className="mt-1 text-[11px] font-semibold text-primary-600">{selectedIds.length} fee structure{selectedIds.length !== 1 ? 's' : ''} selected</p>}
+              <button ref={structRef} type="button" onClick={() => setStructOpen(v => !v)} className={`${ic} flex items-center justify-between text-left`}>
+                <span className={selectedIds.length ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{selectedIds.length ? `${selectedIds.length} fee structure${selectedIds.length !== 1 ? 's' : ''} selected` : 'Select fee structures...'}</span>
+                <span className={`transition-transform ${structOpen ? 'rotate-180' : ''}`}>▾</span>
+              </button>
+              {structOpen && structRef.current && (() => { const r = structRef.current!.getBoundingClientRect(); return createPortal(
+                <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">
+                  {visibleStructures.length === 0 && <p className="px-3 py-4 text-center text-xs text-[var(--color-text-tertiary)]">No fee structures for this department.</p>}
+                  {visibleStructures.map(fs => {
+                    const checked = selectedIds.includes(fs._id);
+                    return (
+                      <button key={fs._id} type="button" onClick={() => toggleStructure(fs._id)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${checked ? 'bg-primary-500/10' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>
+                        <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{checked ? '✓' : ''}</span>
+                        <span className="min-w-0 flex-1"><span className="block truncate font-medium text-[var(--color-text-primary)]">{fs.title}</span><span className="text-xs text-[var(--color-text-tertiary)]">${(fs.amount ?? 0).toLocaleString()} · {fs.billingCycle.replace('_', ' ')}</span></span>
+                      </button>
+                    );
+                  })}
+                  <div className="mt-1 border-t border-[var(--color-border-default)] pt-1">
+                    <button type="button" onClick={() => setStructOpen(false)} className="w-full rounded-lg px-3 py-2 text-center text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-tertiary)]">Done</button>
+                  </div>
+                </div>,
+                document.body,
+              ); })()}
             </div>
 
             <div>
