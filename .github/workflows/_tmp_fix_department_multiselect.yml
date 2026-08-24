@@ -19,7 +19,6 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import re
 
           path = Path('apps/frontend/src/features/admin/pages/invoices-manage.tsx')
           text = path.read_text()
@@ -118,9 +117,6 @@ jobs:
               raise SystemExit('department label not found')
           text = text.replace(old, new, 1)
 
-          old = '''              {deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(
-                <div ref={deptMenuRef}'''
-          # The menu wrapper is already ref-tagged above; replace its children by replacing the old single-select controls.
           start = text.find('{deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(')
           if start < 0:
               raise SystemExit('department render start not found')
@@ -157,7 +153,14 @@ jobs:
           text = text.replace('Pick a department to show only the fee structures meant for it.', 'Select one or more departments, or choose All Departments.', 1)
           path.write_text(text)
 
-      - name: Validate and commit final source fix
+      - name: Build and lint frontend
+        working-directory: apps/frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+      - name: Commit final source fix
         run: |
           git diff --check
           git add apps/frontend/src/features/admin/pages/invoices-manage.tsx
