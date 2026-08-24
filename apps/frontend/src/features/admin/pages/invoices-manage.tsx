@@ -109,7 +109,7 @@ function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructur
               <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Fee Structure *</label>
               <select className={ic} value={feeStructureId} onChange={e => setFeeStructureId(e.target.value)}>
                 <option value="">Select an active fee structure...</option>
-                {feeStructures.map(fs => <option key={fs._id} value={fs._id}>{fs.title} — ${fs.amount.toLocaleString()} ({fs.billingCycle.replace('_', ' ')})</option>)}
+                {feeStructures.map(fs => <option key={fs._id} value={fs._id}>{fs.title} — ${(fs.amount ?? 0).toLocaleString()} ({fs.billingCycle.replace('_', ' ')})</option>)}
               </select>
             </div>
             <div>
@@ -138,7 +138,7 @@ function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructur
 // ---------------------------------------------------------------------------
 
 function CollectPaymentModal({ invoice, onClose, onDone }: { invoice: InvoiceItem; onClose: () => void; onDone: () => void }) {
-  const remaining = invoice.amount - invoice.amountPaid;
+  const remaining = (invoice.amount ?? 0) - (invoice.amountPaid ?? 0);
   const [amount, setAmount] = useState(String(remaining));
   const [method, setMethod] = useState('cash');
   const [notes, setNotes] = useState('');
@@ -168,7 +168,7 @@ function CollectPaymentModal({ invoice, onClose, onDone }: { invoice: InvoiceIte
         <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-bold text-[var(--color-text-primary)]">💵 Collect Payment</h2><button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button></div>
         <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3 mb-4 text-sm space-y-1">
           <p className="font-semibold text-[var(--color-text-primary)]">{studentName} — {invoice.title}</p>
-          <p className="text-[var(--color-text-tertiary)]">Amount: ${invoice.amount.toLocaleString()} · Paid: ${invoice.amountPaid.toLocaleString()} · Due: ${remaining.toLocaleString()}</p>
+          <p className="text-[var(--color-text-tertiary)]">Amount: ${(invoice.amount ?? 0).toLocaleString()} · Paid: ${(invoice.amountPaid ?? 0).toLocaleString()} · Due: ${remaining.toLocaleString()}</p>
         </div>
         <div className="space-y-3">
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Amount ($) *</label><input className={ic} type="number" min={0.01} max={remaining} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></div>
@@ -260,13 +260,13 @@ function ViewInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: 
             </div>
             <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)]">
               {invoice.lineItems.map((item, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2 text-sm"><span className="text-[var(--color-text-secondary)]">{item.description}</span><span className="font-medium text-[var(--color-text-primary)]">${item.amount.toLocaleString()}</span></div>
+                <div key={i} className="flex items-center justify-between px-3 py-2 text-sm"><span className="text-[var(--color-text-secondary)]">{item.description}</span><span className="font-medium text-[var(--color-text-primary)]">${(item.amount ?? 0).toLocaleString()}</span></div>
               ))}
-              <div className="flex items-center justify-between px-3 py-2 text-sm font-semibold"><span>Total</span><span>${invoice.amount.toLocaleString()}</span></div>
+              <div className="flex items-center justify-between px-3 py-2 text-sm font-semibold"><span>Total</span><span>${(invoice.amount ?? 0).toLocaleString()}</span></div>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-[var(--color-text-primary)]">${invoice.amountPaid.toLocaleString()}</p><p className="text-[var(--color-text-tertiary)]">Paid</p></div>
-              <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-[var(--color-text-primary)]">${invoice.amountDue.toLocaleString()}</p><p className="text-[var(--color-text-tertiary)]">Due</p></div>
+              <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-[var(--color-text-primary)]">${(invoice.amountPaid ?? 0).toLocaleString()}</p><p className="text-[var(--color-text-tertiary)]">Paid</p></div>
+              <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-[var(--color-text-primary)]">${(invoice.amountDue ?? 0).toLocaleString()}</p><p className="text-[var(--color-text-tertiary)]">Due</p></div>
               <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-[var(--color-text-primary)] capitalize">{invoice.status}</p><p className="text-[var(--color-text-tertiary)]">Status</p></div>
             </div>
             <div>
@@ -277,7 +277,7 @@ function ViewInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: 
                     <div key={p._id} className="flex items-center justify-between px-3 py-2 text-sm gap-2">
                       <span className="text-[var(--color-text-secondary)]">{new Date(p.createdAt).toLocaleDateString()} · {p.method.replace('_', ' ')}{p.status === 'refunded' && <span className="ml-1.5 text-[10px] font-semibold text-red-600 dark:text-red-400">REFUNDED</span>}</span>
                       <span className="flex items-center gap-2">
-                        <span className="font-medium text-[var(--color-text-primary)]">${p.amount.toLocaleString()}</span>
+                        <span className="font-medium text-[var(--color-text-primary)]">${(p.amount ?? 0).toLocaleString()}</span>
                         {hasReceipt(p.status) && (
                           <button onClick={() => downloadReceipt(p._id)} title="Download receipt" className="rounded-lg p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600 transition-colors"><Download className="h-3.5 w-3.5" strokeWidth={1.75} /></button>
                         )}
@@ -458,9 +458,9 @@ export function InvoicesManage() {
                   <tr key={inv._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
                     <td className="px-4 py-3"><p className="font-semibold text-[var(--color-text-primary)]">{studentName}</p><p className="text-xs text-[var(--color-text-tertiary)]">{inv.student?.studentId}</p></td>
                     <td className="px-4 py-3"><p className="text-[var(--color-text-primary)]">{inv.title}</p><p className="text-xs text-[var(--color-text-tertiary)]">{inv.period}</p></td>
-                    <td className="px-4 py-3 text-right font-semibold text-[var(--color-text-primary)]">${inv.amount.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--color-text-secondary)]">${inv.amountPaid.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--color-text-secondary)]">${inv.amountDue.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-[var(--color-text-primary)]">${(inv.amount ?? 0).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--color-text-secondary)]">${(inv.amountPaid ?? 0).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right hidden md:table-cell text-[var(--color-text-secondary)]">${(inv.amountDue ?? 0).toLocaleString()}</td>
                     <td className="px-4 py-3 text-center"><StatusBadge status={inv.status} isOverdue={inv.isOverdue} /></td>
                     <td className="px-4 py-3 hidden lg:table-cell text-[var(--color-text-secondary)]">{new Date(inv.dueDate).toLocaleDateString()}</td>
                     <td className="px-4 py-3 text-center"><RowActionsMenu actions={buildRowActions(inv)} /></td>

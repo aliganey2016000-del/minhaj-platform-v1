@@ -128,7 +128,7 @@ function FeeStructureModal({ structure, schools, onClose, onSaved }: {
     const errs: Partial<Record<keyof FeeStructureForm, string>> = {};
     if (!form.school) errs.school = 'Organization is required';
     if (!form.title.trim()) errs.title = 'Title is required';
-    if (!form.amount.trim() || Number(form.amount) < 0) errs.amount = 'A valid amount is required';
+    if (!form.amount.trim() || !Number.isFinite(Number(form.amount)) || Number(form.amount) < 0) errs.amount = 'A valid amount is required';
     if (form.scopeType !== 'school' && !form.scopeRef) errs.scopeRef = `Select a ${form.scopeType}`;
     setErrors(errs); return Object.keys(errs).length === 0;
   };
@@ -348,7 +348,7 @@ export function FeeStructuresManage() {
                   <td className="px-4 py-3"><p className="font-semibold text-[var(--color-text-primary)]">{s.title}</p>{s.description && <p className="text-xs text-[var(--color-text-tertiary)] truncate max-w-xs">{s.description}</p>}</td>
                   <td className="px-4 py-3 hidden md:table-cell capitalize text-[var(--color-text-secondary)]">{s.feeType}</td>
                   <td className="px-4 py-3"><ScopeBadge structure={s} /></td>
-                  <td className="px-4 py-3 text-right font-semibold text-[var(--color-text-primary)]">${s.amount.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-[var(--color-text-primary)]">${(s.amount ?? 0).toLocaleString()}</td>
                   <td className="px-4 py-3 hidden lg:table-cell capitalize text-[var(--color-text-secondary)]">{s.billingCycle.replace('_', ' ')}</td>
                   <td className="px-4 py-3 hidden lg:table-cell text-[var(--color-text-secondary)]">{s.academicYear || '—'}</td>
                   <td className="px-4 py-3 text-center"><ActiveBadge isActive={s.isActive} /></td>

@@ -12,7 +12,8 @@
     "test:gate-report": "ts-node src/__tests__/gate-report.e2e.ts",
     "test:teacher-authz": "ts-node src/__tests__/teacher-authz.e2e.ts",
     "test:teacher-crud": "ts-node src/__tests__/teacher-crud-import.e2e.ts",
-    "test:exam-dedupe": "ts-node src/__tests__/exam-import-dedupe.e2e.ts"
+    "test:exam-dedupe": "ts-node src/__tests__/exam-import-dedupe.e2e.ts",
+    "test:seating-import": "ts-node src/__tests__/seating-import-cross-org.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

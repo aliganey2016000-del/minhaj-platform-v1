@@ -67,7 +67,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const { title, description, feeType, scopeType, scopeRef, amount, billingCycle, academicYear, dueDayOffset } = req.body;
 
   if (!title || !String(title).trim()) throw new BadRequestError('Title is required');
-  if (amount === undefined || amount < 0) throw new BadRequestError('A valid amount is required');
+  if (amount === undefined || !Number.isFinite(Number(amount)) || Number(amount) < 0) throw new BadRequestError('A valid amount is required');
   if (!scopeType || !SCOPE_TYPES.includes(scopeType)) throw new BadRequestError('scopeType must be school, department, or class');
   if (scopeType !== 'school' && !scopeRef) throw new BadRequestError(`scopeRef is required when scopeType is "${scopeType}"`);
   if (billingCycle && !BILLING_CYCLES.includes(billingCycle)) throw new BadRequestError('Invalid billingCycle');
@@ -124,7 +124,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   }
   if (scopeRef !== undefined) structure.scopeRef = scopeRef;
   if (amount !== undefined) {
-    if (amount < 0) throw new BadRequestError('amount must be >= 0');
+    if (!Number.isFinite(Number(amount)) || Number(amount) < 0) throw new BadRequestError('amount must be a valid number >= 0');
     structure.amount = amount;
   }
   if (billingCycle !== undefined) {

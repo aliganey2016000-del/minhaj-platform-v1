@@ -111,7 +111,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   for (const item of lineItems) {
     if (!item.description || !String(item.description).trim()) throw new BadRequestError('Each line item needs a description');
-    if (item.amount === undefined || item.amount < 0) throw new BadRequestError('Each line item needs a valid amount');
+    if (item.amount === undefined || !Number.isFinite(Number(item.amount)) || Number(item.amount) < 0) throw new BadRequestError('Each line item needs a valid amount');
   }
 
   const student = await Student.findById(studentId).select('school');
