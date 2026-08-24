@@ -100,6 +100,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     title: 'Communication',
     items: [
       { path: '/admin/forum',        label: 'Forum',              icon: MessagesSquare },
+      { path: '/admin/whatsapp',     label: 'WhatsApp',           icon: MessagesSquare },
     ],
   },
   {
