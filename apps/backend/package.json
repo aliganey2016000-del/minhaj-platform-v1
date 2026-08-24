@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "nodemon --ext ts,json --exec ts-node src/server.ts",
+    "prebuild": "if [ -f scripts/apply-teacher-edit-account-patch.mjs ]; then node scripts/apply-teacher-edit-account-patch.mjs; fi",
     "build": "npm config set cache /tmp/.npm-cache && npm install --include=dev --cache /tmp/.npm-cache && tsc",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",

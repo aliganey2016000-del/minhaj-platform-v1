@@ -60,6 +60,7 @@ async function startServer() {
     await import('./models/course.model');
     await import('./models/class.model');
     await import('./models/attendance.model');
+    await import('./models/whatsapp-message.model');
     await import('./models/teacher.model');
     await import('./models/student.model');
     await import('./models/user.model');
@@ -77,6 +78,11 @@ async function startServer() {
     await import('./models/class-schedule.model');
     await import('./models/push-subscription.model');
     await import('./models/quiz-attempt.model');
+
+    // Wrap attendance bulk writes after all required models are registered.
+    // The wrapper sends WhatsApp alerts asynchronously so an external
+    // WhatsApp outage never prevents attendance from being saved.
+    await import('./services/attendance-whatsapp-automation');
 
     const appModule = await import('./app');
     const app = appModule.default;

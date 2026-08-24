@@ -2,8 +2,8 @@
  * Teacher Schedule — Read-Only View
  *
  * Displays the teacher's own weekly teaching schedule fetched from
- * GET /class-schedules/my-teaching. Shows day, time, course, and class
- * for each scheduled session.
+ * GET /class-schedules/my-teaching. Shows day, session number, time,
+ * course, class, and shift for each scheduled session.
  */
 
 import { useEffect, useState } from 'react';
@@ -15,11 +15,40 @@ interface Schedule {
   startTime: string;
   endTime: string;
   school?: { _id: string; name: string };
-  class?: { _id: string; title: string; section: string };
+  class?: {
+    _id: string;
+    title: string;
+    section: string;
+    shiftMode?: 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
+  };
   course?: { _id: string; title: { en: string } };
 }
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function getShiftLabel(schedule: Schedule): 'Morning' | 'Afternoon' | 'Evening' | 'Virtual' {
+  if (schedule.class?.shiftMode) return schedule.class.shiftMode;
+
+  // Backward-compatible fallback for existing schedule responses where
+  // shiftMode is not included in the populated Class document.
+  const hour = Number(schedule.startTime.slice(0, 2));
+  if (hour < 12) return 'Morning';
+  if (hour < 17) return 'Afternoon';
+  return 'Evening';
+}
+
+function getShiftIcon(shift: string): string {
+  if (shift === 'Morning') return '🌅';
+  if (shift === 'Afternoon') return '☀️';
+  if (shift === 'Evening') return '🌙';
+  return '💻';
+}
+
+const sessionNames = ['1aad', '2aad', '3aad', '4aad', '5aad', '6aad', '7aad', '8aad', '9aad', '10aad'];
+
+function getSessionName(index: number): string {
+  return sessionNames[index] || `${index + 1}aad`;
+}
 
 export function TeacherSchedule() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -84,23 +113,40 @@ export function TeacherSchedule() {
                   <h3 className="text-sm font-bold text-[var(--color-text-primary)]">{DAYS[day]}</h3>
                 </div>
                 <div className="divide-y divide-[var(--color-border-subtle)]">
-                  {grouped[day].map((s) => (
-                    <div key={s._id} className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--color-surface-secondary)] transition-colors">
-                      <div className="flex-shrink-0 w-24 text-center">
-                        <span className="inline-block rounded-lg bg-primary-50 dark:bg-primary-950/30 px-3 py-1.5 text-sm font-semibold text-primary-700 dark:text-primary-300">
-                          {s.startTime} – {s.endTime}
-                        </span>
+                  {grouped[day].map((s, index) => {
+                    const shift = getShiftLabel(s);
+                    return (
+                      <div key={s._id} className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--color-surface-secondary)] transition-colors">
+                        {/* Clear session number: Xisada 1aad, Xisada 2aad, ... */}
+                        <div className="flex-shrink-0 w-24 text-center">
+                          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary-600 text-sm font-extrabold text-white shadow-sm">
+                            {index + 1}
+                          </div>
+                          <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-primary-700 dark:text-primary-300">
+                            Xisada {getSessionName(index)}
+                          </p>
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-block rounded-lg bg-primary-50 dark:bg-primary-950/30 px-3 py-1.5 text-sm font-semibold text-primary-700 dark:text-primary-300">
+                              {s.startTime} – {s.endTime}
+                            </span>
+                            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-semibold text-[var(--color-text-secondary)]">
+                              {getShiftIcon(shift)} {shift}
+                            </span>
+                          </div>
+
+                          <p className="mt-2 text-sm font-semibold text-[var(--color-text-primary)] truncate">
+                            {s.course?.title?.en || 'Untitled Course'}
+                          </p>
+                          <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                            🏫 {s.class ? `${s.class.title} ${s.class.section || ''}`.trim() : '—'}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
-                          {s.course?.title?.en || 'Untitled Course'}
-                        </p>
-                        <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-                          🏫 {s.class ? `${s.class.title} ${s.class.section}` : '—'}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

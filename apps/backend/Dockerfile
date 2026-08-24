@@ -7,6 +7,7 @@ COPY package.json package-lock.json tsconfig.json ./
 RUN npm ci --include=dev
 
 COPY src/ ./src/
+COPY scripts/ ./scripts/
 RUN npm run build
 
 # ── Stage 2: Production runtime ──

@@ -11,11 +11,22 @@ main:has(a[href="/teacher/courses"]) button { transition: transform .15s ease, b
 main:has(a[href="/teacher/courses"]) button:hover { transform: translateY(-1px); }
 main:has(a[href="/teacher/courses"]) .lg\:grid-cols-3 { align-items: start; }
 main:has(a[href="/teacher/courses"]) .lg\:grid-cols-3 > .lg\:col-span-2 { min-width: 0; }
+
+/* Course card action menu: keep the portal menu inside the viewport on small screens. */
 @media (max-width: 640px) {
   main:has(a[href="/teacher/courses"]) > div { padding: 16px; }
   main:has(a[href="/teacher/courses"]) .grid.grid-cols-2.lg\:grid-cols-4 { grid-template-columns: 1fr; }
   main:has(a[href="/teacher/courses"]) section.rounded-2xl > div { padding-left: 16px; padding-right: 16px; }
   main:has(a[href="/teacher/courses"]) .grid.grid-cols-2.gap-3 { grid-template-columns: 1fr; }
+
+  /* The course menu is portaled, so the card's overflow cannot protect it.
+     On phones it opens upward from the three-dot button and scrolls if needed. */
+  .animate-fade-in.origin-top-right {
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    transform: translateY(calc(-100% - 8px));
+    transform-origin: bottom right;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   main:has(a[href="/teacher/courses"]) * { scroll-behavior: auto !important; transition: none !important; animation-duration: .01ms !important; }
