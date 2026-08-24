@@ -21,6 +21,8 @@ interface SchoolBrief { _id: string; name: string; }
 interface DepartmentBrief { _id: string; name: string; code?: string; }
 interface ClassBrief { _id: string; title: string; section: string; }
 
+interface FeeComponent { description: string; amount: number; }
+
 interface FeeStructure {
   _id: string;
   school?: { _id: string; name: string };
@@ -30,6 +32,7 @@ interface FeeStructure {
   scopeType: 'school' | 'department' | 'class';
   scopeRef?: { _id: string; name?: string; title?: string; section?: string } | null;
   amount: number;
+  components?: FeeComponent[];
   billingCycle: 'one_time' | 'monthly' | 'termly' | 'annual';
   academicYear?: string;
   dueDayOffset: number;
@@ -45,6 +48,7 @@ interface FeeStructureForm {
   scopeType: 'school' | 'department' | 'class';
   scopeRef: string;
   amount: string;
+  components: { description: string; amount: string }[];
   billingCycle: string;
   academicYear: string;
   dueDayOffset: string;
@@ -60,7 +64,7 @@ function defaultAcademicYear(): string {
 
 const emptyForm: FeeStructureForm = {
   school: '', title: '', description: '', feeType: 'tuition', scopeType: 'school', scopeRef: '',
-  amount: '', billingCycle: 'monthly', academicYear: defaultAcademicYear(), dueDayOffset: '14', isActive: true,
+  amount: '', components: [], billingCycle: 'monthly', academicYear: defaultAcademicYear(), dueDayOffset: '14', isActive: true,
 };
 
 const FEE_TYPES = ['tuition', 'registration', 'exam', 'material', 'transport', 'library', 'activity', 'uniform', 'other'];
@@ -107,7 +111,8 @@ function FeeStructureModal({ structure, schools, onClose, onSaved }: {
   const [form, setForm] = useState<FeeStructureForm>(structure ? {
     school: structure.school?._id || '', title: structure.title, description: structure.description || '',
     feeType: structure.feeType, scopeType: structure.scopeType, scopeRef: structure.scopeRef?._id || '',
-    amount: String(structure.amount), billingCycle: structure.billingCycle,
+    amount: String(structure.amount), components: (structure.components || []).map(c => ({ description: c.description, amount: String(c.amount) })),
+    billingCycle: structure.billingCycle,
     academicYear: structure.academicYear || defaultAcademicYear(), dueDayOffset: String(structure.dueDayOffset), isActive: structure.isActive,
   } : emptyForm);
   const [departments, setDepartments] = useState<DepartmentBrief[]>([]);
@@ -140,6 +145,16 @@ function FeeStructureModal({ structure, schools, onClose, onSaved }: {
     if (errors[name as keyof FeeStructureForm]) setErrors(p => { const n = { ...p }; delete n[name as keyof FeeStructureForm]; return n; });
   };
 
+  const addComponent = () => setForm(p => ({ ...p, components: [...p.components, { description: '', amount: '' }] }));
+
+  const updateComponent = (idx: number, field: 'description' | 'amount', value: string) => {
+    setForm(p => ({ ...p, components: p.components.map((c, i) => i === idx ? { ...c, [field]: value } : c) }));
+  };
+
+  const removeComponent = (idx: number) => setForm(p => ({ ...p, components: p.components.filter((_, i) => i !== idx) }));
+
+  const componentsTotal = form.components.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault(); if (!validate()) return;
     setLoading(true); setApiError('');
@@ -149,6 +164,7 @@ function FeeStructureModal({ structure, schools, onClose, onSaved }: {
         scopeType: form.scopeType, scopeRef: form.scopeType === 'school' ? undefined : form.scopeRef,
         amount: Number(form.amount), billingCycle: form.billingCycle, academicYear: form.academicYear.trim(),
         dueDayOffset: Number(form.dueDayOffset),
+        components: form.components.map(c => ({ description: c.description.trim(), amount: Number(c.amount) })),
       };
       if (isEdit) { payload.isActive = form.isActive; await api.patch(`/fee-structures/${structure._id}`, payload); }
       else await api.post('/fee-structures', payload);
@@ -186,11 +202,33 @@ function FeeStructureModal({ structure, schools, onClose, onSaved }: {
             )}
             {errors.scopeRef && <p className="mt-1 text-xs text-red-500">{errors.scopeRef}</p>}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Amount ($) *</label><input className={ic('amount')} name="amount" type="number" min={0} step="0.01" value={form.amount} onChange={handleChange} />{errors.amount && <p className="mt-1 text-xs text-red-500">{errors.amount}</p>}</div>
-            <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Due Days Offset</label><input className={ic('dueDayOffset')} name="dueDayOffset" type="number" min={0} max={180} value={form.dueDayOffset} onChange={handleChange} /></div>
+          <div>
+            <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Amount ($) *</label>
+            <input className={ic('amount')} name="amount" type="number" min={0} step="0.01" value={form.amount} onChange={handleChange} placeholder={form.components.length && componentsTotal > 0 ? `Auto: $${componentsTotal}` : '0.00'} disabled={form.components.length > 0} />
+            {errors.amount && <p className="mt-1 text-xs text-red-500">{errors.amount}</p>}
+            {form.components.length > 0 && <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Total is auto-calculated from the components below.</p>}
           </div>
-          <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Academic Year</label><input className={ic('academicYear')} name="academicYear" placeholder="e.g. 2026-2027" value={form.academicYear} onChange={handleChange} /></div>
+
+          <div className="rounded-xl border border-[var(--color-border-default)] p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-[var(--color-text-primary)]">Components (e.g. Tuition + Transport + Library)</label>
+              <button type="button" onClick={addComponent} className="rounded-lg bg-primary-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-primary-700 transition-colors">+ Add</button>
+            </div>
+            {form.components.length === 0 && <p className="text-xs text-[var(--color-text-tertiary)]">Leave empty to use a single amount above. Add components to itemize the fee.</p>}
+            {form.components.map((c, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <input className={ic('title')} placeholder="e.g. Tuition" value={c.description} onChange={e => updateComponent(idx, 'description', e.target.value)} />
+                <input className={`${ic('amount')} w-28`} type="number" min={0} step="0.01" placeholder="0.00" value={c.amount} onChange={e => updateComponent(idx, 'amount', e.target.value)} />
+                <button type="button" onClick={() => removeComponent(idx)} className="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">✕</button>
+              </div>
+            ))}
+            {form.components.length > 0 && <p className="text-right text-xs font-semibold text-[var(--color-text-primary)]">Total: ${componentsTotal.toLocaleString()}</p>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Due Days Offset</label><input className={ic('dueDayOffset')} name="dueDayOffset" type="number" min={0} max={180} value={form.dueDayOffset} onChange={handleChange} /></div>
+            <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Academic Year</label><input className={ic('academicYear')} name="academicYear" placeholder="e.g. 2026-2027" value={form.academicYear} onChange={handleChange} /></div>
+          </div>
           {isEdit && (
             <label className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 cursor-pointer">
               <input type="checkbox" name="isActive" checked={form.isActive} onChange={handleChange} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" />
@@ -348,7 +386,7 @@ export function FeeStructuresManage() {
                   <td className="px-4 py-3"><p className="font-semibold text-[var(--color-text-primary)]">{s.title}</p>{s.description && <p className="text-xs text-[var(--color-text-tertiary)] truncate max-w-xs">{s.description}</p>}</td>
                   <td className="px-4 py-3 hidden md:table-cell capitalize text-[var(--color-text-secondary)]">{s.feeType}</td>
                   <td className="px-4 py-3"><ScopeBadge structure={s} /></td>
-                  <td className="px-4 py-3 text-right font-semibold text-[var(--color-text-primary)]">${(s.amount ?? 0).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-[var(--color-text-primary)]">${(s.amount ?? 0).toLocaleString()}{s.components && s.components.length > 0 && <p className="text-[10px] font-normal text-[var(--color-text-tertiary)]">{s.components.length} component{s.components.length !== 1 ? 's' : ''}</p>}</td>
                   <td className="px-4 py-3 hidden lg:table-cell capitalize text-[var(--color-text-secondary)]">{s.billingCycle.replace('_', ' ')}</td>
                   <td className="px-4 py-3 hidden lg:table-cell text-[var(--color-text-secondary)]">{s.academicYear || '—'}</td>
                   <td className="px-4 py-3 text-center"><ActiveBadge isActive={s.isActive} /></td>

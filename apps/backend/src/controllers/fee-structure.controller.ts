@@ -63,8 +63,24 @@ export const getOne = async (req: Request, res: Response): Promise<Response> => 
 // POST /fee-structures
 // ---------------------------------------------------------------------------
 
+// Normalize/validate an optional `components` array (multi-component fees,
+// e.g. Tuition + Transport + Library). Returns the cleaned list, or throws.
+function normalizeComponents(raw: unknown): { description: string; amount: number }[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw new BadRequestError('components must be an array');
+  const out: { description: string; amount: number }[] = [];
+  for (const c of raw) {
+    const description = String(c?.description ?? '').trim();
+    const amount = Number(c?.amount);
+    if (!description) throw new BadRequestError('Each component needs a description');
+    if (!Number.isFinite(amount) || amount < 0) throw new BadRequestError('Each component needs a valid amount');
+    out.push({ description, amount });
+  }
+  return out;
+}
+
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { title, description, feeType, scopeType, scopeRef, amount, billingCycle, academicYear, dueDayOffset } = req.body;
+  const { title, description, feeType, scopeType, scopeRef, amount, components, billingCycle, academicYear, dueDayOffset } = req.body;
 
   if (!title || !String(title).trim()) throw new BadRequestError('Title is required');
   if (amount === undefined || !Number.isFinite(Number(amount)) || Number(amount) < 0) throw new BadRequestError('A valid amount is required');
@@ -76,6 +92,8 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const school = resolveOrgIdForCreate(req, req.body.school);
   if (!school) throw new BadRequestError('school is required');
 
+  const cleanedComponents = normalizeComponents(components);
+
   const structure = await FeeStructure.create({
     school,
     title: String(title).trim(),
@@ -83,7 +101,8 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     feeType: feeType || 'tuition',
     scopeType,
     scopeRef: scopeType === 'school' ? undefined : scopeRef,
-    amount,
+    amount: cleanedComponents.length ? cleanedComponents.reduce((s, c) => s + c.amount, 0) : Number(amount),
+    components: cleanedComponents,
     billingCycle: billingCycle || 'one_time',
     academicYear: academicYear ? String(academicYear).trim() : '',
     dueDayOffset: dueDayOffset !== undefined ? dueDayOffset : 14,
@@ -104,7 +123,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (!structure) throw new NotFoundError('Fee structure');
   assertOwnsOrg(req, structure, 'school');
 
-  const { title, description, feeType, scopeType, scopeRef, amount, billingCycle, academicYear, dueDayOffset, isActive } = req.body;
+  const { title, description, feeType, scopeType, scopeRef, amount, components, billingCycle, academicYear, dueDayOffset, isActive } = req.body;
 
   if (title !== undefined) {
     if (!String(title).trim()) throw new BadRequestError('Title cannot be empty');
@@ -123,7 +142,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     structure.scopeType = scopeType;
   }
   if (scopeRef !== undefined) structure.scopeRef = scopeRef;
-  if (amount !== undefined) {
+  if (components !== undefined) structure.components = normalizeComponents(components);
+  if (components !== undefined && structure.components.length > 0) {
+    structure.amount = structure.components.reduce((s, c) => s + c.amount, 0);
+  } else if (amount !== undefined) {
     if (!Number.isFinite(Number(amount)) || Number(amount) < 0) throw new BadRequestError('amount must be a valid number >= 0');
     structure.amount = amount;
   }

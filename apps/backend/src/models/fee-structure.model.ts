@@ -1,5 +1,10 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface IFeeStructureComponent {
+  description: string;
+  amount: number;
+}
+
 export interface IFeeStructure extends Document {
   school: mongoose.Types.ObjectId;
   title: string;
@@ -9,6 +14,7 @@ export interface IFeeStructure extends Document {
   scopeRefModel?: 'Department' | 'Class';
   scopeRef?: mongoose.Types.ObjectId;
   amount: number;
+  components: IFeeStructureComponent[];
   billingCycle: 'one_time' | 'monthly' | 'termly' | 'annual';
   academicYear?: string;
   dueDayOffset: number;
@@ -17,6 +23,14 @@ export interface IFeeStructure extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
+
+const componentSchema = new Schema<IFeeStructureComponent>(
+  {
+    description: { type: String, required: true, trim: true, maxlength: 200 },
+    amount: { type: Number, required: true, min: 0 },
+  },
+  { _id: false }
+);
 
 const feeStructureSchema = new Schema<IFeeStructure>(
   {
@@ -32,6 +46,7 @@ const feeStructureSchema = new Schema<IFeeStructure>(
     scopeRefModel: { type: String, enum: ['Department', 'Class'], default: null },
     scopeRef: { type: Schema.Types.ObjectId, refPath: 'scopeRefModel', default: null, index: true },
     amount: { type: Number, required: true, min: 0 },
+    components: { type: [componentSchema], default: [] },
     billingCycle: { type: String, enum: ['one_time', 'monthly', 'termly', 'annual'], required: true, default: 'one_time' },
     academicYear: { type: String, trim: true, maxlength: 20, default: '' },
     dueDayOffset: { type: Number, min: 0, max: 180, default: 14 },
@@ -40,6 +55,16 @@ const feeStructureSchema = new Schema<IFeeStructure>(
   },
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );
+
+// When components are supplied, the structure's total `amount` is the sum of
+// its components — a single source of truth so invoice generation and list
+// views always agree with the line items.
+feeStructureSchema.pre<IFeeStructure>('validate', function (next) {
+  if (this.components && this.components.length > 0) {
+    this.amount = this.components.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  }
+  next();
+});
 
 // scopeRef/scopeRefModel are only meaningful below school-wide scope — keep
 // them in sync with scopeType so a stale scopeRef never survives an edit

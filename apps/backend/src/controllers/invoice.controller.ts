@@ -230,6 +230,10 @@ export const generateBulk = async (req: Request, res: Response): Promise<Respons
 
     const resolvedDueDate = explicitDueDate || new Date(Date.now() + structure.dueDayOffset * 86400000);
     const paymentType = FEE_TYPE_TO_PAYMENT_TYPE[structure.feeType] || 'other';
+    const components = (structure as any).components;
+    const lineItems = Array.isArray(components) && components.length
+      ? components.map((c: any) => ({ description: c.description, amount: c.amount }))
+      : [{ description: structure.title, amount: structure.amount }];
 
     const docs = targets.map((studentId) => ({
       student: studentId,
@@ -237,7 +241,7 @@ export const generateBulk = async (req: Request, res: Response): Promise<Respons
       feeStructure: structure._id,
       title: `${structure.title} — ${periodTrimmed}`,
       period: periodTrimmed,
-      lineItems: [{ description: structure.title, amount: structure.amount }],
+      lineItems,
       amount: structure.amount,
       amountPaid: 0,
       status: 'pending',
