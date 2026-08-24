@@ -19,60 +19,150 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           path = Path('apps/frontend/src/features/admin/pages/invoices-manage.tsx')
           text = path.read_text()
 
-          old = """  const [selectedIds, setSelectedIds] = useState<string[]>([]);\n  const [departmentId, setDepartmentId] = useState('');"""
-          new = """  const [selectedIds, setSelectedIds] = useState<string[]>([]);\n  const [departmentIds, setDepartmentIds] = useState<string[]>([]);"""
+          text = text.replace(
+              "const [departmentId, setDepartmentId] = useState('');",
+              "const [departmentIds, setDepartmentIds] = useState<string[]>([]);",
+              1,
+          )
+
+          old = '''  const visibleStructures = useMemo(() => {
+    if (!departmentId) return feeStructures;
+    return feeStructures.filter((fs) => {
+      const ref = fs.scopeRef;
+      const id = typeof ref === 'object' ? ref?._id : ref;
+      return String(id) === departmentId;
+    });
+  }, [feeStructures, departmentId]);'''
+          new = '''  const visibleStructures = useMemo(() => {
+    if (departmentIds.length === 0) return feeStructures;
+    const selected = new Set(departmentIds);
+    return feeStructures.filter((fs) => {
+      if (fs.scopeType !== 'department') return false;
+      const ref = fs.scopeRef;
+      const id = typeof ref === 'object' ? ref?._id : ref;
+      return Boolean(id && selected.has(String(id)));
+    });
+  }, [feeStructures, departmentIds]);
+
+  const allDepartmentsSelected = departments.length > 0 && departmentIds.length === departments.length;
+  const toggleDepartment = (id: string) => {
+    setDepartmentIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+  const toggleAllDepartments = () => {
+    setDepartmentIds(allDepartmentsSelected ? [] : departments.map((d) => d._id));
+  };'''
           if old not in text:
-              raise SystemExit('state block not found')
+              raise SystemExit('visibleStructures block not found')
           text = text.replace(old, new, 1)
 
-          old = """  const visibleStructures = useMemo(() => {\n    if (!departmentId) return feeStructures;\n    return feeStructures.filter((fs) => {\n      const ref = fs.scopeRef;\n      const id = typeof ref === 'object' ? ref?._id : ref;\n      return String(id) === departmentId;\n    });\n  }, [feeStructures, departmentId]);"""
-          new = """  const visibleStructures = useMemo(() => {\n    if (departmentIds.length === 0) return feeStructures;\n    const selected = new Set(departmentIds);\n    return feeStructures.filter((fs) => {\n      if (fs.scopeType !== 'department') return false;\n      const ref = fs.scopeRef;\n      const id = typeof ref === 'object' ? ref?._id : ref;\n      return Boolean(id && selected.has(String(id)));\n    });\n  }, [feeStructures, departmentIds]);\n\n  const allDepartmentsSelected = departments.length > 0 && departmentIds.length === departments.length;\n\n  const toggleDepartment = (id: string) => {\n    setDepartmentIds((prev) => {\n      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];\n      return next;\n    });\n  };\n\n  const toggleAllDepartments = () => {\n    setDepartmentIds(allDepartmentsSelected ? [] : departments.map((d) => d._id));\n  };"""
+          old = '''  const [deptOpen, setDeptOpen] = useState(false);
+  const [structOpen, setStructOpen] = useState(false);
+  const deptRef = useRef<HTMLButtonElement>(null);
+  const structRef = useRef<HTMLButtonElement>(null);'''
+          new = '''  const [deptOpen, setDeptOpen] = useState(false);
+  const [structOpen, setStructOpen] = useState(false);
+  const deptRef = useRef<HTMLButtonElement>(null);
+  const deptMenuRef = useRef<HTMLDivElement>(null);
+  const structRef = useRef<HTMLButtonElement>(null);
+  const structMenuRef = useRef<HTMLDivElement>(null);'''
           if old not in text:
-              raise SystemExit('visible structures block not found')
+              raise SystemExit('refs block not found')
           text = text.replace(old, new, 1)
 
-          old = """  const toggleAll = () => {\n    setSelectedIds(visibleStructures.length === selectedIds.length ? [] : visibleStructures.map((fs) => fs._id));\n  };\n\n  const [deptOpen, setDeptOpen] = useState(false);\n  const [structOpen, setStructOpen] = useState(false);\n  const deptRef = useRef<HTMLButtonElement>(null);\n  const structRef = useRef<HTMLButtonElement>(null);\n\n  useEffect(() => {\n    const h = (event: MouseEvent) => {\n      if (deptRef.current && !deptRef.current.contains(event.target as Node)) setDeptOpen(false);\n      if (structRef.current && !structRef.current.contains(event.target as Node)) setStructOpen(false);\n    };\n    document.addEventListener('mousedown', h);\n    return () => document.removeEventListener('mousedown', h);\n  }, []);"""
-          new = """  const toggleAll = () => {\n    const visibleIds = visibleStructures.map((fs) => fs._id);\n    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));\n    setSelectedIds(allVisibleSelected ? [] : visibleIds);\n  };\n\n  const [deptOpen, setDeptOpen] = useState(false);\n  const [structOpen, setStructOpen] = useState(false);\n  const deptRef = useRef<HTMLButtonElement>(null);\n  const deptMenuRef = useRef<HTMLDivElement>(null);\n  const structRef = useRef<HTMLButtonElement>(null);\n  const structMenuRef = useRef<HTMLDivElement>(null);\n\n  useEffect(() => {\n    const h = (event: MouseEvent) => {\n      const target = event.target as Node;\n      if (deptOpen && !deptRef.current?.contains(target) && !deptMenuRef.current?.contains(target)) setDeptOpen(false);\n      if (structOpen && !structRef.current?.contains(target) && !structMenuRef.current?.contains(target)) setStructOpen(false);\n    };\n    document.addEventListener('mousedown', h);\n    return () => document.removeEventListener('mousedown', h);\n  }, [deptOpen, structOpen]);\n\n  useEffect(() => {\n    const visibleIds = new Set(visibleStructures.map((fs) => fs._id));\n    setSelectedIds((prev) => prev.filter((id) => visibleIds.has(id)));\n  }, [visibleStructures]);"""
+          old = '''  useEffect(() => {
+    const h = (event: MouseEvent) => {
+      if (deptRef.current && !deptRef.current.contains(event.target as Node)) setDeptOpen(false);
+      if (structRef.current && !structRef.current.contains(event.target as Node)) setStructOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);'''
+          new = '''  useEffect(() => {
+    const h = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (deptOpen && !deptRef.current?.contains(target) && !deptMenuRef.current?.contains(target)) setDeptOpen(false);
+      if (structOpen && !structRef.current?.contains(target) && !structMenuRef.current?.contains(target)) setStructOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [deptOpen, structOpen]);
+
+  useEffect(() => {
+    const visibleIds = new Set(visibleStructures.map((fs) => fs._id));
+    setSelectedIds((prev) => prev.filter((id) => visibleIds.has(id)));
+  }, [visibleStructures]);'''
           if old not in text:
-              raise SystemExit('dropdown state block not found')
+              raise SystemExit('outside-click block not found')
           text = text.replace(old, new, 1)
 
-          old = """                <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className=\"max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl\">\n                  <button type=\"button\" onClick={() => { setDepartmentId(''); setSelectedIds([]); setDeptOpen(false); }} className={`flex w-full rounded-lg px-3 py-2 text-left text-sm ${!departmentId ? 'bg-[var(--color-surface-tertiary)] font-semibold' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>All Departments</button>\n                  {departments.map(d => <button key={d._id} type=\"button\" onClick={() => { setDepartmentId(d._id); setSelectedIds([]); setDeptOpen(false); }} className={`flex w-full rounded-lg px-3 py-2 text-left text-sm ${departmentId === d._id ? 'bg-[var(--color-surface-tertiary)] font-semibold' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>{d.name}</button>)}\n                </div>,"""
-          new = """                <div ref={deptMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className=\"max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl\">\n                  <button type=\"button\" onClick={toggleAllDepartments} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${allDepartmentsSelected ? 'bg-primary-500/10 font-semibold' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>\n                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${allDepartmentsSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{allDepartmentsSelected ? '✓' : ''}</span>\n                    <span className=\"flex-1\">All Departments</span>\n                  </button>\n                  {departments.map(d => {\n                    const checked = departmentIds.includes(d._id);\n                    return <button key={d._id} type=\"button\" onClick={() => toggleDepartment(d._id)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${checked ? 'bg-primary-500/10' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>\n                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{checked ? '✓' : ''}</span>\n                      <span className=\"flex-1 truncate\">{d.name}</span>\n                    </button>;\n                  })}\n                  <div className=\"mt-1 border-t border-[var(--color-border-default)] pt-1\">\n                    <button type=\"button\" onClick={() => setDeptOpen(false)} className=\"w-full rounded-lg px-3 py-2 text-center text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-tertiary)]\">Done</button>\n                  </div>\n                </div>,"""
+          old = '''<div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
+          new = '''<div ref={deptMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
           if old not in text:
-              raise SystemExit('department portal block not found')
+              raise SystemExit('department portal not found')
           text = text.replace(old, new, 1)
 
-          old = """                <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className=\"max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl\">"""
-          new = """                <div ref={structMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className=\"max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl\">"""
+          old = '''<div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
+          new = '''<div ref={structMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
           if old not in text:
-              raise SystemExit('fee structure portal block not found')
+              raise SystemExit('structure portal not found')
           text = text.replace(old, new, 1)
 
-          old = """                <span className={departmentId ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{departmentId ? (departments.find(d => d._id === departmentId)?.name || 'All Departments') : 'All Departments'}</span>"""
-          new = """                <span className={departmentIds.length ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{departmentIds.length === 0 ? 'All Departments' : allDepartmentsSelected ? 'All Departments' : departmentIds.map(id => departments.find(d => d._id === id)?.name).filter(Boolean).join(', ')}</span>\n                {departmentIds.length > 0 && !allDepartmentsSelected && <span className=\"ml-2 shrink-0 rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300\">{departmentIds.length} selected</span>}"""
+          old = '''<span className={departmentId ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{departmentId ? (departments.find(d => d._id === departmentId)?.name || 'All Departments') : 'All Departments'}</span>'''
+          new = '''<span className={departmentIds.length ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{departmentIds.length === 0 ? 'All Departments' : allDepartmentsSelected ? 'All Departments' : departmentIds.map(id => departments.find(d => d._id === id)?.name).filter(Boolean).join(', ')}</span>'''
           if old not in text:
-              raise SystemExit('department label block not found')
+              raise SystemExit('department label not found')
           text = text.replace(old, new, 1)
 
-          old = """              <p className=\"mt-1 text-[11px] text-[var(--color-text-tertiary)]\">Pick a department to show only the fee structures meant for it.</p>"""
-          new = """              <p className=\"mt-1 text-[11px] text-[var(--color-text-tertiary)]\">Select one or more departments, or choose All Departments.</p>"""
-          text = text.replace(old, new, 1)
+          old = '''              {deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(
+                <div ref={deptMenuRef}'''
+          # The menu wrapper is already ref-tagged above; replace its children by replacing the old single-select controls.
+          start = text.find('{deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(')
+          if start < 0:
+              raise SystemExit('department render start not found')
+          end = text.find('              ); })()}', start)
+          if end < 0:
+              raise SystemExit('department render end not found')
+          block = text[start:end]
+          marker = '                <div ref={deptMenuRef}'
+          wrapper_start = block.find(marker)
+          if wrapper_start < 0:
+              raise SystemExit('department wrapper not found')
+          wrapper_end = block.rfind('                </div>')
+          if wrapper_end < 0:
+              raise SystemExit('department wrapper end not found')
+          wrapper_open = block[wrapper_start:block.find('>', wrapper_start)+1]
+          menu = '''
+                  <button type="button" onClick={toggleAllDepartments} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${allDepartmentsSelected ? 'bg-primary-500/10 font-semibold' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>
+                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${allDepartmentsSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{allDepartmentsSelected ? '✓' : ''}</span>
+                    <span className="flex-1">All Departments</span>
+                  </button>
+                  {departments.map(d => {
+                    const checked = departmentIds.includes(d._id);
+                    return <button key={d._id} type="button" onClick={() => toggleDepartment(d._id)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${checked ? 'bg-primary-500/10' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>
+                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{checked ? '✓' : ''}</span>
+                      <span className="flex-1 truncate">{d.name}</span>
+                    </button>;
+                  })}
+                  <div className="mt-1 border-t border-[var(--color-border-default)] pt-1">
+                    <button type="button" onClick={() => setDeptOpen(false)} className="w-full rounded-lg px-3 py-2 text-center text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-tertiary)]">Done</button>
+                  </div>'''
+          new_block = block[:wrapper_start] + wrapper_open + menu + '                </div>'
+          text = text[:start] + new_block + text[end:]
 
+          text = text.replace('Pick a department to show only the fee structures meant for it.', 'Select one or more departments, or choose All Departments.', 1)
           path.write_text(text)
 
-      - name: Validate, commit source fix, and remove workflow
-        shell: bash
+      - name: Validate and commit final source fix
         run: |
           git diff --check
-          git diff -- apps/frontend/src/features/admin/pages/invoices-manage.tsx
+          git add apps/frontend/src/features/admin/pages/invoices-manage.tsx
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/frontend/src/features/admin/pages/invoices-manage.tsx
           git commit -m "fix: generate invoices department multi-select"
           git rm .github/workflows/_tmp_fix_department_multiselect.yml
           git commit --amend --no-edit
