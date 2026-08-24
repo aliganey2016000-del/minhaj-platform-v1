@@ -1,0 +1,60 @@
+name: Temporary Generate Invoices Modal Fix
+
+on:
+  push:
+    paths:
+      - .github/workflows/_tmp_fix_generate_invoices_modal.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ !startsWith(github.event.head_commit.message, 'fix: generate invoices modal') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch modal
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('apps/frontend/src/features/admin/pages/invoices-manage.tsx')
+          text = path.read_text()
+
+          old = """  const [deptOpen, setDeptOpen] = useState(false);\n  const [structOpen, setStructOpen] = useState(false);\n  const deptRef = useRef<HTMLButtonElement>(null);\n  const structRef = useRef<HTMLButtonElement>(null);\n\n  useEffect(() => {\n    const h = (event: MouseEvent) => {\n      if (deptRef.current && !deptRef.current.contains(event.target as Node)) setDeptOpen(false);\n      if (structRef.current && !structRef.current.contains(event.target as Node)) setStructOpen(false);\n    };\n    document.addEventListener('mousedown', h);\n    return () => document.removeEventListener('mousedown', h);\n  }, []);\n"""
+          new = """  const [deptOpen, setDeptOpen] = useState(false);\n  const [structOpen, setStructOpen] = useState(false);\n  const deptRef = useRef<HTMLButtonElement>(null);\n  const deptMenuRef = useRef<HTMLDivElement>(null);\n  const structRef = useRef<HTMLButtonElement>(null);\n  const structMenuRef = useRef<HTMLDivElement>(null);\n\n  // The dropdown menus are rendered through portals, so checking only the\n  // trigger button made the document-level mousedown handler close the menu\n  // before a department/fee-structure option could receive its click.\n  useEffect(() => {\n    const h = (event: MouseEvent) => {\n      const target = event.target as Node;\n      if (deptOpen && !deptRef.current?.contains(target) && !deptMenuRef.current?.contains(target)) {\n        setDeptOpen(false);\n      }\n      if (structOpen && !structRef.current?.contains(target) && !structMenuRef.current?.contains(target)) {\n        setStructOpen(false);\n      }\n    };\n    document.addEventListener('mousedown', h);\n    return () => document.removeEventListener('mousedown', h);\n  }, [deptOpen, structOpen]);\n\n  // Never retain a selection that is no longer visible after a department\n  // change or a fee-structure refresh.\n  useEffect(() => {\n    const visibleIds = new Set(visibleStructures.map((fs) => fs._id));\n    setSelectedIds((prev) => prev.filter((id) => visibleIds.has(id)));\n  }, [visibleStructures]);\n"""
+          if old not in text:
+              raise SystemExit('Expected dropdown state block was not found')
+          text = text.replace(old, new, 1)
+
+          old = """  const toggleAll = () => {\n    setSelectedIds(visibleStructures.length === selectedIds.length ? [] : visibleStructures.map((fs) => fs._id));\n  };\n"""
+          new = """  const toggleAll = () => {\n    const visibleIds = visibleStructures.map((fs) => fs._id);\n    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));\n    setSelectedIds(allVisibleSelected ? [] : visibleIds);\n  };\n"""
+          if old not in text:
+              raise SystemExit('Expected toggleAll block was not found')
+          text = text.replace(old, new, 1)
+
+          old = """              {deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(\n                <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className=\"max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl\">\n"""
+          new = """              {deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(\n                <div ref={deptMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className=\"max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl\">\n"""
+          if old not in text:
+              raise SystemExit('Expected department portal was not found')
+          text = text.replace(old, new, 1)
+
+          old = """              {structOpen && structRef.current && (() => { const r = structRef.current!.getBoundingClientRect(); return createPortal(\n                <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className=\"max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl\">\n"""
+          new = """              {structOpen && structRef.current && (() => { const r = structRef.current!.getBoundingClientRect(); return createPortal(\n                <div ref={structMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className=\"max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl\">\n"""
+          if old not in text:
+              raise SystemExit('Expected fee-structure portal was not found')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+      - name: Commit fix and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/frontend/src/features/admin/pages/invoices-manage.tsx .github/workflows/_tmp_fix_generate_invoices_modal.yml
+          git commit -m "fix: generate invoices modal filtering and selection"
+          git rm .github/workflows/_tmp_fix_generate_invoices_modal.yml
+          git commit --amend --no-edit
+          git push
