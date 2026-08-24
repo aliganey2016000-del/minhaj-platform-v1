@@ -39,6 +39,10 @@ router.patch('/seating-plan/:id', adminOrTeacher, asyncHandler(masterSeatControl
 router.delete('/seating-plan/:id', adminOrTeacher, asyncHandler(masterSeatController.remove));
 router.post('/seating-plan/import-preview', adminOrTeacher, upload.single('file'), asyncHandler(masterSeatController.previewImport));
 router.post('/seating-plan/import', adminOrTeacher, upload.single('file'), asyncHandler(masterSeatController.importExcel));
+// JSON-body variants used by the preview table's "Apply Fix" flow — re-validate
+// and import from the corrected in-memory rows without re-uploading the file.
+router.post('/seating-plan/validate-rows', adminOrTeacher, asyncHandler(masterSeatController.validateRowsJson));
+router.post('/seating-plan/import-rows', adminOrTeacher, asyncHandler(masterSeatController.importRows));
 // Automatic room assignment changes many student records at once, so only
 // administrators may execute it. org_admin is tenant-scoped inside the controller.
 router.post('/seating-plan/auto-generate', adminOnly, asyncHandler(autoSeatController.generate));

@@ -28,7 +28,118 @@ export const add = async (req: Request,res: Response) => { const {organization,s
 export const update = async (req: Request,res: Response) => { const row=await ExamSeatingPlan.findById(req.params.id); if(!row)throw new NotFoundError('Seating assignment'); const {room,seat,academicYear,examType}=req.body as any; const t=examType?examTypeValue(examType):row.examType; if(!t)throw new BadRequestError('Invalid Exam Type'); const roomDoc=await ExamRoom.findOne({name:norm(room)}); if(!roomDoc)throw new NotFoundError('Exam room'); assertOwnOrg(req,roomDoc,'school'); const seatValue=norm(seat); const n=seatValue.match(/(\d+)\s*$/); if(n&&Number(n[1])>roomDoc.capacity)throw new BadRequestError(`Seat ${seatValue} exceeds ${roomDoc.name} capacity (${roomDoc.capacity})`); row.room=roomDoc._id; row.deskNumber=seatValue; row.academicYear=norm(academicYear||row.academicYear); row.examType=t; await row.save(); const populated=await populate(ExamSeatingPlan.findById(row._id)); return ApiResponse.success(res,payload(populated),'Seating updated'); };
 export const remove = async (req: Request,res: Response) => { const row=await ExamSeatingPlan.findById(req.params.id); if(!row)throw new NotFoundError('Seating assignment'); await row.deleteOne(); return ApiResponse.noContent(res,'Seating removed'); };
 
-async function parse(req: Request){ if(!req.file)throw new BadRequestError('An Excel or CSV file is required'); assertSafeSpreadsheetUpload(req.file); const wb=XLSX.read(req.file.buffer,{type:'buffer'}); const sheet=wb.SheetNames[0]; if(!sheet)throw new BadRequestError('The uploaded file has no sheets'); const rows=XLSX.utils.sheet_to_json<Record<string,unknown>>(wb.Sheets[sheet],{defval:''}); if(!rows.length)throw new BadRequestError('The uploaded file has no data rows'); const headers=Object.keys(rows[0]); const missing=COLUMNS.filter(c=>!headers.some(h=>key(h)===key(c))); if(missing.length)throw new BadRequestError(`Missing required columns: ${missing.join(', ')}`); const ids=rows.map(r=>norm(r['Student ID']).toUpperCase()).filter(Boolean); const students=await Student.find({studentId:{$in:ids}}).populate('profile','firstName lastName').populate({path:'class',select:'title section academicYear shiftMode department',populate:{path:'department',select:'name'}}).populate('school','name').lean() as any[]; const byId=new Map(students.map(s=>[key(s.studentId).toUpperCase(),s])); let school:any=null,academicYear='',type='',docs:any[]=[]; const preview:any[]=[]; const seenStudents=new Set<string>(),seenSeats=new Set<string>(); for(let i=0;i<rows.length;i++){const r=rows[i];const studentId=norm(r['Student ID']).toUpperCase();const student=byId.get(key(studentId).toUpperCase());const row:any={row:i+2,organization:norm(r['Organization']),department:norm(r['Department']),className:norm(r['Class']),shift:norm(r['Shift']),studentId,studentName:norm(r['Student Name']),academicYear:norm(r['Academic Year']),examType:norm(r['Exam Type']),room:norm(r['Room']),seat:norm(r['Seat']),status:'valid'};try{if(!student)throw new Error(`Student ${studentId} was not found`);if(!row.organization||!row.department||!row.className||!row.shift||!row.studentName||!row.academicYear||!row.examType||!row.room||!row.seat)throw new Error('All 10 columns are required');const t=examTypeValue(row.examType);if(!t)throw new Error('Exam Type must be Mid Exam or Final');if(!academicYear)academicYear=row.academicYear;if(!type)type=t;if(key(row.academicYear)!==key(academicYear)||t!==type)throw new Error('All rows must use the same Academic Year and Exam Type');if(!school)school=student.school;if(school?.name&&key(row.organization)!==key(school.name))throw new Error('Organization does not match the student school');if(seenStudents.has(studentId))throw new Error('Duplicate Student ID in file');seenStudents.add(studentId);const roomDoc=await ExamRoom.findOne({name:row.room,...(school?{school:school._id||school}:{})});if(!roomDoc)throw new Error(`Room "${row.room}" was not found`);assertOwnOrg(req,roomDoc,'school');const seatKey=`${roomDoc._id.toString()}::${key(row.seat)}`;if(seenSeats.has(seatKey))throw new Error(`Duplicate seat ${row.seat} in ${row.room}`);seenSeats.add(seatKey);const n=row.seat.match(/(\d+)\s*$/);if(n&&Number(n[1])>roomDoc.capacity)throw new Error(`Seat ${row.seat} exceeds ${roomDoc.name} capacity (${roomDoc.capacity})`);docs.push({student:student._id,room:roomDoc._id,deskNumber:row.seat,academicYear:row.academicYear,examType:t,school:school?._id||null});}catch(e:any){row.status='error';row.message=e.message}preview.push(row);} return {preview,docs,school,academicYear,examType:type}; }
-export const previewImport=async(req:Request,res:Response)=>{const r=await parse(req);return ApiResponse.success(res,r.preview);};
-export const importExcel=async(req:Request,res:Response)=>{const r=await parse(req);const errors=r.preview.filter((x:any)=>x.status==='error');if(errors.length)throw new BadRequestError(`Import blocked: ${errors.length} row(s) need correction`);await ExamSeatingPlan.deleteMany({school:r.school?._id||r.school||null,academicYear:r.academicYear,examType:r.examType});if(r.docs.length)await ExamSeatingPlan.insertMany(r.docs);return ApiResponse.success(res,{imported:r.docs.length},`Imported ${r.docs.length} seating assignments`);};
+function readRowsFromFile(req: Request): Record<string, unknown>[] {
+  if (!req.file) throw new BadRequestError('An Excel or CSV file is required');
+  assertSafeSpreadsheetUpload(req.file);
+  const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const sheet = wb.SheetNames[0];
+  if (!sheet) throw new BadRequestError('The uploaded file has no sheets');
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheet], { defval: '' });
+  if (!rows.length) throw new BadRequestError('The uploaded file has no data rows');
+  const headers = Object.keys(rows[0]);
+  const missing = COLUMNS.filter((c) => !headers.some((h) => key(h) === key(c)));
+  if (missing.length) throw new BadRequestError(`Missing required columns: ${missing.join(', ')}`);
+  return rows;
+}
+
+// Finds the first free numeric seat across the school's rooms (sorted by
+// name) that isn't already used/reserved in this import batch — the basis
+// for the "Apply Fix" suggestion on a capacity/duplicate-seat error. Purely
+// advisory: the admin still confirms it via Apply Fix, nothing is silently
+// changed.
+function suggestSeat(allRooms: any[], seenSeats: Set<string>): { room: string; seat: string; seatKey: string } | null {
+  for (const r of allRooms) {
+    for (let n = 1; n <= r.capacity; n++) {
+      const seatVal = String(n);
+      const seatKey = `${r._id.toString()}::${key(seatVal)}`;
+      if (!seenSeats.has(seatKey)) return { room: r.name, seat: seatVal, seatKey };
+    }
+  }
+  return null;
+}
+
+async function validateRows(req: Request, rows: Record<string, unknown>[]) {
+  const ids = rows.map((r) => norm(r['Student ID']).toUpperCase()).filter(Boolean);
+  const students = (await Student.find({ studentId: { $in: ids } })
+    .populate('profile', 'firstName lastName')
+    .populate({ path: 'class', select: 'title section academicYear shiftMode department', populate: { path: 'department', select: 'name' } })
+    .populate('school', 'name')
+    .lean()) as any[];
+  const byId = new Map(students.map((s) => [key(s.studentId).toUpperCase(), s]));
+
+  let school: any = null, academicYear = '', type = '', docs: any[] = [], allRooms: any[] = [];
+  const preview: any[] = [];
+  const seenStudents = new Set<string>(), seenSeats = new Set<string>();
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const studentId = norm(r['Student ID']).toUpperCase();
+    const student = byId.get(key(studentId).toUpperCase());
+    const row: any = {
+      row: i + 2, organization: norm(r['Organization']), department: norm(r['Department']), className: norm(r['Class']),
+      shift: norm(r['Shift']), studentId, studentName: norm(r['Student Name']), academicYear: norm(r['Academic Year']),
+      examType: norm(r['Exam Type']), room: norm(r['Room']), seat: norm(r['Seat']), status: 'valid',
+    };
+    try {
+      if (!student) throw new Error(`Student ${studentId} was not found`);
+      if (!row.organization || !row.department || !row.className || !row.shift || !row.studentName || !row.academicYear || !row.examType || !row.room || !row.seat) throw new Error('All 10 columns are required');
+      const t = examTypeValue(row.examType);
+      if (!t) throw new Error('Exam Type must be Mid Exam or Final');
+      if (!academicYear) academicYear = row.academicYear;
+      if (!type) type = t;
+      if (key(row.academicYear) !== key(academicYear) || t !== type) throw new Error('All rows must use the same Academic Year and Exam Type');
+      if (!school) school = student.school;
+      if (school && allRooms.length === 0) allRooms = await ExamRoom.find({ school: school._id || school }).sort({ name: 1 }).lean();
+      if (school?.name && key(row.organization) !== key(school.name)) throw new Error('Organization does not match the student school');
+      if (seenStudents.has(studentId)) throw new Error('Duplicate Student ID in file');
+      seenStudents.add(studentId);
+      const roomDoc = await ExamRoom.findOne({ name: row.room, ...(school ? { school: school._id || school } : {}) });
+      if (!roomDoc) throw new Error(`Room "${row.room}" was not found`);
+      assertOwnOrg(req, roomDoc, 'school');
+      const seatKey = `${roomDoc._id.toString()}::${key(row.seat)}`;
+      if (seenSeats.has(seatKey)) {
+        const suggestion = suggestSeat(allRooms, seenSeats);
+        if (suggestion) { row.suggestion = { room: suggestion.room, seat: suggestion.seat }; seenSeats.add(suggestion.seatKey); }
+        throw new Error(`Duplicate seat ${row.seat} in ${row.room}`);
+      }
+      seenSeats.add(seatKey);
+      const n = row.seat.match(/(\d+)\s*$/);
+      if (n && Number(n[1]) > roomDoc.capacity) {
+        const suggestion = suggestSeat(allRooms, seenSeats);
+        if (suggestion) { row.suggestion = { room: suggestion.room, seat: suggestion.seat }; seenSeats.add(suggestion.seatKey); }
+        throw new Error(`Seat ${row.seat} exceeds ${roomDoc.name} capacity (${roomDoc.capacity})`);
+      }
+      docs.push({ student: student._id, room: roomDoc._id, deskNumber: row.seat, academicYear: row.academicYear, examType: t, school: school?._id || null });
+    } catch (e: any) {
+      row.status = 'error';
+      row.message = e.message;
+    }
+    preview.push(row);
+  }
+  return { preview, docs, school, academicYear, examType: type };
+}
+
+function rowsFromJsonBody(req: Request): Record<string, unknown>[] {
+  const rows = req.body?.rows;
+  if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestError('rows is required');
+  return rows.map((r: any) => ({
+    Organization: r.organization, Department: r.department, Class: r.className, Shift: r.shift,
+    'Student ID': r.studentId, 'Student Name': r.studentName, 'Academic Year': r.academicYear,
+    'Exam Type': r.examType, Room: r.room, Seat: r.seat,
+  }));
+}
+
+export const previewImport = async (req: Request, res: Response) => { const r = await validateRows(req, readRowsFromFile(req)); return ApiResponse.success(res, r.preview); };
+export const importExcel = async (req: Request, res: Response) => { const r = await validateRows(req, readRowsFromFile(req)); const errors = r.preview.filter((x: any) => x.status === 'error'); if (errors.length) throw new BadRequestError(`Import blocked: ${errors.length} row(s) need correction`); await ExamSeatingPlan.deleteMany({ school: r.school?._id || r.school || null, academicYear: r.academicYear, examType: r.examType }); if (r.docs.length) await ExamSeatingPlan.insertMany(r.docs); return ApiResponse.success(res, { imported: r.docs.length }, `Imported ${r.docs.length} seating assignments`); };
+
+// ---------------------------------------------------------------------------
+// validateRowsJson / importRows — the "Apply Fix" round trip. After a
+// capacity/duplicate-seat error offers a suggested {room, seat} and the
+// admin accepts it in the preview table, the frontend re-validates and
+// (once every row is clean) imports from the corrected in-memory rows
+// directly — no need to re-upload/re-edit the original spreadsheet.
+// ---------------------------------------------------------------------------
+
+export const validateRowsJson = async (req: Request, res: Response) => { const r = await validateRows(req, rowsFromJsonBody(req)); return ApiResponse.success(res, r.preview); };
+export const importRows = async (req: Request, res: Response) => { const r = await validateRows(req, rowsFromJsonBody(req)); const errors = r.preview.filter((x: any) => x.status === 'error'); if (errors.length) throw new BadRequestError(`Import blocked: ${errors.length} row(s) need correction`); await ExamSeatingPlan.deleteMany({ school: r.school?._id || r.school || null, academicYear: r.academicYear, examType: r.examType }); if (r.docs.length) await ExamSeatingPlan.insertMany(r.docs); return ApiResponse.success(res, { imported: r.docs.length }, `Imported ${r.docs.length} seating assignments`); };
 export const downloadTemplate=async(_req:Request,res:Response)=>{const sample=[['Minhaj','Department','Class A','Morning','ST001','Ahmed Ali','2026/27','Mid Exam','Room 01','A01']];const buffer=buildXlsxBuffer(COLUMNS,sample,'Exam Seating');res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');res.setHeader('Content-Disposition','attachment; filename=exam-seating-master-template.xlsx');res.end(buffer);};

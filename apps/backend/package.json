@@ -15,7 +15,8 @@
     "test:teacher-crud": "ts-node src/__tests__/teacher-crud-import.e2e.ts",
     "test:exam-dedupe": "ts-node src/__tests__/exam-import-dedupe.e2e.ts",
     "test:seating-import": "ts-node src/__tests__/seating-import-cross-org.e2e.ts",
-    "test:invoice-batch-void": "ts-node src/__tests__/invoice-batch-void.e2e.ts"
+    "test:invoice-batch-void": "ts-node src/__tests__/invoice-batch-void.e2e.ts",
+    "test:seating-smart-fix": "ts-node src/__tests__/seating-import-smart-fix.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",
