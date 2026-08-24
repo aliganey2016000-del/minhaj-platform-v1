@@ -7,6 +7,7 @@ import ClassModel from '../models/class.model';
 import ExamPaper from '../models/exam-paper.model';
 import ExamAttempt from '../models/exam-attempt.model';
 import ExamAppeal from '../models/exam-appeal.model';
+import ExamSeatingPlan from '../models/exam-seating-plan.model';
 import { getAutoScheduleWindow } from '../utils/exam-eligibility';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
@@ -178,6 +179,26 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   return ApiResponse.noContent(res, 'Exam deleted');
 };
 
+// Canonical academic-year start (e.g. "2026" from "2026/27", "2026-2027",
+// "2026") — used to match a student's class year to their master seating
+// plan without depending on the exact separator the admin typed.
+const academicYearStartKey = (v: unknown): string => {
+  const m = String(v ?? '').trim().match(/(\d{4})/);
+  return m ? m[1] : '';
+};
+
+// Determine which master seating plan slot (mid vs final) an exam maps to.
+// Auto-scheduled exams carry `milestone` explicitly. Manually scheduled ones
+// don't, so we fall back to title keywords and then to the student's only
+// seating type for the year.
+const examTypeOf = (exam: any): 'mid' | 'final' | '' => {
+  if (exam.milestone === 'mid' || exam.milestone === 'final') return exam.milestone;
+  const title = String(exam.title || '').toLowerCase();
+  if (/(\bfinal\b|final exam)/.test(title)) return 'final';
+  if (/(\bmid\b|mid[- ]?term|mid exam)/.test(title)) return 'mid';
+  return '';
+};
+
 // GET /exams/my — Student's exams from enrolled courses
 export const getMyExams = async (req: Request, res: Response): Promise<Response> => {
   const student = await ensureStudentRecord(req.user!.userId);
@@ -249,11 +270,37 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
   // since ensureStudentRecord() returns an unpopulated document.
   const studentRecord = student as any;
   const [myClass, mySchool] = await Promise.all([
-    studentRecord.class ? ClassModel.findById(studentRecord.class).select('title section department').populate('department', 'name').lean() : null,
+    studentRecord.class ? ClassModel.findById(studentRecord.class).select('title section department academicYear').populate('department', 'name').lean() : null,
     studentRecord.school ? School.findById(studentRecord.school).select('name').lean() : null,
   ]);
 
-  return ApiResponse.success(res, { exams: result, myClass, mySchool });
+  // Attach the student's master seating (room + desk) from the Exam Seating
+  // Center. The plan is keyed by academicYear + examType, and an exam's
+  // `milestone` is its examType. Academic year is matched on its start year
+  // so "2026/27", "2026-2027" and "2026" all align.
+  const seating = await ExamSeatingPlan.find({ student: student._id })
+    .populate('room', 'name building')
+    .lean();
+  const myAcademicYearKey = academicYearStartKey((myClass as any)?.academicYear);
+  const seatByType = new Map<string, any>();
+  for (const s of seating as any[]) {
+    const seatYear = academicYearStartKey(s.academicYear);
+    if (myAcademicYearKey && seatYear && seatYear !== myAcademicYearKey) continue;
+    if (!seatByType.has(s.examType)) seatByType.set(s.examType, s);
+  }
+
+  const examsWithSeating = result.map((e: any) => {
+    const type = examTypeOf(e);
+    const seat = type ? seatByType.get(type) : (seatByType.size === 1 ? seatByType.values().next().value : null);
+    return {
+      ...e,
+      mySeatRoom: seat?.room?.name || '',
+      mySeatBuilding: seat?.room?.building || '',
+      mySeat: seat?.deskNumber || '',
+    };
+  });
+
+  return ApiResponse.success(res, { exams: examsWithSeating, myClass, mySchool });
 };
 
 // ---------------------------------------------------------------------------

@@ -23,6 +23,9 @@ interface Exam {
   myScheduledEnd?: string | null;
   myMetPrerequisites?: boolean | null;
   myRetakeRequestStatus?: 'pending' | 'under_review' | 'approved' | 'rejected' | null;
+  mySeatRoom?: string;
+  mySeatBuilding?: string;
+  mySeat?: string;
   course?: {
     _id: string;
     title: { en: string; so: string; ar: string };
@@ -279,7 +282,8 @@ export function StudentExams() {
               <p className="mt-0.5 truncate text-sm font-medium text-[var(--color-text-secondary)]">{examTitle(e, lang)} <span className="text-[var(--color-text-tertiary)]">· {getCat(e.course?.category || '')}</span></p>
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-[var(--color-text-tertiary)]">
                 <span>🕐 <b className="text-[var(--color-text-secondary)]">{formatTime(e)}</b></span>
-                {e.room && <span>📍 <b className="text-[var(--color-text-secondary)]">{e.room}</b></span>}
+                {e.mySeatRoom && <span>📍 <b className="text-[var(--color-text-secondary)]">{e.mySeatRoom}{e.mySeatBuilding ? ` · ${e.mySeatBuilding}` : ''}{e.mySeat ? ` · Seat ${e.mySeat}` : ''}</b></span>}
+                {!e.mySeatRoom && e.room && <span>📍 <b className="text-[var(--color-text-secondary)]">{e.room}</b></span>}
                 <span>👨‍🏫 <b className="text-[var(--color-text-secondary)]">{teacherName(e)}</b></span>
               </div>
             </div>
