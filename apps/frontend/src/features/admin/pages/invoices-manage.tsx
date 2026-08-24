@@ -10,7 +10,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, Download, type LucideIcon } from 'lucide-react';
+import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, Download, FileDown, Trash2, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
@@ -229,6 +229,74 @@ function RefundModal({ payment, onClose, onDone }: { payment: PaymentEntry; onCl
   );
 }
 
+// ---------------------------------------------------------------------------
+// Bulk Void Modal — undo a mistaken "Generate Invoices" run. There is no
+// hard-delete for Invoice (financial audit trail), so this voids every
+// invoice in the chosen batch that has no payments collected yet.
+// ---------------------------------------------------------------------------
+
+interface InvoiceBatch { batchId: string; title: string; period: string; createdAt: string; count: number; totalAmount: number; voidableCount: number; }
+
+function BulkVoidModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [batches, setBatches] = useState<InvoiceBatch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [voidingId, setVoidingId] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const { data } = await api.get('/invoices/batches');
+      setBatches(data.data || []);
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to load batches'); } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleVoid = async (batch: InvoiceBatch) => {
+    if (!window.confirm(`Void ${batch.voidableCount} invoice(s) from "${batch.title}" (${batch.period})? This cannot be undone.`)) return;
+    setVoidingId(batch.batchId); setError(''); setResult('');
+    try {
+      const { data } = await api.post(`/invoices/batches/${batch.batchId}/void`, {});
+      setResult(data.message);
+      await load();
+      onDone();
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to void batch'); } finally { setVoidingId(''); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-2"><h2 className="text-lg font-bold text-[var(--color-text-primary)]">🗑️ Undo a Bulk Generate</h2><button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+        <p className="text-xs text-[var(--color-text-tertiary)] mb-4">Voids every invoice from a "Generate Invoices" run that hasn't been paid yet. Invoices with payments already collected are left untouched and reported separately — invoices are never hard-deleted.</p>
+        {result && <div className="mb-3 rounded-lg border border-green-200 dark:border-green-900/40 bg-green-50 dark:bg-green-950/20 px-3 py-2 text-xs text-green-700 dark:text-green-400">{result}</div>}
+        {error && <div className="mb-3 rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{error}</div>}
+        {loading && <div className="flex justify-center py-8"><div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" /></div>}
+        {!loading && batches.length === 0 && <p className="text-sm text-[var(--color-text-tertiary)] text-center py-8">No bulk-generated batches found.</p>}
+        {!loading && batches.length > 0 && (
+          <div className="space-y-2">
+            {batches.map(b => (
+              <div key={b.batchId} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-border-default)] p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[var(--color-text-primary)] truncate">{b.title}</p>
+                  <p className="text-xs text-[var(--color-text-tertiary)]">{new Date(b.createdAt).toLocaleString()} · {b.count} invoice{b.count !== 1 ? 's' : ''} · ${b.totalAmount.toLocaleString()}{b.voidableCount < b.count ? ` · ${b.count - b.voidableCount} already paid` : ''}</p>
+                </div>
+                <button
+                  onClick={() => handleVoid(b)}
+                  disabled={voidingId === b.batchId || b.voidableCount === 0}
+                  title={b.voidableCount === 0 ? 'Every invoice in this batch already has a payment' : undefined}
+                  className="flex-shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >{voidingId === b.batchId ? 'Voiding…' : `Void ${b.voidableCount}`}</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ViewInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: () => void }) {
   const [invoice, setInvoice] = useState<InvoiceItem | null>(null);
   const [payments, setPayments] = useState<PaymentEntry[]>([]);
@@ -351,6 +419,7 @@ export function InvoicesManage() {
   const [filterSchool, setFilterSchool] = useState('');
 
   const [showGenerate, setShowGenerate] = useState(false);
+  const [showBulkVoid, setShowBulkVoid] = useState(false);
   const [collectingInvoice, setCollectingInvoice] = useState<InvoiceItem | undefined>(undefined);
   const [viewingInvoiceId, setViewingInvoiceId] = useState<string | undefined>(undefined);
 
@@ -412,6 +481,31 @@ export function InvoicesManage() {
     { label: 'Void', icon: Ban, onClick: () => handleVoid(inv), tone: 'danger', disabled: inv.status === 'void' || inv.amountPaid > 0, title: inv.amountPaid > 0 ? 'Cannot void — payments already collected' : undefined },
   ];
 
+  const exportCsv = () => {
+    const headers = ['Student ID', 'Student Name', 'Title', 'Period', 'Amount', 'Paid', 'Due', 'Status', 'Due Date'];
+    const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = invoices.map((inv) => {
+      const studentName = inv.student?.profile ? `${inv.student.profile.firstName} ${inv.student.profile.lastName}` : '';
+      return [inv.student?.studentId || '', studentName, inv.title, inv.period, inv.amount ?? 0, inv.amountPaid ?? 0, inv.amountDue ?? 0, inv.status, new Date(inv.dueDate).toLocaleDateString()].map(escape).join(',');
+    });
+    const csv = [headers.map(escape).join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `invoices-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const headerActions: RowAction[] = [
+    { label: 'Generate Invoices', icon: FileText, onClick: () => setShowGenerate(true), tone: 'success' },
+    { label: 'Export CSV', icon: FileDown, onClick: exportCsv, tone: 'default', disabled: invoices.length === 0, title: invoices.length === 0 ? 'No invoices to export' : undefined },
+    { label: 'Bulk Void (undo generate)', icon: Trash2, onClick: () => setShowBulkVoid(true), tone: 'danger' },
+  ];
+
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-screen-2xl space-y-6">
@@ -423,7 +517,7 @@ export function InvoicesManage() {
             </h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Bills generated from Fee Structures — collect payments and track status here.</p>
           </div>
-          <button onClick={() => setShowGenerate(true)} className="rounded-xl bg-primary-600 px-3 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm whitespace-nowrap flex-shrink-0">🧾 Generate Invoices</button>
+          <div className="flex-shrink-0"><RowActionsMenu actions={headerActions} /></div>
         </div>
 
         <div className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-4 shadow-sm space-y-3">
@@ -486,6 +580,12 @@ export function InvoicesManage() {
         />
       )}
       {viewingInvoiceId && <ViewInvoiceModal invoiceId={viewingInvoiceId} onClose={() => setViewingInvoiceId(undefined)} />}
+      {showBulkVoid && (
+        <BulkVoidModal
+          onClose={() => setShowBulkVoid(false)}
+          onDone={() => { setToast({ message: 'Batch voided', type: 'success' }); fetchInvoices(); }}
+        />
+      )}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );

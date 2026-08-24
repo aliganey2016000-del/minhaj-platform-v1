@@ -355,6 +355,84 @@ export const collectBulk = async (req: Request, res: Response): Promise<Response
 };
 
 // ---------------------------------------------------------------------------
+// GET /invoices/batches — recent generate-bulk runs, grouped by batchId, so
+// an admin can find and undo a specific mistaken "Generate Invoices" click
+// (e.g. wrong fee structure/period) without hunting through the full list.
+// ---------------------------------------------------------------------------
+
+export const getBatches = async (req: Request, res: Response): Promise<Response> => {
+  // Grouped in JS rather than via Invoice.aggregate([{ $match: scopedFilter }, ...
+  // — aggregate's $match does NOT run Mongoose's automatic string->ObjectId
+  // casting the way .find() does, so the org_admin org filter (organizationId
+  // is a plain string on req.user) would silently match nothing.
+  const scopedFilter = applyOrgFilter(req, { batchId: { $regex: '^gen-' } }, 'school');
+  const rows = await Invoice.find(scopedFilter)
+    .select('batchId title period amount amountPaid status createdAt')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const byBatch = new Map<string, { batchId: string; title: string; period: string; createdAt: Date; count: number; totalAmount: number; voidableCount: number }>();
+  for (const inv of rows as any[]) {
+    const existing = byBatch.get(inv.batchId);
+    const voidable = inv.amountPaid === 0 && inv.status !== 'void';
+    if (existing) {
+      existing.count += 1;
+      existing.totalAmount += inv.amount || 0;
+      if (voidable) existing.voidableCount += 1;
+    } else {
+      byBatch.set(inv.batchId, {
+        batchId: inv.batchId,
+        title: inv.title,
+        period: inv.period,
+        createdAt: inv.createdAt,
+        count: 1,
+        totalAmount: inv.amount || 0,
+        voidableCount: voidable ? 1 : 0,
+      });
+    }
+  }
+
+  const batches = [...byBatch.values()]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 20);
+
+  return ApiResponse.success(res, batches);
+};
+
+// ---------------------------------------------------------------------------
+// POST /invoices/batches/:batchId/void — bulk-undo a mistaken bulk generate.
+// Voids every invoice in the batch that has NO payments collected yet;
+// invoices in the batch that already have a payment are left untouched and
+// reported back, same safety rule as the single voidInvoice endpoint. There
+// is still no hard-delete for Invoice — void keeps the audit trail intact.
+// ---------------------------------------------------------------------------
+
+export const voidBatch = async (req: Request, res: Response): Promise<Response> => {
+  const { batchId } = req.params;
+  if (!batchId) throw new BadRequestError('batchId is required');
+
+  const filter = applyOrgFilter(req, { batchId, status: { $ne: 'void' } }, 'school');
+  const invoices = await Invoice.find(filter).select('_id amountPaid');
+  if (invoices.length === 0) throw new NotFoundError('Batch');
+
+  const voidableIds = invoices.filter((inv) => inv.amountPaid === 0).map((inv) => inv._id);
+  const skipped = invoices.length - voidableIds.length;
+
+  if (voidableIds.length > 0) {
+    await Invoice.updateMany(
+      { _id: { $in: voidableIds } },
+      { $set: { status: 'void', voidedAt: new Date(), voidedBy: req.user!.userId, voidReason: 'Bulk void — incorrect bulk generation' } }
+    );
+  }
+
+  return ApiResponse.success(
+    res,
+    { voided: voidableIds.length, skippedWithPayments: skipped },
+    `Voided ${voidableIds.length} invoice(s)${skipped ? `, ${skipped} skipped because they already have payments collected` : ''}`
+  );
+};
+
+// ---------------------------------------------------------------------------
 // PATCH /invoices/:id/void — the only terminal state; there is no delete
 // endpoint for Invoice at all, since these are financial records.
 // ---------------------------------------------------------------------------
