@@ -417,6 +417,8 @@ export function InvoicesManage() {
   const [feeStructureFilter, setFeeStructureFilter] = useState('');
   const [classFilter, setClassFilter] = useState('');
   const [filterSchool, setFilterSchool] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [showGenerate, setShowGenerate] = useState(false);
   const [showBulkVoid, setShowBulkVoid] = useState(false);
@@ -457,6 +459,7 @@ export function InvoicesManage() {
       if (filterSchool) params.school = filterSchool;
       const { data } = await api.get('/invoices', { params });
       setInvoices(data.data || []);
+      setSelectedIds([]);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load invoices');
     } finally {
@@ -465,6 +468,31 @@ export function InvoicesManage() {
   }, [search, statusFilter, feeStructureFilter, classFilter, filterSchool]);
 
   useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
+
+  const allSelected = invoices.length > 0 && selectedIds.length === invoices.length;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? [] : invoices.map((inv) => inv._id));
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Permanently delete ${selectedIds.length} selected invoice(s)? Invoices with payments already collected will be skipped. This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    try {
+      const { data } = await api.delete('/invoices', { data: { ids: selectedIds } });
+      setToast({ message: data.message, type: 'success' });
+      fetchInvoices();
+    } catch (err: any) {
+      setToast({ message: err.response?.data?.message || 'Failed to delete invoices', type: 'error' });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   const handleVoid = async (invoice: InvoiceItem) => {
     if (!window.confirm(`Void invoice "${invoice.title}" for this student?`)) return;
@@ -531,12 +559,19 @@ export function InvoicesManage() {
         </div>
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-red-600 text-sm">{error}</p></div>}
+        {selectedIds.length > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 dark:bg-red-950/30 px-4 py-3">
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">{selectedIds.length} invoice{selectedIds.length !== 1 ? 's' : ''} selected</p>
+            <button type="button" onClick={handleBulkDelete} disabled={bulkDeleting} className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60 transition-colors"><Trash2 className="h-4 w-4" strokeWidth={1.75} />{bulkDeleting ? 'Deleting…' : 'Delete Selected'}</button>
+          </div>
+        )}
         {loading && <div className="flex justify-center py-10"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>}
         {!loading && !error && invoices.length === 0 && <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card"><p className="text-4xl mb-4">🧾</p><p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No invoices found</p><p className="text-sm text-[var(--color-text-tertiary)]">Click "Generate Invoices" to bill students from an active fee structure.</p></div>}
 
         {!loading && !error && invoices.length > 0 && (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr>
+              <th className="text-center px-3 py-3 w-10"><input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="h-4 w-4 accent-red-600" /></th>
               <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">Student</th>
               <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">Title / Period</th>
               <th className="text-right px-4 py-3 font-semibold whitespace-nowrap">Amount</th>
@@ -550,6 +585,7 @@ export function InvoicesManage() {
                 const studentName = inv.student?.profile ? `${inv.student.profile.firstName} ${inv.student.profile.lastName}` : inv.student?.studentId || '—';
                 return (
                   <tr key={inv._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
+                    <td className="px-3 py-3 text-center"><input type="checkbox" checked={selectedIds.includes(inv._id)} onChange={() => toggleSelect(inv._id)} className="h-4 w-4 accent-red-600" /></td>
                     <td className="px-4 py-3"><p className="font-semibold text-[var(--color-text-primary)]">{studentName}</p><p className="text-xs text-[var(--color-text-tertiary)]">{inv.student?.studentId}</p></td>
                     <td className="px-4 py-3"><p className="text-[var(--color-text-primary)]">{inv.title}</p><p className="text-xs text-[var(--color-text-tertiary)]">{inv.period}</p></td>
                     <td className="px-4 py-3 text-right font-semibold text-[var(--color-text-primary)]">${(inv.amount ?? 0).toLocaleString()}</td>

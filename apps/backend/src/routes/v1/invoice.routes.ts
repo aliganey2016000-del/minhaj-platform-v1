@@ -20,6 +20,7 @@ router.get('/student/:studentId', roleMiddleware(['admin', 'org_admin', 'parent'
 
 router.get('/', adminOnly, asyncHandler(invoiceController.getAll));
 router.post('/', adminOnly, asyncHandler(invoiceController.create));
+router.delete('/', adminOnly, asyncHandler(invoiceController.bulkDelete));
 router.get('/:id', adminOnly, asyncHandler(invoiceController.getOne));
 router.post('/:id/collect-payment', adminOnly, asyncHandler(invoiceController.collectPayment));
 router.post('/:id/request-payment', roleMiddleware(['parent', 'student']), asyncHandler(invoiceController.requestPayment));

@@ -433,6 +433,36 @@ export const voidBatch = async (req: Request, res: Response): Promise<Response> 
 };
 
 // ---------------------------------------------------------------------------
+// DELETE /invoices — hard-delete multiple invoices by id. Unlike void (which
+// keeps an audit trail), this is for undoing a mistaken bulk generation where
+// the rows are pure noise. Safety mirror matches void: only invoices with
+// zero collected payments can be hard-deleted — anything with money recorded
+// against it is skipped and reported, so financial records are never lost.
+// ---------------------------------------------------------------------------
+
+export const bulkDelete = async (req: Request, res: Response): Promise<Response> => {
+  const ids: string[] = Array.isArray(req.body?.ids)
+    ? req.body.ids.filter((id: unknown): id is string => typeof id === 'string' && mongoose.isValidObjectId(String(id)))
+    : [];
+  if (ids.length === 0) throw new BadRequestError('ids is required');
+
+  const filter = applyOrgFilter(req, { _id: { $in: ids } }, 'school');
+  const invoices = await Invoice.find(filter).select('_id amountPaid');
+  const deletableIds = invoices.filter((inv) => (inv.amountPaid || 0) === 0).map((inv) => inv._id);
+  const skipped = invoices.length - deletableIds.length;
+
+  if (deletableIds.length > 0) {
+    await Invoice.deleteMany({ _id: { $in: deletableIds } });
+  }
+
+  return ApiResponse.success(
+    res,
+    { deleted: deletableIds.length, skipped },
+    `Deleted ${deletableIds.length} invoice(s)${skipped ? `, ${skipped} skipped because they already have payments collected` : ''}`
+  );
+};
+
+// ---------------------------------------------------------------------------
 // PATCH /invoices/:id/void — the only terminal state; there is no delete
 // endpoint for Invoice at all, since these are financial records.
 // ---------------------------------------------------------------------------
