@@ -158,100 +158,114 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 // ---------------------------------------------------------------------------
 
 export const generateBulk = async (req: Request, res: Response): Promise<Response> => {
-  const { feeStructureId, period, dueDate, academicYear } = req.body;
+  const { feeStructureIds, feeStructureId, period, dueDate, academicYear } = req.body;
 
-  if (!feeStructureId) throw new BadRequestError('feeStructureId is required');
+  // Accept either a single legacy `feeStructureId` or an array of
+  // `feeStructureIds` (multi-select). Normalize to a unique list of valid ids.
+  const rawIds = Array.isArray(feeStructureIds) && feeStructureIds.length
+    ? feeStructureIds
+    : feeStructureId ? [feeStructureId] : [];
+  const ids = Array.from(new Set(
+    rawIds.filter((id: unknown) => typeof id === 'string' && mongoose.isValidObjectId(String(id)))
+  ));
+
+  if (ids.length === 0) throw new BadRequestError('At least one fee structure is required');
   if (!period || !String(period).trim()) throw new BadRequestError('period is required');
 
-  const structure = await FeeStructure.findById(feeStructureId);
-  if (!structure) throw new NotFoundError('Fee structure');
-  assertOwnsOrg(req, structure, 'school');
-  if (!structure.isActive) throw new BadRequestError('This fee structure is inactive');
-
-  // ── Resolve eligible students with one query, branching on scope ──
-  let eligibleIds: mongoose.Types.ObjectId[];
-  if (structure.scopeType === 'class') {
-    eligibleIds = await Student.find({
-      school: structure.school,
-      class: structure.scopeRef,
-      status: 'active',
-      approvalStatus: 'approved',
-    }).distinct('_id');
-  } else if (structure.scopeType === 'department') {
-    // Student.department is a plain string enum, while Class.department is
-    // an ObjectId ref to a real Department document — a pre-existing
-    // mismatch in this codebase. Department-scoped eligibility must always
-    // be resolved via each student's class, never via Student.department.
-    const classIds = await ClassModel.find({ school: structure.school, department: structure.scopeRef }).distinct('_id');
-    eligibleIds = await Student.find({
-      school: structure.school,
-      class: { $in: classIds },
-      status: 'active',
-      approvalStatus: 'approved',
-    }).distinct('_id');
-  } else {
-    eligibleIds = await Student.find({
-      school: structure.school,
-      status: 'active',
-      approvalStatus: 'approved',
-    }).distinct('_id');
+  const structures = await FeeStructure.find({ _id: { $in: ids } });
+  if (structures.length !== ids.length) throw new NotFoundError('One or more fee structures were not found');
+  for (const structure of structures) {
+    assertOwnsOrg(req, structure, 'school');
+    if (!structure.isActive) throw new BadRequestError(`"${structure.title}" is inactive`);
   }
 
   const periodTrimmed = String(period).trim();
+  const batchId = `gen-${Date.now().toString(36)}`;
+  const explicitDueDate = dueDate ? new Date(dueDate) : null;
 
-  if (eligibleIds.length === 0) {
-    return ApiResponse.success(res, { eligible: 0, alreadyBilled: 0, created: 0, failed: 0 }, 'No eligible students found for this fee structure');
-  }
-
-  // ── Skip students already billed for this (feeStructure, period) ──
-  const alreadyBilledIds = await Invoice.find({ feeStructure: structure._id, period: periodTrimmed }).distinct('student');
-  const alreadyBilledSet = new Set(alreadyBilledIds.map((id) => id.toString()));
-  const targets = eligibleIds.filter((id) => !alreadyBilledSet.has(id.toString()));
-
-  if (targets.length === 0) {
-    return ApiResponse.success(
-      res,
-      { eligible: eligibleIds.length, alreadyBilled: alreadyBilledIds.length, created: 0, failed: 0 },
-      'All eligible students already have an invoice for this period'
-    );
-  }
-
-  const batchId = `gen-${structure._id}-${Date.now().toString(36)}`;
-  const resolvedDueDate = dueDate ? new Date(dueDate) : new Date(Date.now() + structure.dueDayOffset * 86400000);
-  const paymentType = FEE_TYPE_TO_PAYMENT_TYPE[structure.feeType] || 'other';
-
-  const docs = targets.map((studentId) => ({
-    student: studentId,
-    school: structure.school,
-    feeStructure: structure._id,
-    title: `${structure.title} — ${periodTrimmed}`,
-    period: periodTrimmed,
-    lineItems: [{ description: structure.title, amount: structure.amount }],
-    amount: structure.amount,
-    amountPaid: 0,
-    status: 'pending',
-    paymentType,
-    dueDate: resolvedDueDate,
-    issueDate: new Date(),
-    academicYear: (academicYear || structure.academicYear || '').trim(),
-    batchId,
-    generatedBy: req.user!.userId,
-  }));
-
+  let eligible = 0;
+  let alreadyBilled = 0;
   let created = 0;
-  try {
-    const result = await Invoice.insertMany(docs, { ordered: false });
-    created = result.length;
-  } catch (err: any) {
-    // ordered:false still inserts every doc that didn't collide with the
-    // unique (student, feeStructure, period) index — a duplicate-click race
-    // just silently skips the colliding rows instead of failing the batch.
-    created = err.result?.nInserted ?? err.insertedDocs?.length ?? 0;
+  let failed = 0;
+
+  for (const structure of structures) {
+    // ── Resolve eligible students with one query, branching on scope ──
+    let eligibleIds: mongoose.Types.ObjectId[];
+    if (structure.scopeType === 'class') {
+      eligibleIds = await Student.find({
+        school: structure.school,
+        class: structure.scopeRef,
+        status: 'active',
+        approvalStatus: 'approved',
+      }).distinct('_id');
+    } else if (structure.scopeType === 'department') {
+      // Student.department is a plain string enum, while Class.department is
+      // an ObjectId ref to a real Department document — a pre-existing
+      // mismatch in this codebase. Department-scoped eligibility must always
+      // be resolved via each student's class, never via Student.department.
+      const classIds = await ClassModel.find({ school: structure.school, department: structure.scopeRef }).distinct('_id');
+      eligibleIds = await Student.find({
+        school: structure.school,
+        class: { $in: classIds },
+        status: 'active',
+        approvalStatus: 'approved',
+      }).distinct('_id');
+    } else {
+      eligibleIds = await Student.find({
+        school: structure.school,
+        status: 'active',
+        approvalStatus: 'approved',
+      }).distinct('_id');
+    }
+
+    // ── Skip students already billed for this (feeStructure, period) ──
+    const alreadyBilledIds = await Invoice.find({ feeStructure: structure._id, period: periodTrimmed }).distinct('student');
+    const alreadyBilledSet = new Set(alreadyBilledIds.map((id) => id.toString()));
+    const targets = eligibleIds.filter((id) => !alreadyBilledSet.has(id.toString()));
+
+    eligible += eligibleIds.length;
+    alreadyBilled += alreadyBilledIds.length;
+
+    if (targets.length === 0) continue;
+
+    const resolvedDueDate = explicitDueDate || new Date(Date.now() + structure.dueDayOffset * 86400000);
+    const paymentType = FEE_TYPE_TO_PAYMENT_TYPE[structure.feeType] || 'other';
+
+    const docs = targets.map((studentId) => ({
+      student: studentId,
+      school: structure.school,
+      feeStructure: structure._id,
+      title: `${structure.title} — ${periodTrimmed}`,
+      period: periodTrimmed,
+      lineItems: [{ description: structure.title, amount: structure.amount }],
+      amount: structure.amount,
+      amountPaid: 0,
+      status: 'pending',
+      paymentType,
+      dueDate: resolvedDueDate,
+      issueDate: new Date(),
+      academicYear: (academicYear || structure.academicYear || '').trim(),
+      batchId,
+      generatedBy: req.user!.userId,
+    }));
+
+    try {
+      const result = await Invoice.insertMany(docs, { ordered: false });
+      created += result.length;
+      failed += targets.length - result.length;
+    } catch (err: any) {
+      // ordered:false still inserts every doc that didn't collide with the
+      // unique (student, feeStructure, period) index — a duplicate-click race
+      // just silently skips the colliding rows instead of failing the batch.
+      const inserted = err.result?.nInserted ?? err.insertedDocs?.length ?? 0;
+      created += inserted;
+      failed += targets.length - inserted;
+    }
   }
 
   return ApiResponse.created(
     res,
-    { batchId, feeStructureTitle: structure.title, period: periodTrimmed, eligible: eligibleIds.length, alreadyBilled: alreadyBilledIds.length, created, failed: targets.length - created },
+    { batchId, period: periodTrimmed, eligible, alreadyBilled, created, failed },
     `Generated ${created} invoice(s) for ${periodTrimmed}`
   );
 };

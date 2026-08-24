@@ -8,7 +8,7 @@
  * single source of truth for balances.
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, Download, FileDown, Trash2, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -20,7 +20,8 @@ import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
 // ---------------------------------------------------------------------------
 
 interface SchoolBrief { _id: string; name: string; }
-interface FeeStructureBrief { _id: string; title: string; feeType: string; amount: number; billingCycle: string; }
+interface DepartmentBrief { _id: string; name: string; code?: string; }
+interface FeeStructureBrief { _id: string; title: string; feeType: string; amount: number; billingCycle: string; scopeType?: string; scopeRef?: string | { _id?: string; name?: string }; }
 interface ClassBrief { _id: string; title: string; section: string; }
 
 interface InvoiceLineItem { description: string; amount: number; }
@@ -68,7 +69,8 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
 // ---------------------------------------------------------------------------
 
 function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructures: FeeStructureBrief[]; onClose: () => void; onDone: () => void }) {
-  const [feeStructureId, setFeeStructureId] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [departmentId, setDepartmentId] = useState('');
   const [period, setPeriod] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [academicYear, setAcademicYear] = useState('');
@@ -76,12 +78,43 @@ function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructur
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ eligible: number; alreadyBilled: number; created: number; failed: number } | null>(null);
 
+  // Departments referenced by department-scoped fee structures, so the admin
+  // can pick a department first and only see the structures meant for it.
+  const departments = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const fs of feeStructures) {
+      if (fs.scopeType !== 'department') continue;
+      const ref = fs.scopeRef;
+      const id = typeof ref === 'object' ? ref?._id : ref;
+      const name = typeof ref === 'object' ? ref?.name : '';
+      if (id) map.set(String(id), name || String(id));
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ _id: id, name }));
+  }, [feeStructures]);
+
+  const visibleStructures = useMemo(() => {
+    if (!departmentId) return feeStructures;
+    return feeStructures.filter((fs) => {
+      const ref = fs.scopeRef;
+      const id = typeof ref === 'object' ? ref?._id : ref;
+      return String(id) === departmentId;
+    });
+  }, [feeStructures, departmentId]);
+
+  const toggleStructure = (id: string) => {
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+
+  const toggleAll = () => {
+    setSelectedIds(visibleStructures.length === selectedIds.length ? [] : visibleStructures.map((fs) => fs._id));
+  };
+
   const handleGenerate = async () => {
-    if (!feeStructureId || !period.trim()) return;
+    if (selectedIds.length === 0 || !period.trim()) return;
     setLoading(true); setError('');
     try {
       const { data } = await api.post('/invoices/generate-bulk', {
-        feeStructureId, period: period.trim(),
+        feeStructureIds: selectedIds, period: period.trim(),
         dueDate: dueDate || undefined,
         academicYear: academicYear.trim() || undefined,
       });
@@ -106,12 +139,36 @@ function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructur
         ) : (
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Fee Structure *</label>
-              <select className={ic} value={feeStructureId} onChange={e => setFeeStructureId(e.target.value)}>
-                <option value="">Select an active fee structure...</option>
-                {feeStructures.map(fs => <option key={fs._id} value={fs._id}>{fs.title} — ${(fs.amount ?? 0).toLocaleString()} ({fs.billingCycle.replace('_', ' ')})</option>)}
+              <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Department</label>
+              <select className={ic} value={departmentId} onChange={e => { setDepartmentId(e.target.value); setSelectedIds([]); }}>
+                <option value="">All Departments</option>
+                {departments.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
               </select>
+              <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Pick a department to show only the fee structures meant for it.</p>
             </div>
+
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="text-xs font-semibold text-[var(--color-text-primary)]">Fee Structures *</label>
+                {visibleStructures.length > 0 && (
+                  <button type="button" onClick={toggleAll} className="text-xs font-semibold text-primary-600 hover:underline">{selectedIds.length === visibleStructures.length ? 'Clear all' : 'Select all'}</button>
+                )}
+              </div>
+              <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-xl border border-[var(--color-border-default)] p-2">
+                {visibleStructures.length === 0 && <p className="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No fee structures for this department.</p>}
+                {visibleStructures.map(fs => {
+                  const checked = selectedIds.includes(fs._id);
+                  return (
+                    <button key={fs._id} type="button" onClick={() => toggleStructure(fs._id)} className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${checked ? 'border-primary-500 bg-primary-500/10' : 'border-[var(--color-border-default)] hover:bg-[var(--color-surface-tertiary)]'}`}>
+                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{checked ? '✓' : ''}</span>
+                      <span className="min-w-0 flex-1"><span className="block truncate font-medium text-[var(--color-text-primary)]">{fs.title}</span><span className="text-xs text-[var(--color-text-tertiary)]">${(fs.amount ?? 0).toLocaleString()} · {fs.billingCycle.replace('_', ' ')}</span></span>
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedIds.length > 0 && <p className="mt-1 text-[11px] font-semibold text-primary-600">{selectedIds.length} fee structure{selectedIds.length !== 1 ? 's' : ''} selected</p>}
+            </div>
+
             <div>
               <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Period *</label>
               <input className={ic} value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. March 2026, Term 1" />
@@ -124,7 +181,7 @@ function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructur
             {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{error}</div>}
             <div className="flex gap-2 pt-2">
               <button type="button" onClick={onClose} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-              <button type="button" onClick={handleGenerate} disabled={loading || !feeStructureId || !period.trim()} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}Generate</button>
+              <button type="button" onClick={handleGenerate} disabled={loading || selectedIds.length === 0 || !period.trim()} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}{loading ? 'Generating...' : `Generate (${selectedIds.length})`}</button>
             </div>
           </div>
         )}
