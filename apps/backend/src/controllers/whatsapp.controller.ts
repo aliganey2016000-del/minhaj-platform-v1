@@ -19,7 +19,7 @@ function componentsFromBody(value: unknown): WhatsAppTemplateComponent[] | undef
 export const status = async (_req: Request, res: Response): Promise<Response> => {
   const configured = isWhatsAppConfigured();
   const attendanceAlertsEnabled = process.env.WHATSAPP_ATTENDANCE_ALERTS_ENABLED !== 'false';
-  ApiResponse.success(res, {
+  return ApiResponse.success(res, {
     configured,
     provider: 'Meta WhatsApp Cloud API',
     automation: {
