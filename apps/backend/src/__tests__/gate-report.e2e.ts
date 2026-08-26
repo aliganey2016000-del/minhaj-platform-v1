@@ -314,6 +314,11 @@ async function main() {
   // Every submit call logs one event, including the wrong first attempt AND the retry — 3 total for Yusuf (wrong, retry, block 1).
   assert(gateEvents.length === 3, `timeline: all 3 of Yusuf's gate answer submissions (incl. the wrong one and the retry) are logged (got ${gateEvents.length})`);
   assert(gateEvents.some((e: any) => e.status === 'failed'), 'timeline: the wrong first attempt is logged with status=failed');
+  // lessonTitle is kept distinct from resourceName (which holds the specific
+  // question text) so the Student Activity page can group these 3 per-question
+  // events back under the one lesson they belong to and show its real name.
+  assert(gateEvents.every((e: any) => e.lessonTitle === 'Lesson 1: Usul al-Din'), `timeline: every gate event carries the lesson's own title, not the question text (got ${JSON.stringify(gateEvents.map((e: any) => e.lessonTitle))})`);
+  assert(gateEvents.every((e: any) => e.lessonId), 'timeline: every gate event carries lessonId, so they can be grouped');
 
   // -------------------------------------------------------------------
   console.log(`\n${'='.repeat(60)}`);

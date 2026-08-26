@@ -17,6 +17,7 @@ export interface LogActivityInput {
   school?: string | mongoose.Types.ObjectId;
   course?: string | mongoose.Types.ObjectId;
   lessonId?: string;
+  lessonTitle?: string;
   resourceName?: string;
   status?: string;
   durationSeconds?: number;
@@ -36,6 +37,7 @@ export async function logLearningActivity(input: LogActivityInput): Promise<void
       type: input.type,
       course: input.course,
       lessonId: input.lessonId,
+      lessonTitle: input.lessonTitle,
       resourceName: input.resourceName,
       status: input.status,
       durationSeconds: input.durationSeconds,

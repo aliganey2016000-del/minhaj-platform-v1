@@ -5,7 +5,7 @@
  * sees only students enrolled in their own courses — enforced server-side).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import api from '../../../lib/axios';
 
@@ -26,8 +26,9 @@ interface RosterRow {
 interface TimelineEvent {
   _id: string;
   type: string;
-  course?: { title?: { en?: string } };
+  course?: { _id?: string; title?: { en?: string } };
   lessonId?: string;
+  lessonTitle?: string;
   resourceName?: string;
   status?: string;
   durationSeconds?: number;
@@ -37,6 +38,66 @@ interface TimelineEvent {
   os?: string;
   ip?: string;
   createdAt: string;
+}
+
+// Events sharing the same (type, course, lesson) are one lesson "session" —
+// e.g. every question the student answered inside one Interactive Gate
+// lesson used to show as its own row (see the reported table). Events with
+// no lessonId (login, page views, downloads, ...) aren't grouped at all —
+// each stays its own single-attempt row.
+interface TimelineGroup {
+  key: string;
+  lessonName: string;
+  type: string;
+  courseName: string;
+  events: TimelineEvent[];
+  start: Date;
+  end: Date;
+  durationSeconds: number;
+  progress: number | null;
+  status: string;
+}
+
+function groupTimeline(events: TimelineEvent[]): TimelineGroup[] {
+  const groups = new Map<string, TimelineEvent[]>();
+  for (const e of events) {
+    const key = e.lessonId ? `${e.type}::${e.course?._id || ''}::${e.lessonId}` : `single::${e._id}`;
+    const arr = groups.get(key);
+    if (arr) arr.push(e); else groups.set(key, [e]);
+  }
+
+  return Array.from(groups.entries()).map(([key, groupEvents]) => {
+    // Oldest-first within a group so Start is truly when they first opened it.
+    const sorted = [...groupEvents].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const start = computeStart(first.createdAt, first.durationSeconds);
+    const end = new Date(last.createdAt);
+
+    const percents = sorted.map((e) => e.percent).filter((p): p is number => p != null);
+    const progress = percents.length ? Math.round(percents.reduce((s, p) => s + p, 0) / percents.length) : null;
+
+    const statuses = new Set(sorted.map((e) => e.status).filter(Boolean));
+    let status: string;
+    if (statuses.size === 0) status = '—';
+    else if (statuses.size === 1) status = [...statuses][0]!;
+    else if ([...statuses].every((s) => s === 'passed' || s === 'completed')) status = 'passed';
+    else if ([...statuses].some((s) => s === 'passed' || s === 'completed')) status = 'mixed';
+    else status = [...statuses][0]!;
+
+    return {
+      key,
+      lessonName: first.lessonTitle || first.resourceName || '—',
+      type: first.type,
+      courseName: first.course?.title?.en || '—',
+      events: sorted,
+      start,
+      end,
+      durationSeconds: Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000)),
+      progress,
+      status,
+    };
+  }).sort((a, b) => b.end.getTime() - a.end.getTime());
 }
 
 interface CourseOption { _id: string; title?: { en?: string }; }
@@ -111,6 +172,13 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const timelineGroups = useMemo(() => groupTimeline(timeline), [timeline]);
+  const toggleGroup = (key: string) => setExpandedGroups((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
 
   // Filters (apply to the selected student's timeline)
   const [datePreset, setDatePreset] = useState('');
@@ -176,6 +244,7 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
       ]);
       setTimeline(timelineRes.data.data || []);
       setAnalytics(analyticsRes.data.data);
+      setExpandedGroups(new Set());
     } catch {
       setTimeline([]);
       setAnalytics(null);
@@ -357,44 +426,75 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
                   </div>
                 </div>
 
-                {/* Timeline */}
+                {/* Timeline — grouped into one row per lesson session (e.g. every
+                    question attempted inside one Interactive Gate lesson), with
+                    aggregate Start/End/Duration/Progress/Status. Click a row to
+                    expand the individual attempts underneath it. */}
                 <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden">
                   {timelineLoading ? (
                     <div className="flex justify-center py-10"><div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" /></div>
-                  ) : timeline.length === 0 ? (
+                  ) : timelineGroups.length === 0 ? (
                     <p className="text-center text-sm text-[var(--color-text-tertiary)] py-10">No activity recorded for this range.</p>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                           <tr>
+                            <th className="text-left px-4 py-2.5 font-semibold w-6"></th>
                             <th className="text-left px-4 py-2.5 font-semibold">Date</th>
-                            <th className="text-left px-4 py-2.5 font-semibold">Type</th>
-                            <th className="text-left px-4 py-2.5 font-semibold">Resource</th>
                             <th className="text-left px-4 py-2.5 font-semibold hidden md:table-cell">Course</th>
-                            <th className="text-left px-4 py-2.5 font-semibold">Status</th>
+                            <th className="text-left px-4 py-2.5 font-semibold">Lesson</th>
                             <th className="text-left px-4 py-2.5 font-semibold hidden lg:table-cell">Start</th>
                             <th className="text-left px-4 py-2.5 font-semibold hidden lg:table-cell">End</th>
                             <th className="text-left px-4 py-2.5 font-semibold">Duration</th>
                             <th className="text-left px-4 py-2.5 font-semibold hidden xl:table-cell">Progress</th>
+                            <th className="text-left px-4 py-2.5 font-semibold">Status</th>
+                            <th className="text-center px-4 py-2.5 font-semibold">Attempts</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[var(--color-border-subtle)]">
-                          {timeline.map((e) => {
-                            const end = new Date(e.createdAt);
-                            const start = computeStart(e.createdAt, e.durationSeconds);
+                          {timelineGroups.map((g) => {
+                            const expanded = expandedGroups.has(g.key);
+                            const canExpand = g.events.length > 1;
                             return (
-                              <tr key={e._id} className="hover:bg-[var(--color-surface-secondary)] transition-colors">
-                                <td className="px-4 py-2.5 whitespace-nowrap">{end.toLocaleDateString()}</td>
-                                <td className="px-4 py-2.5"><span className="rounded-full bg-primary-50 dark:bg-primary-950/30 px-2 py-0.5 text-[10px] font-semibold text-primary-700 dark:text-primary-300 whitespace-nowrap">{e.type.replace(/_/g, ' ')}</span></td>
-                                <td className="px-4 py-2.5 max-w-[160px] truncate">{e.resourceName || '—'}</td>
-                                <td className="px-4 py-2.5 hidden md:table-cell">{e.course?.title?.en || '—'}</td>
-                                <td className="px-4 py-2.5">{e.status || '—'}</td>
-                                <td className="px-4 py-2.5 hidden lg:table-cell whitespace-nowrap">{start.toLocaleTimeString()}</td>
-                                <td className="px-4 py-2.5 hidden lg:table-cell whitespace-nowrap">{end.toLocaleTimeString()}</td>
-                                <td className="px-4 py-2.5 whitespace-nowrap">{e.durationSeconds ? formatDuration(e.durationSeconds) : '—'}</td>
-                                <td className="px-4 py-2.5 hidden xl:table-cell">{e.percent != null ? `${e.percent}%` : '—'}</td>
-                              </tr>
+                              <Fragment key={g.key}>
+                                <tr
+                                  onClick={() => canExpand && toggleGroup(g.key)}
+                                  className={`transition-colors ${canExpand ? 'cursor-pointer hover:bg-[var(--color-surface-secondary)]' : ''}`}
+                                >
+                                  <td className="px-4 py-2.5 text-[var(--color-text-tertiary)]">{canExpand && (expanded ? '▾' : '▸')}</td>
+                                  <td className="px-4 py-2.5 whitespace-nowrap">{g.end.toLocaleDateString()}</td>
+                                  <td className="px-4 py-2.5 hidden md:table-cell">{g.courseName}</td>
+                                  <td className="px-4 py-2.5 max-w-[200px]">
+                                    <p className="truncate font-medium text-[var(--color-text-primary)]">{g.lessonName}</p>
+                                    <span className="rounded-full bg-primary-50 dark:bg-primary-950/30 px-2 py-0.5 text-[10px] font-semibold text-primary-700 dark:text-primary-300 whitespace-nowrap">{g.type.replace(/_/g, ' ')}</span>
+                                  </td>
+                                  <td className="px-4 py-2.5 hidden lg:table-cell whitespace-nowrap">{g.start.toLocaleTimeString()}</td>
+                                  <td className="px-4 py-2.5 hidden lg:table-cell whitespace-nowrap">{g.end.toLocaleTimeString()}</td>
+                                  <td className="px-4 py-2.5 whitespace-nowrap">{formatDuration(g.durationSeconds)}</td>
+                                  <td className="px-4 py-2.5 hidden xl:table-cell">{g.progress != null ? `${g.progress}%` : '—'}</td>
+                                  <td className="px-4 py-2.5 capitalize">{g.status}</td>
+                                  <td className="px-4 py-2.5 text-center"><span className="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-text-secondary)]">{g.events.length}</span></td>
+                                </tr>
+                                {expanded && g.events.map((e) => {
+                                  const end = new Date(e.createdAt);
+                                  const start = computeStart(e.createdAt, e.durationSeconds);
+                                  return (
+                                    <tr key={e._id} className="bg-[var(--color-surface-secondary)]/60">
+                                      <td className="px-4 py-2"></td>
+                                      <td className="px-4 py-2 whitespace-nowrap text-[var(--color-text-tertiary)]">{end.toLocaleDateString()}</td>
+                                      <td className="px-4 py-2 hidden md:table-cell"></td>
+                                      <td className="px-4 py-2 max-w-[200px] truncate text-[var(--color-text-secondary)]">{e.resourceName || '—'}</td>
+                                      <td className="px-4 py-2 hidden lg:table-cell whitespace-nowrap">{start.toLocaleTimeString()}</td>
+                                      <td className="px-4 py-2 hidden lg:table-cell whitespace-nowrap">{end.toLocaleTimeString()}</td>
+                                      <td className="px-4 py-2 whitespace-nowrap">{e.durationSeconds ? formatDuration(e.durationSeconds) : '—'}</td>
+                                      <td className="px-4 py-2 hidden xl:table-cell">{e.percent != null ? `${e.percent}%` : '—'}</td>
+                                      <td className="px-4 py-2 capitalize">{e.status || '—'}</td>
+                                      <td className="px-4 py-2"></td>
+                                    </tr>
+                                  );
+                                })}
+                              </Fragment>
                             );
                           })}
                         </tbody>

@@ -152,6 +152,8 @@ export const submitAttempt = async (req: Request, res: Response): Promise<Respon
     school: (student as any).school,
     type: 'quiz_attempt',
     course: courseId,
+    lessonId: quizId,
+    lessonTitle: (quizItem as any).title,
     resourceName: (quizItem as any).title,
     status: passed ? 'passed' : 'failed',
     durationSeconds: safeDuration,

@@ -49,6 +49,7 @@ export interface ILearningActivity extends Document {
   type: LearningActivityType;
   course?: mongoose.Types.ObjectId;
   lessonId?: string;                     // lesson subdocument _id (CourseContent.chapters[].items is Mixed, so no ref)
+  lessonTitle?: string;                  // the lesson/quiz item's own title — kept distinct from resourceName, which for a quiz_attempt is the specific question/quiz text, so the Student Activity timeline can group many per-question attempts back under the one lesson they belong to
   resourceName?: string;                 // human-readable label for the timeline (lesson title, file name, quiz title, ...)
   status?: string;                       // 'completed' | 'in_progress' | 'passed' | 'failed' | free-form
   durationSeconds?: number;
@@ -80,7 +81,8 @@ const learningActivitySchema = new Schema<ILearningActivity>(
       index: true,
     },
     course: { type: Schema.Types.ObjectId, ref: 'Course', index: true },
-    lessonId: { type: String },
+    lessonId: { type: String, index: true },
+    lessonTitle: { type: String, default: '' },
     resourceName: { type: String, default: '' },
     status: { type: String, default: '' },
     durationSeconds: { type: Number },

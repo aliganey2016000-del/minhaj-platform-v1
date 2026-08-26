@@ -137,6 +137,7 @@ export const submitBlockAnswer = async (req: Request, res: Response): Promise<Re
       type: 'quiz_attempt',
       course: courseId,
       lessonId,
+      lessonTitle: lesson.title,
       resourceName: question.question || lesson.title,
       status: correct ? 'passed' : 'failed',
       percent: correct ? 100 : 0,
