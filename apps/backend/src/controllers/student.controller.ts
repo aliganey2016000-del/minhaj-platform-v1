@@ -107,11 +107,16 @@ async function buildStudentScopedFilter(
     filter.enrolledCourses = { $in: teacherCourseIds };
   }
 
-  if (search) {
-    const searchRegex = { $regex: search, $options: 'i' };
-    andClauses.push({ $or: [{ studentId: searchRegex }] });
-  }
-
+  // `search` is intentionally NOT applied here as a Mongo-level filter. It
+  // used to add a required studentId-only $regex clause (built from raw,
+  // unescaped user input — a search containing "+" or other regex
+  // metacharacters crashed the query with a MongoServerError), which also
+  // meant a search by name/email/phone silently returned nothing unless the
+  // typed text happened to also appear inside the studentId, since the
+  // in-memory pass at each call site could only narrow further, never
+  // recover rows this regex had already excluded. Both call sites already
+  // do the full name/email/studentId/phone match in memory against the
+  // status/approval/school-scoped set this function returns.
   if (andClauses.length > 0) filter.$and = andClauses;
 
   // org_admin can never widen the filter to another org via ?school=; their
@@ -156,7 +161,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   if (search) {
     const [students, count] = await Promise.all([
       Student.find(scopedFilter)
-        .populate('user', 'email role isActive isVerified preferredLanguage')
+        .populate('user', 'email phone role isActive isVerified preferredLanguage')
         .populate('profile', 'firstName lastName avatar gender')
         .populate(PARENT_POPULATE)
         .populate('school', 'name')
@@ -168,11 +173,18 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     ]);
 
     const s = search.toLowerCase();
+    // Phone matching strips non-digits on both sides so "+252 61 234 5678",
+    // "0612345678", and a search of "612345678" all still find each other
+    // regardless of how the number was originally typed/formatted.
+    const digitsOnly = (v: string) => v.replace(/\D/g, '');
+    const sDigits = digitsOnly(search);
     const filtered = students.filter((st: any) => {
       const fullName = `${st.profile?.firstName || ''} ${st.profile?.lastName || ''}`.toLowerCase();
       const email = (st.user?.email || '').toLowerCase();
       const sid = (st.studentId || '').toLowerCase();
-      return fullName.includes(s) || email.includes(s) || sid.includes(s);
+      const phone = digitsOnly(st.user?.phone || '');
+      const phoneMatch = sDigits.length >= 3 && phone.includes(sDigits);
+      return fullName.includes(s) || email.includes(s) || sid.includes(s) || phoneMatch;
     });
 
     total = filtered.length;
@@ -180,7 +192,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   } else {
     const [students, count] = await Promise.all([
       Student.find(scopedFilter)
-        .populate('user', 'email role isActive isVerified preferredLanguage')
+        .populate('user', 'email phone role isActive isVerified preferredLanguage')
         .populate('profile', 'firstName lastName avatar gender')
         .populate(PARENT_POPULATE)
         .populate('school', 'name')

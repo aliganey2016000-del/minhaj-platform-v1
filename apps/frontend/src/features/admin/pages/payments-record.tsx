@@ -6,6 +6,7 @@
  * receipt after a successful record.
  */
 import { useEffect, useState, useRef } from 'react';
+import { Search, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { downloadReceipt } from '../../../lib/receipts';
 
@@ -18,6 +19,7 @@ interface StudentBrief {
   studentId: string;
   profile?: { firstName: string; lastName: string };
   school?: { _id: string; name: string; address?: string; phone?: string; email?: string; logo?: string };
+  user?: { phone?: string };
   totalFees?: number;
   totalFeesPaid?: number;
   totalFeesDue?: number;
@@ -230,17 +232,113 @@ function InvoiceModal({ invoice, onClose }: { invoice: InvoiceData; onClose: () 
 }
 
 // ---------------------------------------------------------------------------
+// Student Search Picker — type a student ID or phone number (or name) to
+// find and pick a student, instead of scrolling a dropdown that only ever
+// listed the first 200 approved students (a school with more than that
+// simply couldn't record a payment for anyone past #200).
+// ---------------------------------------------------------------------------
+
+function studentLabel(s: StudentBrief): string {
+  return `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim() || s.studentId;
+}
+
+function StudentSearchPicker({ value, onSelect }: { value: StudentBrief | null; onSelect: (s: StudentBrief | null) => void }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<StudentBrief[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  useEffect(() => {
+    if (query.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/students', { params: { search: query.trim(), limit: '20', approvalStatus: 'approved' } });
+        setResults(data.data || []);
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  if (value) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-2.5">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-[var(--color-text-primary)] truncate">{studentLabel(value)}</p>
+          <p className="text-xs text-[var(--color-text-tertiary)] font-mono">{value.studentId}{value.user?.phone ? ` · ${value.user.phone}` : ''}</p>
+        </div>
+        <button type="button" onClick={() => { onSelect(null); setQuery(''); }} className="flex-shrink-0 rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-red-600 transition-colors" title="Change student">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder="Search by student ID or phone number..."
+          className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-9 pr-4 py-2.5 text-sm"
+        />
+      </div>
+      {open && query.trim().length >= 2 && (
+        <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl">
+          {searching ? (
+            <p className="px-4 py-3 text-xs text-[var(--color-text-tertiary)] text-center">Searching...</p>
+          ) : results.length === 0 ? (
+            <p className="px-4 py-3 text-xs text-[var(--color-text-tertiary)] text-center">No students found for "{query}".</p>
+          ) : (
+            results.map((s) => (
+              <button
+                key={s._id}
+                type="button"
+                onClick={() => { onSelect(s); setOpen(false); setQuery(''); }}
+                className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left hover:bg-[var(--color-surface-tertiary)] transition-colors border-b border-[var(--color-border-subtle)] last:border-0"
+              >
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-[var(--color-text-primary)] truncate">{studentLabel(s)}</span>
+                  <span className="block text-xs text-[var(--color-text-tertiary)] font-mono">{s.studentId}{s.user?.phone ? ` · ${s.user.phone}` : ''}</span>
+                </span>
+                <span className="flex-shrink-0 text-xs text-[var(--color-text-tertiary)]">Due: ${(s.totalFeesDue || 0).toLocaleString()}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
 export function PaymentsRecord() {
-  const [students, setStudents] = useState<StudentBrief[]>([]);
   const [schools, setSchools] = useState<SchoolBrief[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const [recordStudent, setRecordStudent] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<StudentBrief | null>(null);
   const [recordAmount, setRecordAmount] = useState('');
   const [recordType, setRecordType] = useState('tuition');
   const [recordMethod, setRecordMethod] = useState('cash');
@@ -255,25 +353,21 @@ export function PaymentsRecord() {
   useEffect(() => {
     (async () => {
       try {
-        const [sRes, stRes] = await Promise.all([
-          api.get('/schools', { params: { limit: '100' } }),
-          api.get('/students', { params: { limit: '200', approvalStatus: 'approved' } }),
-        ]);
-        setSchools(sRes.data.data || []);
-        setStudents(stRes.data.data || []);
+        const { data } = await api.get('/schools', { params: { limit: '100' } });
+        setSchools(data.data || []);
       } catch { /* ignore */ }
     })();
   }, []);
 
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!recordStudent || !recordAmount || Number(recordAmount) <= 0) {
+    if (!selectedStudent || !recordAmount || Number(recordAmount) <= 0) {
       setError('Select a student and enter a valid amount'); return;
     }
     setLoading(true); setError(''); setMessage('');
     try {
       const { data } = await api.post('/payments', {
-        studentId: recordStudent,
+        studentId: selectedStudent._id,
         amount: Number(recordAmount),
         discount: 0,
         type: recordType,
@@ -285,14 +379,13 @@ export function PaymentsRecord() {
       const bal = data.data?.balance;
       const payment = data.data?.payment;
 
-      const selStudent = students.find(s => s._id === recordStudent);
-      const selSchool = schools.find(sc => sc._id === selStudent?.school?._id);
+      const selSchool = schools.find(sc => sc._id === selectedStudent.school?._id);
       setInvoiceData({
         invoiceId: `INV-${payment?._id?.slice(-8).toUpperCase() || new Date().getTime().toString(36).toUpperCase()}`,
         paymentId: payment?._id || '',
-        studentName: `${selStudent?.profile?.firstName || ''} ${selStudent?.profile?.lastName || ''}`.trim(),
-        studentId: selStudent?.studentId || '',
-        schoolName: selSchool?.name || selStudent?.school?.name || 'Masjid Al-Rahma',
+        studentName: studentLabel(selectedStudent),
+        studentId: selectedStudent.studentId || '',
+        schoolName: selSchool?.name || selectedStudent.school?.name || 'Masjid Al-Rahma',
         amount: Number(recordAmount),
         feeType: recordType,
         method: recordMethod,
@@ -305,12 +398,10 @@ export function PaymentsRecord() {
       });
 
       setMessage(`✅ Payment of $${Number(recordAmount).toLocaleString()} recorded successfully!`);
-      setRecordAmount(''); setRecordNotes('');
+      setRecordAmount(''); setRecordNotes(''); setSelectedStudent(null);
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to record'); }
     finally { setLoading(false); }
   };
-
-  const selStudent = students.find(s => s._id === recordStudent);
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
@@ -327,32 +418,24 @@ export function PaymentsRecord() {
           <form onSubmit={handleRecordPayment} className="space-y-4">
             <div>
               <label className="text-xs font-semibold mb-1 block">Student *</label>
-              <select value={recordStudent} onChange={e => setRecordStudent(e.target.value)}
-                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" required>
-                <option value="">Select a student...</option>
-                {students.map(s => (
-                  <option key={s._id} value={s._id}>
-                    {s.profile?.firstName} {s.profile?.lastName} ({s.studentId}) — Total: ${s.totalFees || 0} | Due: ${s.totalFeesDue || 0}
-                  </option>
-                ))}
-              </select>
-              {selStudent && (
+              <StudentSearchPicker value={selectedStudent} onSelect={setSelectedStudent} />
+              {selectedStudent && (
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Total Fees</p>
-                    <p className="font-bold">${(selStudent.totalFees || 0).toLocaleString()}</p>
+                    <p className="font-bold">${(selectedStudent.totalFees || 0).toLocaleString()}</p>
                   </div>
                   <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Discount</p>
-                    <p className="font-bold text-amber-600">${(selStudent.discount || 0).toLocaleString()}</p>
+                    <p className="font-bold text-amber-600">${(selectedStudent.discount || 0).toLocaleString()}</p>
                   </div>
                   <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Paid</p>
-                    <p className="font-bold text-green-600">${(selStudent.totalFeesPaid || 0).toLocaleString()}</p>
+                    <p className="font-bold text-green-600">${(selectedStudent.totalFeesPaid || 0).toLocaleString()}</p>
                   </div>
                   <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Due</p>
-                    <p className="font-bold text-red-600">${(selStudent.totalFeesDue || 0).toLocaleString()}</p>
+                    <p className="font-bold text-red-600">${(selectedStudent.totalFeesDue || 0).toLocaleString()}</p>
                   </div>
                 </div>
               )}
