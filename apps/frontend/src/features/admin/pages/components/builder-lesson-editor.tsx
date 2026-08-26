@@ -11,6 +11,7 @@ import { AiLessonGeneratorModal } from './ai-lesson-generator-modal';
 import { AiInteractiveLessonModal } from './ai-interactive-lesson-modal';
 import { ContentBlocksImportModal } from './content-blocks-import-modal';
 import { ContentBlockEditor } from './content-block-editor';
+import { BulkStopCheckAiGeneratorModal } from './bulk-stop-check-ai-generator-modal';
 import { VideoCheckpointEditor } from './video-checkpoint-editor';
 import api from '../../../../lib/axios';
 
@@ -73,6 +74,7 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiInteractiveModalOpen, setAiInteractiveModalOpen] = useState(false);
   const [blocksImportModalOpen, setBlocksImportModalOpen] = useState(false);
+  const [bulkQuestionGenModalOpen, setBulkQuestionGenModalOpen] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<LessonDeliveryMode>(lesson.deliveryMode || 'traditional');
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>(lesson.contentBlocks || []);
   const [aiSplitting, setAiSplitting] = useState(false);
@@ -364,6 +366,15 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
               </button>
               <button
                 type="button"
+                onClick={() => setBulkQuestionGenModalOpen(true)}
+                disabled={contentBlocks.length === 0}
+                title="Generate Stop & Check questions for every content block at once, each from its own paragraph text"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-violet-300 dark:border-violet-800 bg-violet-50 dark:bg-violet-950/20 px-3 py-1.5 text-xs font-semibold text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-950/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span>🪄</span> Generate All Questions
+              </button>
+              <button
+                type="button"
                 onClick={() => setAiInteractiveModalOpen(true)}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-violet-700 hover:to-indigo-700 transition-all"
               >
@@ -375,6 +386,12 @@ export function LessonEditor({ lesson, onSave, onCancel, formId, hideActions }: 
             blocks={contentBlocks}
             onChange={setContentBlocks}
             defaultMinReadSeconds={Number(form.defaultMinReadSeconds) || 30}
+          />
+          <BulkStopCheckAiGeneratorModal
+            isOpen={bulkQuestionGenModalOpen}
+            onClose={() => setBulkQuestionGenModalOpen(false)}
+            blocks={contentBlocks}
+            onGenerated={setContentBlocks}
           />
           <AiInteractiveLessonModal
             isOpen={aiInteractiveModalOpen}
