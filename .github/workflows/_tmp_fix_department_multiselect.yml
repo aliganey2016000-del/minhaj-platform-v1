@@ -19,6 +19,7 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           path = Path('apps/frontend/src/features/admin/pages/invoices-manage.tsx')
           text = path.read_text()
@@ -29,14 +30,9 @@ jobs:
               1,
           )
 
-          old = '''  const visibleStructures = useMemo(() => {
-    if (!departmentId) return feeStructures;
-    return feeStructures.filter((fs) => {
-      const ref = fs.scopeRef;
-      const id = typeof ref === 'object' ? ref?._id : ref;
-      return String(id) === departmentId;
-    });
-  }, [feeStructures, departmentId]);'''
+          old = re.search(r"  const visibleStructures = useMemo\(\(\) => \{.*?\n  \}, \[feeStructures, departmentId\]\);", text, re.S)
+          if not old:
+              raise SystemExit('visibleStructures block not found')
           new = '''  const visibleStructures = useMemo(() => {
     if (departmentIds.length === 0) return feeStructures;
     const selected = new Set(departmentIds);
@@ -55,32 +51,17 @@ jobs:
   const toggleAllDepartments = () => {
     setDepartmentIds(allDepartmentsSelected ? [] : departments.map((d) => d._id));
   };'''
-          if old not in text:
-              raise SystemExit('visibleStructures block not found')
-          text = text.replace(old, new, 1)
+          text = text[:old.start()] + new + text[old.end():]
 
-          old = '''  const [deptOpen, setDeptOpen] = useState(false);
-  const [structOpen, setStructOpen] = useState(false);
-  const deptRef = useRef<HTMLButtonElement>(null);
-  const structRef = useRef<HTMLButtonElement>(null);'''
-          new = '''  const [deptOpen, setDeptOpen] = useState(false);
-  const [structOpen, setStructOpen] = useState(false);
-  const deptRef = useRef<HTMLButtonElement>(null);
-  const deptMenuRef = useRef<HTMLDivElement>(null);
-  const structRef = useRef<HTMLButtonElement>(null);
-  const structMenuRef = useRef<HTMLDivElement>(null);'''
-          if old not in text:
-              raise SystemExit('refs block not found')
-          text = text.replace(old, new, 1)
+          text = text.replace(
+              "  const [deptOpen, setDeptOpen] = useState(false);\n  const [structOpen, setStructOpen] = useState(false);\n  const deptRef = useRef<HTMLButtonElement>(null);\n  const structRef = useRef<HTMLButtonElement>(null);",
+              "  const [deptOpen, setDeptOpen] = useState(false);\n  const [structOpen, setStructOpen] = useState(false);\n  const deptRef = useRef<HTMLButtonElement>(null);\n  const deptMenuRef = useRef<HTMLDivElement>(null);\n  const structRef = useRef<HTMLButtonElement>(null);\n  const structMenuRef = useRef<HTMLDivElement>(null);",
+              1,
+          )
 
-          old = '''  useEffect(() => {
-    const h = (event: MouseEvent) => {
-      if (deptRef.current && !deptRef.current.contains(event.target as Node)) setDeptOpen(false);
-      if (structRef.current && !structRef.current.contains(event.target as Node)) setStructOpen(false);
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);'''
+          old = re.search(r"  useEffect\(\(\) => \{\n    const h = \(event: MouseEvent\) => \{.*?\n  \}, \[\]\);", text, re.S)
+          if not old:
+              raise SystemExit('outside-click effect not found')
           new = '''  useEffect(() => {
     const h = (event: MouseEvent) => {
       const target = event.target as Node;
@@ -95,44 +76,27 @@ jobs:
     const visibleIds = new Set(visibleStructures.map((fs) => fs._id));
     setSelectedIds((prev) => prev.filter((id) => visibleIds.has(id)));
   }, [visibleStructures]);'''
-          if old not in text:
-              raise SystemExit('outside-click block not found')
-          text = text.replace(old, new, 1)
+          text = text[:old.start()] + new + text[old.end():]
 
-          old = '''<div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
-          new = '''<div ref={deptMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
-          if old not in text:
-              raise SystemExit('department portal not found')
-          text = text.replace(old, new, 1)
+          text = re.sub(
+              r"<span className=\{departmentId \? 'text-\[var\(--color-text-primary\)\]' : 'text-\[var\(--color-text-tertiary\)\]'\}>.*?</span>",
+              "<span className={departmentIds.length ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{departmentIds.length === 0 ? 'All Departments' : allDepartmentsSelected ? 'All Departments' : departmentIds.map(id => departments.find(d => d._id === id)?.name).filter(Boolean).join(', ')}</span>",
+              text,
+              count=1,
+          )
+          text = text.replace('Pick a department to show only the fee structures meant for it.', 'Select one or more departments, or choose All Departments.', 1)
 
-          old = '''<div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
-          new = '''<div ref={structMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">'''
-          if old not in text:
-              raise SystemExit('structure portal not found')
-          text = text.replace(old, new, 1)
-
-          old = '''<span className={departmentId ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{departmentId ? (departments.find(d => d._id === departmentId)?.name || 'All Departments') : 'All Departments'}</span>'''
-          new = '''<span className={departmentIds.length ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{departmentIds.length === 0 ? 'All Departments' : allDepartmentsSelected ? 'All Departments' : departmentIds.map(id => departments.find(d => d._id === id)?.name).filter(Boolean).join(', ')}</span>'''
-          if old not in text:
-              raise SystemExit('department label not found')
-          text = text.replace(old, new, 1)
-
-          start = text.find('{deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(')
+          start_marker = "              {deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal("
+          start = text.find(start_marker)
           if start < 0:
-              raise SystemExit('department render start not found')
-          end = text.find('              ); })()}', start)
+              raise SystemExit('department portal start not found')
+          end_marker = "              ); })()}"
+          end = text.find(end_marker, start)
           if end < 0:
-              raise SystemExit('department render end not found')
-          block = text[start:end]
-          marker = '                <div ref={deptMenuRef}'
-          wrapper_start = block.find(marker)
-          if wrapper_start < 0:
-              raise SystemExit('department wrapper not found')
-          wrapper_end = block.rfind('                </div>')
-          if wrapper_end < 0:
-              raise SystemExit('department wrapper end not found')
-          wrapper_open = block[wrapper_start:block.find('>', wrapper_start)+1]
-          menu = '''
+              raise SystemExit('department portal end not found')
+          end += len(end_marker)
+          block = '''              {deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(
+                <div ref={deptMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">
                   <button type="button" onClick={toggleAllDepartments} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${allDepartmentsSelected ? 'bg-primary-500/10 font-semibold' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>
                     <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${allDepartmentsSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{allDepartmentsSelected ? '✓' : ''}</span>
                     <span className="flex-1">All Departments</span>
@@ -146,21 +110,37 @@ jobs:
                   })}
                   <div className="mt-1 border-t border-[var(--color-border-default)] pt-1">
                     <button type="button" onClick={() => setDeptOpen(false)} className="w-full rounded-lg px-3 py-2 text-center text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-tertiary)]">Done</button>
-                  </div>'''
-          new_block = block[:wrapper_start] + wrapper_open + menu + '                </div>'
-          text = text[:start] + new_block + text[end:]
+                  </div>
+                </div>,
+                document.body,
+              ); })()}'''
+          text = text[:start] + block + text[end:]
 
-          text = text.replace('Pick a department to show only the fee structures meant for it.', 'Select one or more departments, or choose All Departments.', 1)
+          text = text.replace(
+              "<div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className=\"max-h-72",
+              "<div ref={structMenuRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className=\"max-h-72",
+              1,
+          )
+
+          text = text.replace(
+              "setSelectedIds(visibleStructures.length === selectedIds.length ? [] : visibleStructures.map((fs) => fs._id));",
+              "setSelectedIds(visibleStructures.every((fs) => selectedIds.includes(fs._id)) ? [] : visibleStructures.map((fs) => fs._id));",
+              1,
+          )
+
+          if 'departmentId' in text:
+              raise SystemExit('stale departmentId reference remains')
+
           path.write_text(text)
 
-      - name: Build and lint frontend
+      - name: Validate and build
         working-directory: apps/frontend
         run: |
           npm ci
           npm run lint
           npm run build
 
-      - name: Commit final source fix
+      - name: Commit final source
         run: |
           git diff --check
           git add apps/frontend/src/features/admin/pages/invoices-manage.tsx
