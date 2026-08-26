@@ -68,9 +68,9 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
 // Generate Invoices Modal
 // ---------------------------------------------------------------------------
 
-function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructures: FeeStructureBrief[]; onClose: () => void; onDone: () => void }) {
+function GenerateInvoicesModal({ feeStructures, departments, onClose, onDone }: { feeStructures: FeeStructureBrief[]; departments: DepartmentBrief[]; onClose: () => void; onDone: () => void }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [departmentId, setDepartmentId] = useState('');
+  const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [period, setPeriod] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [academicYear, setAcademicYear] = useState('');
@@ -78,28 +78,29 @@ function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructur
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ eligible: number; alreadyBilled: number; created: number; failed: number } | null>(null);
 
-  // Departments referenced by department-scoped fee structures, so the admin
-  // can pick a department first and only see the structures meant for it.
-  const departments = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const fs of feeStructures) {
-      if (fs.scopeType !== 'department') continue;
-      const ref = fs.scopeRef;
-      const id = typeof ref === 'object' ? ref?._id : ref;
-      const name = typeof ref === 'object' ? ref?.name : '';
-      if (id) map.set(String(id), name || String(id));
-    }
-    return Array.from(map.entries()).map(([id, name]) => ({ _id: id, name }));
-  }, [feeStructures]);
-
+  // Filtering by department only narrows which fee structures are shown here
+  // (there can be many) — it never restricts who actually gets billed, since
+  // a fee structure's own scope decides that. School-wide structures always
+  // stay visible regardless of the department filter; a department-scoped
+  // structure is hidden only when its department isn't one of the selected ones.
   const visibleStructures = useMemo(() => {
-    if (!departmentId) return feeStructures;
+    if (departmentIds.length === 0) return feeStructures;
     return feeStructures.filter((fs) => {
+      if (fs.scopeType !== 'department') return true;
       const ref = fs.scopeRef;
       const id = typeof ref === 'object' ? ref?._id : ref;
-      return String(id) === departmentId;
+      return id ? departmentIds.includes(String(id)) : true;
     });
-  }, [feeStructures, departmentId]);
+  }, [feeStructures, departmentIds]);
+
+  const toggleDepartment = (id: string) => {
+    setDepartmentIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    setSelectedIds([]);
+  };
+  const toggleAllDepartments = () => {
+    setDepartmentIds(departmentIds.length === departments.length ? [] : departments.map((d) => d._id));
+    setSelectedIds([]);
+  };
 
   const toggleStructure = (id: string) => {
     setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -153,16 +154,31 @@ function GenerateInvoicesModal({ feeStructures, onClose, onDone }: { feeStructur
         ) : (
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Department</label>
-              <button ref={deptRef} type="button" onClick={() => setDeptOpen(v => !v)} className={`${ic} flex items-center justify-between text-left`}>
-                <span className={departmentId ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{departmentId ? (departments.find(d => d._id === departmentId)?.name || 'All Departments') : 'All Departments'}</span>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="text-xs font-semibold text-[var(--color-text-primary)]">Department</label>
+                {departments.length > 0 && (
+                  <button type="button" onClick={toggleAllDepartments} className="text-xs font-semibold text-primary-600 hover:underline">{departmentIds.length === departments.length ? 'Clear all' : 'Select all'}</button>
+                )}
+              </div>
+              <button ref={deptRef} type="button" disabled={departments.length === 0} onClick={() => setDeptOpen(v => !v)} className={`${ic} flex items-center justify-between text-left disabled:opacity-60 disabled:cursor-not-allowed`}>
+                <span className={departmentIds.length ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>{departmentIds.length ? `${departmentIds.length} department${departmentIds.length !== 1 ? 's' : ''} selected` : 'All Departments'}</span>
                 <span className={`transition-transform ${deptOpen ? 'rotate-180' : ''}`}>▾</span>
               </button>
-              <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Pick a department to show only the fee structures meant for it.</p>
+              <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">{departments.length === 0 ? 'No departments set up for this organization yet — showing all fee structures.' : 'Narrows the fee structures below to department-scoped ones for the checked department(s); school-wide fee structures always stay visible.'}</p>
               {deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(
                 <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">
-                  <button type="button" onClick={() => { setDepartmentId(''); setSelectedIds([]); setDeptOpen(false); }} className={`flex w-full rounded-lg px-3 py-2 text-left text-sm ${!departmentId ? 'bg-[var(--color-surface-tertiary)] font-semibold' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>All Departments</button>
-                  {departments.map(d => <button key={d._id} type="button" onClick={() => { setDepartmentId(d._id); setSelectedIds([]); setDeptOpen(false); }} className={`flex w-full rounded-lg px-3 py-2 text-left text-sm ${departmentId === d._id ? 'bg-[var(--color-surface-tertiary)] font-semibold' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>{d.name}</button>)}
+                  {departments.map(d => {
+                    const checked = departmentIds.includes(d._id);
+                    return (
+                      <button key={d._id} type="button" onClick={() => toggleDepartment(d._id)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${checked ? 'bg-primary-500/10' : 'hover:bg-[var(--color-surface-tertiary)]'}`}>
+                        <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{checked ? '✓' : ''}</span>
+                        <span className="min-w-0 flex-1 truncate font-medium text-[var(--color-text-primary)]">{d.name}</span>
+                      </button>
+                    );
+                  })}
+                  <div className="mt-1 border-t border-[var(--color-border-default)] pt-1">
+                    <button type="button" onClick={() => setDeptOpen(false)} className="w-full rounded-lg px-3 py-2 text-center text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-tertiary)]">Done</button>
+                  </div>
                 </div>,
                 document.body,
               ); })()}
@@ -495,6 +511,7 @@ export function InvoicesManage() {
   const [schools, setSchools] = useState<SchoolBrief[]>([]);
   const [feeStructures, setFeeStructures] = useState<FeeStructureBrief[]>([]);
   const [classes, setClasses] = useState<ClassBrief[]>([]);
+  const [departments, setDepartments] = useState<DepartmentBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -532,6 +549,12 @@ export function InvoicesManage() {
         const { data } = await api.get('/classes', { params });
         setClasses(data.data || []);
       } catch { setClasses([]); }
+      try {
+        const params: Record<string, string> = {};
+        if (filterSchool) params.school = filterSchool;
+        const { data } = await api.get('/departments', { params });
+        setDepartments(data.data || []);
+      } catch { setDepartments([]); }
     })();
   }, [filterSchool]);
 
@@ -691,6 +714,7 @@ export function InvoicesManage() {
       {showGenerate && (
         <GenerateInvoicesModal
           feeStructures={feeStructures}
+          departments={departments}
           onClose={() => setShowGenerate(false)}
           onDone={() => { setShowGenerate(false); fetchInvoices(); }}
         />
