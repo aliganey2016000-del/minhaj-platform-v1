@@ -18,7 +18,8 @@
     "test:invoice-batch-void": "ts-node src/__tests__/invoice-batch-void.e2e.ts",
     "test:seating-smart-fix": "ts-node src/__tests__/seating-import-smart-fix.e2e.ts",
     "test:seating-bulk-delete": "ts-node src/__tests__/seating-bulk-delete.e2e.ts",
-    "test:exam-duration": "ts-node src/__tests__/exam-attempt-duration.e2e.ts"
+    "test:exam-duration": "ts-node src/__tests__/exam-attempt-duration.e2e.ts",
+    "test:class-department-filter": "ts-node src/__tests__/class-department-filter.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

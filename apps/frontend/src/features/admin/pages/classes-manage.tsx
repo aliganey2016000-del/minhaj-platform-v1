@@ -3,7 +3,7 @@
  * Fields: School, Batch Number, Grade Level, Academic Year, Department, Class Name, Section, Room, Shift / Learning Mode.
  */
 
-import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEvent } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { School, Pencil, Trash2, Copy, MoreVertical, Search, ChevronDown, CheckCircle2, PauseCircle, Archive } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -681,6 +681,22 @@ export function ClassesManage() {
     clearAll: clearAllColumnFilters, displayedRows: displayedClasses, columnFiltersActive,
   } = useColumnFilters(classes, columnAccessors);
 
+  // The Department column filter checks values against only the CURRENT
+  // page's classes (client-side, like every other column filter here) — so
+  // a department whose classes don't happen to be on the loaded page (e.g.
+  // sorted further down by createdAt) never even appears as a pickable
+  // option, and looks like it "doesn't exist". Department is common enough
+  // (and already supported server-side) that it's worth doing properly:
+  // resolve the checked department name(s) to id(s) and pass them to the
+  // server, so filtering — and pagination — work across the WHOLE dataset,
+  // not just whatever 25 rows happened to load first.
+  const departmentFilterIds = useMemo(() => {
+    const selected = columnFilters.department;
+    if (!selected) return [] as string[];
+    const names = Array.from(selected);
+    return departments.filter((d) => names.includes(d.name)).map((d) => d._id);
+  }, [columnFilters.department, departments]);
+
   // ── Bulk selection / delete state ──
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
@@ -718,6 +734,7 @@ export function ClassesManage() {
     const params: Record<string, string> = { page: String(page), limit: String(limit) };
     if (search) params.search = search;
     if (statusFilter) params.status = statusFilter;
+    if (departmentFilterIds.length) params.department = departmentFilterIds.join(',');
 
     const [classesResult, schoolsResult, departmentsResult] = await Promise.allSettled([
       api.get('/classes', { params }),
@@ -736,9 +753,18 @@ export function ClassesManage() {
     if (departmentsResult.status === 'fulfilled') setDepartments(departmentsResult.value.data.data || []);
 
     setLoading(false);
-  }, [search, statusFilter, page, limit]);
+  }, [search, statusFilter, page, limit, departmentFilterIds]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+  // Server-side filtering means the current page's contents change whenever
+  // the department filter changes — same as changing search/status, jump
+  // back to page 1 so the admin doesn't land on a now-invalid page number.
+  // A plain string (not the array itself) so this only re-fires when the
+  // actual selection changes — `departments` gets a fresh array reference
+  // from every fetch, which would otherwise re-trigger this on every fetch
+  // and keep bouncing the admin back to page 1 even while just browsing.
+  const departmentFilterKey = departmentFilterIds.join(',');
+  useEffect(() => { setPage(1); }, [departmentFilterKey]);
   const handlePageChange = (newPage: number) => setPage(newPage);
   const handleLimitChange = (newLimit: number) => { setLimit(newLimit); setPage(1); };
 
@@ -1009,10 +1035,10 @@ export function ClassesManage() {
                     <ColumnFilterHeader label="Section" colKey="section" allValues={classes.map(columnAccessors.section)} currentSelected={columnFilters.section ?? null} currentSort={sortCol === 'section' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
                   <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell whitespace-nowrap min-w-[140px]">
-                    <ColumnFilterHeader label="Organization" colKey="organization" allValues={classes.map(columnAccessors.organization)} currentSelected={columnFilters.organization ?? null} currentSort={sortCol === 'organization' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
+                    <ColumnFilterHeader label="Organization" colKey="organization" options={schools.map(s => ({ value: s.name, label: s.name }))} currentSelected={columnFilters.organization ?? null} currentSort={sortCol === 'organization' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
                   <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[120px]">
-                    <ColumnFilterHeader label="Department" colKey="department" allValues={classes.map(columnAccessors.department)} currentSelected={columnFilters.department ?? null} currentSort={sortCol === 'department' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
+                    <ColumnFilterHeader label="Department" colKey="department" options={departments.map(d => ({ value: d.name, label: d.name }))} currentSelected={columnFilters.department ?? null} currentSort={sortCol === 'department' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
                   </th>
                   <th className="text-center px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[110px]">
                     <ColumnFilterHeader label="Grade Level" colKey="gradeLevel" allValues={classes.map(columnAccessors.gradeLevel)} currentSelected={columnFilters.gradeLevel ?? null} currentSort={sortCol === 'gradeLevel' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />

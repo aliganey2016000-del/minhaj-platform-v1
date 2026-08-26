@@ -59,7 +59,13 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   // org_admin can't widen the filter to another org via ?schoolId=; their
   // own organization always wins (applied below via applyOrgFilter).
   if (schoolId && req.user?.role !== 'org_admin') filter.school = schoolId as string;
-  if (department) filter.department = department as string;
+  // Accepts either a single department id or a comma-separated list (the
+  // Classes table's Department column filter can have multiple checked).
+  if (department) {
+    const deptIds = String(department).split(',').map((s) => s.trim()).filter(Boolean);
+    if (deptIds.length === 1) filter.department = deptIds[0];
+    else if (deptIds.length > 1) filter.department = { $in: deptIds };
+  }
   if (status && ['active', 'inactive', 'completed'].includes(status as string)) filter.status = status;
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
