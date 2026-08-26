@@ -28,10 +28,18 @@ interface ReviewData {
   examTitle: string;
   paperTitle: string;
   missed: boolean;
+  startedAt: string | null;
   submittedAt: string | null;
+  durationSeconds: number | null;
   earnedPoints: number;
   totalPoints: number;
   questions: ReviewQuestion[];
+}
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
 /** Renders any answer shape (mcq string, true_false boolean, matching pairs, ordering/sentence_build arrays, etc.) as a readable line. */
@@ -121,7 +129,7 @@ export function StudentExamReview() {
         ) : (
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 text-center shadow-card">
             <p className="text-3xl font-bold text-primary-600">{data.earnedPoints} / {data.totalPoints}</p>
-            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{pct}% {data.submittedAt && `· Submitted ${new Date(data.submittedAt).toLocaleString()}`}</p>
+            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{pct}% {data.submittedAt && `· Submitted ${new Date(data.submittedAt).toLocaleString()}`}{data.durationSeconds !== null && ` · Took ${formatDuration(data.durationSeconds)}`}</p>
           </div>
         )}
 

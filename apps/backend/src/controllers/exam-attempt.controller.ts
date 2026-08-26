@@ -164,7 +164,11 @@ export const getReview = async (req: Request, res: Response): Promise<Response> 
     examTitle: exam.title,
     paperTitle: paper.title,
     missed: !attempt,
+    startedAt: attempt?.startedAt || null,
     submittedAt: attempt?.submittedAt || null,
+    durationSeconds: attempt?.startedAt && attempt?.submittedAt
+      ? Math.max(0, Math.round((attempt.submittedAt.getTime() - attempt.startedAt.getTime()) / 1000))
+      : null,
     earnedPoints,
     totalPoints,
     questions,
@@ -295,7 +299,11 @@ export const getMine = async (req: Request, res: Response): Promise<Response> =>
     answers: attempt.answers,
     autoGradedScore: attempt.autoGradedScore,
     maxScore: attempt.maxScore,
+    startedAt: attempt.startedAt,
     submittedAt: attempt.submittedAt,
+    durationSeconds: attempt.submittedAt
+      ? Math.max(0, Math.round((attempt.submittedAt.getTime() - attempt.startedAt.getTime()) / 1000))
+      : null,
     paper: {
       title: paper.title,
       instructions: paper.instructions,
