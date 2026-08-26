@@ -167,7 +167,15 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [search, setSearch] = useState('');
-  const [selectedStudent, setSelectedStudent] = useState<RosterRow | null>(null);
+  // Holding only the id (not a frozen copy of the roster row) means the
+  // selected student's online dot, name, etc. always reflect the latest
+  // roster fetch — including live presence:update pushes — instead of
+  // whatever was true the instant they were clicked. The Status stat card
+  // below reads this for `online` instead of the analytics snapshot, which
+  // was fetched once on selection and never refreshed, so it could show
+  // "Offline" for a student the roster list was already showing "Online now".
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const selectedStudent = useMemo(() => roster.find((r) => r._id === selectedStudentId) || null, [roster, selectedStudentId]);
 
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
@@ -227,7 +235,7 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchTimelineAndAnalytics = useCallback(async (student: RosterRow) => {
+  const fetchTimelineAndAnalytics = useCallback(async (studentId: string) => {
     setTimelineLoading(true);
     try {
       const params: any = { limit: 100 };
@@ -239,8 +247,8 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
       if (timelineSearch) params.search = timelineSearch;
 
       const [timelineRes, analyticsRes] = await Promise.all([
-        api.get(`/activity/timeline/${student._id}`, { params }),
-        api.get(`/activity/analytics/${student._id}`),
+        api.get(`/activity/timeline/${studentId}`, { params }),
+        api.get(`/activity/analytics/${studentId}`),
       ]);
       setTimeline(timelineRes.data.data || []);
       setAnalytics(analyticsRes.data.data);
@@ -253,9 +261,14 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
     }
   }, [datePreset, dateFrom, dateTo, typeFilter, statusFilter, courseFilter, timelineSearch]);
 
+  // Keyed on the id (a stable primitive), not the derived `selectedStudent`
+  // object — that object gets a new reference on every roster refresh (live
+  // presence pushes happen often), which would otherwise re-fetch the whole
+  // timeline/analytics on every presence blip instead of only on an actual
+  // student/filter change.
   useEffect(() => {
-    if (selectedStudent) fetchTimelineAndAnalytics(selectedStudent);
-  }, [selectedStudent, fetchTimelineAndAnalytics]);
+    if (selectedStudentId) fetchTimelineAndAnalytics(selectedStudentId);
+  }, [selectedStudentId, fetchTimelineAndAnalytics]);
 
   const handleExport = async (format: 'csv' | 'xlsx') => {
     if (!selectedStudent) return;
@@ -318,7 +331,7 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
                 roster.map((s) => (
                   <button
                     key={s._id}
-                    onClick={() => setSelectedStudent(s)}
+                    onClick={() => setSelectedStudentId(s._id)}
                     className={`w-full text-left px-4 py-3 border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-tertiary)] transition-colors ${selectedStudent?._id === s._id ? 'bg-primary-50 dark:bg-primary-950/20' : ''}`}
                   >
                     <div className="flex items-center gap-2">
@@ -364,7 +377,7 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
                     </div>
                     <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
                       <span className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase">Status</span>
-                      <p className={`text-xl font-bold mt-1 ${analytics.online ? 'text-green-600' : 'text-[var(--color-text-tertiary)]'}`}>{analytics.online ? '🟢 Online' : '⚪ Offline'}</p>
+                      <p className={`text-xl font-bold mt-1 ${selectedStudent?.online ? 'text-green-600' : 'text-[var(--color-text-tertiary)]'}`}>{selectedStudent?.online ? '🟢 Online' : '⚪ Offline'}</p>
                     </div>
                   </div>
                 )}
