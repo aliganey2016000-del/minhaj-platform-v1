@@ -114,11 +114,20 @@ function GenerateInvoicesModal({ feeStructures, departments, onClose, onDone }: 
   const [structOpen, setStructOpen] = useState(false);
   const deptRef = useRef<HTMLButtonElement>(null);
   const structRef = useRef<HTMLButtonElement>(null);
+  // The dropdown panels themselves are rendered via createPortal into
+  // document.body (so they aren't clipped by the modal's overflow), which
+  // means they sit OUTSIDE deptRef/structRef in the DOM. Checking only the
+  // toggle-button refs made every mousedown inside the panel look like an
+  // "outside" click, closing it on mousedown before the click on a checkbox
+  // could ever register. Both the button AND the portalled panel need refs.
+  const deptPanelRef = useRef<HTMLDivElement>(null);
+  const structPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const h = (event: MouseEvent) => {
-      if (deptRef.current && !deptRef.current.contains(event.target as Node)) setDeptOpen(false);
-      if (structRef.current && !structRef.current.contains(event.target as Node)) setStructOpen(false);
+      const t = event.target as Node;
+      if (deptRef.current && !deptRef.current.contains(t) && deptPanelRef.current && !deptPanelRef.current.contains(t)) setDeptOpen(false);
+      if (structRef.current && !structRef.current.contains(t) && structPanelRef.current && !structPanelRef.current.contains(t)) setStructOpen(false);
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
@@ -166,7 +175,7 @@ function GenerateInvoicesModal({ feeStructures, departments, onClose, onDone }: 
               </button>
               <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">{departments.length === 0 ? 'No departments set up for this organization yet — showing all fee structures.' : 'Narrows the fee structures below to department-scoped ones for the checked department(s); school-wide fee structures always stay visible.'}</p>
               {deptOpen && deptRef.current && (() => { const r = deptRef.current!.getBoundingClientRect(); return createPortal(
-                <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">
+                <div ref={deptPanelRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">
                   {departments.map(d => {
                     const checked = departmentIds.includes(d._id);
                     return (
@@ -196,7 +205,7 @@ function GenerateInvoicesModal({ feeStructures, departments, onClose, onDone }: 
                 <span className={`transition-transform ${structOpen ? 'rotate-180' : ''}`}>▾</span>
               </button>
               {structOpen && structRef.current && (() => { const r = structRef.current!.getBoundingClientRect(); return createPortal(
-                <div style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">
+                <div ref={structPanelRef} style={{ position: 'fixed', top: r.bottom + 4, left: r.left, width: r.width, zIndex: 100000 }} className="max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-2xl">
                   {visibleStructures.length === 0 && <p className="px-3 py-4 text-center text-xs text-[var(--color-text-tertiary)]">No fee structures for this department.</p>}
                   {visibleStructures.map(fs => {
                     const checked = selectedIds.includes(fs._id);
