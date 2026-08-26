@@ -19,6 +19,7 @@ import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-err
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { logActivityFromRequest } from '../utils/learning-activity-logger';
+import { escapeRegex } from '../utils/escape-regex';
 import { isUserOnline } from '../realtime/socket';
 
 // ---------------------------------------------------------------------------
@@ -165,7 +166,7 @@ export const getRoster = async (req: Request, res: Response): Promise<Response> 
   const searchFilter = search
     ? {
         $or: [
-          { studentId: { $regex: search, $options: 'i' } },
+          { studentId: { $regex: escapeRegex(search), $options: 'i' } },
         ],
       }
     : {};
@@ -246,15 +247,15 @@ export const getTimeline = async (req: Request, res: Response): Promise<Response
   if (req.query.status) filter.status = req.query.status;
   if (req.query.lessonId) filter.lessonId = req.query.lessonId;
   if (req.query.search) {
+    const searchRegex = escapeRegex(req.query.search as string);
     (filter as any).$or = [
-      { resourceName: { $regex: req.query.search, $options: 'i' } },
-      { type: { $regex: req.query.search, $options: 'i' } },
+      { resourceName: { $regex: searchRegex, $options: 'i' } },
+      { type: { $regex: searchRegex, $options: 'i' } },
     ];
   }
 
   const [events, total] = await Promise.all([
     LearningActivity.find(filter)
-      .populate('course', 'title')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -262,7 +263,24 @@ export const getTimeline = async (req: Request, res: Response): Promise<Response
     LearningActivity.countDocuments(filter),
   ]);
 
-  return ApiResponse.paginated(res, events, { page, limit, total });
+  // Not a plain .populate('course', 'title') — that silently returns `course:
+  // null` both when an event genuinely has no course (login, page_view) AND
+  // when it references a course that has since been deleted/recreated, so
+  // the two looked identical ("—" in the timeline) with no way to tell a
+  // real gap apart from lost data. Resolving ids against Course directly
+  // keeps the raw reference around so a dangling one can say so.
+  const courseIds = [...new Set(events.map((e: any) => e.course).filter(Boolean).map((id: any) => id.toString()))];
+  const courses = courseIds.length
+    ? await Course.find({ _id: { $in: courseIds } }).select('title').lean()
+    : [];
+  const courseById = new Map(courses.map((c: any) => [c._id.toString(), c]));
+  const enriched = events.map((e: any) => {
+    if (!e.course) return { ...e, course: null };
+    const found = courseById.get(e.course.toString());
+    return { ...e, course: found ? { _id: found._id, title: found.title } : null, courseDeleted: !found };
+  });
+
+  return ApiResponse.paginated(res, enriched, { page, limit, total });
 };
 
 // ---------------------------------------------------------------------------
@@ -287,7 +305,7 @@ export const getAnalytics = async (req: Request, res: Response): Promise<Respons
       { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, seconds: { $sum: '$durationSeconds' } } },
       { $sort: { _id: 1 } },
     ]),
-    Progress.find({ student: studentId }).populate('course', 'title').lean(),
+    Progress.find({ student: studentId }).lean(),
     QuizAttempt.aggregate([
       { $match: { student: sid } },
       { $group: { _id: null, avgScore: { $avg: '$percentage' }, attempts: { $sum: 1 }, passed: { $sum: { $cond: ['$passed', 1, 0] } } } },
@@ -320,11 +338,21 @@ export const getAnalytics = async (req: Request, res: Response): Promise<Respons
 
   const userIdStr = student.user?.toString();
 
+  // Same reasoning as getTimeline above: resolve course ids by hand instead
+  // of .populate() so a Progress row referencing a since-deleted/recreated
+  // course reads as "Deleted course" rather than the unexplained generic
+  // "Unknown" that also fires for other, unrelated failure shapes.
+  const progressCourseIds = [...new Set(progressDocs.map((p: any) => p.course).filter(Boolean).map((id: any) => id.toString()))];
+  const progressCourses = progressCourseIds.length
+    ? await Course.find({ _id: { $in: progressCourseIds } }).select('title').lean()
+    : [];
+  const progressCourseById = new Map(progressCourses.map((c: any) => [c._id.toString(), c]));
+
   return ApiResponse.success(res, {
     totalStudyTimeSeconds: durationAgg[0]?.totalSeconds || 0,
     dailyStudyTime: dailyAgg.map((d: any) => ({ date: d._id, seconds: d.seconds })),
     courseProgress: progressDocs.map((p: any) => ({
-      course: p.course?.title?.en || 'Unknown',
+      course: p.course ? (progressCourseById.get(p.course.toString())?.title?.en || 'Deleted course') : 'Unknown',
       status: p.status,
       completedLessons: p.completedLessons,
       totalItems: p.totalItems,
@@ -367,7 +395,13 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
   if (req.query.type) filter.type = req.query.type;
   if (req.query.status) filter.status = req.query.status;
 
-  const events = await LearningActivity.find(filter).populate('course', 'title').sort({ createdAt: -1 }).lean();
+  const events = await LearningActivity.find(filter).sort({ createdAt: -1 }).lean();
+
+  const exportCourseIds = [...new Set(events.map((e: any) => e.course).filter(Boolean).map((id: any) => id.toString()))];
+  const exportCourses = exportCourseIds.length
+    ? await Course.find({ _id: { $in: exportCourseIds } }).select('title').lean()
+    : [];
+  const exportCourseById = new Map(exportCourses.map((c: any) => [c._id.toString(), c]));
 
   const format = (req.query.format as string) === 'csv' ? 'csv' : 'xlsx';
   const headers = ['Date', 'Activity Type', 'Resource', 'Course', 'Status', 'Start', 'End', 'Duration (s)', 'Percent', 'Device', 'Browser', 'OS', 'IP'];
@@ -378,7 +412,7 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
       end.toLocaleDateString(),
       e.type,
       e.resourceName || '',
-      e.course?.title?.en || '',
+      e.course ? (exportCourseById.get(e.course.toString())?.title?.en || 'Deleted course') : '',
       e.status || '',
       start.toLocaleTimeString(),
       end.toLocaleTimeString(),

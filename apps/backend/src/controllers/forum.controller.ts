@@ -15,6 +15,7 @@ import Parent from '../models/parent.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import { logActivityFromRequest } from '../utils/learning-activity-logger';
+import { escapeRegex } from '../utils/escape-regex';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -366,7 +367,7 @@ export const listOrgMembers = async (req: Request, res: Response) => {
   };
 
   if (search) {
-    filter.email = { $regex: search, $options: 'i' };
+    filter.email = { $regex: escapeRegex(search as string), $options: 'i' };
   }
 
   const [users, total] = await Promise.all([

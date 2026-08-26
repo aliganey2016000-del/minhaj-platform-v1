@@ -14,6 +14,7 @@ import Parent from '../models/parent.model';
 import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter } from '../utils/tenant-scope';
+import { escapeRegex } from '../utils/escape-regex';
 
 // ---------------------------------------------------------------------------
 // List Users (admin / org_admin)
@@ -52,7 +53,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   if (search) {
     filter.$or = [
-      { email: { $regex: search, $options: 'i' } },
+      { email: { $regex: escapeRegex(search as string), $options: 'i' } },
     ];
   }
 

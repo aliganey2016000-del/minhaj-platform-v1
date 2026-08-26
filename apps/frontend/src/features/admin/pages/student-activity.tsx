@@ -27,6 +27,12 @@ interface TimelineEvent {
   _id: string;
   type: string;
   course?: { _id?: string; title?: { en?: string } };
+  // True when this event references a course that has since been deleted or
+  // recreated — the backend resolves the raw reference by hand instead of a
+  // blind .populate() specifically so this can be told apart from an event
+  // that genuinely never had a course (login, page views), which both
+  // otherwise looked identical ("—") with no way to know one was data loss.
+  courseDeleted?: boolean;
   lessonId?: string;
   lessonTitle?: string;
   resourceName?: string;
@@ -89,7 +95,7 @@ function groupTimeline(events: TimelineEvent[]): TimelineGroup[] {
       key,
       lessonName: first.lessonTitle || first.resourceName || '—',
       type: first.type,
-      courseName: first.course?.title?.en || '—',
+      courseName: first.course?.title?.en || (first.courseDeleted ? 'Deleted course' : '—'),
       events: sorted,
       start,
       end,

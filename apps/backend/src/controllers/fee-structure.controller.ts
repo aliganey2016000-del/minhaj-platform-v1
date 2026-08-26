@@ -4,6 +4,7 @@ import Invoice from '../models/invoice.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { escapeRegex } from '../utils/escape-regex';
 
 const FEE_TYPES = ['tuition', 'registration', 'exam', 'material', 'transport', 'library', 'activity', 'uniform', 'other'];
 const SCOPE_TYPES = ['school', 'department', 'class'];
@@ -22,7 +23,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   if (feeType && FEE_TYPES.includes(feeType as string)) filter.feeType = feeType;
   if (isActive === 'true') filter.isActive = true;
   else if (isActive === 'false') filter.isActive = false;
-  if (search) filter.title = { $regex: search, $options: 'i' };
+  if (search) filter.title = { $regex: escapeRegex(search as string), $options: 'i' };
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
 

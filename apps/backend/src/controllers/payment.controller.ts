@@ -9,6 +9,7 @@ import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/
 import ensureStudentRecord from '../utils/ensure-student';
 import { collectPaymentService, recalcStudentBalance } from '../services/billing.service';
 import { buildReceiptPdf } from '../utils/receipt-pdf';
+import { escapeRegex } from '../utils/escape-regex';
 
 // ---------------------------------------------------------------------------
 // POST /payments — Record an ad-hoc payment for a single student (walk-in
@@ -131,7 +132,7 @@ export const getStudentBalances = async (req: Request, res: Response): Promise<R
 
   if (classId) (filter as any).class = classId;
   if (search) {
-    const regex = { $regex: search, $options: 'i' };
+    const regex = { $regex: escapeRegex(search as string), $options: 'i' };
     (filter as any).$or = [
       { studentId: regex },
     ];

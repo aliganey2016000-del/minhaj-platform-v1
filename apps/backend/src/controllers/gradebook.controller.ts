@@ -18,6 +18,7 @@ import { getOwnTeacherRecord, assertOwnsOrg, applyOrgFilter } from '../utils/ten
 import { computeCourseGrade, validateCategoryWeights } from '../utils/grade-calculator';
 import { computeCourseGradesBulk } from '../utils/bulk-grade-calculator';
 import ensureStudentRecord from '../utils/ensure-student';
+import { escapeRegex } from '../utils/escape-regex';
 
 async function assertOwnsCourseIfTeacher(req: Request, course: any): Promise<void> {
   if (req.user?.role !== 'teacher') return;
@@ -554,7 +555,7 @@ export const listCourseGradingStatus = async (req: Request, res: Response): Prom
 
   const filter: Record<string, unknown> = {};
   if (status && ['draft', 'published', 'archived'].includes(status as string)) filter.status = status;
-  if (search) filter['title.en'] = { $regex: search as string, $options: 'i' };
+  if (search) filter['title.en'] = { $regex: escapeRegex(search as string), $options: 'i' };
 
   let scopedFilter = applyOrgFilter(req, filter, 'school');
   if (req.user?.role === 'teacher') {
@@ -613,7 +614,7 @@ export const getOrgGradebookOverview = async (req: Request, res: Response): Prom
   const { search } = req.query;
 
   const filter: Record<string, unknown> = {};
-  if (search) filter['title.en'] = { $regex: search as string, $options: 'i' };
+  if (search) filter['title.en'] = { $regex: escapeRegex(search as string), $options: 'i' };
   const scopedFilter = applyOrgFilter(req, filter, 'school');
 
   const courses = await Course.find(scopedFilter)

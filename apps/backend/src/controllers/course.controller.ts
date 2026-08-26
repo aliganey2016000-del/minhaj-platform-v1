@@ -21,6 +21,7 @@ import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { moveToTrash } from '../utils/trash';
+import { escapeRegex } from '../utils/escape-regex';
 
 /**
  * Throws ForbiddenError if the caller is a `teacher` and this course isn't
@@ -52,10 +53,11 @@ export const getAllPublic = async (req: Request, res: Response): Promise<Respons
   if (category) filter.category = category;
   if (level) filter.level = level;
   if (search) {
+    const searchRegex = escapeRegex(search);
     filter.$or = [
-      { 'title.en': { $regex: search, $options: 'i' } },
-      { 'title.so': { $regex: search, $options: 'i' } },
-      { 'title.ar': { $regex: search, $options: 'i' } },
+      { 'title.en': { $regex: searchRegex, $options: 'i' } },
+      { 'title.so': { $regex: searchRegex, $options: 'i' } },
+      { 'title.ar': { $regex: searchRegex, $options: 'i' } },
     ];
   }
 
@@ -705,11 +707,12 @@ export const getAvailableCourses = async (req: Request, res: Response): Promise<
   if (category) filter.category = category;
   if (level) filter.level = level;
   if (search) {
+    const searchRegex = escapeRegex(search);
     filter.$or = [
-      { 'title.en': { $regex: search, $options: 'i' } },
-      { 'title.so': { $regex: search, $options: 'i' } },
-      { 'title.ar': { $regex: search, $options: 'i' } },
-      { 'description.en': { $regex: search, $options: 'i' } },
+      { 'title.en': { $regex: searchRegex, $options: 'i' } },
+      { 'title.so': { $regex: searchRegex, $options: 'i' } },
+      { 'title.ar': { $regex: searchRegex, $options: 'i' } },
+      { 'description.en': { $regex: searchRegex, $options: 'i' } },
     ];
   }
   let earlierGradesCount: number | undefined;
