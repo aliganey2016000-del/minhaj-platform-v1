@@ -39,6 +39,7 @@ interface TimelineEvent {
   status?: string;
   durationSeconds?: number;
   percent?: number;
+  metadata?: { score?: number; totalPoints?: number };
   device?: string;
   browser?: string;
   os?: string;
@@ -62,6 +63,10 @@ interface TimelineGroup {
   durationSeconds: number;
   progress: number | null;
   status: string;
+  // Set only for quiz/exam groups: "5/7 correct" when the group is several
+  // per-question attempts (Interactive Gate), or "8/10 pts" when a single
+  // traditional-quiz submission event carries a raw score in its metadata.
+  scoreSummary: string | null;
 }
 
 function groupTimeline(events: TimelineEvent[]): TimelineGroup[] {
@@ -85,11 +90,26 @@ function groupTimeline(events: TimelineEvent[]): TimelineGroup[] {
 
     const statuses = new Set(sorted.map((e) => e.status).filter(Boolean));
     let status: string;
-    if (statuses.size === 0) status = '—';
+    if (statuses.size === 0) status = VIEW_TYPES.has(first.type) ? 'Viewed' : '—';
     else if (statuses.size === 1) status = [...statuses][0]!;
     else if ([...statuses].every((s) => s === 'passed' || s === 'completed')) status = 'passed';
     else if ([...statuses].some((s) => s === 'passed' || s === 'completed')) status = 'mixed';
     else status = [...statuses][0]!;
+
+    // "How many did they actually get right" — the concrete number behind
+    // the Progress %, since a bare percentage doesn't say whether that was
+    // 1/1 or 8/10. Falls back to a raw score/totalPoints on a single
+    // traditional-quiz submission event, which has no per-question
+    // breakdown to count.
+    let scoreSummary: string | null = null;
+    if (QUIZ_TYPES.has(first.type)) {
+      if (sorted.length > 1) {
+        const correct = sorted.filter((e) => e.status === 'passed' || e.status === 'completed').length;
+        scoreSummary = `${correct}/${sorted.length} correct`;
+      } else if (first.metadata?.score != null && first.metadata?.totalPoints != null) {
+        scoreSummary = `${first.metadata.score}/${first.metadata.totalPoints} pts`;
+      }
+    }
 
     return {
       key,
@@ -102,6 +122,7 @@ function groupTimeline(events: TimelineEvent[]): TimelineGroup[] {
       durationSeconds: Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000)),
       progress,
       status,
+      scoreSummary,
     };
   }).sort((a, b) => b.end.getTime() - a.end.getTime());
 }
@@ -146,12 +167,25 @@ function computeStart(createdAt: string, durationSeconds?: number): Date {
   return new Date(end.getTime() - durationSeconds * 1000);
 }
 
+// Previously dropped seconds entirely ("Xh Xm"), so any view under a minute
+// — the common case for a quick lesson glance or a single quiz question —
+// rounded down to "0m", which read as "no duration recorded" even though a
+// real value was there.
 function formatDuration(totalSeconds: number): string {
+  if (totalSeconds <= 0) return '0s';
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
   if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }
+
+// Activity types where "how long were they looking at this" is the whole
+// story — no pass/fail concept, so the Status column should say so plainly
+// ("Viewed") instead of a blank "—" that reads as missing data.
+const VIEW_TYPES = new Set(['lesson_view', 'course_view', 'video_progress', 'pdf_view', 'audio_progress']);
+const QUIZ_TYPES = new Set(['quiz_attempt', 'exam_attempt']);
 
 function formatRelative(iso: string | null): string {
   if (!iso) return 'Never';
@@ -486,12 +520,16 @@ export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
                                   <td className="px-4 py-2.5 hidden md:table-cell">{g.courseName}</td>
                                   <td className="px-4 py-2.5 max-w-[200px]">
                                     <p className="truncate font-medium text-[var(--color-text-primary)]">{g.lessonName}</p>
-                                    <span className="rounded-full bg-primary-50 dark:bg-primary-950/30 px-2 py-0.5 text-[10px] font-semibold text-primary-700 dark:text-primary-300 whitespace-nowrap">{g.type.replace(/_/g, ' ')}</span>
+                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap ${QUIZ_TYPES.has(g.type) ? 'bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300' : VIEW_TYPES.has(g.type) ? 'bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300' : 'bg-primary-50 dark:bg-primary-950/30 text-primary-700 dark:text-primary-300'}`}>{QUIZ_TYPES.has(g.type) ? 'quiz' : g.type.replace(/_/g, ' ')}</span>
                                   </td>
                                   <td className="px-4 py-2.5 hidden lg:table-cell whitespace-nowrap">{g.start.toLocaleTimeString()}</td>
                                   <td className="px-4 py-2.5 hidden lg:table-cell whitespace-nowrap">{g.end.toLocaleTimeString()}</td>
                                   <td className="px-4 py-2.5 whitespace-nowrap">{formatDuration(g.durationSeconds)}</td>
-                                  <td className="px-4 py-2.5 hidden xl:table-cell">{g.progress != null ? `${g.progress}%` : '—'}</td>
+                                  <td className="px-4 py-2.5 hidden xl:table-cell">
+                                    {g.scoreSummary
+                                      ? <><span className="font-medium text-[var(--color-text-primary)]">{g.scoreSummary}</span>{g.progress != null && <span className="text-[var(--color-text-tertiary)]"> ({g.progress}%)</span>}</>
+                                      : g.progress != null ? `${g.progress}%` : '—'}
+                                  </td>
                                   <td className="px-4 py-2.5 capitalize">{g.status}</td>
                                   <td className="px-4 py-2.5 text-center"><span className="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-text-secondary)]">{g.events.length}</span></td>
                                 </tr>
