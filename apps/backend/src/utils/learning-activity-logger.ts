@@ -1,8 +1,7 @@
 /**
  * Learning Activity Logger — single entry point every controller uses to
  * record a LearningActivity event. Never throws: a failed activity write
- * must never break the actual student-facing action (login, lesson view,
- * quiz submit, ...) it's attached to.
+ * must never break the actual student-facing action attached to it.
  */
 
 import { Request } from 'express';
@@ -15,6 +14,7 @@ export interface LogActivityInput {
   type: LearningActivityType;
   student?: string | mongoose.Types.ObjectId;
   school?: string | mongoose.Types.ObjectId;
+  loginSessionId?: string;
   course?: string | mongoose.Types.ObjectId;
   lessonId?: string;
   lessonTitle?: string;
@@ -29,11 +29,12 @@ export interface LogActivityInput {
 
 export async function logLearningActivity(input: LogActivityInput): Promise<void> {
   try {
-    const { device, browser, os } = parseUserAgent(input.userAgent);
+    const { device, browser, os } = parseUserAgent(input.userAgent || '');
     await LearningActivity.create({
       user: input.userId,
       student: input.student,
       school: input.school,
+      loginSessionId: input.loginSessionId,
       type: input.type,
       course: input.course,
       lessonId: input.lessonId,
@@ -54,14 +55,17 @@ export async function logLearningActivity(input: LogActivityInput): Promise<void
   }
 }
 
-/** Convenience wrapper — pulls ip/userAgent/userId off an authenticated Express request. */
+/** Convenience wrapper — pulls ip/userAgent/userId/login-session-id off an authenticated request. */
 export async function logActivityFromRequest(
   req: Request,
   fields: Omit<LogActivityInput, 'userId' | 'ip' | 'userAgent'>
 ): Promise<void> {
   if (!req.user?.userId) return;
+  const headerValue = req.headers['x-login-session-id'];
+  const loginSessionId = fields.loginSessionId || (typeof headerValue === 'string' ? headerValue : undefined);
   await logLearningActivity({
     ...fields,
+    loginSessionId,
     userId: req.user.userId,
     ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '',
     userAgent: req.headers['user-agent'] || '',

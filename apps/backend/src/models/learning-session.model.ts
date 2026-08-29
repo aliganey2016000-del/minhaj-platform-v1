@@ -9,6 +9,7 @@ export type LearningSessionKind = 'lesson' | 'video' | 'audio' | 'pdf' | 'course
 export interface ILearningSession extends Document {
   _id: mongoose.Types.ObjectId;
   clientSessionId: string;
+  loginSessionId?: string;
   user: mongoose.Types.ObjectId;
   student: mongoose.Types.ObjectId;
   school?: mongoose.Types.ObjectId;
@@ -32,6 +33,7 @@ export interface ILearningSession extends Document {
 
 const schema = new Schema<ILearningSession>({
   clientSessionId: { type: String, required: true, unique: true, index: true },
+  loginSessionId: { type: String, index: true },
   user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
   school: { type: Schema.Types.ObjectId, ref: 'School', index: true },
@@ -55,6 +57,7 @@ const schema = new Schema<ILearningSession>({
 
 schema.index({ student: 1, startedAt: -1 });
 schema.index({ student: 1, status: 1 });
+schema.index({ student: 1, loginSessionId: 1, startedAt: -1 });
 schema.index({ school: 1, startedAt: -1 });
 
 export default mongoose.model<ILearningSession>('LearningSession', schema);

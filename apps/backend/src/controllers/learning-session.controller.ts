@@ -31,6 +31,11 @@ function positiveInt(value: unknown): number | undefined {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
 }
 
+function loginSessionIdFromRequest(req: Request): string | undefined {
+  const value = req.headers['x-login-session-id'];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 export const startSession = async (req: Request, res: Response): Promise<Response> => {
   const student = await ownStudent(req);
   const { clientSessionId, kind, course, lessonId, lessonTitle, resourceName, metadata } = req.body;
@@ -39,18 +44,15 @@ export const startSession = async (req: Request, res: Response): Promise<Respons
   if (course && !(student.enrolledCourses || []).some((id: any) => id.toString() === String(course))) {
     throw new ForbiddenError('You are not enrolled in this course.');
   }
+
   const existing = await LearningSession.findOne({ clientSessionId, user: req.user!.userId });
   if (existing) return ApiResponse.success(res, existing, 'Session already exists');
 
   const now = new Date();
-  await LearningSession.updateMany(
-    { user: req.user!.userId, status: 'active', clientSessionId: { $ne: clientSessionId } },
-    { $set: { status: 'expired', endedAt: now } },
-  );
-
   const { device } = parseUserAgent(req.headers['user-agent'] || '');
   const session = await LearningSession.create({
     clientSessionId,
+    loginSessionId: loginSessionIdFromRequest(req),
     user: req.user!.userId,
     student: student._id,
     school: student.school,
@@ -147,7 +149,7 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
       { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$startedAt' } }, activeSeconds: { $sum: '$activeSeconds' }, watchSeconds: { $sum: '$watchSeconds' } } },
       { $sort: { _id: 1 } },
     ]),
-    LearningSession.find(match).sort({ startedAt: -1 }).limit(100).lean(),
+    LearningSession.find(match).sort({ startedAt: -1 }).limit(200).lean(),
   ]);
 
   return ApiResponse.success(res, {
@@ -157,7 +159,21 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
     sessionCount: summary[0]?.sessions || 0,
     byKind: byKind.map((x: any) => ({ kind: x._id, activeSeconds: x.activeSeconds, watchSeconds: x.watchSeconds, sessions: x.sessions })),
     daily: daily.map((x: any) => ({ date: x._id, activeSeconds: x.activeSeconds, watchSeconds: x.watchSeconds })),
-    sessions: sessions.map((s: any) => ({ _id: s._id, kind: s.kind, course: s.course, lessonId: s.lessonId, lessonTitle: s.lessonTitle, resourceName: s.resourceName, startedAt: s.startedAt, endedAt: s.endedAt, activeSeconds: s.activeSeconds, idleSeconds: s.idleSeconds, watchSeconds: s.watchSeconds, status: s.status })),
+    sessions: sessions.map((s: any) => ({
+      _id: s._id,
+      loginSessionId: s.loginSessionId,
+      kind: s.kind,
+      course: s.course,
+      lessonId: s.lessonId,
+      lessonTitle: s.lessonTitle,
+      resourceName: s.resourceName,
+      startedAt: s.startedAt,
+      endedAt: s.endedAt,
+      activeSeconds: s.activeSeconds,
+      idleSeconds: s.idleSeconds,
+      watchSeconds: s.watchSeconds,
+      status: s.status,
+    })),
   });
 };
 
@@ -165,5 +181,8 @@ export const expireStaleSessions = async (): Promise<void> => {
   const cutoff = new Date(Date.now() - IDLE_THRESHOLD_SECONDS * 1000);
   const stale = await LearningSession.find({ status: 'active', lastHeartbeatAt: { $lt: cutoff } }).select('_id');
   if (!stale.length) return;
-  await LearningSession.updateMany({ _id: { $in: stale.map((s) => s._id) } }, { $set: { status: 'expired', endedAt: new Date() } });
+  await LearningSession.updateMany(
+    { _id: { $in: stale.map((s) => s._id) } },
+    { $set: { status: 'expired', endedAt: new Date() } },
+  );
 };

@@ -1,9 +1,5 @@
 /**
- * Auth Context
- *
- * Global authentication state — user info, login, register, logout,
- * and onboarding completion tracking.
- * Connects to backend API via Axios.
+ * Auth Context — global authentication state.
  */
 
 import {
@@ -15,10 +11,6 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 interface User {
   id: string;
@@ -54,18 +46,15 @@ interface RegisterData {
   preferredLanguage?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Normalize user data
-// ---------------------------------------------------------------------------
+function newLoginSessionId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `login-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
 
 function normalizeUser(raw: any): User {
   let orgId: string | undefined;
-
-  if (typeof raw.organizationId === 'object' && raw.organizationId !== null) {
-    orgId = (raw.organizationId._id || raw.organizationId).toString();
-  } else if (raw.organizationId) {
-    orgId = String(raw.organizationId);
-  }
+  if (typeof raw.organizationId === 'object' && raw.organizationId !== null) orgId = (raw.organizationId._id || raw.organizationId).toString();
+  else if (raw.organizationId) orgId = String(raw.organizationId);
 
   return {
     id: raw.id || raw._id,
@@ -74,38 +63,21 @@ function normalizeUser(raw: any): User {
     isVerified: raw.isVerified,
     preferredLanguage: raw.preferredLanguage || 'en',
     organizationId: orgId,
-    organizationName:
-      raw.organizationName ||
-      (typeof raw.organizationId === 'object' && raw.organizationId?.name) ||
-      undefined,
-    onboardingCompleted: raw.onboardingCompleted ?? true, // legacy: users without field see dashboard directly
+    organizationName: raw.organizationName || (typeof raw.organizationId === 'object' && raw.organizationId?.name) || undefined,
+    onboardingCompleted: raw.onboardingCompleted ?? true,
   };
 }
 
 function clearAuthStorage() {
   if (typeof window === 'undefined') return;
-  const keysToClear = [
-    'accessToken',
-    'tenant',
-    'tenantSlug',
-    'selectedTenant',
-    'activeTenant',
-  ];
+  const keysToClear = ['accessToken', 'tenant', 'tenantSlug', 'selectedTenant', 'activeTenant', 'loginSessionId'];
   keysToClear.forEach((key) => {
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
   });
 }
 
-// ---------------------------------------------------------------------------
-// Context
-// ---------------------------------------------------------------------------
-
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-
-// ---------------------------------------------------------------------------
-// Provider
-// ---------------------------------------------------------------------------
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -122,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const { data } = await api.get('/auth/me');
+        if (!localStorage.getItem('loginSessionId')) localStorage.setItem('loginSessionId', newLoginSessionId());
         setUser(normalizeUser(data.data?.user));
       } catch {
         clearAuthStorage();
@@ -135,23 +108,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     setError(null);
+    const loginSessionId = newLoginSessionId();
     try {
-      const { data } = await api.post('/auth/login', { email, password });
+      const { data } = await api.post('/auth/login', { email, password }, {
+        headers: { 'X-Login-Session-Id': loginSessionId },
+      });
 
       if (data.success) {
         clearAuthStorage();
         const accessToken = data.data?.accessToken;
         const userData = data.data?.user;
         localStorage.setItem('accessToken', accessToken);
+        localStorage.setItem('loginSessionId', loginSessionId);
         const normalized = normalizeUser(userData);
         setUser(normalized);
         return normalized;
-      } else {
-        throw new Error(data.message || 'Login failed');
       }
+      throw new Error(data.message || 'Login failed');
     } catch (err: any) {
-      const message =
-        err.response?.data?.message || err.message || 'Login failed. Please try again.';
+      const message = err.response?.data?.message || err.message || 'Login failed. Please try again.';
       setError(message);
       throw err;
     }
@@ -159,44 +134,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(async (formData: RegisterData) => {
     setError(null);
+    const loginSessionId = newLoginSessionId();
     try {
       const { data } = await api.post('/auth/register', {
         ...formData,
         role: formData.role || 'student',
         preferredLanguage: formData.preferredLanguage || 'en',
+      }, {
+        headers: { 'X-Login-Session-Id': loginSessionId },
       });
 
       if (data.success) {
         clearAuthStorage();
         const accessToken = data.data?.accessToken;
         localStorage.setItem('accessToken', accessToken);
+        localStorage.setItem('loginSessionId', loginSessionId);
         setUser(normalizeUser(data.data?.user));
-      } else {
-        throw new Error(data.message || 'Registration failed');
+        return;
       }
+      throw new Error(data.message || 'Registration failed');
     } catch (err: any) {
-      const message =
-        err.response?.data?.message || err.message || 'Registration failed. Please try again.';
+      const message = err.response?.data?.message || err.message || 'Registration failed. Please try again.';
       setError(message);
       throw err;
     }
   }, []);
 
   const logout = useCallback(async () => {
+    // Keep loginSessionId in storage until the logout request is sent so the
+    // backend can attach the logout event to the same login session.
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Logout must still clear local state when the network is unavailable.
+    }
     clearAuthStorage();
     setUser(null);
-    api.post('/auth/logout').catch(() => {});
     window.location.href = '/auth/login';
   }, []);
 
   const completeOnboarding = useCallback(async () => {
-    // Optimistic update regardless of response shape/outcome — the caller
-    // (OnboardingWizard) dismisses the wizard right after this resolves, and
-    // if local state didn't flip here, the dashboard's onboardingCompleted
-    // check would re-show the wizard on the next mount, trapping the
-    // student in a repeating loop. Server sync is still attempted below;
-    // a failure here just means the flag re-syncs incorrectly on next
-    // login, which is far less harmful than the loop.
     setUser(prev => prev ? { ...prev, onboardingCompleted: true } : null);
     try {
       await api.patch('/auth/me/onboarding-complete');
@@ -222,15 +199,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within AuthProvider');
   return context;
 }
 
