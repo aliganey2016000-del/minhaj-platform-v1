@@ -21,33 +21,32 @@ function useBrowserPathname() {
   return pathname;
 }
 
-/** Server-authoritative active-learning heartbeat for student learning pages. */
+/** Server-authoritative active-learning heartbeat for the student course-learn route. */
 export function LearningSessionTracker() {
   const { user, isAuthenticated } = useAuth();
   const pathname = useBrowserPathname();
-  const sessionRef = useRef<{ id: string; kind: 'lesson' | 'video' | 'audio' | 'pdf' | 'course' | 'general' } | null>(null);
+  const sessionRef = useRef<{ id: string; kind: 'lesson' } | null>(null);
+  const heartbeatInFlight = useRef(false);
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== 'student') return;
-    if (!/student\/(course|courses|learn)/i.test(pathname)) return;
+    if (!/^\/student\/courses\/[^/]+\/learn(?:\/|$)/i.test(pathname)) return;
 
     let cancelled = false;
     const sessionId = `web-${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const kind = 'lesson' as const;
-    const courseMatch = pathname.match(/\/student\/courses\/([^/]+)\/learn/i);
-    const courseId = courseMatch?.[1];
+    const courseId = pathname.match(/^\/student\/courses\/([^/]+)\/learn/i)?.[1];
 
     const start = async () => {
       try {
         await api.post('/activity/session/start', {
           clientSessionId: sessionId,
-          kind,
+          kind: 'lesson',
           course: courseId,
           lessonTitle: document.title,
           resourceName: document.title,
           metadata: { path: pathname },
         });
-        if (!cancelled) sessionRef.current = { id: sessionId, kind };
+        if (!cancelled) sessionRef.current = { id: sessionId, kind: 'lesson' };
       } catch {
         // Tracking must never interrupt learning.
       }
@@ -56,7 +55,8 @@ export function LearningSessionTracker() {
 
     const heartbeat = async () => {
       const current = sessionRef.current;
-      if (!current || cancelled) return;
+      if (!current || cancelled || heartbeatInFlight.current) return;
+      heartbeatInFlight.current = true;
       const video = document.querySelector('video') as HTMLVideoElement | null;
       const visible = document.visibilityState === 'visible';
       const playing = !!video && !video.paused && !video.ended;
@@ -70,6 +70,8 @@ export function LearningSessionTracker() {
         });
       } catch {
         // Tracking must never interrupt learning.
+      } finally {
+        heartbeatInFlight.current = false;
       }
     };
 
