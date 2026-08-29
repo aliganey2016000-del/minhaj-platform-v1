@@ -9,6 +9,11 @@ export interface IPayment extends Document {
   method: 'cash' | 'bank_transfer' | 'mobile_money' | 'online';
   status: 'completed' | 'pending' | 'refunded';
   notes: string;
+  // Admin-entered external reference — a mobile money/bank transfer
+  // confirmation code, a bank slip number, anything that ties this record
+  // back to the real-world transaction it represents. Distinct from
+  // receiptNumber below, which this app generates itself.
+  reference?: string;
   recordedBy: mongoose.Types.ObjectId;
   dueDate?: Date;
   invoice?: mongoose.Types.ObjectId;
@@ -29,6 +34,7 @@ const paymentSchema = new Schema<IPayment>(
     method: { type: String, enum: ['cash', 'bank_transfer', 'mobile_money', 'online'], default: 'cash' },
     status: { type: String, enum: ['completed', 'pending', 'refunded'], default: 'completed', index: true },
     notes: { type: String, default: '' },
+    reference: { type: String, default: '', trim: true, maxlength: 100 },
     recordedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     dueDate: { type: Date, default: null },
     invoice: { type: Schema.Types.ObjectId, ref: 'Invoice', default: null, index: true },

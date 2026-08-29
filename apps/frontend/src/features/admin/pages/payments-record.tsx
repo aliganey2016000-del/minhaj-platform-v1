@@ -6,7 +6,7 @@
  * receipt after a successful record.
  */
 import { useEffect, useState, useRef } from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X, CreditCard, Wallet, ShieldCheck, Download, Printer, CheckCircle2 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { downloadReceipt } from '../../../lib/receipts';
 
@@ -37,6 +37,7 @@ interface InvoiceData {
   amount: number;
   feeType: string;
   method: string;
+  reference: string;
   date: string;
   notes: string;
   totalFees: number;
@@ -124,6 +125,7 @@ function InvoiceModal({ invoice, onClose }: { invoice: InvoiceData; onClose: () 
             <p><span className="text-gray-500 dark:text-gray-400">Invoice No:</span> <strong className="text-gray-800 dark:text-gray-200 font-mono">{invoice.invoiceId}</strong></p>
             <p><span className="text-gray-500 dark:text-gray-400">Date & Time:</span> <strong className="text-gray-800 dark:text-gray-200">{invoice.date}</strong></p>
             <p><span className="text-gray-500 dark:text-gray-400">Payment Method:</span> <strong className="text-gray-800 dark:text-gray-200">{METHOD_LABELS[invoice.method] || invoice.method}</strong></p>
+            {invoice.reference && <p><span className="text-gray-500 dark:text-gray-400">Reference:</span> <strong className="text-gray-800 dark:text-gray-200 font-mono">{invoice.reference}</strong></p>}
           </div>
           <div className="space-y-1 text-right">
             <p className="text-xs text-gray-500 dark:text-gray-400">Student</p>
@@ -201,13 +203,13 @@ function InvoiceModal({ invoice, onClose }: { invoice: InvoiceData; onClose: () 
               onClick={handleDownloadPdf}
               className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors shadow-sm"
             >
-              ⬇️ Download PDF
+              <Download className="h-4 w-4" strokeWidth={1.75} /> Download PDF
             </button>
             <button
               onClick={handlePrint}
               className="inline-flex items-center gap-2 rounded-xl border border-emerald-600 px-6 py-2.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors"
             >
-              🖨️ Print
+              <Printer className="h-4 w-4" strokeWidth={1.75} /> Print
             </button>
             <button
               onClick={onClose}
@@ -329,6 +331,44 @@ function StudentSearchPicker({ value, onSelect }: { value: StudentBrief | null; 
 }
 
 // ---------------------------------------------------------------------------
+// Confirm Payment Modal — a financial action deserves a review step before
+// it actually hits the API, not just an immediate submit on click.
+// ---------------------------------------------------------------------------
+
+interface PendingPayment {
+  student: StudentBrief;
+  amount: number;
+  type: string;
+  method: string;
+  reference: string;
+  notes: string;
+}
+
+function ConfirmPaymentModal({ pending, submitting, onCancel, onConfirm }: { pending: PendingPayment; submitting: boolean; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => !submitting && onCancel()}>
+      <div className="bg-[var(--color-surface-primary)] rounded-2xl w-full max-w-sm shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 mb-4">
+          <ShieldCheck className="h-5 w-5 text-primary-600" />
+          <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Confirm Payment</h2>
+        </div>
+        <div className="rounded-xl bg-[var(--color-surface-secondary)] p-4 space-y-2.5 text-sm mb-5">
+          <div className="flex justify-between"><span className="text-[var(--color-text-tertiary)]">Student</span><span className="font-semibold text-[var(--color-text-primary)] text-right">{studentLabel(pending.student)}<br /><span className="text-xs font-mono text-[var(--color-text-tertiary)]">{pending.student.studentId}</span></span></div>
+          <div className="flex justify-between"><span className="text-[var(--color-text-tertiary)]">Amount</span><span className="font-bold text-primary-600">${pending.amount.toLocaleString()}</span></div>
+          <div className="flex justify-between"><span className="text-[var(--color-text-tertiary)]">Type</span><span className="font-medium text-[var(--color-text-primary)]">{FEE_TYPE_LABELS[pending.type] || pending.type}</span></div>
+          <div className="flex justify-between"><span className="text-[var(--color-text-tertiary)]">Method</span><span className="font-medium text-[var(--color-text-primary)]">{METHOD_LABELS[pending.method] || pending.method}</span></div>
+          {pending.reference && <div className="flex justify-between"><span className="text-[var(--color-text-tertiary)]">Reference</span><span className="font-medium text-[var(--color-text-primary)] font-mono">{pending.reference}</span></div>}
+        </div>
+        <div className="flex gap-2">
+          <button type="button" onClick={onCancel} disabled={submitting} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={onConfirm} disabled={submitting} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors">{submitting ? 'Recording...' : 'Confirm Payment'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -342,13 +382,17 @@ export function PaymentsRecord() {
   const [recordAmount, setRecordAmount] = useState('');
   const [recordType, setRecordType] = useState('tuition');
   const [recordMethod, setRecordMethod] = useState('cash');
+  const [recordReference, setRecordReference] = useState('');
   const [recordNotes, setRecordNotes] = useState('');
+  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
 
   const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null);
   // Regenerated after every successful submit, so a retry of the SAME
   // attempt reuses the same key (idempotent) while a genuinely new payment
   // gets a fresh one.
   const idempotencyKeyRef = useRef(crypto.randomUUID());
+
+  const isValid = !!selectedStudent && !!recordAmount && Number(recordAmount) > 0;
 
   useEffect(() => {
     (async () => {
@@ -359,47 +403,60 @@ export function PaymentsRecord() {
     })();
   }, []);
 
-  const handleRecordPayment = async (e: React.FormEvent) => {
+  const handleReviewPayment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStudent || !recordAmount || Number(recordAmount) <= 0) {
       setError('Select a student and enter a valid amount'); return;
     }
+    setError('');
+    setPendingPayment({
+      student: selectedStudent, amount: Number(recordAmount), type: recordType,
+      method: recordMethod, reference: recordReference.trim(), notes: recordNotes,
+    });
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!pendingPayment) return;
     setLoading(true); setError(''); setMessage('');
     try {
       const { data } = await api.post('/payments', {
-        studentId: selectedStudent._id,
-        amount: Number(recordAmount),
+        studentId: pendingPayment.student._id,
+        amount: pendingPayment.amount,
         discount: 0,
-        type: recordType,
-        method: recordMethod,
-        notes: recordNotes,
+        type: pendingPayment.type,
+        method: pendingPayment.method,
+        reference: pendingPayment.reference || undefined,
+        notes: pendingPayment.notes,
         idempotencyKey: idempotencyKeyRef.current,
       });
       idempotencyKeyRef.current = crypto.randomUUID();
       const bal = data.data?.balance;
       const payment = data.data?.payment;
 
-      const selSchool = schools.find(sc => sc._id === selectedStudent.school?._id);
+      const selSchool = schools.find(sc => sc._id === pendingPayment.student.school?._id);
       setInvoiceData({
-        invoiceId: `INV-${payment?._id?.slice(-8).toUpperCase() || new Date().getTime().toString(36).toUpperCase()}`,
+        // The app's own receipt number (RCT-YYYY-<id>), generated server-side
+        // and guaranteed unique — not a client-fabricated id.
+        invoiceId: payment?.receiptNumber || `RCT-${new Date().getFullYear()}-${payment?._id?.toUpperCase() || ''}`,
         paymentId: payment?._id || '',
-        studentName: studentLabel(selectedStudent),
-        studentId: selectedStudent.studentId || '',
-        schoolName: selSchool?.name || selectedStudent.school?.name || 'Masjid Al-Rahma',
-        amount: Number(recordAmount),
-        feeType: recordType,
-        method: recordMethod,
+        studentName: studentLabel(pendingPayment.student),
+        studentId: pendingPayment.student.studentId || '',
+        schoolName: selSchool?.name || pendingPayment.student.school?.name || 'Masjid Al-Rahma',
+        amount: pendingPayment.amount,
+        feeType: pendingPayment.type,
+        method: pendingPayment.method,
+        reference: pendingPayment.reference,
         date: new Date().toLocaleString(),
-        notes: recordNotes,
+        notes: pendingPayment.notes,
         totalFees: bal?.totalFees || 0,
         totalPaid: bal?.totalPaid || 0,
         totalDue: bal?.totalDue || 0,
         discount: bal?.discount || 0,
       });
 
-      setMessage(`✅ Payment of $${Number(recordAmount).toLocaleString()} recorded successfully!`);
-      setRecordAmount(''); setRecordNotes(''); setSelectedStudent(null);
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to record'); }
+      setMessage(`Payment of $${pendingPayment.amount.toLocaleString()} recorded successfully!`);
+      setRecordAmount(''); setRecordReference(''); setRecordNotes(''); setSelectedStudent(null); setPendingPayment(null);
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to record'); setPendingPayment(null); }
     finally { setLoading(false); }
   };
 
@@ -407,15 +464,15 @@ export function PaymentsRecord() {
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-screen-2xl space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">💳 Record Payment</h1>
+          <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]"><CreditCard className="h-7 w-7 text-primary-600" strokeWidth={1.75} /> Record Payment</h1>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Record an ad-hoc payment for a single student — cash in hand, a donation, anything not tied to a generated invoice.</p>
         </div>
 
-        {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
+        {message && <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700"><CheckCircle2 className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />{message}</div>}
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
 
         <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-card max-w-2xl">
-          <form onSubmit={handleRecordPayment} className="space-y-4">
+          <form onSubmit={handleReviewPayment} className="space-y-4">
             <div>
               <label className="text-xs font-semibold mb-1 block">Student *</label>
               <StudentSearchPicker value={selectedStudent} onSelect={setSelectedStudent} />
@@ -444,7 +501,15 @@ export function PaymentsRecord() {
             <div>
               <label className="text-xs font-semibold mb-1 block">Amount ($) *</label>
               <input type="number" value={recordAmount} onChange={e => setRecordAmount(e.target.value)}
-                min={1} step="0.01" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" placeholder="0.00" required />
+                min={0.01} step="0.01" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" placeholder="0.00" required />
+              {selectedStudent && (
+                <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
+                  Balance due: ${(selectedStudent.totalFeesDue || 0).toLocaleString()}
+                  {Number(recordAmount) > (selectedStudent.totalFeesDue || 0) && Number(recordAmount) > 0 && (
+                    <span className="text-amber-600 dark:text-amber-400"> — this exceeds the current balance due</span>
+                  )}
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -452,33 +517,46 @@ export function PaymentsRecord() {
                 <label className="text-xs font-semibold mb-1 block">Type</label>
                 <select value={recordType} onChange={e => setRecordType(e.target.value)}
                   className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm">
-                  <option value="tuition">Tuition</option><option value="registration">Registration</option>
-                  <option value="exam">Exam Fee</option><option value="material">Materials</option>
-                  <option value="donation">Donation</option><option value="other">Other</option>
+                  {Object.entries(FEE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-xs font-semibold mb-1 block">Method</label>
                 <select value={recordMethod} onChange={e => setRecordMethod(e.target.value)}
                   className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm">
-                  <option value="cash">Cash</option><option value="bank_transfer">Bank Transfer</option>
-                  <option value="mobile_money">Mobile Money</option><option value="online">Online</option>
+                  {Object.entries(METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               </div>
             </div>
+            {(recordMethod === 'mobile_money' || recordMethod === 'bank_transfer' || recordMethod === 'online') && (
+              <div>
+                <label className="text-xs font-semibold mb-1 block">Reference / Transaction No.</label>
+                <input type="text" value={recordReference} onChange={e => setRecordReference(e.target.value)}
+                  placeholder="e.g. EVC-2026-88213 or bank slip number" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" />
+              </div>
+            )}
             <div>
               <label className="text-xs font-semibold mb-1 block">Notes</label>
-              <input type="text" value={recordNotes} onChange={e => setRecordNotes(e.target.value)}
-                placeholder="Optional notes..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" />
+              <textarea value={recordNotes} onChange={e => setRecordNotes(e.target.value)} rows={2}
+                placeholder="Optional notes..." className="w-full resize-y rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" />
             </div>
-            <button type="submit" disabled={loading}
-              className="w-full rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors">
-              {loading ? 'Processing...' : `💰 Record $${Number(recordAmount || 0).toLocaleString()}`}
+            <button type="submit" disabled={loading || !isValid}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors">
+              <Wallet className="h-4 w-4" strokeWidth={1.75} />
+              {isValid ? `Record $${Number(recordAmount).toLocaleString()} Payment` : 'Record Payment'}
             </button>
           </form>
         </div>
       </div>
 
+      {pendingPayment && (
+        <ConfirmPaymentModal
+          pending={pendingPayment}
+          submitting={loading}
+          onCancel={() => setPendingPayment(null)}
+          onConfirm={handleConfirmPayment}
+        />
+      )}
       {invoiceData && (
         <InvoiceModal invoice={invoiceData} onClose={() => setInvoiceData(null)} />
       )}
