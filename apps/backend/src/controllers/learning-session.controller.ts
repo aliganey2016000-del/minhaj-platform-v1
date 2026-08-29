@@ -12,7 +12,7 @@ const MAX_HEARTBEAT_SECONDS = 60;
 const IDLE_THRESHOLD_SECONDS = 90;
 
 async function ownStudent(req: Request) {
-  const student = await Student.findOne({ user: req.user!.userId }).select('_id school').lean();
+  const student = await Student.findOne({ user: req.user!.userId }).select('_id school enrolledCourses').lean();
   if (!student) throw new ForbiddenError('Only students can start learning sessions.');
   return student;
 }
@@ -36,6 +36,9 @@ export const startSession = async (req: Request, res: Response): Promise<Respons
   const { clientSessionId, kind, course, lessonId, lessonTitle, resourceName, metadata } = req.body;
   if (!clientSessionId || typeof clientSessionId !== 'string') throw new BadRequestError('clientSessionId is required.');
   if (!['lesson', 'video', 'audio', 'pdf', 'course', 'general'].includes(kind)) throw new BadRequestError('Invalid session kind.');
+  if (course && !(student.enrolledCourses || []).some((id: any) => id.toString() === String(course))) {
+    throw new ForbiddenError('You are not enrolled in this course.');
+  }
   const existing = await LearningSession.findOne({ clientSessionId, user: req.user!.userId });
   if (existing) return ApiResponse.success(res, existing, 'Session already exists');
 
