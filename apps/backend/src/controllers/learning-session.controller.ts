@@ -6,7 +6,7 @@ import Course from '../models/course.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { parseUserAgent } from '../utils/parse-user-agent';
-import { applyOrgFilter, getOwnTeacherRecord } from '../utils/tenant-scope';
+import { getOwnTeacherRecord } from '../utils/tenant-scope';
 
 const MAX_HEARTBEAT_SECONDS = 60;
 const IDLE_THRESHOLD_SECONDS = 90;
@@ -40,8 +40,6 @@ export const startSession = async (req: Request, res: Response): Promise<Respons
   const existing = await LearningSession.findOne({ clientSessionId, user: req.user!.userId });
   if (existing) return ApiResponse.success(res, existing, 'Session already exists');
 
-  // One active learning session per browser/user. Closing older sessions here
-  // makes route changes and crashed tabs converge without requiring a worker.
   const now = new Date();
   await LearningSession.updateMany(
     { user: req.user!.userId, status: 'active', clientSessionId: { $ne: clientSessionId } },
@@ -81,17 +79,14 @@ export const heartbeat = async (req: Request, res: Response): Promise<Response> 
   const elapsed = Math.max(0, Math.floor((now.getTime() - session.lastHeartbeatAt.getTime()) / 1000));
   const bounded = Math.min(elapsed, MAX_HEARTBEAT_SECONDS);
 
-  if (elapsed > IDLE_THRESHOLD_SECONDS) {
-    session.idleSeconds += elapsed;
-  } else if (active !== false) {
+  if (elapsed > IDLE_THRESHOLD_SECONDS) session.idleSeconds += elapsed;
+  else if (active !== false) {
     session.activeSeconds += bounded;
     if (session.kind === 'video' || session.kind === 'audio') {
       const playbackDelta = positiveInt(playbackDeltaSeconds);
       session.watchSeconds += Math.min(playbackDelta ?? bounded, MAX_HEARTBEAT_SECONDS);
     }
-  } else {
-    session.idleSeconds += bounded;
-  }
+  } else session.idleSeconds += bounded;
 
   const mediaPosition = positiveInt(mediaPositionSeconds);
   if (mediaPosition != null) session.lastMediaPositionSeconds = mediaPosition;
@@ -103,7 +98,6 @@ export const heartbeat = async (req: Request, res: Response): Promise<Response> 
 export const endSession = async (req: Request, res: Response): Promise<Response> => {
   const { clientSessionId, active } = req.body;
   if (!clientSessionId) throw new BadRequestError('clientSessionId is required.');
-
   const session = await LearningSession.findOne({ clientSessionId, user: req.user!.userId });
   if (!session) throw new NotFoundError('Learning session');
   if (session.status !== 'active') return ApiResponse.success(res, session, 'Session already ended');
@@ -116,7 +110,6 @@ export const endSession = async (req: Request, res: Response): Promise<Response>
     session.activeSeconds += bounded;
     if (session.kind === 'video' || session.kind === 'audio') session.watchSeconds += bounded;
   }
-
   session.endedAt = now;
   session.lastHeartbeatAt = now;
   session.status = 'ended';
@@ -138,13 +131,7 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
   const [summary, byKind, daily, sessions] = await Promise.all([
     LearningSession.aggregate([
       { $match: match },
-      { $group: {
-        _id: null,
-        activeSeconds: { $sum: '$activeSeconds' },
-        idleSeconds: { $sum: '$idleSeconds' },
-        watchSeconds: { $sum: '$watchSeconds' },
-        sessions: { $sum: 1 },
-      } },
+      { $group: { _id: null, activeSeconds: { $sum: '$activeSeconds' }, idleSeconds: { $sum: '$idleSeconds' }, watchSeconds: { $sum: '$watchSeconds' }, sessions: { $sum: 1 } } },
     ]),
     LearningSession.aggregate([
       { $match: match },
@@ -166,20 +153,7 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
     sessionCount: summary[0]?.sessions || 0,
     byKind: byKind.map((x: any) => ({ kind: x._id, activeSeconds: x.activeSeconds, watchSeconds: x.watchSeconds, sessions: x.sessions })),
     daily: daily.map((x: any) => ({ date: x._id, activeSeconds: x.activeSeconds, watchSeconds: x.watchSeconds })),
-    sessions: sessions.map((s: any) => ({
-      _id: s._id,
-      kind: s.kind,
-      course: s.course,
-      lessonId: s.lessonId,
-      lessonTitle: s.lessonTitle,
-      resourceName: s.resourceName,
-      startedAt: s.startedAt,
-      endedAt: s.endedAt,
-      activeSeconds: s.activeSeconds,
-      idleSeconds: s.idleSeconds,
-      watchSeconds: s.watchSeconds,
-      status: s.status,
-    })),
+    sessions: sessions.map((s: any) => ({ _id: s._id, kind: s.kind, course: s.course, lessonId: s.lessonId, lessonTitle: s.lessonTitle, resourceName: s.resourceName, startedAt: s.startedAt, endedAt: s.endedAt, activeSeconds: s.activeSeconds, idleSeconds: s.idleSeconds, watchSeconds: s.watchSeconds, status: s.status })),
   });
 };
 
@@ -187,8 +161,5 @@ export const expireStaleSessions = async (): Promise<void> => {
   const cutoff = new Date(Date.now() - IDLE_THRESHOLD_SECONDS * 1000);
   const stale = await LearningSession.find({ status: 'active', lastHeartbeatAt: { $lt: cutoff } }).select('_id');
   if (!stale.length) return;
-  await LearningSession.updateMany(
-    { _id: { $in: stale.map((s) => s._id) } },
-    { $set: { status: 'expired', endedAt: new Date() } },
-  );
+  await LearningSession.updateMany({ _id: { $in: stale.map((s) => s._id) } }, { $set: { status: 'expired', endedAt: new Date() } });
 };
