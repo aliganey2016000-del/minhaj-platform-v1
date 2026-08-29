@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../../../lib/axios';
 
 interface RosterRow {
@@ -57,17 +57,21 @@ interface SessionAnalytics {
 }
 
 interface Analytics {
-  totalStudyTimeSeconds: number;
   avgQuizScore: number | null;
-  avgVideoCompletion: number | null;
   learningStreakDays: number;
-  quizAttempts: number;
-  quizzesPassed: number;
-  courseProgress: Array<{
-    course: string;
-    completedLessons: number;
-    totalItems: number;
-  }>;
+}
+
+interface QuizSummary {
+  key: string;
+  lessonTitle: string;
+  courseTitle: string;
+  attempts: number;
+  avgPoints: number | null;
+  avgTotalPoints: number | null;
+  avgPercent: number | null;
+  startedAt: string;
+  endedAt: string;
+  status: string;
 }
 
 const fmt = (seconds = 0) => {
@@ -85,6 +89,18 @@ const dateTime = (value?: string) =>
     : '—';
 
 const day = (value?: string) => (value ? new Date(value).toLocaleDateString() : '—');
+
+const isAssessmentEvent = (event: EventRow) =>
+  Boolean(event.lessonTitle || event.resourceName) &&
+  Boolean(
+    event.metadata?.score != null ||
+      event.metadata?.totalPoints != null ||
+      event.percent != null ||
+      /quiz|assessment|attempt|submission|passed|failed/i.test(event.type),
+  );
+
+const avg = (values: number[]) =>
+  values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 
 export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) {
   void basePath;
@@ -151,6 +167,59 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     return sessions.daily.slice(-cutoff);
   }, [sessions, range]);
 
+  const quizSummaries = useMemo<QuizSummary[]>(() => {
+    const groups = new Map<string, EventRow[]>();
+
+    for (const event of events) {
+      if (!isAssessmentEvent(event)) continue;
+
+      const lessonTitle = event.lessonTitle || event.resourceName || 'Unnamed lesson';
+      const courseId = event.course?._id || event.course?.title?.en || 'general';
+      const key = `${courseId}::${lessonTitle.trim().toLowerCase()}`;
+
+      const group = groups.get(key) || [];
+      group.push(event);
+      groups.set(key, group);
+    }
+
+    return Array.from(groups.entries())
+      .map(([key, group]) => {
+        const ordered = [...group].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
+        const pointValues = ordered
+          .map((event) => event.metadata?.score)
+          .filter((value): value is number => typeof value === 'number');
+        const totalValues = ordered
+          .map((event) => event.metadata?.totalPoints)
+          .filter((value): value is number => typeof value === 'number');
+        const percentValues = ordered
+          .map((event) => event.percent)
+          .filter((value): value is number => typeof value === 'number');
+
+        const latest = ordered[ordered.length - 1];
+
+        return {
+          key,
+          lessonTitle: latest.lessonTitle || latest.resourceName || 'Unnamed lesson',
+          courseTitle: latest.course?.title?.en || 'General activity',
+          attempts: ordered.length,
+          avgPoints: avg(pointValues),
+          avgTotalPoints: avg(totalValues),
+          avgPercent: avg(percentValues),
+          startedAt: ordered[0].createdAt,
+          endedAt: latest.createdAt,
+          status: latest.status || 'Recorded',
+        };
+      })
+      .sort((a, b) => new Date(b.endedAt).getTime() - new Date(a.endedAt).getTime());
+  }, [events]);
+
+  const nonAssessmentEvents = useMemo(
+    () => events.filter((event) => !isAssessmentEvent(event)),
+    [events],
+  );
+
   const exportSessions = () => {
     if (!sessions || !student) return;
 
@@ -186,12 +255,12 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     ['Video/audio watched', fmt(sessions?.totalWatchSeconds), 'Actual media playback'],
     ['Idle', fmt(sessions?.totalIdleSeconds), 'Inactive/gap time'],
     ['Sessions', String(sessions?.sessionCount || 0), 'Learning sessions'],
-    ['Quiz score', analytics?.avgQuizScore != null ? `${analytics.avgQuizScore}%` : '—', 'Average'],
+    ['Quiz score', analytics?.avgQuizScore != null ? `${Math.round(analytics.avgQuizScore)}%` : '—', 'Average quiz score'],
     ['Streak', `${analytics?.learningStreakDays || 0}d`, 'Consecutive learning days'],
   ];
 
   return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
+    <div className="p-4 sm:p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-screen-2xl space-y-6">
         <header>
           <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">
@@ -257,7 +326,7 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                       {student.studentId} · {student.online ? 'Online now' : 'Offline'}
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <select
                       value={range}
                       onChange={(event) => setRange(event.target.value)}
@@ -292,14 +361,14 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                   ))}
                 </div>
 
-                <div className="flex gap-1 rounded-xl bg-[var(--color-surface-secondary)] p-1 w-fit">
-                  <button type="button" onClick={() => setTab('overview')} className={`rounded-lg px-4 py-2 text-xs font-semibold ${tab === 'overview' ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>
+                <div className="flex max-w-full overflow-x-auto gap-1 rounded-xl bg-[var(--color-surface-secondary)] p-1 w-fit">
+                  <button type="button" onClick={() => setTab('overview')} className={`shrink-0 rounded-lg px-4 py-2 text-xs font-semibold ${tab === 'overview' ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>
                     Overview
                   </button>
-                  <button type="button" onClick={() => setTab('sessions')} className={`rounded-lg px-4 py-2 text-xs font-semibold ${tab === 'sessions' ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>
+                  <button type="button" onClick={() => setTab('sessions')} className={`shrink-0 rounded-lg px-4 py-2 text-xs font-semibold ${tab === 'sessions' ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>
                     Learning sessions
                   </button>
-                  <button type="button" onClick={() => setTab('events')} className={`rounded-lg px-4 py-2 text-xs font-semibold ${tab === 'events' ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>
+                  <button type="button" onClick={() => setTab('events')} className={`shrink-0 rounded-lg px-4 py-2 text-xs font-semibold ${tab === 'events' ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>
                     Activity events
                   </button>
                 </div>
@@ -364,7 +433,8 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                         One row = one server-tracked learning session. Duration is never inferred from unrelated events.
                       </p>
                     </div>
-                    <div className="overflow-x-auto">
+
+                    <div className="hidden md:block overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="bg-[var(--color-surface-secondary)] text-left text-xs">
@@ -378,38 +448,52 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                         </thead>
                         <tbody className="divide-y divide-[var(--color-border-subtle)]">
                           {sessions?.sessions.map((session) => (
-                            <Fragment key={session._id}>
-                              <tr
-                                onClick={() => setExpanded(expanded === session._id ? null : session._id)}
-                                className="cursor-pointer hover:bg-[var(--color-surface-secondary)]"
-                              >
-                                <td className="p-3 whitespace-nowrap">{dateTime(session.startedAt)}</td>
-                                <td className="p-3">
-                                  <b>{session.lessonTitle || session.resourceName || 'Learning session'}</b>
-                                  <div className="text-[10px] capitalize text-[var(--color-text-tertiary)]">{session.kind}</div>
-                                </td>
-                                <td className="p-3 font-semibold">{fmt(session.activeSeconds)}</td>
-                                <td className="p-3">{fmt(session.watchSeconds)}</td>
-                                <td className="p-3">{fmt(session.idleSeconds)}</td>
-                                <td className="p-3 capitalize">{session.status}</td>
-                              </tr>
-                              {expanded === session._id && (
-                                <tr>
-                                  <td colSpan={6} className="p-4 bg-[var(--color-surface-secondary)] text-xs">
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                      <span>Started<br /><b>{dateTime(session.startedAt)}</b></span>
-                                      <span>Ended<br /><b>{dateTime(session.endedAt)}</b></span>
-                                      <span>Active<br /><b>{fmt(session.activeSeconds)}</b></span>
-                                      <span>Idle<br /><b>{fmt(session.idleSeconds)}</b></span>
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </Fragment>
+                            <tr key={session._id}>
+                              <td className="p-3 whitespace-nowrap">{dateTime(session.startedAt)}</td>
+                              <td className="p-3">
+                                <b>{session.lessonTitle || session.resourceName || 'Learning session'}</b>
+                                <div className="text-[10px] capitalize text-[var(--color-text-tertiary)]">{session.kind}</div>
+                              </td>
+                              <td className="p-3 font-semibold">{fmt(session.activeSeconds)}</td>
+                              <td className="p-3">{fmt(session.watchSeconds)}</td>
+                              <td className="p-3">{fmt(session.idleSeconds)}</td>
+                              <td className="p-3 capitalize">{session.status}</td>
+                            </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
+
+                    <div className="md:hidden divide-y divide-[var(--color-border-subtle)]">
+                      {sessions?.sessions.map((session) => (
+                        <button
+                          key={session._id}
+                          type="button"
+                          onClick={() => setExpanded(expanded === session._id ? null : session._id)}
+                          className="w-full text-left p-4"
+                        >
+                          <div className="font-semibold break-words">
+                            {session.lessonTitle || session.resourceName || 'Learning session'}
+                          </div>
+                          <div className="mt-1 text-xs text-[var(--color-text-tertiary)]">
+                            {dateTime(session.startedAt)} · <span className="capitalize">{session.status}</span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                            <span>Active<br /><b>{fmt(session.activeSeconds)}</b></span>
+                            <span>Watched<br /><b>{fmt(session.watchSeconds)}</b></span>
+                            <span>Idle<br /><b>{fmt(session.idleSeconds)}</b></span>
+                          </div>
+                          {expanded === session._id && (
+                            <div className="mt-3 rounded-xl bg-[var(--color-surface-secondary)] p-3 text-xs">
+                              <div>Started: <b>{dateTime(session.startedAt)}</b></div>
+                              <div>Ended: <b>{dateTime(session.endedAt)}</b></div>
+                              <div>Type: <b className="capitalize">{session.kind}</b></div>
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
                     {!sessions?.sessions.length && (
                       <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">
                         No learning sessions recorded yet.
@@ -419,35 +503,111 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                 )}
 
                 {tab === 'events' && (
-                  <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden">
-                    <div className="p-4 border-b border-[var(--color-border-subtle)]">
-                      <h3 className="font-bold">Activity events</h3>
-                      <p className="text-xs text-[var(--color-text-tertiary)]">
-                        Audit/activity stream only. Event duration is intentionally not used as study time.
-                      </p>
-                    </div>
-                    <div className="divide-y divide-[var(--color-border-subtle)]">
-                      {events.map((event) => (
-                        <div key={event._id} className="p-4 flex items-start justify-between gap-4">
-                          <div>
-                            <b className="text-sm">
-                              {event.lessonTitle || event.resourceName || event.type.replace(/_/g, ' ')}
-                            </b>
-                            <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
-                              {event.course?.title?.en || 'General activity'} · {dateTime(event.createdAt)}
-                            </p>
+                  <div className="space-y-5">
+                    <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden">
+                      <div className="p-4 border-b border-[var(--color-border-subtle)]">
+                        <h3 className="font-bold">Lesson quiz results</h3>
+                        <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
+                          One row per lesson. Multiple quiz attempts are consolidated into one row with average points, score, start, and end.
+                        </p>
+                      </div>
+
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-[var(--color-surface-secondary)] text-left text-xs">
+                              <th className="p-3">Lesson</th>
+                              <th className="p-3">Attempts</th>
+                              <th className="p-3">Avg points</th>
+                              <th className="p-3">Avg score</th>
+                              <th className="p-3">Start</th>
+                              <th className="p-3">End</th>
+                              <th className="p-3">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                            {quizSummaries.map((summary) => (
+                              <tr key={summary.key}>
+                                <td className="p-3 min-w-[220px]">
+                                  <b className="break-words">{summary.lessonTitle}</b>
+                                  <div className="text-[10px] text-[var(--color-text-tertiary)]">{summary.courseTitle}</div>
+                                </td>
+                                <td className="p-3">{summary.attempts}</td>
+                                <td className="p-3 font-semibold">
+                                  {summary.avgPoints != null
+                                    ? `${summary.avgPoints.toFixed(1)}${summary.avgTotalPoints != null ? ` / ${summary.avgTotalPoints.toFixed(1)}` : ''}`
+                                    : '—'}
+                                </td>
+                                <td className="p-3">
+                                  {summary.avgPercent != null ? `${Math.round(summary.avgPercent)}%` : '—'}
+                                </td>
+                                <td className="p-3 whitespace-nowrap">{dateTime(summary.startedAt)}</td>
+                                <td className="p-3 whitespace-nowrap">{dateTime(summary.endedAt)}</td>
+                                <td className="p-3 capitalize">{summary.status}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="md:hidden divide-y divide-[var(--color-border-subtle)]">
+                        {quizSummaries.map((summary) => (
+                          <div key={summary.key} className="p-4">
+                            <div className="font-semibold break-words">{summary.lessonTitle}</div>
+                            <div className="text-xs text-[var(--color-text-tertiary)] mt-1">{summary.courseTitle}</div>
+                            <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                              <span>Attempts<br /><b>{summary.attempts}</b></span>
+                              <span>Avg points<br /><b>{summary.avgPoints != null ? `${summary.avgPoints.toFixed(1)}${summary.avgTotalPoints != null ? ` / ${summary.avgTotalPoints.toFixed(1)}` : ''}` : '—'}</b></span>
+                              <span>Avg score<br /><b>{summary.avgPercent != null ? `${Math.round(summary.avgPercent)}%` : '—'}</b></span>
+                              <span>Status<br /><b className="capitalize">{summary.status}</b></span>
+                            </div>
+                            <div className="mt-3 text-xs text-[var(--color-text-tertiary)]">
+                              Start: <b>{dateTime(summary.startedAt)}</b><br />
+                              End: <b>{dateTime(summary.endedAt)}</b>
+                            </div>
                           </div>
-                          <div className="text-right text-xs">
-                            <span className="capitalize">{event.status || 'recorded'}</span>
-                            {event.percent != null && <p>{event.percent}%</p>}
-                          </div>
-                        </div>
-                      ))}
-                      {!events.length && (
-                        <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No events recorded.</p>
+                        ))}
+                      </div>
+
+                      {!quizSummaries.length && (
+                        <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">
+                          No lesson quiz results recorded yet.
+                        </p>
                       )}
-                    </div>
-                  </section>
+                    </section>
+
+                    <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden">
+                      <div className="p-4 border-b border-[var(--color-border-subtle)]">
+                        <h3 className="font-bold">Other activity</h3>
+                        <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
+                          Audit/activity stream only. Event duration is intentionally not used as study time.
+                        </p>
+                      </div>
+                      <div className="divide-y divide-[var(--color-border-subtle)]">
+                        {nonAssessmentEvents.map((event) => (
+                          <div key={event._id} className="p-4 flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <b className="text-sm break-words">
+                                {event.lessonTitle || event.resourceName || event.type.replace(/_/g, ' ')}
+                              </b>
+                              <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
+                                {event.course?.title?.en || 'General activity'} · {dateTime(event.createdAt)}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right text-xs">
+                              <span className="capitalize">{event.status || 'recorded'}</span>
+                              {event.percent != null && <p>{event.percent}%</p>}
+                            </div>
+                          </div>
+                        ))}
+                        {!nonAssessmentEvents.length && (
+                          <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">
+                            No other events recorded.
+                          </p>
+                        )}
+                      </div>
+                    </section>
+                  </div>
                 )}
               </>
             )}
