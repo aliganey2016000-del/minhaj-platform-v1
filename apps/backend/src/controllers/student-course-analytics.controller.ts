@@ -29,30 +29,37 @@ export const getStudentCourseAnalytics = async (req: Request, res: Response): Pr
 
   const courseIds = (student.enrolledCourses || []).map((id) => new mongoose.Types.ObjectId(id));
   if (!courseIds.length) {
-    return ApiResponse.success(res, { totalCourses: 0, totalDurationSeconds: 0, totalActiveSeconds: 0, averageScore: null, completedCourses: 0, inProgressCourses: 0, notStartedCourses: 0, courses: [] });
+    return ApiResponse.success(res, { totalCourses: 0, totalDurationSeconds: 0, totalActiveSeconds: 0, averageScore: 0, correctAnswers: 0, totalQuestions: 0, completedCourses: 0, inProgressCourses: 0, notStartedCourses: 0, courses: [] });
   }
 
   const [courses, progressDocs, quizRows, sessionRows] = await Promise.all([
-    Course.find({ _id: { $in: courseIds } })
-      .select('_id title syllabus status level category')
-      .lean(),
-    Progress.find({ student: studentId, course: { $in: courseIds } })
-      .select('course completedLessons completedQuizzes completedAssignments totalItems lastAccessed status')
-      .lean(),
+    Course.find({ _id: { $in: courseIds } }).select('_id title syllabus status level category').lean(),
+    Progress.find({ student: studentId, course: { $in: courseIds } }).select('course completedLessons completedQuizzes completedAssignments totalItems lastAccessed status').lean(),
     QuizAttempt.aggregate([
       { $match: { student: new mongoose.Types.ObjectId(studentId), course: { $in: courseIds } } },
-      { $group: { _id: '$course', averageScore: { $avg: '$percentage' }, attempts: { $sum: 1 }, passed: { $sum: { $cond: ['$passed', 1, 0] } }, lastAttemptAt: { $max: '$createdAt' } } },
+      { $project: {
+        course: 1,
+        createdAt: 1,
+        passed: 1,
+        answers: 1,
+        percentage: 1,
+        attempts: { $literal: 1 },
+        correctAnswers: { $size: { $filter: { input: '$answers', as: 'answer', cond: { $eq: ['$$answer.correct', true] } } } },
+        totalQuestions: { $size: '$answers' },
+      } },
+      { $group: {
+        _id: '$course',
+        averageScore: { $avg: '$percentage' },
+        attempts: { $sum: 1 },
+        passed: { $sum: { $cond: ['$passed', 1, 0] } },
+        correctAnswers: { $sum: '$correctAnswers' },
+        totalQuestions: { $sum: '$totalQuestions' },
+        lastAttemptAt: { $max: '$createdAt' },
+      } },
     ]),
     LearningSession.aggregate([
       { $match: { student: new mongoose.Types.ObjectId(studentId), course: { $in: courseIds } } },
-      { $group: {
-        _id: '$course',
-        activeSeconds: { $sum: '$activeSeconds' },
-        idleSeconds: { $sum: '$idleSeconds' },
-        watchSeconds: { $sum: '$watchSeconds' },
-        sessions: { $sum: 1 },
-        lastSessionAt: { $max: '$startedAt' },
-      } },
+      { $group: { _id: '$course', activeSeconds: { $sum: '$activeSeconds' }, idleSeconds: { $sum: '$idleSeconds' }, watchSeconds: { $sum: '$watchSeconds' }, sessions: { $sum: 1 }, lastSessionAt: { $max: '$startedAt' } } },
     ]),
   ]);
 
@@ -74,45 +81,30 @@ export const getStudentCourseAnalytics = async (req: Request, res: Response): Pr
     const activeSeconds = sessions?.activeSeconds || 0;
     const idleSeconds = sessions?.idleSeconds || 0;
     const totalDurationSeconds = activeSeconds + idleSeconds;
-    const lastAccessed = [safeDate(progress?.lastAccessed), safeDate(sessions?.lastSessionAt), safeDate(quiz?.lastAttemptAt)]
-      .filter((d): d is Date => Boolean(d))
-      .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+    const lastAccessed = [safeDate(progress?.lastAccessed), safeDate(sessions?.lastSessionAt), safeDate(quiz?.lastAttemptAt)].filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0] || null;
+    const totalQuestions = quiz?.totalQuestions || 0;
+    const correctAnswers = quiz?.correctAnswers || 0;
+    const averageScore = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
 
     return {
-      id: course._id,
-      title: course.title,
-      level: course.level,
-      category: course.category,
-      courseStatus: course.status,
-      status,
-      progressPercent,
-      totalDurationSeconds,
-      activeSeconds,
-      idleSeconds,
-      watchSeconds: sessions?.watchSeconds || 0,
-      sessionCount: sessions?.sessions || 0,
-      averageScore: quiz ? Math.round(quiz.averageScore) : null,
-      quizAttempts: quiz?.attempts || 0,
-      quizzesPassed: quiz?.passed || 0,
-      lessonsCompleted: progress?.completedLessons || 0,
-      totalLessons: Array.isArray(course.syllabus) ? course.syllabus.length : 0,
-      completedItems,
-      totalItems,
+      id: course._id, title: course.title, level: course.level, category: course.category, courseStatus: course.status, status,
+      progressPercent, totalDurationSeconds, activeSeconds, idleSeconds, watchSeconds: sessions?.watchSeconds || 0,
+      sessionCount: sessions?.sessions || 0, averageScore, correctAnswers, totalQuestions,
+      quizAttempts: quiz?.attempts || 0, quizzesPassed: quiz?.passed || 0, lessonsCompleted: progress?.completedLessons || 0,
+      totalLessons: Array.isArray(course.syllabus) ? course.syllabus.length : 0, completedItems, totalItems,
       lastAccessed: lastAccessed?.toISOString() || null,
     };
   });
 
+  const totalCorrectAnswers = rows.reduce((sum, row) => sum + row.correctAnswers, 0);
+  const totalQuestions = rows.reduce((sum, row) => sum + row.totalQuestions, 0);
+  const averageScore = totalQuestions > 0 ? Math.round((totalCorrectAnswers / totalQuestions) * 100) : 0;
   const activeRows = rows.filter((row) => row.activeSeconds > 0 || row.watchSeconds > 0 || row.sessionCount > 0);
   const totalDurationSeconds = rows.reduce((sum, row) => sum + row.totalDurationSeconds, 0);
   const totalActiveSeconds = rows.reduce((sum, row) => sum + row.activeSeconds, 0);
-  const scored = rows.filter((row) => row.averageScore != null && row.quizAttempts > 0);
-  const averageScore = scored.length ? Math.round(scored.reduce((sum, row) => sum + (row.averageScore || 0), 0) / scored.length) : null;
 
   return ApiResponse.success(res, {
-    totalCourses: rows.length,
-    totalDurationSeconds,
-    totalActiveSeconds,
-    averageScore,
+    totalCourses: rows.length, totalDurationSeconds, totalActiveSeconds, averageScore, correctAnswers: totalCorrectAnswers, totalQuestions,
     completedCourses: rows.filter((row) => row.status === 'completed').length,
     inProgressCourses: rows.filter((row) => row.status === 'in_progress').length,
     notStartedCourses: rows.filter((row) => row.status === 'not_started').length,
