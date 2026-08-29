@@ -4,7 +4,16 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.json ./
-RUN npm ci --include=dev
+
+# npm registry/network can occasionally reset during Docker builds.
+# Use BuildKit cache + npm retries/timeouts so transient ECONNRESET errors
+# do not fail the deployment immediately.
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --include=dev \
+      --fetch-retries=5 \
+      --fetch-retry-mintimeout=20000 \
+      --fetch-retry-maxtimeout=120000 \
+      --fetch-timeout=300000
 
 COPY src/ ./src/
 COPY scripts/ ./scripts/
@@ -17,7 +26,13 @@ WORKDIR /app
 
 # Install production dependencies only
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev \
+      --fetch-retries=5 \
+      --fetch-retry-mintimeout=20000 \
+      --fetch-retry-maxtimeout=120000 \
+      --fetch-timeout=300000 \
+    && npm cache clean --force
 
 # Copy compiled output from builder
 COPY --from=builder /app/dist ./dist
