@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import * as activityController from '../../controllers/learning-activity.controller';
 import * as sessionController from '../../controllers/learning-session.controller';
+import * as courseAnalyticsController from '../../controllers/student-course-analytics.controller';
 import { sessionAnalyticsOverride } from '../../middleware/session-analytics-override.middleware';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, anyAuthenticatedUser } from '../../middleware/role.middleware';
@@ -24,6 +25,7 @@ router.get('/roster', asyncHandler(activityController.getRoster));
 router.get('/timeline/:studentId', asyncHandler(activityController.getTimeline));
 router.get('/analytics/:studentId', sessionAnalyticsOverride, asyncHandler(activityController.getAnalytics));
 router.get('/session-analytics/:studentId', asyncHandler(sessionController.getStudentAnalytics));
+router.get('/course-analytics/:studentId', asyncHandler(courseAnalyticsController.getStudentCourseAnalytics));
 router.get('/export/:studentId', asyncHandler(activityController.exportTimeline as any));
 
 export default router;
