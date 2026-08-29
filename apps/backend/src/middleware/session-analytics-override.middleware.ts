@@ -2,11 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import LearningSession from '../models/learning-session.model';
 
-/**
- * Backward-compatible bridge: the existing Student Activity UI already calls
- * /analytics/:studentId. Until that page is fully migrated to session data,
- * replace only its time metrics with server-authoritative session metrics.
- */
+/** Backward-compatible bridge from legacy activity durations to authoritative sessions. */
 export async function sessionAnalyticsOverride(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const sid = new mongoose.Types.ObjectId(req.params.studentId);
@@ -22,23 +18,25 @@ export async function sessionAnalyticsOverride(req: Request, res: Response, next
       ]),
     ]);
 
+    const sessionCount = summary[0]?.sessions || 0;
     const originalJson = res.json.bind(res);
     res.json = ((body: any) => {
-      if (body?.data) {
-        const s = summary[0] || { activeSeconds: 0, idleSeconds: 0, watchSeconds: 0, sessions: 0 };
+      if (body?.data && sessionCount > 0) {
+        const s = summary[0];
         body.data.totalStudyTimeSeconds = s.activeSeconds;
         body.data.dailyStudyTime = daily.map((d: any) => ({ date: d._id, seconds: d.activeSeconds }));
         body.data.activeStudyTimeSeconds = s.activeSeconds;
         body.data.idleTimeSeconds = s.idleSeconds;
         body.data.videoWatchTimeSeconds = s.watchSeconds;
-        body.data.learningSessionCount = s.sessions;
-        body.data.durationSource = s.sessions > 0 ? 'learning_sessions' : 'legacy_activity_events';
+        body.data.learningSessionCount = sessionCount;
+        body.data.durationSource = 'learning_sessions';
+      } else if (body?.data) {
+        body.data.durationSource = 'legacy_activity_events';
       }
       return originalJson(body);
     }) as Response['json'];
     next();
   } catch {
-    // Analytics must remain available even if the optional session bridge fails.
     next();
   }
 }
