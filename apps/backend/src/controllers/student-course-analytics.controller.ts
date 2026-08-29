@@ -29,7 +29,7 @@ export const getStudentCourseAnalytics = async (req: Request, res: Response): Pr
 
   const courseIds = (student.enrolledCourses || []).map((id) => new mongoose.Types.ObjectId(id));
   if (!courseIds.length) {
-    return ApiResponse.success(res, { totalCourses: 0, totalDurationSeconds: 0, totalActiveSeconds: 0, averageScore: 0, correctAnswers: 0, totalQuestions: 0, completedCourses: 0, inProgressCourses: 0, notStartedCourses: 0, courses: [] });
+    return ApiResponse.success(res, { totalCourses: 0, totalDurationSeconds: 0, totalActiveSeconds: 0, averageScore: null, correctAnswers: 0, totalQuestions: 0, completedCourses: 0, inProgressCourses: 0, notStartedCourses: 0, courses: [] });
   }
 
   const [courses, progressDocs, quizRows, sessionRows] = await Promise.all([
@@ -84,7 +84,7 @@ export const getStudentCourseAnalytics = async (req: Request, res: Response): Pr
     const lastAccessed = [safeDate(progress?.lastAccessed), safeDate(sessions?.lastSessionAt), safeDate(quiz?.lastAttemptAt)].filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0] || null;
     const totalQuestions = quiz?.totalQuestions || 0;
     const correctAnswers = quiz?.correctAnswers || 0;
-    const averageScore = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+    const averageScore = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : null;
 
     return {
       id: course._id, title: course.title, level: course.level, category: course.category, courseStatus: course.status, status,
@@ -98,7 +98,7 @@ export const getStudentCourseAnalytics = async (req: Request, res: Response): Pr
 
   const totalCorrectAnswers = rows.reduce((sum, row) => sum + row.correctAnswers, 0);
   const totalQuestions = rows.reduce((sum, row) => sum + row.totalQuestions, 0);
-  const averageScore = totalQuestions > 0 ? Math.round((totalCorrectAnswers / totalQuestions) * 100) : 0;
+  const averageScore = totalQuestions > 0 ? Math.round((totalCorrectAnswers / totalQuestions) * 100) : null;
   const activeRows = rows.filter((row) => row.activeSeconds > 0 || row.watchSeconds > 0 || row.sessionCount > 0);
   const totalDurationSeconds = rows.reduce((sum, row) => sum + row.totalDurationSeconds, 0);
   const totalActiveSeconds = rows.reduce((sum, row) => sum + row.activeSeconds, 0);

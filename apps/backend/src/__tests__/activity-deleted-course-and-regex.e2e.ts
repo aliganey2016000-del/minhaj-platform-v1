@@ -115,6 +115,12 @@ async function main() {
   assert(progressRows.some((p) => p.course === 'Introduction to Politics'), `live course shows its real title (got ${JSON.stringify(progressRows.map((p) => p.course))})`);
   assert(progressRows.some((p) => p.course === 'Deleted course'), `dangling course shows "Deleted course", not the generic "Unknown" (got ${JSON.stringify(progressRows.map((p) => p.course))})`);
 
+  const courseAnalyticsRes = await request(app).get(`/api/v1/activity/course-analytics/${student._id}`).set('Authorization', `Bearer ${orgAdminToken}`);
+  assert(courseAnalyticsRes.status === 200, `course analytics request succeeds (status ${courseAnalyticsRes.status})`);
+  const courseAnalytics = courseAnalyticsRes.body?.data || {};
+  assert(courseAnalytics.averageScore === null, `overall average score is null when there are zero quiz attempts (got ${courseAnalytics.averageScore})`);
+  assert(courseAnalytics.courses?.[0]?.averageScore === null, `course average score is null when there are zero quiz attempts (got ${courseAnalytics.courses?.[0]?.averageScore})`);
+
   // -------------------------------------------------------------------
   section('REGEX SAFETY — a "+"-containing search no longer 500s across the fixed endpoints');
   // -------------------------------------------------------------------
