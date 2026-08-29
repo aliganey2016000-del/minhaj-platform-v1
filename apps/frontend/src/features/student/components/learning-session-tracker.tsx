@@ -34,12 +34,16 @@ export function LearningSessionTracker() {
     let cancelled = false;
     const sessionId = `web-${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const kind = 'lesson' as const;
+    const courseMatch = pathname.match(/\/student\/courses\/([^/]+)\/learn/i);
+    const courseId = courseMatch?.[1];
 
     const start = async () => {
       try {
         await api.post('/activity/session/start', {
           clientSessionId: sessionId,
           kind,
+          course: courseId,
+          lessonTitle: document.title,
           resourceName: document.title,
           metadata: { path: pathname },
         });
