@@ -5,7 +5,6 @@ interface RosterRow {
   _id: string;
   studentId: string;
   name: string;
-  email?: string;
   online: boolean;
   lastSeenAt: string | null;
 }
@@ -14,14 +13,10 @@ interface ActivityEvent {
   _id: string;
   type: string;
   loginSessionId?: string;
-  course?: { _id?: string; title?: { en?: string } };
-  lessonId?: string;
+  course?: { _id?: string; title?: { en?: string } } | null;
   lessonTitle?: string;
   resourceName?: string;
   status?: string;
-  percent?: number;
-  durationSeconds?: number;
-  metadata?: Record<string, any>;
   createdAt: string;
 }
 
@@ -29,8 +24,6 @@ interface SessionRow {
   _id: string;
   loginSessionId?: string;
   kind: string;
-  course?: string;
-  lessonId?: string;
   lessonTitle?: string;
   resourceName?: string;
   startedAt: string;
@@ -46,7 +39,6 @@ interface SessionAnalytics {
   totalIdleSeconds: number;
   totalWatchSeconds: number;
   sessionCount: number;
-  byKind: Array<{ kind: string; activeSeconds: number; watchSeconds: number; sessions: number }>;
   daily: Array<{ date: string; activeSeconds: number; watchSeconds: number }>;
   sessions: SessionRow[];
 }
@@ -54,6 +46,40 @@ interface SessionAnalytics {
 interface Analytics {
   avgQuizScore: number | null;
   learningStreakDays: number;
+}
+
+interface CourseRow {
+  id: string;
+  title: { en?: string; so?: string; ar?: string };
+  level?: string;
+  category?: string;
+  status: 'completed' | 'in_progress' | 'not_started';
+  progressPercent: number;
+  totalDurationSeconds: number;
+  activeSeconds: number;
+  idleSeconds: number;
+  watchSeconds: number;
+  sessionCount: number;
+  averageScore: number | null;
+  quizAttempts: number;
+  quizzesPassed: number;
+  lessonsCompleted: number;
+  totalLessons: number;
+  completedItems: number;
+  totalItems: number;
+  lastAccessed: string | null;
+}
+
+interface CourseAnalytics {
+  totalCourses: number;
+  totalDurationSeconds: number;
+  totalActiveSeconds: number;
+  averageScore: number | null;
+  completedCourses: number;
+  inProgressCourses: number;
+  notStartedCourses: number;
+  activeCourses: number;
+  courses: CourseRow[];
 }
 
 const fmt = (seconds = 0) => {
@@ -64,56 +90,18 @@ const fmt = (seconds = 0) => {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 };
 
-const dateTime = (value?: string) => value
+const dateTime = (value?: string | null) => value
   ? new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
   : '—';
 
-const timeOnly = (value?: string) => value
+const timeOnly = (value?: string | null) => value
   ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   : '—';
-
-const normalize = (value?: string) => (value || '').trim().toLowerCase();
 
 function spanSeconds(start?: string, end?: string) {
   if (!start) return 0;
   const finish = end ? new Date(end).getTime() : Date.now();
   return Math.max(0, Math.floor((finish - new Date(start).getTime()) / 1000));
-}
-
-function eventInterval(event: ActivityEvent) {
-  const start = event.metadata?.startTime || event.metadata?.startedAt || event.createdAt;
-  const end = event.metadata?.endTime || event.metadata?.endedAt || (
-    event.durationSeconds
-      ? new Date(new Date(event.createdAt).getTime() + event.durationSeconds * 1000).toISOString()
-      : event.createdAt
-  );
-  return { start: String(start), end: String(end) };
-}
-
-function isQuizEvent(event: ActivityEvent) {
-  return /quiz|assessment|attempt|submission|passed|failed/i.test(event.type)
-    || event.metadata?.score != null
-    || event.metadata?.totalPoints != null;
-}
-
-/**
- * Only events belonging to THIS lesson visit are allowed into its details.
- * When a login session id exists, it is mandatory; this prevents attempts from
- * a previous login/session from appearing inside the current lesson card.
- */
-function matchesSession(event: ActivityEvent, session: SessionRow) {
-  if (session.loginSessionId && event.loginSessionId !== session.loginSessionId) return false;
-  if (session.course && event.course?._id && session.course !== event.course._id) return false;
-  if (session.lessonId && event.lessonId && session.lessonId !== event.lessonId) return false;
-
-  const eventTitle = normalize(event.lessonTitle || event.resourceName);
-  const sessionTitle = normalize(session.lessonTitle || session.resourceName);
-  if (eventTitle && sessionTitle) return eventTitle === sessionTitle;
-
-  const at = new Date(event.createdAt).getTime();
-  const start = new Date(session.startedAt).getTime();
-  const end = new Date(session.endedAt || Date.now()).getTime();
-  return at >= start - 30000 && at <= end + 30000;
 }
 
 export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) {
@@ -124,9 +112,10 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [sessions, setSessions] = useState<SessionAnalytics | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [courses, setCourses] = useState<CourseAnalytics | null>(null);
   const [loading, setLoading] = useState(false);
   const [range, setRange] = useState('last30');
-  const [tab, setTab] = useState<'overview' | 'sessions' | 'events'>('overview');
+  const [tab, setTab] = useState<'overview' | 'courses' | 'events'>('courses');
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const loadRoster = useCallback(async () => {
@@ -143,18 +132,21 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
   const loadStudent = useCallback(async (studentId: string) => {
     setLoading(true);
     try {
-      const [analyticsResponse, sessionResponse, timelineResponse] = await Promise.all([
+      const [analyticsResponse, sessionResponse, courseResponse, timelineResponse] = await Promise.all([
         api.get(`/activity/analytics/${studentId}`),
         api.get(`/activity/session-analytics/${studentId}`),
+        api.get(`/activity/course-analytics/${studentId}`),
         api.get(`/activity/timeline/${studentId}`, { params: { limit: 200 } }),
       ]);
       setAnalytics(analyticsResponse.data.data || null);
       setSessions(sessionResponse.data.data || null);
+      setCourses(courseResponse.data.data || null);
       setEvents(timelineResponse.data.data || []);
       setExpanded(null);
     } catch {
       setAnalytics(null);
       setSessions(null);
+      setCourses(null);
       setEvents([]);
     } finally {
       setLoading(false);
@@ -173,68 +165,14 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
 
   const loginSequence = useMemo(() => {
     const map = new Map<string, number>();
-    const ordered = [...events]
+    [...events]
       .filter((event) => event.type === 'login' && event.loginSessionId)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    ordered.forEach((event) => {
-      if (event.loginSessionId && !map.has(event.loginSessionId)) map.set(event.loginSessionId, map.size + 1);
-    });
-
-    const sessionIds = [...new Set((sessions?.sessions || []).map((session) => session.loginSessionId).filter(Boolean) as string[])];
-    sessionIds.sort((a, b) => {
-      const sa = sessions?.sessions.find((s) => s.loginSessionId === a)?.startedAt || '';
-      const sb = sessions?.sessions.find((s) => s.loginSessionId === b)?.startedAt || '';
-      return new Date(sa).getTime() - new Date(sb).getTime();
-    });
-    sessionIds.forEach((id) => { if (!map.has(id)) map.set(id, map.size + 1); });
-    return map;
-  }, [events, sessions]);
-
-  const lessonCards = useMemo(() => {
-    if (!sessions) return [];
-    return [...sessions.sessions]
-      .filter((session) => session.kind === 'lesson' || session.lessonTitle || session.resourceName)
-      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
-      .map((session) => {
-        const related = events
-          .filter((event) => matchesSession(event, session))
-          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-        const quizzes = related.filter(isQuizEvent);
-        const videos = related.filter((event) => /video|audio/i.test(event.type));
-        const courseTitle = related.find((event) => event.course?.title?.en)?.course?.title?.en || 'Course';
-
-        const scores = quizzes
-          .map((event) => {
-            if (typeof event.percent === 'number') return event.percent;
-            const score = Number(event.metadata?.score);
-            const total = Number(event.metadata?.totalPoints);
-            return Number.isFinite(score) && Number.isFinite(total) && total > 0 ? (score / total) * 100 : null;
-          })
-          .filter((score): score is number => typeof score === 'number' && Number.isFinite(score));
-
-        const progress = related.reduce((max, event) => Math.max(max, typeof event.percent === 'number' ? event.percent : 0), 0);
-
-        return {
-          session,
-          related,
-          quizzes,
-          videos,
-          courseTitle,
-          averageScore: scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null,
-          progress,
-          loginNumber: session.loginSessionId ? loginSequence.get(session.loginSessionId) : undefined,
-        };
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .forEach((event) => {
+        if (event.loginSessionId && !map.has(event.loginSessionId)) map.set(event.loginSessionId, map.size + 1);
       });
-  }, [sessions, events, loginSequence]);
-
-  const timeline = useMemo(() => {
-    const rows: Array<{ id: string; at: string; type: 'login' | 'logout' | 'lesson'; event?: ActivityEvent; card?: typeof lessonCards[number] }> = [];
-    events.filter((event) => event.type === 'login' || event.type === 'logout').forEach((event) => {
-      rows.push({ id: `event-${event._id}`, at: event.createdAt, type: event.type as 'login' | 'logout', event });
-    });
-    lessonCards.forEach((card) => rows.push({ id: `lesson-${card.session._id}`, at: card.session.startedAt, type: 'lesson', card }));
-    return rows.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-  }, [events, lessonCards]);
+    return map;
+  }, [events]);
 
   const exportSessions = () => {
     if (!sessions || !student) return;
@@ -254,21 +192,27 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     URL.revokeObjectURL(url);
   };
 
-  const summaryCards = [
-    ['Active study', fmt(sessions?.totalActiveSeconds)],
-    ['Video/audio watched', fmt(sessions?.totalWatchSeconds)],
-    ['Idle', fmt(sessions?.totalIdleSeconds)],
-    ['Sessions', String(sessions?.sessionCount || 0)],
-    ['Quiz score', analytics?.avgQuizScore != null ? `${Math.round(analytics.avgQuizScore)}%` : '—'],
-    ['Streak', `${analytics?.learningStreakDays || 0}d`],
-  ];
+  const summaryCards = courses ? [
+    ['Total courses', String(courses.totalCourses)],
+    ['Total duration', fmt(courses.totalDurationSeconds)],
+    ['Average score', courses.averageScore != null ? `${courses.averageScore}%` : '—'],
+    ['Completed', String(courses.completedCourses)],
+    ['In progress', String(courses.inProgressCourses)],
+    ['Not started', String(courses.notStartedCourses)],
+  ] : [];
+
+  const statusMeta = {
+    completed: { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
+    in_progress: { label: 'In Progress', cls: 'bg-blue-50 text-blue-700', dot: 'bg-blue-500' },
+    not_started: { label: 'Not Started', cls: 'bg-slate-100 text-slate-600', dot: 'bg-slate-400' },
+  } as const;
 
   return (
     <div className="p-4 sm:p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-screen-2xl space-y-6">
         <header>
           <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">📊 Student Activity</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Chronological login activity with one compact card for every lesson visit.</p>
+          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Course-level learning performance from server-tracked student data.</p>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5">
@@ -306,77 +250,58 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                 </div>
 
                 <div className="flex max-w-full overflow-x-auto gap-1 rounded-xl bg-[var(--color-surface-secondary)] p-1 w-fit">
-                  {(['overview', 'sessions', 'events'] as const).map((name) => <button key={name} type="button" onClick={() => setTab(name)} className={`shrink-0 rounded-lg px-4 py-2 text-xs font-semibold ${tab === name ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>{name === 'events' ? 'Activity Events' : name === 'sessions' ? 'Learning sessions' : 'Overview'}</button>)}
+                  {(['overview', 'courses', 'events'] as const).map((name) => <button key={name} type="button" onClick={() => setTab(name)} className={`shrink-0 rounded-lg px-4 py-2 text-xs font-semibold ${tab === name ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>{name === 'events' ? 'Activity Events' : name === 'courses' ? 'Learning by course' : 'Overview'}</button>)}
                 </div>
 
                 {tab === 'overview' && (
                   <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-5">
                     <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
-                      <h3 className="font-bold">Daily learning</h3><p className="text-xs text-[var(--color-text-tertiary)] mt-1">Active study vs media watch time.</p>
-                      <div className="mt-5 space-y-3">{visibleDaily.length ? visibleDaily.map((item) => { const max = Math.max(1, ...visibleDaily.map((entry) => entry.activeSeconds)); const percent = Math.round((item.activeSeconds / max) * 100); return <div key={item.date}><div className="flex justify-between text-xs mb-1"><span>{item.date}</span><b>{fmt(item.activeSeconds)}</b></div><div className="h-2 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden"><div className="h-full rounded-full bg-primary-500" style={{ width: `${percent}%` }} /></div></div>; }) : <p className="text-sm text-[var(--color-text-tertiary)]">No session data yet.</p>}</div>
+                      <h3 className="font-bold">Learning summary</h3><p className="text-xs text-[var(--color-text-tertiary)] mt-1">Real tracked time, score and course completion.</p>
+                      <div className="mt-5 grid grid-cols-2 gap-3">{[
+                        ['Active study', fmt(courses?.totalActiveSeconds)], ['Video watched', fmt(sessions?.totalWatchSeconds)],
+                        ['Sessions', String(sessions?.sessionCount || 0)], ['Streak', `${analytics?.learningStreakDays || 0}d`],
+                      ].map(([label, value]) => <div key={label} className="rounded-xl bg-[var(--color-surface-secondary)] p-4"><span className="text-xs text-[var(--color-text-tertiary)]">{label}</span><p className="mt-1 font-bold">{value}</p></div>)}</div>
                     </section>
-                    <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card"><h3 className="font-bold">By learning type</h3><div className="mt-4 space-y-3">{sessions?.byKind.map((item) => <div key={item.kind} className="flex items-center justify-between rounded-xl bg-[var(--color-surface-secondary)] p-3"><div><b className="capitalize text-sm">{item.kind}</b><p className="text-xs text-[var(--color-text-tertiary)]">{item.sessions} session{item.sessions === 1 ? '' : 's'}</p></div><div className="text-right"><b>{fmt(item.activeSeconds)}</b><p className="text-[10px] text-[var(--color-text-tertiary)]">watch {fmt(item.watchSeconds)}</p></div></div>)}</div></section>
+                    <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card"><h3 className="font-bold">Daily learning</h3><div className="mt-4 space-y-3">{visibleDaily.length ? visibleDaily.map((item) => { const max = Math.max(1, ...visibleDaily.map((entry) => entry.activeSeconds)); return <div key={item.date}><div className="flex justify-between text-xs mb-1"><span>{item.date}</span><b>{fmt(item.activeSeconds)}</b></div><div className="h-2 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden"><div className="h-full rounded-full bg-primary-500" style={{ width: `${Math.round((item.activeSeconds / max) * 100)}%` }} /></div></div>; }) : <p className="text-sm text-[var(--color-text-tertiary)]">No session data yet.</p>}</div></section>
                   </div>
                 )}
 
-                {tab === 'sessions' && (
+                {tab === 'courses' && (
                   <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden">
-                    <div className="p-4 border-b border-[var(--color-border-subtle)]"><h3 className="font-bold">Learning sessions</h3><p className="text-xs text-[var(--color-text-tertiary)]">Each lesson visit is an independent server-tracked session.</p></div>
-                    <div className="divide-y divide-[var(--color-border-subtle)]">{sessions?.sessions.map((session) => <button key={session._id} type="button" onClick={() => setExpanded(expanded === session._id ? null : session._id)} className="w-full text-left p-4 hover:bg-[var(--color-surface-secondary)]"><div className="flex flex-wrap items-start justify-between gap-2"><div><b>{session.lessonTitle || session.resourceName || 'Learning session'}</b><div className="text-xs text-[var(--color-text-tertiary)] mt-1">{dateTime(session.startedAt)} · {session.status}</div></div><span className="text-xs font-semibold">Total {fmt(spanSeconds(session.startedAt, session.endedAt))}</span></div><div className="mt-3 grid grid-cols-3 gap-2 text-xs"><span>Active<br /><b>{fmt(session.activeSeconds)}</b></span><span>Video<br /><b>{fmt(session.watchSeconds)}</b></span><span>Idle<br /><b>{fmt(session.idleSeconds)}</b></span></div>{expanded === session._id && <div className="mt-3 rounded-xl bg-[var(--color-surface-secondary)] p-3 text-xs"><div>Login session: <b>{session.loginSessionId ? `#${loginSequence.get(session.loginSessionId) || '—'}` : 'Legacy'}</b></div><div>Started: <b>{dateTime(session.startedAt)}</b></div><div>Ended: <b>{dateTime(session.endedAt)}</b></div></div>}</button>)}</div>
-                    {!sessions?.sessions.length && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No learning sessions recorded yet.</p>}
+                    <div className="p-5 border-b border-[var(--color-border-subtle)]"><h3 className="text-xl font-bold">Learning by course</h3><p className="text-sm text-[var(--color-text-tertiary)] mt-1">Every enrolled course with real duration, progress, quiz performance and latest activity.</p></div>
+                    <div className="divide-y divide-[var(--color-border-subtle)]">
+                      {courses?.courses.map((course) => {
+                        const meta = statusMeta[course.status];
+                        const title = course.title?.en || course.title?.so || course.title?.ar || 'Untitled course';
+                        return <article key={course.id} className="p-5 sm:p-6 hover:bg-[var(--color-surface-secondary)]/50 transition-colors">
+                          <div className="flex flex-wrap items-start justify-between gap-4">
+                            <div className="flex min-w-0 gap-4">
+                              <div className="h-12 w-12 shrink-0 rounded-2xl bg-primary-50 text-primary-700 grid place-items-center text-xl">📚</div>
+                              <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h4 className="text-lg font-bold break-words">{title}</h4><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${meta.cls}`}><span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />{meta.label}</span></div><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{course.category || 'Course'} · {course.level || 'Level not set'}</p></div>
+                            </div>
+                            <div className="text-right"><div className="text-2xl font-extrabold">{course.averageScore != null ? `${course.averageScore}%` : '—'}</div><span className="text-[10px] text-[var(--color-text-tertiary)]">Average score</span></div>
+                          </div>
+
+                          <div className="mt-5"><div className="flex justify-between text-xs mb-2"><span className="font-semibold">Course progress</span><b>{course.progressPercent}%</b></div><div className="h-2.5 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden"><div className="h-full rounded-full bg-primary-500 transition-all" style={{ width: `${Math.min(100, Math.max(0, course.progressPercent))}%` }} /></div></div>
+
+                          <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                            {[['Total duration', fmt(course.totalDurationSeconds)], ['Study time', fmt(course.activeSeconds)], ['Video watched', fmt(course.watchSeconds)], ['Lessons', `${course.lessonsCompleted}/${course.totalLessons || '—'}`], ['Quiz attempts', String(course.quizAttempts)], ['Sessions', String(course.sessionCount)]].map(([label, value]) => <div key={label} className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><span className="block text-[10px] uppercase font-bold tracking-wide text-[var(--color-text-tertiary)]">{label}</span><b className="block mt-1 text-sm">{value}</b></div>)}
+                          </div>
+
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--color-text-tertiary)]"><span>Completed items: <b className="text-[var(--color-text-primary)]">{course.completedItems}/{course.totalItems || '—'}</b></span><span>Passed quizzes: <b className="text-[var(--color-text-primary)]">{course.quizzesPassed}</b></span><span>Last activity: <b className="text-[var(--color-text-primary)]">{dateTime(course.lastAccessed)}</b></span></div>
+                        </article>;
+                      })}
+                      {!courses?.courses.length && <p className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">No enrolled courses found for this student.</p>}
+                    </div>
                   </section>
                 )}
 
                 {tab === 'events' && (
                   <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden">
-                    <div className="p-4 border-b border-[var(--color-border-subtle)]"><h3 className="font-bold">Activity Events</h3><p className="text-xs text-[var(--color-text-tertiary)] mt-1">Click a lesson to see only what happened during that exact lesson visit.</p></div>
+                    <div className="p-5 border-b border-[var(--color-border-subtle)]"><h3 className="font-bold">Activity Events</h3><p className="text-xs text-[var(--color-text-tertiary)] mt-1">Server-recorded events and learning sessions.</p></div>
                     <div className="divide-y divide-[var(--color-border-subtle)]">
-                      {timeline.map((row) => {
-                        if (row.type === 'login' || row.type === 'logout') {
-                          const number = row.event?.loginSessionId ? loginSequence.get(row.event.loginSessionId) : undefined;
-                          return <div key={row.id} className="p-4 flex items-center gap-4"><div className={`h-9 w-9 rounded-full flex items-center justify-center ${row.type === 'login' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{row.type === 'login' ? '↪' : '↩'}</div><div><b className="text-sm capitalize">{row.type}</b><p className="text-xs text-[var(--color-text-tertiary)]">{timeOnly(row.at)} · {dateTime(row.at)}{number ? ` · Login session #${number}` : ''}</p></div></div>;
-                        }
-
-                        const card = row.card!;
-                        const session = card.session;
-                        const isOpen = expanded === session._id;
-                        return <div key={row.id} className="p-4 sm:p-5 bg-[var(--color-surface-secondary)]/40">
-                          <button type="button" onClick={() => setExpanded(isOpen ? null : session._id)} className="w-full text-left rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 sm:p-5 shadow-sm hover:shadow-md transition-shadow">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary-700">Lesson</span>{card.loginNumber && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold">Login session #{card.loginNumber}</span>}</div>
-                                <h4 className="mt-2 text-base sm:text-lg font-bold break-words">{card.courseTitle} · {session.lessonTitle || session.resourceName || 'Lesson'}</h4>
-                              </div>
-                              <span className="shrink-0 text-xs font-semibold text-[var(--color-text-tertiary)]">{isOpen ? 'Hide details ↑' : 'View details ↓'}</span>
-                            </div>
-
-                            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                              <div><span className="text-[var(--color-text-tertiary)]">Start</span><br /><b>{timeOnly(session.startedAt)}</b></div>
-                              <div><span className="text-[var(--color-text-tertiary)]">End</span><br /><b>{timeOnly(session.endedAt)}</b></div>
-                              <div><span className="text-[var(--color-text-tertiary)]">Total duration</span><br /><b>{fmt(spanSeconds(session.startedAt, session.endedAt))}</b></div>
-                              <div><span className="text-[var(--color-text-tertiary)]">Average score</span><br /><b>{card.averageScore != null ? `${Math.round(card.averageScore)}%` : '—'}</b></div>
-                            </div>
-
-                            {isOpen && <div className="mt-5 border-t border-[var(--color-border-subtle)] pt-5" onClick={(event) => event.stopPropagation()}>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                                <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><span>Active study</span><br /><b>{fmt(session.activeSeconds)}</b></div>
-                                <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><span>Video/audio watched</span><br /><b>{fmt(session.watchSeconds)}</b></div>
-                                <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><span>Quiz attempts</span><br /><b>{card.quizzes.length}</b></div>
-                                <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><span>Progress</span><br /><b>{Math.round(card.progress)}%</b></div>
-                              </div>
-
-                              <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
-                                <div className="rounded-xl border border-[var(--color-border-subtle)] p-4"><h5 className="font-bold text-sm">Video / audio</h5>{card.videos.length ? <div className="mt-2 space-y-2">{card.videos.map((event) => { const interval = eventInterval(event); return <div key={event._id} className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-xs"><div>{timeOnly(interval.start)} → {timeOnly(interval.end)}</div><b>{event.type.replace(/_/g, ' ')}</b>{event.durationSeconds != null ? ` · ${fmt(event.durationSeconds)}` : ''}</div>; })}</div> : <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">No video/audio event recorded.</p>}<p className="mt-3 text-xs">Total watched: <b>{fmt(session.watchSeconds)}</b></p></div>
-
-                                <div className="rounded-xl border border-[var(--color-border-subtle)] p-4"><h5 className="font-bold text-sm">Quiz attempts</h5>{card.quizzes.length ? <div className="mt-2 space-y-2">{card.quizzes.map((event, index) => { const interval = eventInterval(event); const score = Number(event.metadata?.score); const total = Number(event.metadata?.totalPoints); const percent = typeof event.percent === 'number' ? event.percent : Number.isFinite(score) && Number.isFinite(total) && total > 0 ? (score / total) * 100 : null; return <div key={event._id} className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-xs"><div className="font-semibold">Attempt {index + 1}</div><div>{timeOnly(interval.start)} → {timeOnly(interval.end)}</div><div className="mt-1">Score: <b>{percent != null ? `${Math.round(percent)}%` : '—'}</b>{Number.isFinite(score) && Number.isFinite(total) && total > 0 ? ` (${score}/${total})` : ''}</div><div>Status: <b className="capitalize">{event.status || 'recorded'}</b></div></div>; })}</div> : <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">No quiz attempts in this lesson visit.</p>}</div>
-
-                                <div className="rounded-xl border border-[var(--color-border-subtle)] p-4"><h5 className="font-bold text-sm">Progress & interval</h5><p className="mt-2 text-xs">{dateTime(session.startedAt)} → {dateTime(session.endedAt)}</p><p className="mt-2 text-xs">Active: <b>{fmt(session.activeSeconds)}</b> · Idle: <b>{fmt(session.idleSeconds)}</b></p><div className="mt-3 h-2 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden"><div className="h-full rounded-full bg-primary-500" style={{ width: `${Math.min(100, Math.max(0, card.progress))}%` }} /></div><p className="mt-1 text-xs">Progress {Math.round(card.progress)}%</p></div>
-                              </div>
-                            </div>}
-                          </button>
-                        </div>;
-                      })}
-                      {!timeline.length && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No activity events recorded yet.</p>}
+                      {events.map((event) => <div key={event._id} className="p-4 flex items-start gap-3"><div className="h-9 w-9 shrink-0 rounded-full bg-primary-50 text-primary-700 grid place-items-center">•</div><div className="min-w-0"><b className="text-sm capitalize">{event.type.replace(/_/g, ' ')}</b><p className="text-xs text-[var(--color-text-tertiary)]">{dateTime(event.createdAt)}{event.course?.title?.en ? ` · ${event.course.title.en}` : ''}{event.lessonTitle ? ` · ${event.lessonTitle}` : ''}</p></div></div>)}
+                      {!events.length && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No activity events recorded yet.</p>}
                     </div>
                   </section>
                 )}
