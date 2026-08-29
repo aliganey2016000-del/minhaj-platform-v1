@@ -244,6 +244,21 @@ function studentLabel(s: StudentBrief): string {
   return `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim() || s.studentId;
 }
 
+function getStudentFeeSummary(student: Partial<StudentBrief> | null | undefined) {
+  const totalFeesPaid = Number(student?.totalFeesPaid ?? 0);
+  const totalFeesDue = Number(student?.totalFeesDue ?? 0);
+  const totalFeesSet = Number(student?.totalFees ?? 0);
+  const totalFees = totalFeesSet > 0 ? totalFeesSet : totalFeesPaid + totalFeesDue;
+  const discount = Number(student?.discount ?? 0);
+
+  return {
+    totalFees,
+    totalFeesPaid,
+    totalFeesDue,
+    discount,
+  };
+}
+
 function StudentSearchPicker({ value, onSelect }: { value: StudentBrief | null; onSelect: (s: StudentBrief | null) => void }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<StudentBrief[]>([]);
@@ -393,6 +408,7 @@ export function PaymentsRecord() {
   const idempotencyKeyRef = useRef(crypto.randomUUID());
 
   const isValid = !!selectedStudent && !!recordAmount && Number(recordAmount) > 0;
+  const selectedFeeSummary = getStudentFeeSummary(selectedStudent);
 
   useEffect(() => {
     (async () => {
@@ -432,6 +448,15 @@ export function PaymentsRecord() {
       idempotencyKeyRef.current = crypto.randomUUID();
       const bal = data.data?.balance;
       const payment = data.data?.payment;
+      const derivedBalance = {
+        totalFees: Number(bal?.totalFees ?? 0),
+        totalPaid: Number(bal?.totalPaid ?? 0),
+        totalDue: Number(bal?.totalDue ?? 0),
+        discount: Number(bal?.discount ?? 0),
+      };
+      if (derivedBalance.totalFees <= 0) {
+        derivedBalance.totalFees = derivedBalance.totalPaid + derivedBalance.totalDue;
+      }
 
       const selSchool = schools.find(sc => sc._id === pendingPayment.student.school?._id);
       setInvoiceData({
@@ -448,10 +473,10 @@ export function PaymentsRecord() {
         reference: pendingPayment.reference,
         date: new Date().toLocaleString(),
         notes: pendingPayment.notes,
-        totalFees: bal?.totalFees || 0,
-        totalPaid: bal?.totalPaid || 0,
-        totalDue: bal?.totalDue || 0,
-        discount: bal?.discount || 0,
+        totalFees: derivedBalance.totalFees,
+        totalPaid: derivedBalance.totalPaid,
+        totalDue: derivedBalance.totalDue,
+        discount: derivedBalance.discount,
       });
 
       setMessage(`Payment of $${pendingPayment.amount.toLocaleString()} recorded successfully!`);
@@ -480,19 +505,19 @@ export function PaymentsRecord() {
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Total Fees</p>
-                    <p className="font-bold">${(selectedStudent.totalFees || 0).toLocaleString()}</p>
+                    <p className="font-bold">${selectedFeeSummary.totalFees.toLocaleString()}</p>
                   </div>
                   <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Discount</p>
-                    <p className="font-bold text-amber-600">${(selectedStudent.discount || 0).toLocaleString()}</p>
+                    <p className="font-bold text-amber-600">${selectedFeeSummary.discount.toLocaleString()}</p>
                   </div>
                   <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Paid</p>
-                    <p className="font-bold text-green-600">${(selectedStudent.totalFeesPaid || 0).toLocaleString()}</p>
+                    <p className="font-bold text-green-600">${selectedFeeSummary.totalFeesPaid.toLocaleString()}</p>
                   </div>
                   <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Due</p>
-                    <p className="font-bold text-red-600">${(selectedStudent.totalFeesDue || 0).toLocaleString()}</p>
+                    <p className="font-bold text-red-600">${selectedFeeSummary.totalFeesDue.toLocaleString()}</p>
                   </div>
                 </div>
               )}
@@ -504,8 +529,8 @@ export function PaymentsRecord() {
                 min={0.01} step="0.01" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" placeholder="0.00" required />
               {selectedStudent && (
                 <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
-                  Balance due: ${(selectedStudent.totalFeesDue || 0).toLocaleString()}
-                  {Number(recordAmount) > (selectedStudent.totalFeesDue || 0) && Number(recordAmount) > 0 && (
+                  Balance due: ${selectedFeeSummary.totalFeesDue.toLocaleString()}
+                  {Number(recordAmount) > selectedFeeSummary.totalFeesDue && Number(recordAmount) > 0 && (
                     <span className="text-amber-600 dark:text-amber-400"> — this exceeds the current balance due</span>
                   )}
                 </p>
