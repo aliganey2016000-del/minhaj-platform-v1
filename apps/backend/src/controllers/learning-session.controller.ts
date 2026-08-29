@@ -36,7 +36,6 @@ export const startSession = async (req: Request, res: Response): Promise<Respons
   const { clientSessionId, kind, course, lessonId, lessonTitle, resourceName, metadata } = req.body;
   if (!clientSessionId || typeof clientSessionId !== 'string') throw new BadRequestError('clientSessionId is required.');
   if (!['lesson', 'video', 'audio', 'pdf', 'course', 'general'].includes(kind)) throw new BadRequestError('Invalid session kind.');
-
   const existing = await LearningSession.findOne({ clientSessionId, user: req.user!.userId });
   if (existing) return ApiResponse.success(res, existing, 'Session already exists');
 
@@ -68,9 +67,8 @@ export const startSession = async (req: Request, res: Response): Promise<Respons
 };
 
 export const heartbeat = async (req: Request, res: Response): Promise<Response> => {
-  const { clientSessionId, active, mediaPositionSeconds, playbackDeltaSeconds } = req.body;
+  const { clientSessionId, active, mediaPlaying, mediaPositionSeconds, playbackDeltaSeconds } = req.body;
   if (!clientSessionId) throw new BadRequestError('clientSessionId is required.');
-
   const session = await LearningSession.findOne({ clientSessionId, user: req.user!.userId });
   if (!session) throw new NotFoundError('Learning session');
   if (session.status !== 'active') return ApiResponse.success(res, session, 'Session is no longer active');
@@ -82,7 +80,7 @@ export const heartbeat = async (req: Request, res: Response): Promise<Response> 
   if (elapsed > IDLE_THRESHOLD_SECONDS) session.idleSeconds += elapsed;
   else if (active !== false) {
     session.activeSeconds += bounded;
-    if (session.kind === 'video' || session.kind === 'audio') {
+    if (mediaPlaying === true || session.kind === 'video' || session.kind === 'audio') {
       const playbackDelta = positiveInt(playbackDeltaSeconds);
       session.watchSeconds += Math.min(playbackDelta ?? bounded, MAX_HEARTBEAT_SECONDS);
     }
@@ -96,7 +94,7 @@ export const heartbeat = async (req: Request, res: Response): Promise<Response> 
 };
 
 export const endSession = async (req: Request, res: Response): Promise<Response> => {
-  const { clientSessionId, active } = req.body;
+  const { clientSessionId, active, mediaPlaying, playbackDeltaSeconds } = req.body;
   if (!clientSessionId) throw new BadRequestError('clientSessionId is required.');
   const session = await LearningSession.findOne({ clientSessionId, user: req.user!.userId });
   if (!session) throw new NotFoundError('Learning session');
@@ -108,7 +106,10 @@ export const endSession = async (req: Request, res: Response): Promise<Response>
   if (elapsed > IDLE_THRESHOLD_SECONDS || active === false) session.idleSeconds += bounded;
   else {
     session.activeSeconds += bounded;
-    if (session.kind === 'video' || session.kind === 'audio') session.watchSeconds += bounded;
+    if (mediaPlaying === true || session.kind === 'video' || session.kind === 'audio') {
+      const playbackDelta = positiveInt(playbackDeltaSeconds);
+      session.watchSeconds += Math.min(playbackDelta ?? bounded, MAX_HEARTBEAT_SECONDS);
+    }
   }
   session.endedAt = now;
   session.lastHeartbeatAt = now;
