@@ -5,30 +5,27 @@
 
 import { Router } from 'express';
 import * as activityController from '../../controllers/learning-activity.controller';
+import * as sessionController from '../../controllers/learning-session.controller';
+import * as courseAnalyticsController from '../../controllers/student-course-analytics.controller';
+import { sessionAnalyticsOverride } from '../../middleware/session-analytics-override.middleware';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, anyAuthenticatedUser } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
-
 router.use(authMiddleware);
 
-// POST /api/v1/activity/event — any authenticated user logs their OWN activity
+router.post('/session/start', anyAuthenticatedUser, asyncHandler(sessionController.startSession));
+router.post('/session/heartbeat', anyAuthenticatedUser, asyncHandler(sessionController.heartbeat));
+router.post('/session/end', anyAuthenticatedUser, asyncHandler(sessionController.endSession));
 router.post('/event', anyAuthenticatedUser, asyncHandler(activityController.logEvent));
 
-// Everything else is admin/teacher-only (viewing students' activity)
 router.use(adminOrTeacher);
-
-// GET /api/v1/activity/roster — students visible to the caller + online status
 router.get('/roster', asyncHandler(activityController.getRoster));
-
-// GET /api/v1/activity/timeline/:studentId
 router.get('/timeline/:studentId', asyncHandler(activityController.getTimeline));
-
-// GET /api/v1/activity/analytics/:studentId
-router.get('/analytics/:studentId', asyncHandler(activityController.getAnalytics));
-
-// GET /api/v1/activity/export/:studentId?format=csv|xlsx
+router.get('/analytics/:studentId', sessionAnalyticsOverride, asyncHandler(activityController.getAnalytics));
+router.get('/session-analytics/:studentId', asyncHandler(sessionController.getStudentAnalytics));
+router.get('/course-analytics/:studentId', asyncHandler(courseAnalyticsController.getStudentCourseAnalytics));
 router.get('/export/:studentId', asyncHandler(activityController.exportTimeline as any));
 
 export default router;
