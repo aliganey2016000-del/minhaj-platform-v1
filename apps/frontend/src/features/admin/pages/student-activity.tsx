@@ -1,571 +1,95 @@
-/**
- * Student Activity Tracking & Analytics — roster with live online/offline
- * status, a per-student chronological timeline, analytics summary, and
- * CSV/Excel export. Shared between the Admin and Teacher portals (teacher
- * sees only students enrolled in their own courses — enforced server-side).
- */
-
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../../../lib/axios';
 
-interface RosterRow {
-  _id: string;
-  studentId: string;
-  name: string;
-  email?: string;
-  school?: string;
-  online: boolean;
-  lastSeenAt: string | null;
-  lastActivityAt: string | null;
-  lastActivityType: string | null;
-  avgQuizScore: number | null;
-  quizAttempts: number;
-}
+interface RosterRow { _id: string; studentId: string; name: string; email?: string; online: boolean; lastSeenAt: string | null; }
+interface EventRow { _id: string; type: string; course?: { _id?: string; title?: { en?: string } }; lessonTitle?: string; resourceName?: string; status?: string; percent?: number; metadata?: { score?: number; totalPoints?: number }; createdAt: string; }
+interface SessionRow { _id: string; kind: string; course?: string; lessonId?: string; lessonTitle?: string; resourceName?: string; startedAt: string; endedAt?: string; activeSeconds: number; idleSeconds: number; watchSeconds: number; status: string; }
+interface SessionAnalytics { totalActiveSeconds: number; totalIdleSeconds: number; totalWatchSeconds: number; sessionCount: number; byKind: { kind: string; activeSeconds: number; watchSeconds: number; sessions: number }[]; daily: { date: string; activeSeconds: number; watchSeconds: number }[]; sessions: SessionRow[]; }
+interface Analytics { totalStudyTimeSeconds: number; avgQuizScore: number | null; avgVideoCompletion: number | null; learningStreakDays: number; quizAttempts: number; quizzesPassed: number; courseProgress: { course: string; completedLessons: number; totalItems: number }[]; }
 
-interface TimelineEvent {
-  _id: string;
-  type: string;
-  course?: { _id?: string; title?: { en?: string } };
-  // True when this event references a course that has since been deleted or
-  // recreated — the backend resolves the raw reference by hand instead of a
-  // blind .populate() specifically so this can be told apart from an event
-  // that genuinely never had a course (login, page views), which both
-  // otherwise looked identical ("—") with no way to know one was data loss.
-  courseDeleted?: boolean;
-  lessonId?: string;
-  lessonTitle?: string;
-  resourceName?: string;
-  status?: string;
-  durationSeconds?: number;
-  percent?: number;
-  metadata?: { score?: number; totalPoints?: number };
-  device?: string;
-  browser?: string;
-  os?: string;
-  ip?: string;
-  createdAt: string;
-}
+const fmt = (s = 0) => { if (s < 60) return `${s}s`; const m = Math.floor(s / 60); if (m < 60) return `${m}m ${s % 60}s`; const h = Math.floor(m / 60); return `${h}h ${m % 60}m`; };
+const dateTime = (v?: string) => v ? new Date(v).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+const day = (v?: string) => v ? new Date(v).toLocaleDateString() : '—';
 
-// Events sharing the same (type, course, lesson) are one lesson "session" —
-// e.g. every question the student answered inside one Interactive Gate
-// lesson used to show as its own row (see the reported table). Events with
-// no lessonId (login, page views, downloads, ...) aren't grouped at all —
-// each stays its own single-attempt row.
-interface TimelineGroup {
-  key: string;
-  lessonName: string;
-  type: string;
-  courseName: string;
-  events: TimelineEvent[];
-  start: Date;
-  end: Date;
-  durationSeconds: number;
-  progress: number | null;
-  status: string;
-  // Set only for quiz/exam groups: "5/7 correct" when the group is several
-  // per-question attempts (Interactive Gate), or "8/10 pts" when a single
-  // traditional-quiz submission event carries a raw score in its metadata.
-  scoreSummary: string | null;
-}
-
-function groupTimeline(events: TimelineEvent[]): TimelineGroup[] {
-  const groups = new Map<string, TimelineEvent[]>();
-  for (const e of events) {
-    const key = e.lessonId ? `${e.type}::${e.course?._id || ''}::${e.lessonId}` : `single::${e._id}`;
-    const arr = groups.get(key);
-    if (arr) arr.push(e); else groups.set(key, [e]);
-  }
-
-  return Array.from(groups.entries()).map(([key, groupEvents]) => {
-    // Oldest-first within a group so Start is truly when they first opened it.
-    const sorted = [...groupEvents].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    const first = sorted[0];
-    const last = sorted[sorted.length - 1];
-    const start = computeStart(first.createdAt, first.durationSeconds);
-    const end = new Date(last.createdAt);
-
-    const percents = sorted.map((e) => e.percent).filter((p): p is number => p != null);
-    const progress = percents.length ? Math.round(percents.reduce((s, p) => s + p, 0) / percents.length) : null;
-
-    const statuses = new Set(sorted.map((e) => e.status).filter(Boolean));
-    let status: string;
-    if (statuses.size === 0) status = VIEW_TYPES.has(first.type) ? 'Viewed' : '—';
-    else if (statuses.size === 1) status = [...statuses][0]!;
-    else if ([...statuses].every((s) => s === 'passed' || s === 'completed')) status = 'passed';
-    else if ([...statuses].some((s) => s === 'passed' || s === 'completed')) status = 'mixed';
-    else status = [...statuses][0]!;
-
-    // "How many did they actually get right" — the concrete number behind
-    // the Progress %, since a bare percentage doesn't say whether that was
-    // 1/1 or 8/10. Falls back to a raw score/totalPoints on a single
-    // traditional-quiz submission event, which has no per-question
-    // breakdown to count.
-    let scoreSummary: string | null = null;
-    if (QUIZ_TYPES.has(first.type)) {
-      if (sorted.length > 1) {
-        const correct = sorted.filter((e) => e.status === 'passed' || e.status === 'completed').length;
-        scoreSummary = `${correct}/${sorted.length} correct`;
-      } else if (first.metadata?.score != null && first.metadata?.totalPoints != null) {
-        scoreSummary = `${first.metadata.score}/${first.metadata.totalPoints} pts`;
-      }
-    }
-
-    return {
-      key,
-      lessonName: first.lessonTitle || first.resourceName || '—',
-      type: first.type,
-      courseName: first.course?.title?.en || (first.courseDeleted ? 'Deleted course' : '—'),
-      events: sorted,
-      start,
-      end,
-      durationSeconds: Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000)),
-      progress,
-      status,
-      scoreSummary,
-    };
-  }).sort((a, b) => b.end.getTime() - a.end.getTime());
-}
-
-interface CourseOption { _id: string; title?: { en?: string }; }
-
-interface Analytics {
-  totalStudyTimeSeconds: number;
-  dailyStudyTime: { date: string; seconds: number }[];
-  courseProgress: { course: string; status: string; completedLessons: number; totalItems: number; lastAccessed: string }[];
-  avgQuizScore: number | null;
-  quizAttempts: number;
-  quizzesPassed: number;
-  avgVideoCompletion: number | null;
-  learningStreakDays: number;
-  lastActivity: { type: string; at: string; resourceName?: string } | null;
-  online: boolean;
-}
-
-const DATE_PRESETS = [
-  { value: '', label: 'All Time' },
-  { value: 'today', label: 'Today' },
-  { value: 'yesterday', label: 'Yesterday' },
-  { value: 'last7', label: 'Last 7 Days' },
-  { value: 'last30', label: 'Last 30 Days' },
-  { value: 'thisMonth', label: 'This Month' },
-  { value: 'custom', label: 'Custom Range' },
-];
-
-const ACTIVITY_TYPES = [
-  '', 'login', 'logout', 'session_end', 'page_view', 'course_view', 'course_enrolled',
-  'lesson_view', 'video_progress', 'pdf_view', 'audio_progress', 'download',
-  'quiz_attempt', 'exam_attempt', 'assignment_submitted', 'assignment_graded',
-  'certificate_earned', 'note_created', 'bookmark_added', 'forum_post',
-  'message_sent', 'notification_viewed',
-];
-
-/** Start time isn't stored separately — it's derived from End (createdAt) minus Duration, so a point event (no duration) shows the same Start/End. */
-function computeStart(createdAt: string, durationSeconds?: number): Date {
-  const end = new Date(createdAt);
-  if (!durationSeconds) return end;
-  return new Date(end.getTime() - durationSeconds * 1000);
-}
-
-// Previously dropped seconds entirely ("Xh Xm"), so any view under a minute
-// — the common case for a quick lesson glance or a single quiz question —
-// rounded down to "0m", which read as "no duration recorded" even though a
-// real value was there.
-function formatDuration(totalSeconds: number): string {
-  if (totalSeconds <= 0) return '0s';
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
-// Activity types where "how long were they looking at this" is the whole
-// story — no pass/fail concept, so the Status column should say so plainly
-// ("Viewed") instead of a blank "—" that reads as missing data.
-const VIEW_TYPES = new Set(['lesson_view', 'course_view', 'video_progress', 'pdf_view', 'audio_progress']);
-const QUIZ_TYPES = new Set(['quiz_attempt', 'exam_attempt']);
-
-function formatRelative(iso: string | null): string {
-  if (!iso) return 'Never';
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
-
-interface StudentActivityProps {
-  basePath?: string;
-}
-
-export function StudentActivity({ basePath = '/admin' }: StudentActivityProps) {
+export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) {
+  void basePath;
   const [roster, setRoster] = useState<RosterRow[]>([]);
-  const [rosterLoading, setRosterLoading] = useState(false);
   const [search, setSearch] = useState('');
-  // Holding only the id (not a frozen copy of the roster row) means the
-  // selected student's online dot, name, etc. always reflect the latest
-  // roster fetch — including live presence:update pushes — instead of
-  // whatever was true the instant they were clicked. The Status stat card
-  // below reads this for `online` instead of the analytics snapshot, which
-  // was fetched once on selection and never refreshed, so it could show
-  // "Offline" for a student the roster list was already showing "Online now".
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
-  const selectedStudent = useMemo(() => roster.find((r) => r._id === selectedStudentId) || null, [roster, selectedStudentId]);
-
-  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [events, setEvents] = useState<EventRow[]>([]);
+  const [sessions, setSessions] = useState<SessionAnalytics | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
-  const [timelineLoading, setTimelineLoading] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const timelineGroups = useMemo(() => groupTimeline(timeline), [timeline]);
-  const toggleGroup = (key: string) => setExpandedGroups((prev) => {
-    const next = new Set(prev);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
-  });
+  const [loading, setLoading] = useState(false);
+  const [range, setRange] = useState('last30');
+  const [tab, setTab] = useState<'overview' | 'sessions' | 'events'>('overview');
+  const [expanded, setExpanded] = useState<string | null>(null);
 
-  // Filters (apply to the selected student's timeline)
-  const [datePreset, setDatePreset] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [courseFilter, setCourseFilter] = useState('');
-  const [timelineSearch, setTimelineSearch] = useState('');
-  const [courseOptions, setCourseOptions] = useState<CourseOption[]>([]);
-
-  const socketRef = useRef<Socket | null>(null);
-
-  useEffect(() => {
-    api.get('/courses', { params: { limit: 200 } })
-      .then(({ data }) => setCourseOptions(data.data || []))
-      .catch(() => setCourseOptions([]));
-  }, []);
-
-  const fetchRoster = useCallback(async () => {
-    setRosterLoading(true);
-    try {
-      const { data } = await api.get('/activity/roster', { params: { search: search || undefined, limit: 100 } });
-      setRoster(data.data || []);
-    } catch {
-      setRoster([]);
-    } finally {
-      setRosterLoading(false);
-    }
+  const loadRoster = useCallback(async () => {
+    try { const r = await api.get('/activity/roster', { params: { search: search || undefined, limit: 100 } }); setRoster(r.data.data || []); }
+    catch { setRoster([]); }
   }, [search]);
+  useEffect(() => { void loadRoster(); }, [loadRoster]);
 
-  useEffect(() => { fetchRoster(); }, [fetchRoster]);
-
-  // Live presence updates
-  useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) return;
-    const socket = io({ path: '/socket.io', auth: { token } });
-    socketRef.current = socket;
-    socket.on('connect', () => socket.emit('presence:watch'));
-    // Roster rows are keyed by Student._id, not User._id, so a presence
-    // event (which only carries userId) can't be matched to a row directly —
-    // just refetch the roster, which is cheap and correct.
-    socket.on('presence:update', () => { void fetchRoster(); });
-    return () => { socket.disconnect(); socketRef.current = null; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const fetchTimelineAndAnalytics = useCallback(async (studentId: string) => {
-    setTimelineLoading(true);
+  const loadStudent = useCallback(async (id: string) => {
+    setLoading(true);
     try {
-      const params: any = { limit: 100 };
-      if (datePreset && datePreset !== 'custom') params.datePreset = datePreset;
-      if (datePreset === 'custom') { if (dateFrom) params.dateFrom = dateFrom; if (dateTo) params.dateTo = dateTo; }
-      if (typeFilter) params.type = typeFilter;
-      if (statusFilter) params.status = statusFilter;
-      if (courseFilter) params.course = courseFilter;
-      if (timelineSearch) params.search = timelineSearch;
-
-      const [timelineRes, analyticsRes] = await Promise.all([
-        api.get(`/activity/timeline/${studentId}`, { params }),
-        api.get(`/activity/analytics/${studentId}`),
+      const [a, s, t] = await Promise.all([
+        api.get(`/activity/analytics/${id}`),
+        api.get(`/activity/session-analytics/${id}`),
+        api.get(`/activity/timeline/${id}`, { params: { limit: 100 } }),
       ]);
-      setTimeline(timelineRes.data.data || []);
-      setAnalytics(analyticsRes.data.data);
-      setExpandedGroups(new Set());
-    } catch {
-      setTimeline([]);
-      setAnalytics(null);
-    } finally {
-      setTimelineLoading(false);
-    }
-  }, [datePreset, dateFrom, dateTo, typeFilter, statusFilter, courseFilter, timelineSearch]);
+      setAnalytics(a.data.data || null); setSessions(s.data.data || null); setEvents(t.data.data || []);
+    } catch { setAnalytics(null); setSessions(null); setEvents([]); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { if (selected) void loadStudent(selected); }, [selected, loadStudent]);
 
-  // Keyed on the id (a stable primitive), not the derived `selectedStudent`
-  // object — that object gets a new reference on every roster refresh (live
-  // presence pushes happen often), which would otherwise re-fetch the whole
-  // timeline/analytics on every presence blip instead of only on an actual
-  // student/filter change.
-  useEffect(() => {
-    if (selectedStudentId) fetchTimelineAndAnalytics(selectedStudentId);
-  }, [selectedStudentId, fetchTimelineAndAnalytics]);
+  const student = useMemo(() => roster.find((x) => x._id === selected) || null, [roster, selected]);
+  const visibleDaily = useMemo(() => {
+    if (!sessions) return [];
+    const cutoff = range === 'last7' ? 7 : range === 'last30' ? 30 : range === 'all' ? 3650 : 1;
+    return sessions.daily.slice(-cutoff);
+  }, [sessions, range]);
 
-  const handleExport = async (format: 'csv' | 'xlsx') => {
-    if (!selectedStudent) return;
-    try {
-      const token = localStorage.getItem('accessToken') || '';
-      const params = new URLSearchParams();
-      params.set('format', format);
-      if (datePreset && datePreset !== 'custom') params.set('datePreset', datePreset);
-      if (datePreset === 'custom') { if (dateFrom) params.set('dateFrom', dateFrom); if (dateTo) params.set('dateTo', dateTo); }
-      if (typeFilter) params.set('type', typeFilter);
-      if (statusFilter) params.set('status', statusFilter);
-      if (courseFilter) params.set('course', courseFilter);
-
-      const response = await fetch(`${api.defaults.baseURL}/activity/export/${selectedStudent._id}?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error('Export failed');
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `activity-${selectedStudent.name.replace(/\s+/g, '')}.${format}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch {
-      // best-effort — no toast infra imported here to keep this page self-contained
-    }
+  const exportSessions = () => {
+    if (!sessions || !student) return;
+    const rows = sessions.sessions.map((s) => [day(s.startedAt), dateTime(s.startedAt), dateTime(s.endedAt), s.kind, s.lessonTitle || s.resourceName || '', fmt(s.activeSeconds), fmt(s.watchSeconds), fmt(s.idleSeconds), s.status]);
+    const csv = [['Date', 'Started', 'Ended', 'Type', 'Lesson', 'Active study', 'Media watched', 'Idle', 'Status'], ...rows]
+      .map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); const a = document.createElement('a'); a.href = url; a.download = `student-activity-${student.studentId}.csv`; a.click(); URL.revokeObjectURL(url);
   };
 
-  void basePath;
+  return <div className="p-6 lg:p-10 pt-20 lg:pt-10">
+    <div className="mx-auto max-w-screen-2xl space-y-6">
+      <header><h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">📊 Student Activity</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Authoritative learning sessions, active study time, media watch time, idle time, and learning events.</p></header>
+      <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5">
+        <aside className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card max-h-[78vh] flex flex-col">
+          <div className="p-3 border-b border-[var(--color-border-subtle)]"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search student ID or name..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm" /></div>
+          <div className="overflow-y-auto">{roster.map((s) => <button key={s._id} onClick={() => setSelected(s._id)} className={`w-full text-left px-4 py-3 border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] ${selected === s._id ? 'bg-primary-50 dark:bg-primary-950/20' : ''}`}><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${s.online ? 'bg-green-500' : 'bg-gray-400'}`} /><b className="truncate text-sm">{s.name || s.studentId}</b></div><span className="ml-4 text-xs text-[var(--color-text-tertiary)]">{s.online ? 'Online now' : s.lastSeenAt ? `Last seen ${dateTime(s.lastSeenAt)}` : 'Never seen'}</span></button>)}</div>
+        </aside>
 
-  return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-screen-2xl space-y-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]">📊 Student Activity</h1>
-          <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Real-time presence, learning activity timeline, and analytics.</p>
-        </div>
+        <main className="space-y-5">
+          {!student ? <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] p-16 text-center"><div className="text-4xl">👈</div><p className="mt-3 font-semibold">Select a student to view activity</p></div> : loading ? <div className="rounded-2xl border border-[var(--color-border-default)] p-16 text-center">Loading activity…</div> : <>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">{student.name}</h2><p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId} · {student.online ? 'Online now' : 'Offline'}</p></div><div className="flex gap-2"><select value={range} onChange={(e) => setRange(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs"><option value="last7">Last 7 days</option><option value="last30">Last 30 days</option><option value="all">All available</option></select><button onClick={exportSessions} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold hover:bg-[var(--color-surface-secondary)]">Export sessions CSV</button></div></div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-5">
-          {/* ── Roster ── */}
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden flex flex-col max-h-[75vh]">
-            <div className="p-3 border-b border-[var(--color-border-subtle)]">
-              <input
-                type="text"
-                placeholder="Search by student ID..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm"
-              />
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+              {[['Active study', fmt(sessions?.totalActiveSeconds), 'The authoritative study clock'], ['Video/audio watched', fmt(sessions?.totalWatchSeconds), 'Actual media playback'], ['Idle', fmt(sessions?.totalIdleSeconds), 'Inactive/gap time'], ['Sessions', String(sessions?.sessionCount || 0), 'Learning sessions'], ['Quiz score', analytics?.avgQuizScore != null ? `${analytics.avgQuizScore}%` : '—', 'Average'], ['Streak', `${analytics?.learningStreakDays || 0}d`, 'Consecutive learning days']].map(([label, value, hint]) => <div key={label} title={hint} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card"><span className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">{label}</span><p className="mt-1 text-xl font-bold">{value}</p></div>)}
             </div>
-            <div className="overflow-y-auto flex-1">
-              {rosterLoading ? (
-                <div className="flex justify-center py-10"><div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" /></div>
-              ) : roster.length === 0 ? (
-                <p className="text-center text-sm text-[var(--color-text-tertiary)] py-10">No students found.</p>
-              ) : (
-                roster.map((s) => (
-                  <button
-                    key={s._id}
-                    onClick={() => setSelectedStudentId(s._id)}
-                    className={`w-full text-left px-4 py-3 border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-tertiary)] transition-colors ${selectedStudent?._id === s._id ? 'bg-primary-50 dark:bg-primary-950/20' : ''}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full flex-shrink-0 ${s.online ? 'bg-green-500' : 'bg-[var(--color-border-default)]'}`} />
-                      <span className="text-sm font-semibold text-[var(--color-text-primary)] truncate">{s.name || s.studentId}</span>
-                    </div>
-                    <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5 ml-4">
-                      {s.online ? 'Online now' : `Last seen ${formatRelative(s.lastSeenAt)}`}
-                    </p>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
 
-          {/* ── Detail Pane ── */}
-          <div className="space-y-5">
-            {!selectedStudent ? (
-              <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card">
-                <p className="text-4xl mb-4">👈</p>
-                <p className="text-lg font-semibold text-[var(--color-text-primary)]">Select a student to view their activity</p>
-              </div>
-            ) : (
-              <>
-                {/* Analytics summary */}
-                {analytics && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                    <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-                      <span className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase">Total Study Time</span>
-                      <p className="text-xl font-bold text-[var(--color-text-primary)] mt-1">{formatDuration(analytics.totalStudyTimeSeconds)}</p>
-                    </div>
-                    <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-                      <span className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase">Avg Quiz Score</span>
-                      <p className="text-xl font-bold text-[var(--color-text-primary)] mt-1">{analytics.avgQuizScore != null ? `${analytics.avgQuizScore}%` : '—'}</p>
-                    </div>
-                    <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-                      <span className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase">Video Completion</span>
-                      <p className="text-xl font-bold text-[var(--color-text-primary)] mt-1">{analytics.avgVideoCompletion != null ? `${analytics.avgVideoCompletion}%` : '—'}</p>
-                    </div>
-                    <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-                      <span className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase">Streak</span>
-                      <p className="text-xl font-bold text-[var(--color-text-primary)] mt-1">🔥 {analytics.learningStreakDays}d</p>
-                    </div>
-                    <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-                      <span className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase">Status</span>
-                      <p className={`text-xl font-bold mt-1 ${selectedStudent?.online ? 'text-green-600' : 'text-[var(--color-text-tertiary)]'}`}>{selectedStudent?.online ? '🟢 Online' : '⚪ Offline'}</p>
-                    </div>
-                  </div>
-                )}
+            <div className="flex gap-1 rounded-xl bg-[var(--color-surface-secondary)] p-1 w-fit"><button onClick={() => setTab('overview')} className={`rounded-lg px-4 py-2 text-xs font-semibold ${tab === 'overview' ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>Overview</button><button onClick={() => setTab('sessions')} className={`rounded-lg px-4 py-2 text-xs font-semibold ${tab === 'sessions' ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>Learning sessions</button><button onClick={() => setTab('events')} className={`rounded-lg px-4 py-2 text-xs font-semibold ${tab === 'events' ? 'bg-[var(--color-surface-primary)] shadow-sm' : ''}`}>Activity events</button></div>
 
-                {/* Course progress */}
-                {analytics && analytics.courseProgress.length > 0 && (
-                  <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-                    <h3 className="text-sm font-bold text-[var(--color-text-primary)] mb-3">Course Progress</h3>
-                    <div className="space-y-2">
-                      {analytics.courseProgress.map((c, i) => {
-                        const pct = c.totalItems > 0 ? Math.round((c.completedLessons / c.totalItems) * 100) : 0;
-                        return (
-                          <div key={i}>
-                            <div className="flex justify-between text-xs mb-1"><span className="font-medium text-[var(--color-text-primary)]">{c.course}</span><span className="text-[var(--color-text-tertiary)]">{pct}%</span></div>
-                            <div className="h-2 w-full rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden"><div className="h-full rounded-full bg-primary-500" style={{ width: `${pct}%` }} /></div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+            {tab === 'overview' && <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-5">
+              <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card"><h3 className="font-bold">Daily learning</h3><p className="text-xs text-[var(--color-text-tertiary)] mt-1">Active study vs media watch time. These values do not sum event durations.</p><div className="mt-5 space-y-3">{visibleDaily.length ? visibleDaily.map((d) => { const max = Math.max(1, ...visibleDaily.map((x) => x.activeSeconds)); const pct = Math.round((d.activeSeconds / max) * 100); return <div key={d.date}><div className="flex justify-between text-xs mb-1"><span>{d.date}</span><b>{fmt(d.activeSeconds)}</b></div><div className="h-2 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden"><div className="h-full rounded-full bg-primary-500" style={{ width: `${pct}%` }} /></div></div> }) : <p className="text-sm text-[var(--color-text-tertiary)]">No session data yet.</p>}</div></section>
+              <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card"><h3 className="font-bold">By learning type</h3><div className="mt-4 space-y-3">{sessions?.byKind.map((k) => <div key={k.kind} className="flex items-center justify-between rounded-xl bg-[var(--color-surface-secondary)] p-3"><div><b className="capitalize text-sm">{k.kind}</b><p className="text-xs text-[var(--color-text-tertiary)]">{k.sessions} session{k.sessions === 1 ? '' : 's'}</p></div><div className="text-right"><b>{fmt(k.activeSeconds)}</b><p className="text-[10px] text-[var(--color-text-tertiary)]">watch {fmt(k.watchSeconds)}</p></div></div>)}</div></section>
+            </div>}
 
-                {/* Filters */}
-                <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card flex flex-wrap gap-2 items-center">
-                  <select value={datePreset} onChange={(e) => setDatePreset(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs">
-                    {DATE_PRESETS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-                  </select>
-                  {datePreset === 'custom' && (
-                    <>
-                      <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs" />
-                      <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs" />
-                    </>
-                  )}
-                  <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs">
-                    <option value="">All Activity Types</option>
-                    {ACTIVITY_TYPES.filter(Boolean).map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
-                  </select>
-                  <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs">
-                    <option value="">All Status</option>
-                    <option value="completed">Completed</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="passed">Passed</option>
-                    <option value="failed">Failed</option>
-                  </select>
-                  <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs">
-                    <option value="">All Courses</option>
-                    {courseOptions.map((c) => <option key={c._id} value={c._id}>{c.title?.en || c._id}</option>)}
-                  </select>
-                  <input
-                    type="text"
-                    placeholder="Search by lesson/resource name..."
-                    value={timelineSearch}
-                    onChange={(e) => setTimelineSearch(e.target.value)}
-                    className="flex-1 min-w-[150px] rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs"
-                  />
-                  <div className="flex gap-2 ml-auto">
-                    <button onClick={() => handleExport('csv')} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold hover:bg-[var(--color-surface-tertiary)] transition-colors">⬇ CSV</button>
-                    <button onClick={() => handleExport('xlsx')} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold hover:bg-[var(--color-surface-tertiary)] transition-colors">⬇ Excel</button>
-                  </div>
-                </div>
+            {tab === 'sessions' && <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden"><div className="p-4 border-b border-[var(--color-border-subtle)]"><h3 className="font-bold">Learning sessions</h3><p className="text-xs text-[var(--color-text-tertiary)]">One row = one server-tracked learning session. Duration is never inferred from unrelated events.</p></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="bg-[var(--color-surface-secondary)] text-left text-xs"><th className="p-3">Started</th><th className="p-3">Lesson/resource</th><th className="p-3">Active study</th><th className="p-3">Watched</th><th className="p-3">Idle</th><th className="p-3">Status</th></tr></thead><tbody className="divide-y divide-[var(--color-border-subtle)]">{sessions?.sessions.map((s) => <><tr key={s._id} onClick={() => setExpanded(expanded === s._id ? null : s._id)} className="cursor-pointer hover:bg-[var(--color-surface-secondary)]"><td className="p-3 whitespace-nowrap">{dateTime(s.startedAt)}</td><td className="p-3"><b>{s.lessonTitle || s.resourceName || 'Learning session'}</b><div className="text-[10px] capitalize text-[var(--color-text-tertiary)]">{s.kind}</div></td><td className="p-3 font-semibold">{fmt(s.activeSeconds)}</td><td className="p-3">{fmt(s.watchSeconds)}</td><td className="p-3">{fmt(s.idleSeconds)}</td><td className="p-3 capitalize">{s.status}</td></tr>{expanded === s._id && <tr key={`${s._id}-detail`}><td colSpan={6} className="p-4 bg-[var(--color-surface-secondary)] text-xs"><div className="grid grid-cols-2 md:grid-cols-4 gap-3"><span>Started<br/><b>{dateTime(s.startedAt)}</b></span><span>Ended<br/><b>{dateTime(s.endedAt)}</b></span><span>Active<br/><b>{fmt(s.activeSeconds)}</b></span><span>Idle<br/><b>{fmt(s.idleSeconds)}</b></span></div></td></tr>}</>)}</tbody></table></div>{!sessions?.sessions.length && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No learning sessions recorded yet.</p>}</section>}
 
-                {/* Timeline — grouped into one row per lesson session (e.g. every
-                    question attempted inside one Interactive Gate lesson), with
-                    aggregate Start/End/Duration/Progress/Status. Click a row to
-                    expand the individual attempts underneath it. */}
-                <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden">
-                  {timelineLoading ? (
-                    <div className="flex justify-center py-10"><div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" /></div>
-                  ) : timelineGroups.length === 0 ? (
-                    <p className="text-center text-sm text-[var(--color-text-tertiary)] py-10">No activity recorded for this range.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
-                          <tr>
-                            <th className="text-left px-4 py-2.5 font-semibold w-6"></th>
-                            <th className="text-left px-4 py-2.5 font-semibold">Date</th>
-                            <th className="text-left px-4 py-2.5 font-semibold hidden md:table-cell">Course</th>
-                            <th className="text-left px-4 py-2.5 font-semibold">Lesson</th>
-                            <th className="text-left px-4 py-2.5 font-semibold hidden lg:table-cell">Start</th>
-                            <th className="text-left px-4 py-2.5 font-semibold hidden lg:table-cell">End</th>
-                            <th className="text-left px-4 py-2.5 font-semibold">Duration</th>
-                            <th className="text-left px-4 py-2.5 font-semibold hidden xl:table-cell">Progress</th>
-                            <th className="text-left px-4 py-2.5 font-semibold">Status</th>
-                            <th className="text-center px-4 py-2.5 font-semibold">Attempts</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[var(--color-border-subtle)]">
-                          {timelineGroups.map((g) => {
-                            const expanded = expandedGroups.has(g.key);
-                            const canExpand = g.events.length > 1;
-                            return (
-                              <Fragment key={g.key}>
-                                <tr
-                                  onClick={() => canExpand && toggleGroup(g.key)}
-                                  className={`transition-colors ${canExpand ? 'cursor-pointer hover:bg-[var(--color-surface-secondary)]' : ''}`}
-                                >
-                                  <td className="px-4 py-2.5 text-[var(--color-text-tertiary)]">{canExpand && (expanded ? '▾' : '▸')}</td>
-                                  <td className="px-4 py-2.5 whitespace-nowrap">{g.end.toLocaleDateString()}</td>
-                                  <td className="px-4 py-2.5 hidden md:table-cell">{g.courseName}</td>
-                                  <td className="px-4 py-2.5 max-w-[200px]">
-                                    <p className="truncate font-medium text-[var(--color-text-primary)]">{g.lessonName}</p>
-                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap ${QUIZ_TYPES.has(g.type) ? 'bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300' : VIEW_TYPES.has(g.type) ? 'bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300' : 'bg-primary-50 dark:bg-primary-950/30 text-primary-700 dark:text-primary-300'}`}>{QUIZ_TYPES.has(g.type) ? 'quiz' : g.type.replace(/_/g, ' ')}</span>
-                                  </td>
-                                  <td className="px-4 py-2.5 hidden lg:table-cell whitespace-nowrap">{g.start.toLocaleTimeString()}</td>
-                                  <td className="px-4 py-2.5 hidden lg:table-cell whitespace-nowrap">{g.end.toLocaleTimeString()}</td>
-                                  <td className="px-4 py-2.5 whitespace-nowrap">{formatDuration(g.durationSeconds)}</td>
-                                  <td className="px-4 py-2.5 hidden xl:table-cell">
-                                    {g.scoreSummary
-                                      ? <><span className="font-medium text-[var(--color-text-primary)]">{g.scoreSummary}</span>{g.progress != null && <span className="text-[var(--color-text-tertiary)]"> ({g.progress}%)</span>}</>
-                                      : g.progress != null ? `${g.progress}%` : '—'}
-                                  </td>
-                                  <td className="px-4 py-2.5 capitalize">{g.status}</td>
-                                  <td className="px-4 py-2.5 text-center"><span className="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-text-secondary)]">{g.events.length}</span></td>
-                                </tr>
-                                {expanded && g.events.map((e) => {
-                                  const end = new Date(e.createdAt);
-                                  const start = computeStart(e.createdAt, e.durationSeconds);
-                                  return (
-                                    <tr key={e._id} className="bg-[var(--color-surface-secondary)]/60">
-                                      <td className="px-4 py-2"></td>
-                                      <td className="px-4 py-2 whitespace-nowrap text-[var(--color-text-tertiary)]">{end.toLocaleDateString()}</td>
-                                      <td className="px-4 py-2 hidden md:table-cell"></td>
-                                      <td className="px-4 py-2 max-w-[200px] truncate text-[var(--color-text-secondary)]">{e.resourceName || '—'}</td>
-                                      <td className="px-4 py-2 hidden lg:table-cell whitespace-nowrap">{start.toLocaleTimeString()}</td>
-                                      <td className="px-4 py-2 hidden lg:table-cell whitespace-nowrap">{end.toLocaleTimeString()}</td>
-                                      <td className="px-4 py-2 whitespace-nowrap">{e.durationSeconds ? formatDuration(e.durationSeconds) : '—'}</td>
-                                      <td className="px-4 py-2 hidden xl:table-cell">{e.percent != null ? `${e.percent}%` : '—'}</td>
-                                      <td className="px-4 py-2 capitalize">{e.status || '—'}</td>
-                                      <td className="px-4 py-2"></td>
-                                    </tr>
-                                  );
-                                })}
-                              </Fragment>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+            {tab === 'events' && <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden"><div className="p-4 border-b border-[var(--color-border-subtle)]"><h3 className="font-bold">Activity events</h3><p className="text-xs text-[var(--color-text-tertiary)]">Audit/activity stream only. Event duration is intentionally not used as study time.</p></div><div className="divide-y divide-[var(--color-border-subtle)]">{events.map((e) => <div key={e._id} className="p-4 flex items-start justify-between gap-4"><div><b className="text-sm">{e.lessonTitle || e.resourceName || e.type.replace(/_/g, ' ')}</b><p className="text-xs text-[var(--color-text-tertiary)] mt-1">{e.course?.title?.en || 'General activity'} · {dateTime(e.createdAt)}</p></div><div className="text-right text-xs"><span className="capitalize">{e.status || 'recorded'}</span>{e.percent != null && <p>{e.percent}%</p>}</div></div>)}{!events.length && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No events recorded.</p>}</div></section>}
+          </>}
+        </main>
       </div>
-    </div>
-  );
+    </div>;
 }
 
 export default StudentActivity;
