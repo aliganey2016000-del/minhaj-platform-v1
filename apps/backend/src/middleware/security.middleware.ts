@@ -83,6 +83,20 @@ export const setContentSecurityPolicy = (
   next();
 };
 
+/**
+ * Helmet 7 does not expose a Permissions-Policy option in its TypeScript
+ * options. Set the browser policy explicitly instead of using an invalid
+ * Helmet configuration that breaks the TypeScript build.
+ */
+export const setPermissionsPolicy = (
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  next();
+};
+
 export const validateSecurityEnv = (): void => {
   const requiredEnvVars = [
     'JWT_ACCESS_SECRET',
