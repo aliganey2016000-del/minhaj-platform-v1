@@ -4,7 +4,6 @@ import { authMiddleware } from '../../middleware/auth.middleware';
 import { financialManager, financialRead } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
-authMiddleware;
 const router = Router();
 router.use(authMiddleware);
 
