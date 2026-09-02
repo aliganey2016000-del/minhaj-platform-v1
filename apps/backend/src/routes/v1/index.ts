@@ -55,6 +55,7 @@ import gradebookRoutes from './gradebook.routes';
 import gradebookCoursesRoutes from './gradebook-courses.routes';
 import teacherAssignmentGradingRoutes from '../teacher-assignment-grading.routes';
 import cashSessionRoutes from './cash-session.routes';
+import accountingRoutes from './accounting.routes';
 
 const router = Router();
 router.use('/auth', authRoutes);
@@ -69,6 +70,7 @@ router.use('/fee-adjustments', feeAdjustmentRoutes);
 router.use('/discount-grants', discountGrantRoutes);
 router.use('/reports', reportRoutes);
 router.use('/cash-sessions', cashSessionRoutes);
+router.use('/finance', accountingRoutes);
 router.use('/attendance', attendanceRoutes);
 router.use('/classes', classRoutes);
 router.use('/trash', trashRoutes);
