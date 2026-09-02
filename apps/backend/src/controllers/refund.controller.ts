@@ -1,3 +1,4 @@
+import { Request, Response } from 'express';
 import Payment from '../models/payment.model';
 import Refund from '../models/refund.model';
 import ApiResponse from '../utils/api-response';
@@ -6,7 +7,7 @@ import { applyOrgFilter, assertOwnsOrg } from '../utils/tenant-scope';
 import { reverseInvoicePayment, restoreInvoicePayment, recalcStudentBalance } from '../services/billing.service';
 import { postRefundToLedger } from '../services/accounting.service';
 
-export const issueRefund = async (req: any, res: any): Promise<any> => {
+export const issueRefund = async (req: Request, res: Response): Promise<Response> => {
   const { paymentId, amount, reason } = req.body;
   if (!paymentId) throw new BadRequestError('paymentId is required');
 
@@ -82,9 +83,6 @@ export const issueRefund = async (req: any, res: any): Promise<any> => {
         postedBy: req.user!.userId,
       });
     } catch (err) {
-      // The financial operation is not considered complete if its ledger
-      // entry cannot be posted. Roll back the business-state reservation so
-      // a retry can safely attempt the refund again.
       await Payment.findByIdAndUpdate(payment._id, { $inc: { refundedAmount: -refundAmount }, $set: { status: 'completed' } }).catch(() => {});
       await restoreInvoicePayment(payment.invoice, refundAmount).catch(() => {});
       await Refund.findByIdAndDelete(refund._id).catch(() => {});
@@ -96,7 +94,7 @@ export const issueRefund = async (req: any, res: any): Promise<any> => {
   return ApiResponse.created(res, { refund, invoice }, 'Refund issued');
 };
 
-export const getAll = async (req: any, res: any): Promise<any> => {
+export const getAll = async (req: Request, res: Response): Promise<Response> => {
   const { studentId, invoiceId, page = '1', limit = '20' } = req.query;
   const filter: Record<string, unknown> = {};
   if (studentId) filter.student = studentId;
