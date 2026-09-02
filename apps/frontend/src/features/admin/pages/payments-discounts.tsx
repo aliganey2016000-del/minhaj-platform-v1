@@ -482,7 +482,7 @@ export function PaymentsDiscounts() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const [history, setHistory] = useState<AdjustmentRow[]>([]);
+  const [history, setHistory] = useState<(AdjustmentRow | DiscountGrantRow)[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'one-time' | 'recurring'>('one-time');
@@ -505,8 +505,13 @@ export function PaymentsDiscounts() {
   const fetchHistory = useCallback(async (studentId?: string) => {
     setLoadingHistory(true);
     try {
-      const { data } = await api.get('/fee-adjustments', { params: { limit: '10', ...(studentId ? { studentId } : {}) } });
-      setHistory(data.data || []);
+      const [adjustmentsResponse, grantsResponse] = await Promise.all([
+        api.get('/fee-adjustments', { params: { limit: '10', ...(studentId ? { studentId } : {}) } }),
+        api.get('/discount-grants', { params: { limit: '10', ...(studentId ? { studentId } : {}) } }),
+      ]);
+      const adjustments = adjustmentsResponse.data.data || [];
+      const grants = grantsResponse.data.data || [];
+      setHistory([...adjustments, ...grants].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10));
     } catch {
       setHistory([]);
     } finally {
@@ -600,7 +605,7 @@ export function PaymentsDiscounts() {
         {/* Recent Adjustments — placed at the top so admins immediately see current discounts */}
         <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
           <div className="px-6 py-4 border-b border-[var(--color-border-default)]">
-            <h2 className="font-semibold text-[var(--color-text-primary)]">Recent Adjustments{selectedStudent ? ` — ${studentLabel(selectedStudent)}` : ''}</h2>
+            <h2 className="font-semibold text-[var(--color-text-primary)]">All Discounts &amp; Grants{selectedStudent ? ` — ${studentLabel(selectedStudent)}` : ''}</h2>
           </div>
           {loadingHistory ? (
             <div className="flex justify-center py-10"><div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>
@@ -612,9 +617,9 @@ export function PaymentsDiscounts() {
                 <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                   <tr>
                     <th className="text-left px-4 py-2.5 font-semibold">Student</th>
-                    <th className="text-left px-4 py-2.5 font-semibold hidden sm:table-cell">Invoice</th>
+                    <th className="text-left px-4 py-2.5 font-semibold hidden sm:table-cell">Invoice / Grant</th>
                     <th className="text-left px-4 py-2.5 font-semibold">Type</th>
-                    <th className="text-right px-4 py-2.5 font-semibold">Amount</th>
+                    <th className="text-right px-4 py-2.5 font-semibold">Amount / Value</th>
                     <th className="text-left px-4 py-2.5 font-semibold hidden md:table-cell">Reason</th>
                   </tr>
                 </thead>
@@ -625,9 +630,9 @@ export function PaymentsDiscounts() {
                         <p className="font-medium">{row.student?.profile ? `${row.student.profile.firstName} ${row.student.profile.lastName}` : row.student?.studentId}</p>
                         <p className="text-xs text-[var(--color-text-tertiary)] font-mono">{row.student?.studentId}</p>
                       </td>
-                      <td className="px-4 py-2.5 hidden sm:table-cell text-[var(--color-text-secondary)]">{row.invoice?.title} <span className="text-xs text-[var(--color-text-tertiary)]">({row.invoice?.period})</span></td>
+                      <td className="px-4 py-2.5 hidden sm:table-cell text-[var(--color-text-secondary)]">{'label' in row ? <><span className="font-medium">{row.label}</span> <span className="text-xs text-[var(--color-text-tertiary)]">(Recurring)</span></> : <>{row.invoice?.title} <span className="text-xs text-[var(--color-text-tertiary)]">({row.invoice?.period})</span></>}</td>
                       <td className="px-4 py-2.5"><span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${TYPE_BADGE[row.type]}`}>{TYPE_LABELS[row.type]}</span></td>
-                      <td className="px-4 py-2.5 text-right font-semibold">${row.amount.toLocaleString()}<span className="block text-[10px] text-[var(--color-text-tertiary)] font-normal">{row.valueType === 'percent' ? `${row.inputValue}%` : 'fixed'}</span></td>
+                      <td className="px-4 py-2.5 text-right font-semibold">{'label' in row ? (row.valueType === 'percent' ? `${row.inputValue}%` : `$${row.inputValue.toLocaleString()}`) : `$${row.amount.toLocaleString()}`}<span className="block text-[10px] text-[var(--color-text-tertiary)] font-normal">{'label' in row ? DURATION_LABELS[row.durationType] : row.valueType === 'percent' ? `${row.inputValue}%` : 'fixed'}</span></td>
                       <td className="px-4 py-2.5 hidden md:table-cell text-[var(--color-text-tertiary)] max-w-xs truncate" title={row.reason}>{row.reason}</td>
                     </tr>
                   ))}

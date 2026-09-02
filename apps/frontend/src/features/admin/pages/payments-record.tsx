@@ -56,6 +56,13 @@ interface InvoiceData {
   discount: number;
 }
 
+interface DuplicatePayment {
+  amount: number;
+  method: string;
+  reference?: string;
+  createdAt: string;
+}
+
 const FEE_TYPE_LABELS: Record<string, string> = {
   tuition: 'Tuition Fee',
   registration: 'Registration Fee',
@@ -367,9 +374,13 @@ interface PendingPayment {
   method: string;
   reference: string;
   notes: string;
+  paymentDate: string;
+  balanceDue: number;
 }
 
-function ConfirmPaymentModal({ pending, submitting, onCancel, onConfirm }: { pending: PendingPayment; submitting: boolean; onCancel: () => void; onConfirm: () => void }) {
+function ConfirmPaymentModal({ pending, duplicate, submitting, onCancel, onConfirm }: { pending: PendingPayment; duplicate: DuplicatePayment | null; submitting: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const [largeAmountConfirmed, setLargeAmountConfirmed] = useState(false);
+  const isUnusuallyLarge = pending.amount > (pending.balanceDue > 0 ? pending.balanceDue * 10 : 10000);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => !submitting && onCancel()}>
       <div className="bg-[var(--color-surface-primary)] rounded-2xl w-full max-w-sm shadow-2xl p-6" onClick={e => e.stopPropagation()}>
@@ -383,10 +394,13 @@ function ConfirmPaymentModal({ pending, submitting, onCancel, onConfirm }: { pen
           <div className="flex justify-between"><span className="text-[var(--color-text-tertiary)]">Type</span><span className="font-medium text-[var(--color-text-primary)]">{FEE_TYPE_LABELS[pending.type] || pending.type}</span></div>
           <div className="flex justify-between"><span className="text-[var(--color-text-tertiary)]">Method</span><span className="font-medium text-[var(--color-text-primary)]">{METHOD_LABELS[pending.method] || pending.method}</span></div>
           {pending.reference && <div className="flex justify-between"><span className="text-[var(--color-text-tertiary)]">Reference</span><span className="font-medium text-[var(--color-text-primary)] font-mono">{pending.reference}</span></div>}
+          <div className="flex justify-between"><span className="text-[var(--color-text-tertiary)]">Payment date</span><span className="font-medium text-[var(--color-text-primary)]">{new Date(`${pending.paymentDate}T12:00:00`).toLocaleDateString()}</span></div>
         </div>
+        {duplicate && <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300"><strong>Possible duplicate:</strong> a {duplicate.amount.toLocaleString()} payment for this student was recorded {new Date(duplicate.createdAt).toLocaleTimeString()} via {METHOD_LABELS[duplicate.method] || duplicate.method}. Please verify before continuing.</div>}
+        {isUnusuallyLarge && <label className="mb-5 flex cursor-pointer items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-800 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300"><input type="checkbox" checked={largeAmountConfirmed} onChange={e => setLargeAmountConfirmed(e.target.checked)} className="mt-1 h-4 w-4 accent-red-600" /> <span><strong>Unusually large amount.</strong> I have verified this amount against the student account before recording it.</span></label>}
         <div className="flex gap-2">
           <button type="button" onClick={onCancel} disabled={submitting} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-          <button type="button" onClick={onConfirm} disabled={submitting} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors">{submitting ? 'Recording...' : 'Confirm Payment'}</button>
+          <button type="button" onClick={onConfirm} disabled={submitting || (isUnusuallyLarge && !largeAmountConfirmed)} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors">{submitting ? 'Recording...' : 'Confirm Payment'}</button>
         </div>
       </div>
     </div>
@@ -411,7 +425,9 @@ export function PaymentsRecord() {
   const [recordMethod, setRecordMethod] = useState('cash');
   const [recordReference, setRecordReference] = useState('');
   const [recordNotes, setRecordNotes] = useState('');
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
+  const [duplicatePayment, setDuplicatePayment] = useState<DuplicatePayment | null>(null);
 
   const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null);
   // Regenerated after every successful submit, so a retry of the SAME
@@ -445,15 +461,29 @@ export function PaymentsRecord() {
 
   useEffect(() => { fetchRecentPayments(); }, []);
 
-  const handleReviewPayment = (e: React.FormEvent) => {
+  const handleReviewPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStudent || !recordAmount || Number(recordAmount) <= 0) {
       setError('Select a student and enter a valid amount'); return;
     }
+    const selectedDate = new Date(`${paymentDate}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const oldestAllowed = new Date(today);
+    oldestAllowed.setDate(oldestAllowed.getDate() - 30);
+    if (!paymentDate || Number.isNaN(selectedDate.getTime()) || selectedDate > today || selectedDate < oldestAllowed) {
+      setError('Payment date must be today or within the previous 30 days'); return;
+    }
     setError('');
+    setDuplicatePayment(null);
+    try {
+      const { data } = await api.get('/payments/duplicate-check', { params: { studentId: selectedStudent._id, amount: Number(recordAmount) } });
+      setDuplicatePayment(data.data?.duplicate || null);
+    } catch { /* duplicate checking is advisory and must not block recording */ }
     setPendingPayment({
       student: selectedStudent, amount: Number(recordAmount), type: recordType,
-      method: recordMethod, reference: recordReference.trim(), notes: recordNotes,
+      method: recordMethod, reference: recordReference.trim(), notes: recordNotes, paymentDate,
+      balanceDue: selectedFeeSummary.totalFeesDue,
     });
   };
 
@@ -469,6 +499,7 @@ export function PaymentsRecord() {
         method: pendingPayment.method,
         reference: pendingPayment.reference || undefined,
         notes: pendingPayment.notes,
+        paymentDate: pendingPayment.paymentDate,
         idempotencyKey: idempotencyKeyRef.current,
       });
       idempotencyKeyRef.current = crypto.randomUUID();
@@ -492,12 +523,12 @@ export function PaymentsRecord() {
         paymentId: payment?._id || '',
         studentName: studentLabel(pendingPayment.student),
         studentId: pendingPayment.student.studentId || '',
-        schoolName: selSchool?.name || pendingPayment.student.school?.name || 'Masjid Al-Rahma',
+        schoolName: selSchool?.name || pendingPayment.student.school?.name || 'Unknown Organization',
         amount: pendingPayment.amount,
         feeType: pendingPayment.type,
         method: pendingPayment.method,
         reference: pendingPayment.reference,
-        date: new Date().toLocaleString(),
+        date: new Date(`${pendingPayment.paymentDate}T12:00:00`).toLocaleString(),
         notes: pendingPayment.notes,
         totalFees: derivedBalance.totalFees,
         totalPaid: derivedBalance.totalPaid,
@@ -506,7 +537,7 @@ export function PaymentsRecord() {
       });
 
       setMessage(`Payment of $${pendingPayment.amount.toLocaleString()} recorded successfully!`);
-      setRecordAmount(''); setRecordReference(''); setRecordNotes(''); setSelectedStudent(null); setPendingPayment(null);
+      setRecordAmount(''); setRecordReference(''); setRecordNotes(''); setPaymentDate(new Date().toISOString().slice(0, 10)); setSelectedStudent(null); setPendingPayment(null); setDuplicatePayment(null);
       fetchRecentPayments();
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to record'); setPendingPayment(null); }
     finally { setLoading(false); }
@@ -567,6 +598,12 @@ export function PaymentsRecord() {
                   )}
                 </p>
               )}
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-[var(--color-text-primary)]">Payment date *</label>
+              <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} min={new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)} max={new Date().toISOString().slice(0, 10)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10" required />
+              <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Today or up to 30 days ago</p>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -635,8 +672,9 @@ export function PaymentsRecord() {
       {pendingPayment && (
         <ConfirmPaymentModal
           pending={pendingPayment}
+          duplicate={duplicatePayment}
           submitting={loading}
-          onCancel={() => setPendingPayment(null)}
+          onCancel={() => { setPendingPayment(null); setDuplicatePayment(null); }}
           onConfirm={handleConfirmPayment}
         />
       )}

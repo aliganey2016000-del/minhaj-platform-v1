@@ -43,6 +43,14 @@ function monthStartISO(): string {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
 }
+// Defensive money formatter — report payloads can legitimately arrive with
+// missing numeric fields (older/lean backend responses, schema virtuals that
+// lean() never executed). Never render `.toLocaleString()` straight off an
+// API value; doing so crashed the whole page (TypeError: reading
+// 'toLocaleString' of undefined).
+function fmt(n?: number): string {
+  return (Number(n) || 0).toLocaleString();
+}
 
 export function PaymentsReports() {
   const [from, setFrom] = useState(monthStartISO());
@@ -133,21 +141,21 @@ export function PaymentsReports() {
                 <>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                     <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3 text-center">
-                      <p className="text-xl font-bold text-green-600">${collection.totalCollected.toLocaleString()}</p>
+                      <p className="text-xl font-bold text-green-600">${fmt(collection.totalCollected)}</p>
                       <p className="text-xs text-[var(--color-text-tertiary)]">Total Collected</p>
                     </div>
                     <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3 text-center">
-                      <p className="text-xl font-bold text-primary-600">{collection.transactionCount}</p>
+                      <p className="text-xl font-bold text-primary-600">{collection.transactionCount ?? 0}</p>
                       <p className="text-xs text-[var(--color-text-tertiary)]">Transactions</p>
                     </div>
-                    {collection.byMethod.slice(0, 2).map((m) => (
+                    {(collection.byMethod || []).slice(0, 2).map((m) => (
                       <div key={m.method} className="rounded-xl bg-[var(--color-surface-secondary)] p-3 text-center">
-                        <p className="text-xl font-bold">${m.amount.toLocaleString()}</p>
-                        <p className="text-xs text-[var(--color-text-tertiary)] capitalize">{m.method.replace('_', ' ')}</p>
+                        <p className="text-xl font-bold">${fmt(m.amount)}</p>
+                        <p className="text-xs text-[var(--color-text-tertiary)] capitalize">{(m.method || '').replace('_', ' ')}</p>
                       </div>
                     ))}
                   </div>
-                  {collection.byDay.length > 0 && (
+                  {(collection.byDay || []).length > 0 && (
                     <div style={{ width: '100%', height: 220 }}>
                       <ResponsiveContainer>
                         <BarChart data={collection.byDay}>
@@ -188,8 +196,8 @@ export function PaymentsReports() {
                         <tr key={c.cashierId} className="border-b border-[var(--color-border-subtle)]">
                           <td className="px-6 py-2.5">{c.email}</td>
                           <td className="px-4 py-2.5 text-center">{c.transactionCount}</td>
-                          <td className="px-4 py-2.5 text-right">${(c.byMethod.find((m) => m.method === 'cash')?.amount || 0).toLocaleString()}</td>
-                          <td className="px-6 py-2.5 text-right font-semibold">${c.totalCollected.toLocaleString()}</td>
+                          <td className="px-4 py-2.5 text-right">${fmt((c.byMethod || []).find((m) => m.method === 'cash')?.amount)}</td>
+                          <td className="px-6 py-2.5 text-right font-semibold">${fmt(c.totalCollected)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -226,7 +234,7 @@ export function PaymentsReports() {
                         <tr key={inv._id} className="border-b border-[var(--color-border-subtle)]">
                           <td className="px-6 py-2.5">{inv.student?.profile ? `${inv.student.profile.firstName} ${inv.student.profile.lastName}` : inv.student?.studentId || '—'}</td>
                           <td className="px-4 py-2.5">{inv.title} <span className="text-xs text-[var(--color-text-tertiary)]">· {inv.period}</span></td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-red-600">${inv.amountDue.toLocaleString()}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-red-600">${fmt(inv.amountDue)}</td>
                           <td className="px-6 py-2.5 text-xs text-red-600">{new Date(inv.dueDate).toLocaleDateString()}</td>
                         </tr>
                       ))}
