@@ -1,8 +1,8 @@
 name: Patch Record Payment V6
 on:
-  push:
+  pull_request:
     branches:
-      - fix/record-payment-balance-sync-v6
+      - main
 permissions:
   contents: write
 jobs:
