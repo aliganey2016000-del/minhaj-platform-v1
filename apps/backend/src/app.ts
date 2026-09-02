@@ -13,6 +13,7 @@ import {
   requestTimeout,
   stripSensitiveHeaders,
   setContentSecurityPolicy,
+  setPermissionsPolicy,
   validateSecurityEnv,
   addApiVersionHeader,
   securityLogging,
@@ -37,14 +38,6 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   noSniff: true,
   crossOriginOpenerPolicy: { policy: 'same-origin' },
-  permissionsPolicy: {
-    features: {
-      camera: [],
-      microphone: [],
-      geolocation: [],
-      payment: [],
-    },
-  },
 }));
 
 const allowedOrigins = getAllowedOrigins();
@@ -61,6 +54,7 @@ app.use(cors({
 }));
 app.use(stripSensitiveHeaders);
 app.use(setContentSecurityPolicy);
+app.use(setPermissionsPolicy);
 app.use(addApiVersionHeader);
 
 app.use(requestTimeout());
