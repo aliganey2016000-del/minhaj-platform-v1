@@ -24,7 +24,7 @@ import {
   PieChart, CreditCard, History, Zap, Award, MessagesSquare, Megaphone,
   Newspaper, PartyPopper, Image, ShieldCheck, Settings, Compass, TrendingUp,
   ScrollText, User, KeyRound, LogOut, Percent, ClipboardEdit, PanelLeftClose, PanelLeftOpen,
-  Trash2, FileText, Receipt, FileBarChart, BadgePercent,
+  Trash2, FileText, Receipt, FileBarChart, BadgePercent, Landmark,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -95,6 +95,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/payments/discounts',      label: 'Discounts & Scholarships', icon: BadgePercent },
       { path: '/admin/payments/history',        label: 'Payment History', icon: History },
       { path: '/admin/payments/reports',        label: 'Reports',         icon: FileBarChart },
+      { path: '/admin/payments?view=accounting', label: 'Accounting Center', icon: Landmark },
     ],
   },
   {
@@ -264,6 +265,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
 
   const isActive = (path: string) => {
     if (path === '/admin') return location.pathname === '/admin';
+    if (path.includes('?')) return `${location.pathname}${location.search}` === path;
     return location.pathname.startsWith(path);
   };
 
