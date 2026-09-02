@@ -29,30 +29,32 @@ jobs:
                   t = t.replace(marker, marker + OPTIONS + '\n', 1)
               return t
 
-          def patch(path, pattern, replacement):
+          def patch_if_present(path, pattern, replacement):
               p = Path(path)
               t = add_options(path)
+              if not re.search(pattern, t, flags=re.S):
+                  return
               t, n = re.subn(pattern, replacement, t, count=1, flags=re.S)
               if n != 1:
-                  raise SystemExit(f'pattern not found exactly once: {path}')
+                  raise SystemExit(f'pattern replacement failed: {path}')
               p.write_text(t)
 
-          patch(
+          patch_if_present(
               'apps/frontend/src/features/admin/pages/classes-manage.tsx',
               r'<input id="academicYear"[^>]*?/>',
               '''<select id="academicYear" name="academicYear" value={form.academicYear} onChange={handleChange} className={ic('academicYear')} required>\n                <option value="">Select academic year...</option>\n                {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, form.academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}\n              </select>'''
           )
-          patch(
+          patch_if_present(
               'apps/frontend/src/features/admin/pages/classes-manage.tsx',
               r'<input id="targetAcademicYear"[^>]*?/>',
               '''<select id="targetAcademicYear" value={targetAcademicYear} onChange={e => setTargetAcademicYear(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)]">\n                  <option value="">Select academic year...</option>\n                  {ACADEMIC_YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}</option>)}\n                </select>'''
           )
-          patch(
+          patch_if_present(
               'apps/frontend/src/features/admin/pages/fee-structures-manage.tsx',
               r'<input[^>]*?name="academicYear"[^>]*?/>',
               '''<select className={ic('academicYear')} name="academicYear" value={form.academicYear} onChange={handleChange}>\n              <option value="">Select academic year...</option>\n              {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, form.academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}\n            </select>'''
           )
-          patch(
+          patch_if_present(
               'apps/frontend/src/features/admin/pages/invoices-manage.tsx',
               r'<input[^>]*?value=\{academicYear\}[^>]*?/>',
               '''<select className={ic} value={academicYear} onChange={e => setAcademicYear(e.target.value)}>\n                <option value="">Select academic year...</option>\n                {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}\n              </select>'''
@@ -62,8 +64,7 @@ jobs:
           t = p.read_text()
           old = 'const academicYearLabel = (y: number) => `${y}/${String(y + 1).slice(2)}`;'
           if old in t:
-              t = t.replace(old, 'const academicYearLabel = (y: number) => `${y}-${y + 1}`;', 1)
-          p.write_text(t)
+              p.write_text(t.replace(old, 'const academicYearLabel = (y: number) => `${y}-${y + 1}`;', 1))
           PY
       - name: Commit changes
         run: |
