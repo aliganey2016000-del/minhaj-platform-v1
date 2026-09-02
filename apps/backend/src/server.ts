@@ -80,9 +80,10 @@ async function startServer() {
     await import('./models/quiz-attempt.model');
 
     // Wrap attendance bulk writes after all required models are registered.
-    // The wrapper sends WhatsApp alerts asynchronously so an external
-    // WhatsApp outage never prevents attendance from being saved.
-    await import('./services/attendance-whatsapp-automation');
+    // The wrapper sends WhatsApp/Telegram alerts asynchronously so an
+    // external outage on either channel never prevents attendance from
+    // being saved.
+    await import('./services/attendance-notification-automation');
 
     const appModule = await import('./app');
     const app = appModule.default;

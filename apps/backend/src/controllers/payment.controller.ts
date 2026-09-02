@@ -20,7 +20,7 @@ import { escapeRegex } from '../utils/escape-regex';
 // ---------------------------------------------------------------------------
 
 export const recordPayment = async (req: Request, res: Response): Promise<Response> => {
-  const { studentId, amount, discount, type, method, notes, reference, idempotencyKey } = req.body;
+  const { studentId, amount, discount, type, method, notes, reference, paymentDate, idempotencyKey } = req.body;
 
   if (!studentId || amount === undefined || amount <= 0) {
     throw new BadRequestError('studentId and a valid amount are required');
@@ -29,6 +29,18 @@ export const recordPayment = async (req: Request, res: Response): Promise<Respon
   const student = await Student.findById(studentId);
   if (!student) throw new NotFoundError('Student');
   assertOwnsOrg(req, student, 'school');
+
+  let parsedPaymentDate: Date | undefined;
+  if (paymentDate) {
+    parsedPaymentDate = new Date(`${String(paymentDate).slice(0, 10)}T00:00:00.000`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const oldestAllowed = new Date(today);
+    oldestAllowed.setDate(oldestAllowed.getDate() - 30);
+    if (Number.isNaN(parsedPaymentDate.getTime()) || parsedPaymentDate > today || parsedPaymentDate < oldestAllowed) {
+      throw new BadRequestError('Payment date must be today or within the previous 30 days');
+    }
+  }
 
   const payDiscount = discount || 0;
   const effectiveAmount = Math.max(0, amount - payDiscount);
@@ -42,6 +54,7 @@ export const recordPayment = async (req: Request, res: Response): Promise<Respon
     method: method || 'cash',
     notes,
     reference,
+    paymentDate: parsedPaymentDate,
     recordedBy: req.user!.userId,
     idempotencyKey,
   });
@@ -64,6 +77,31 @@ export const recordPayment = async (req: Request, res: Response): Promise<Respon
       effectiveAmount,
     },
   }, 'Payment recorded successfully');
+};
+
+// GET /payments/duplicate-check - Warn before recording a likely duplicate.
+// This is intentionally advisory; idempotency remains the protection against
+// retries of the same request, while this catches a new similar payment.
+export const checkDuplicatePayment = async (req: Request, res: Response): Promise<Response> => {
+  const { studentId, amount } = req.query;
+  const numericAmount = Number(amount);
+  if (!studentId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+    throw new BadRequestError('studentId and a valid amount are required');
+  }
+
+  const student = await Student.findById(studentId).select('school');
+  if (!student) throw new NotFoundError('Student');
+  assertOwnsOrg(req, student, 'school');
+
+  const duplicate = await Payment.findOne({
+    student: student._id,
+    school: student.school,
+    amount: numericAmount,
+    status: { $ne: 'refunded' },
+    createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) },
+  }).sort({ createdAt: -1 }).select('_id amount method reference createdAt status').lean();
+
+  return ApiResponse.success(res, { duplicate: duplicate || null });
 };
 
 // ---------------------------------------------------------------------------

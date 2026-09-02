@@ -6,22 +6,30 @@ import Profile from '../models/profile.model';
 import Course from '../models/course.model';
 import ClassSchedule from '../models/class-schedule.model';
 import WhatsAppMessage from '../models/whatsapp-message.model';
+import TelegramMessage from '../models/telegram-message.model';
 import { isWhatsAppConfigured, sendWhatsAppMessage } from '../utils/whatsapp';
+import { isTelegramConfigured, sendTelegramMessage } from '../utils/telegram';
 
 /**
- * Attendance -> WhatsApp automation.
+ * Attendance -> WhatsApp/Telegram automation.
  *
  * Attendance is currently written through Attendance.bulkWrite(). Wrapping the
  * model method here keeps the automation independent from every attendance
  * controller/UI path, including future bulk/import paths.
  *
- * Automated outbound WhatsApp messages use an approved template. Configure:
+ * Each channel is gated independently and a parent may be linked to either,
+ * both, or neither — whichever channels they have configured all receive the
+ * alert. WhatsApp uses an approved template (Meta requires business-initiated
+ * messages to use one); Telegram has no such requirement and just gets the
+ * same plain-text alert directly.
+ *
  *   WHATSAPP_ATTENDANCE_ALERTS_ENABLED=true
  *   WHATSAPP_ATTENDANCE_TEMPLATE=attendance_alert
  *   WHATSAPP_ATTENDANCE_TEMPLATE_LANGUAGE=en_US
+ *   TELEGRAM_ATTENDANCE_ALERTS_ENABLED=true
  *
- * Template body parameters (in order): studentName, status, courseName,
- * date, startTime, endTime.
+ * WhatsApp template body parameters (in order): studentName, status,
+ * courseName, date, startTime, endTime.
  */
 
 type AttendanceOp = {
@@ -31,8 +39,12 @@ type AttendanceOp = {
   };
 };
 
-function enabled() {
+function whatsappEnabled() {
   return process.env.WHATSAPP_ATTENDANCE_ALERTS_ENABLED?.trim().toLowerCase() === 'true';
+}
+
+function telegramEnabled() {
+  return process.env.TELEGRAM_ATTENDANCE_ALERTS_ENABLED?.trim().toLowerCase() === 'true';
 }
 
 function formatStatus(status: string) {
@@ -49,10 +61,11 @@ function formatDate(date: Date) {
 }
 
 async function sendForAttendance(ops: AttendanceOp[]) {
-  if (!enabled() || !isWhatsAppConfigured()) return;
+  const whatsappOn = whatsappEnabled() && isWhatsAppConfigured();
+  const whatsappTemplate = process.env.WHATSAPP_ATTENDANCE_TEMPLATE?.trim();
+  const telegramOn = telegramEnabled() && isTelegramConfigured();
+  if ((!whatsappOn || !whatsappTemplate) && !telegramOn) return;
 
-  const templateName = process.env.WHATSAPP_ATTENDANCE_TEMPLATE?.trim();
-  if (!templateName) return;
   const languageCode = process.env.WHATSAPP_ATTENDANCE_TEMPLATE_LANGUAGE?.trim() || 'en_US';
 
   const events = ops
@@ -101,7 +114,7 @@ async function sendForAttendance(ops: AttendanceOp[]) {
   const parentIds = students.map((student: any) => student.parent).filter(Boolean).map(String);
   const profileIds = students.map((student: any) => student.profile).filter(Boolean).map(String);
   const [parents, profiles] = await Promise.all([
-    parentIds.length ? Parent.find({ _id: { $in: parentIds } }).select('phone user school').lean() : Promise.resolve([]),
+    parentIds.length ? Parent.find({ _id: { $in: parentIds } }).select('phone telegramChatId user school').lean() : Promise.resolve([]),
     profileIds.length ? Profile.find({ _id: { $in: profileIds } }).select('firstName lastName').lean() : Promise.resolve([]),
   ]);
 
@@ -117,8 +130,7 @@ async function sendForAttendance(ops: AttendanceOp[]) {
       if (!student?.parent) return;
 
       const parent: any = parentMap.get(String(student.parent));
-      const recipient = String(parent?.phone || '').trim();
-      if (!recipient) return;
+      if (!parent) return;
 
       const course: any = courseMap.get(String(event.courseId));
       const schedule: any = event.scheduleId ? scheduleMap.get(String(event.scheduleId)) : null;
@@ -135,54 +147,66 @@ async function sendForAttendance(ops: AttendanceOp[]) {
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date(event.date);
       endOfDay.setHours(23, 59, 59, 999);
-      const duplicate = await WhatsAppMessage.exists({
-        recipient,
-        kind: 'template',
-        templateName,
-        body,
-        createdAt: { $gte: startOfDay, $lte: endOfDay },
-      });
-      if (duplicate) return;
 
-      const message = await WhatsAppMessage.create({
-        school: parent.school,
-        recipient,
-        parent: parent._id,
-        kind: 'template',
-        templateName,
-        languageCode,
-        body,
-        status: 'queued',
-      });
-
-      try {
-        const result = await sendWhatsAppMessage({
-          to: recipient,
-          templateName,
-          languageCode,
-          components: [{
-            type: 'body',
-            parameters: [
-              { type: 'text', text: studentName },
-              { type: 'text', text: statusText },
-              { type: 'text', text: courseName },
-              { type: 'text', text: dateText },
-              { type: 'text', text: startTime },
-              { type: 'text', text: endTime },
-            ],
-          }],
+      const recipient = String(parent.phone || '').trim();
+      if (whatsappOn && whatsappTemplate && recipient) {
+        const duplicate = await WhatsAppMessage.exists({
+          recipient, kind: 'template', templateName: whatsappTemplate, body, createdAt: { $gte: startOfDay, $lte: endOfDay },
         });
-        message.status = 'sent';
-        message.providerMessageId = result.providerMessageId;
-        await message.save();
-      } catch (error: any) {
-        message.status = 'failed';
-        message.error = error?.response?.data?.error?.message || error?.message || 'WhatsApp attendance alert failed';
-        await message.save();
-        console.error('[WhatsApp attendance] send failed:', message.error);
+        if (!duplicate) {
+          const message = await WhatsAppMessage.create({
+            school: parent.school, recipient, parent: parent._id, kind: 'template',
+            templateName: whatsappTemplate, languageCode, body, status: 'queued',
+          });
+          try {
+            const result = await sendWhatsAppMessage({
+              to: recipient,
+              templateName: whatsappTemplate,
+              languageCode,
+              components: [{
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: studentName },
+                  { type: 'text', text: statusText },
+                  { type: 'text', text: courseName },
+                  { type: 'text', text: dateText },
+                  { type: 'text', text: startTime },
+                  { type: 'text', text: endTime },
+                ],
+              }],
+            });
+            message.status = 'sent';
+            message.providerMessageId = result.providerMessageId;
+            await message.save();
+          } catch (error: any) {
+            message.status = 'failed';
+            message.error = error?.response?.data?.error?.message || error?.message || 'WhatsApp attendance alert failed';
+            await message.save();
+            console.error('[WhatsApp attendance] send failed:', message.error);
+          }
+        }
+      }
+
+      const chatId = String(parent.telegramChatId || '').trim();
+      if (telegramOn && chatId) {
+        const duplicate = await TelegramMessage.exists({ chatId, body, createdAt: { $gte: startOfDay, $lte: endOfDay } });
+        if (!duplicate) {
+          const message = await TelegramMessage.create({ school: parent.school, chatId, parent: parent._id, body, status: 'queued' });
+          try {
+            const result = await sendTelegramMessage(chatId, body);
+            message.status = 'sent';
+            message.providerMessageId = result.providerMessageId;
+            await message.save();
+          } catch (error: any) {
+            message.status = 'failed';
+            message.error = error?.response?.data?.description || error?.message || 'Telegram attendance alert failed';
+            await message.save();
+            console.error('[Telegram attendance] send failed:', message.error);
+          }
+        }
       }
     } catch (error) {
-      console.error('[WhatsApp attendance] automation failed:', error);
+      console.error('[Attendance notification] automation failed:', error);
     }
   }));
 }
@@ -190,7 +214,7 @@ async function sendForAttendance(ops: AttendanceOp[]) {
 const originalBulkWrite = (Attendance as any).bulkWrite.bind(Attendance);
 (Attendance as any).bulkWrite = async function wrappedBulkWrite(ops: AttendanceOp[], ...args: any[]) {
   const result = await originalBulkWrite(ops, ...args);
-  // Do not make an attendance submission fail just because WhatsApp is down.
+  // Do not make an attendance submission fail just because WhatsApp/Telegram is down.
   void sendForAttendance(ops);
   return result;
 };

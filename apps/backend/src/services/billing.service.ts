@@ -186,12 +186,13 @@ export interface CollectPaymentParams {
   type?: string;
   notes?: string;
   reference?: string;
+  paymentDate?: Date;
   recordedBy: Id;
   idempotencyKey?: string;
 }
 
 export async function collectPaymentService(params: CollectPaymentParams): Promise<{ payment: IPayment; invoice: IInvoice }> {
-  const { studentId, schoolId, amount, discount = 0, currency = 'USD', method = 'cash', type, notes, reference, recordedBy, idempotencyKey } = params;
+  const { studentId, schoolId, amount, discount = 0, currency = 'USD', method = 'cash', type, notes, reference, paymentDate, recordedBy, idempotencyKey } = params;
   const cash = Number(amount);
   const waiver = Number(discount || 0);
   if (!Number.isFinite(cash) || cash <= 0) throw new BadRequestError('A valid amount is required');
@@ -272,6 +273,7 @@ export async function collectPaymentService(params: CollectPaymentParams): Promi
       recordedBy,
       invoice: updatedInvoice._id,
       idempotencyKey: idempotencyKey || undefined,
+      ...(paymentDate ? { createdAt: paymentDate } : {}),
     });
     await recalcStudentBalance(studentId);
     return { payment, invoice: updatedInvoice };

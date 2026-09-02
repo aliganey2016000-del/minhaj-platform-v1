@@ -12,8 +12,9 @@ import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-err
 import ensureStudentRecord from '../utils/ensure-student';
 
 async function sendAttendanceAlerts(_params: { courseId: string; scheduleId: mongoose.Types.ObjectId | null; date: Date; records: any[]; createdBy?: string }) {
-  // Attendance WhatsApp delivery is centralized in services/attendance-whatsapp-automation.ts,
-  // which wraps Attendance.bulkWrite() at server startup. Keep this compatibility
+  // Attendance WhatsApp/Telegram delivery is centralized in
+  // services/attendance-notification-automation.ts, which wraps
+  // Attendance.bulkWrite() at server startup. Keep this compatibility
   // helper intentionally inert so legacy controller paths cannot double-send alerts.
   return;
 }

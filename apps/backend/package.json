@@ -26,7 +26,8 @@
     "test:financial-core": "ts-node src/__tests__/financial-core.e2e.ts",
     "test:fee-adjustment": "ts-node src/__tests__/fee-adjustment.e2e.ts",
     "test:discount-grant": "ts-node src/__tests__/discount-grant.e2e.ts",
-    "test:set-fees-idempotent": "ts-node src/__tests__/set-fees-idempotent.e2e.ts"
+    "test:set-fees-idempotent": "ts-node src/__tests__/set-fees-idempotent.e2e.ts",
+    "test:telegram": "ts-node src/__tests__/telegram.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

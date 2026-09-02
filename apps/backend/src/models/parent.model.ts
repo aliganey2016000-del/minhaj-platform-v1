@@ -11,6 +11,8 @@ export interface IParent extends Document {
   relationship: string;
   address?: string;
   status: 'active' | 'inactive';
+  telegramChatId?: string;
+  telegramLinkToken?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,6 +32,12 @@ const parentSchema = new Schema<IParent>(
     relationship: { type: String, default: 'father', enum: ['father', 'mother', 'guardian', 'other'] },
     address: { type: String, default: '' },
     status: { type: String, enum: ['active', 'inactive'], default: 'active' },
+    // Set once the parent opens the bot's deep link and hits Start — see
+    // telegram.controller.ts's generateLinkToken/webhook. Unlike WhatsApp's
+    // phone-number recipient, Telegram requires the user to initiate contact
+    // with the bot at least once before it can message them.
+    telegramChatId: { type: String, trim: true, default: undefined, index: true },
+    telegramLinkToken: { type: String, trim: true, default: undefined, index: true },
   },
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );

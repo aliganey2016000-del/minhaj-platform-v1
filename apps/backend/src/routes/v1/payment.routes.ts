@@ -11,6 +11,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/my', roleMiddleware(['student']), asyncHandler(paymentController.getMyPayments));
+router.get('/duplicate-check', financialOperator, asyncHandler(paymentController.checkDuplicatePayment));
 router.get('/', financialRead, asyncHandler(paymentController.getAll));
 router.post('/', financialOperator, auditLoggingMiddleware(AUDITED_ACTIONS.PAYMENT_RECORDED, 'Payment'), asyncHandler(paymentController.recordPayment));
 router.get('/stats', financialRead, asyncHandler(paymentController.getPaymentStats));
