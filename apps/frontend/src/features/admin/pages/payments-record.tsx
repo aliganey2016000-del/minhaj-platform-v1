@@ -435,8 +435,31 @@ export function PaymentsRecord() {
   // gets a fresh one.
   const idempotencyKeyRef = useRef(crypto.randomUUID());
 
+  const [balanceLoading, setBalanceLoading] = useState(false);
   const isValid = !!selectedStudent && !!recordAmount && Number(recordAmount) > 0;
   const selectedFeeSummary = getStudentFeeSummary(selectedStudent);
+
+  useEffect(() => {
+    if (!selectedStudent?._id) return;
+    let cancelled = false;
+    setBalanceLoading(true);
+    api.get('/payments/student-balances', { params: { search: selectedStudent.studentId } })
+      .then(({ data }) => {
+        const match = (data.data?.students || []).find((s: StudentBrief) => s._id === selectedStudent._id);
+        if (!cancelled && match) {
+          setSelectedStudent(prev => prev ? {
+            ...prev,
+            totalFees: Number(match.totalFees ?? 0),
+            totalFeesPaid: Number(match.totalFeesPaid ?? 0),
+            totalFeesDue: Number(match.totalFeesDue ?? 0),
+            discount: Number(match.discount ?? 0),
+          } : prev);
+        }
+      })
+      .catch(() => { /* Keep identity data if balance refresh fails. */ })
+      .finally(() => { if (!cancelled) setBalanceLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedStudent?._id, selectedStudent?.studentId]);
 
   useEffect(() => {
     (async () => {
@@ -565,7 +588,11 @@ export function PaymentsRecord() {
               <div className="mb-2 flex items-center justify-between gap-3"><label className="text-sm font-semibold text-[var(--color-text-primary)]">Student *</label><span className="text-[11px] text-[var(--color-text-tertiary)]">Search ID, phone, or name</span></div>
               <StudentSearchPicker value={selectedStudent} onSelect={setSelectedStudent} />
               {selectedStudent && (
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                <div className="mt-3">
+                  {balanceLoading && (
+                    <div className="mb-2 text-center text-[11px] text-[var(--color-text-tertiary)]">Refreshing invoice balance…</div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                   <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Total Fees</p>
                     <p className="font-bold">${selectedFeeSummary.totalFees.toLocaleString()}</p>
@@ -581,6 +608,7 @@ export function PaymentsRecord() {
                   <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Due</p>
                     <p className="font-bold text-red-600">${selectedFeeSummary.totalFeesDue.toLocaleString()}</p>
+                  </div>
                   </div>
                 </div>
               )}
