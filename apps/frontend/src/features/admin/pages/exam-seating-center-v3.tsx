@@ -18,7 +18,7 @@ const card = 'rounded-2xl border border-[var(--color-border-default)] bg-[var(--
 const input = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2.5 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20';
 const readonly = `${input} bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)]`;
 const nameOf = (s?: Student) => [s?.profile?.firstName, s?.profile?.lastName].filter(Boolean).join(' ') || '';
-const academicYearLabel = (y: number) => `${y}/${String(y + 1).slice(2)}`;
+const academicYearLabel = (y: number) => `${y}-${y + 1}`;
 const currentAcademicYear = academicYearLabel(new Date().getFullYear());
 const academicYears = Array.from({ length: 7 }, (_, i) => academicYearLabel(new Date().getFullYear() - 3 + i));
 const emptyFields: Fields = { organization:'', department:'', className:'', shift:'', studentId:'', studentName:'', academicYear:currentAcademicYear, examType:'', room:'', seat:'' };

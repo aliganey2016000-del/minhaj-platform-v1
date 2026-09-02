@@ -7,6 +7,10 @@ import { useEffect, useState, useCallback, useMemo, useRef, type FormEvent, type
 import { createPortal } from 'react-dom';
 import { School, Pencil, Trash2, Copy, MoreVertical, Search, ChevronDown, CheckCircle2, PauseCircle, Archive } from 'lucide-react';
 import api from '../../../lib/axios';
+const ACADEMIC_YEAR_OPTIONS = Array.from({ length: 7 }, (_, index) => {
+  const startYear = new Date().getFullYear() - 3 + index;
+  return `${startYear}-${startYear + 1}`;
+});
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 import { Pagination } from '../components/pagination';
 
@@ -169,7 +173,10 @@ function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: Cla
             </div>
             <div>
               <label htmlFor="academicYear" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Academic Year <span className="text-red-500">*</span></label>
-              <input id="academicYear" name="academicYear" type="text" value={form.academicYear} onChange={handleChange} placeholder="e.g. 2026-2027" className={ic('academicYear')} />
+              <select id="academicYear" name="academicYear" value={form.academicYear} onChange={handleChange} className={ic('academicYear')} required>
+                <option value="">Select academic year...</option>
+                {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, form.academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}
+              </select>
               {errors.academicYear && <p className="mt-1 text-xs text-red-500">{errors.academicYear}</p>}
             </div>
           </div>
@@ -319,7 +326,10 @@ function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[];
             {schoolId && (
               <div>
                 <label htmlFor="targetAcademicYear" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Target Academic Year</label>
-                <input id="targetAcademicYear" type="text" value={targetAcademicYear} onChange={e => setTargetAcademicYear(e.target.value)} placeholder="e.g. 2026-2027" className="w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <select id="targetAcademicYear" value={targetAcademicYear} onChange={e => setTargetAcademicYear(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)]">
+                  <option value="">Select academic year...</option>
+                  {ACADEMIC_YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}</option>)}
+                </select>
                 <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{allowRepromote ? 'Testing mode is on, so this can match the classes\' own academic year.' : 'Must be different from the current classes\' own academic year — otherwise there\'s nothing to promote into.'}</p>
               </div>
             )}
