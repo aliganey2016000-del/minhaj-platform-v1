@@ -17,9 +17,10 @@ const invoicePaid = { $ifNull: ['$amountPaid', 0] };
 
 export async function recalcStudentBalance(studentId: Id): Promise<void> {
   const invoices = await Invoice.find({ student: studentId, status: { $ne: 'void' } }).select('amount discount amountPaid').lean();
+  const totalFees = invoices.reduce((sum, inv: any) => sum + (inv.amount || 0), 0);
   const totalFeesPaid = invoices.reduce((sum, inv: any) => sum + (inv.amountPaid || 0), 0);
   const totalFeesDue = invoices.reduce((sum, inv: any) => sum + Math.max(0, (inv.amount || 0) - (inv.discount || 0) - (inv.amountPaid || 0)), 0);
-  await Student.findByIdAndUpdate(studentId, { totalFeesPaid, totalFeesDue });
+  await Student.findByIdAndUpdate(studentId, { totalFees, totalFeesPaid, totalFeesDue });
 }
 
 export async function applyInvoicePayment(invoiceId: Id, amount: number, discount = 0): Promise<IInvoice> {

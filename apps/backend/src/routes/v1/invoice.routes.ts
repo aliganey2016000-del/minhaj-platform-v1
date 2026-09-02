@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as invoiceController from '../../controllers/invoice.controller';
+import * as invoiceListController from '../../controllers/invoice-list.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOnly, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -18,7 +19,7 @@ router.get('/my', roleMiddleware(['student']), asyncHandler(invoiceController.ge
 // Admin / org_admin / parent / student — ownership enforced in the controller.
 router.get('/student/:studentId', roleMiddleware(['admin', 'org_admin', 'parent', 'student']), asyncHandler(invoiceController.getStudentInvoices));
 
-router.get('/', adminOnly, asyncHandler(invoiceController.getAll));
+router.get('/', adminOnly, asyncHandler(invoiceListController.getAll));
 router.post('/', adminOnly, asyncHandler(invoiceController.create));
 router.delete('/', adminOnly, asyncHandler(invoiceController.bulkDelete));
 router.get('/:id', adminOnly, asyncHandler(invoiceController.getOne));
