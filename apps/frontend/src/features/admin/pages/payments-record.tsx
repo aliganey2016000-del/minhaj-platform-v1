@@ -588,6 +588,9 @@ export function PaymentsRecord() {
               <div className="mb-2 flex items-center justify-between gap-3"><label className="text-sm font-semibold text-[var(--color-text-primary)]">Student *</label><span className="text-[11px] text-[var(--color-text-tertiary)]">Search ID, phone, or name</span></div>
               <StudentSearchPicker value={selectedStudent} onSelect={setSelectedStudent} />
               {selectedStudent && (
+                {balanceLoading && (
+                  <div className="col-span-2 sm:col-span-4 text-center text-[11px] text-[var(--color-text-tertiary)]">Refreshing invoice balance…</div>
+                )}
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                   <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Total Fees</p>
