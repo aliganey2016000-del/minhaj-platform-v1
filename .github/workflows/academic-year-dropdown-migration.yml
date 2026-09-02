@@ -1,6 +1,8 @@
 name: Academic Year Migration
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - fix/academic-year-dropdowns-v1
 permissions:
   contents: write
 jobs:
@@ -8,4 +10,64 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo migration
+        with:
+          fetch-depth: 0
+      - name: Patch UI
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          OPTIONS = "const ACADEMIC_YEAR_OPTIONS = Array.from({ length: 7 }, (_, index) => {\n  const startYear = new Date().getFullYear() - 3 + index;\n  return `${startYear}-${startYear + 1}`;\n});"
+
+          def add_options(path):
+              p=Path(path); t=p.read_text()
+              if 'const ACADEMIC_YEAR_OPTIONS' not in t:
+                  marker="import api from '../../../lib/axios';\n"
+                  if marker not in t: raise SystemExit(f'marker missing: {path}')
+                  t=t.replace(marker, marker+OPTIONS+'\n', 1)
+              return t
+
+          path='apps/frontend/src/features/admin/pages/classes-manage.tsx'
+          t=add_options(path)
+          old='<input id="academicYear" name="academicYear" type="text" value={form.academicYear} onChange={handleChange} placeholder="e.g. 2026-2027" className={ic(\'academicYear\')} />'
+          new='''<select id="academicYear" name="academicYear" value={form.academicYear} onChange={handleChange} className={ic('academicYear')} required>\n                <option value="">Select academic year...</option>\n                {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, form.academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}\n              </select>'''
+          if old not in t: raise SystemExit('class academic year input missing')
+          t=t.replace(old,new,1)
+          pat=r'<input id="targetAcademicYear" type="text" value=\{targetAcademicYear\} onChange=\{e => setTargetAcademicYear\(e\.target\.value\)\} placeholder="e\.g\. 2026-2027" className="[^"]+" />'
+          repl='''<select id="targetAcademicYear" value={targetAcademicYear} onChange={e => setTargetAcademicYear(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)]">\n                  <option value="">Select academic year...</option>\n                  {ACADEMIC_YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}</option>)}\n                </select>'''
+          t,n=re.subn(pat,repl,t,count=1)
+          if n!=1: raise SystemExit('target academic year input missing')
+          Path(path).write_text(t)
+
+          path='apps/frontend/src/features/admin/pages/fee-structures-manage.tsx'
+          t=add_options(path)
+          pat=r'<input className=\{ic\(\'academicYear\'\)\} name="academicYear" placeholder="e\.g\. 2026-2027" value=\{form\.academicYear\} onChange=\{handleChange\} />'
+          repl='''<select className={ic('academicYear')} name="academicYear" value={form.academicYear} onChange={handleChange}>\n              <option value="">Select academic year...</option>\n              {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, form.academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}\n            </select>'''
+          t,n=re.subn(pat,repl,t,count=1)
+          if n!=1: raise SystemExit('fee academic year input missing')
+          Path(path).write_text(t)
+
+          path='apps/frontend/src/features/admin/pages/invoices-manage.tsx'
+          t=add_options(path)
+          pat=r'<input className=\{ic\} value=\{academicYear\} onChange=\{e => setAcademicYear\(e\.target\.value\)\} placeholder="Optional" />'
+          repl='''<select className={ic} value={academicYear} onChange={e => setAcademicYear(e.target.value)}>\n                <option value="">Select academic year...</option>\n                {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}\n              </select>'''
+          t,n=re.subn(pat,repl,t,count=1)
+          if n!=1: raise SystemExit('invoice academic year input missing')
+          Path(path).write_text(t)
+
+          path='apps/frontend/src/features/admin/pages/exam-seating-center-v3.tsx'
+          p=Path(path); t=p.read_text()
+          old='const academicYearLabel = (y: number) => `${y}/${String(y + 1).slice(2)}`;'
+          new='const academicYearLabel = (y: number) => `${y}-${y + 1}`;'
+          if old not in t: raise SystemExit('exam seating formatter missing')
+          p.write_text(t.replace(old,new,1))
+          PY
+      - name: Commit migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/frontend/src/features/admin/pages/classes-manage.tsx apps/frontend/src/features/admin/pages/fee-structures-manage.tsx apps/frontend/src/features/admin/pages/invoices-manage.tsx apps/frontend/src/features/admin/pages/exam-seating-center-v3.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(admin): use academic year dropdowns"
+          git push origin HEAD:fix/academic-year-dropdowns-v1
