@@ -407,8 +407,31 @@ export function PaymentsRecord() {
   // gets a fresh one.
   const idempotencyKeyRef = useRef(crypto.randomUUID());
 
-  const isValid = !!selectedStudent && !!recordAmount && Number(recordAmount) > 0;
+  const [balanceLoading, setBalanceLoading] = useState(false);
   const selectedFeeSummary = getStudentFeeSummary(selectedStudent);
+  const isValid = !!selectedStudent && !!recordAmount && Number(recordAmount) > 0;
+
+  useEffect(() => {
+    if (!selectedStudent?._id) return;
+    let cancelled = false;
+    setBalanceLoading(true);
+    api.get('/payments/student-balances', { params: { search: selectedStudent.studentId } })
+      .then(({ data }) => {
+        const match = (data.data?.students || []).find((s: StudentBrief) => s._id === selectedStudent._id);
+        if (!cancelled && match) {
+          setSelectedStudent(prev => prev ? {
+            ...prev,
+            totalFees: Number(match.totalFees ?? 0),
+            totalFeesPaid: Number(match.totalFeesPaid ?? 0),
+            totalFeesDue: Number(match.totalFeesDue ?? 0),
+            discount: Number(match.discount ?? 0),
+          } : prev);
+        }
+      })
+      .catch(() => { /* Keep identity data if balance refresh fails. */ })
+      .finally(() => { if (!cancelled) setBalanceLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedStudent?._id, selectedStudent?.studentId]);
 
   useEffect(() => {
     (async () => {
@@ -503,6 +526,9 @@ export function PaymentsRecord() {
               <StudentSearchPicker value={selectedStudent} onSelect={setSelectedStudent} />
               {selectedStudent && (
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  {balanceLoading && (
+                    <div className="col-span-2 sm:col-span-4 text-center text-[11px] text-[var(--color-text-tertiary)]">Refreshing invoice balance…</div>
+                  )}
                   <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Total Fees</p>
                     <p className="font-bold">${selectedFeeSummary.totalFees.toLocaleString()}</p>
