@@ -1,0 +1,44 @@
+name: Finance Sidebar Patch
+
+on:
+  push:
+    branches:
+      - feature/finance-sidebar-navigation-v2
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch finance navigation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          sidebar = Path('apps/frontend/src/features/admin/components/admin-sidebar.tsx')
+          text = sidebar.read_text()
+          text = text.replace('Trash2, FileText, Receipt, FileBarChart, BadgePercent,', 'Trash2, FileText, Receipt, FileBarChart, BadgePercent, Landmark,')
+          old = "      { path: '/admin/payments/reports',        label: 'Reports',         icon: FileBarChart },\n"
+          new = old + "      { path: '/admin/payments?view=accounting', label: 'Accounting Center', icon: Landmark },\n"
+          if new not in text:
+              if old not in text:
+                  raise SystemExit('Payments Reports navigation anchor not found')
+              text = text.replace(old, new, 1)
+          old_active = "  const isActive = (path: string) => {\n    if (path === '/admin') return location.pathname === '/admin';\n    return location.pathname.startsWith(path);\n  };"
+          new_active = "  const isActive = (path: string) => {\n    if (path === '/admin') return location.pathname === '/admin';\n    if (path.includes('?')) return `${location.pathname}${location.search}` === path;\n    return location.pathname.startsWith(path);\n  };"
+          if old_active in text:
+              text = text.replace(old_active, new_active, 1)
+          sidebar.write_text(text)
+          PY
+      - name: Commit and clean up patch workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/frontend/src/features/admin/components/admin-sidebar.tsx
+          git rm .github/workflows/finance-sidebar-patch.yml
+          git commit -m "feat(finance): expose accounting center in admin sidebar"
+          git push
