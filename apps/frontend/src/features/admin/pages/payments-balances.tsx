@@ -9,6 +9,7 @@
  * bill students going forward.
  */
 import { useEffect, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -251,7 +252,7 @@ export function PaymentsBalances() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-center whitespace-nowrap">
-                          <button onClick={() => setEditingStudent(s)} className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">📝 Edit Fees</button>
+                          <Link to={`/admin/payments/balances/${s._id}`} className="inline-flex items-center rounded-lg border border-primary-200 px-3 py-1.5 text-xs font-semibold text-primary-600 transition-colors hover:bg-primary-50 dark:border-primary-900/50 dark:hover:bg-primary-950/30">View</Link>
                         </td>
                       </tr>
                     );
