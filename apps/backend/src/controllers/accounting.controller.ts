@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError } from '../utils/api-error';
 import { createJournalEntry, ensureDefaultAccounts, getAccounts, getTrialBalance, listJournalEntries } from '../services/accounting.service';
+import { getArAging, getBalanceSheet, getCashPosition, getProfitAndLoss } from '../services/financial-report.service';
 import { AuditLogger } from '../utils/audit-logger';
 
 function schoolIdFromRequest(req: Request): string {
@@ -66,5 +67,28 @@ export async function getTrialBalanceController(req: Request, res: Response): Pr
     dateFrom: parseDate(req.query.dateFrom),
     dateTo: parseDate(req.query.dateTo, true),
   });
+  return ApiResponse.success(res, result);
+}
+
+export async function getProfitAndLossController(req: Request, res: Response): Promise<Response> {
+  const result = await getProfitAndLoss(schoolIdFromRequest(req), {
+    dateFrom: parseDate(req.query.dateFrom),
+    dateTo: parseDate(req.query.dateTo, true),
+  });
+  return ApiResponse.success(res, result);
+}
+
+export async function getBalanceSheetController(req: Request, res: Response): Promise<Response> {
+  const result = await getBalanceSheet(schoolIdFromRequest(req), parseDate(req.query.asOf, true));
+  return ApiResponse.success(res, result);
+}
+
+export async function getArAgingController(req: Request, res: Response): Promise<Response> {
+  const result = await getArAging(schoolIdFromRequest(req), parseDate(req.query.asOf, true));
+  return ApiResponse.success(res, result);
+}
+
+export async function getCashPositionController(req: Request, res: Response): Promise<Response> {
+  const result = await getCashPosition(schoolIdFromRequest(req), parseDate(req.query.asOf, true));
   return ApiResponse.success(res, result);
 }

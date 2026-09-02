@@ -12,5 +12,9 @@ router.post('/accounts/seed-defaults', financialManager, asyncHandler(accounting
 router.get('/journals', financialRead, asyncHandler(accountingController.getJournals));
 router.post('/journals', financialManager, asyncHandler(accountingController.createJournal));
 router.get('/trial-balance', financialRead, asyncHandler(accountingController.getTrialBalanceController));
+router.get('/reports/profit-and-loss', financialRead, asyncHandler(accountingController.getProfitAndLossController));
+router.get('/reports/balance-sheet', financialRead, asyncHandler(accountingController.getBalanceSheetController));
+router.get('/reports/ar-aging', financialRead, asyncHandler(accountingController.getArAgingController));
+router.get('/reports/cash-position', financialRead, asyncHandler(accountingController.getCashPositionController));
 
 export default router;
