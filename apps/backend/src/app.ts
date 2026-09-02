@@ -13,6 +13,7 @@ import {
   requestTimeout,
   stripSensitiveHeaders,
   setContentSecurityPolicy,
+  setPermissionsPolicy,
   validateSecurityEnv,
   addApiVersionHeader,
   securityLogging,
@@ -20,36 +21,28 @@ import {
 
 const app = express();
 
-// ---------------------------------------------------------------------------
-// Validate Security Configuration at Startup
-// ---------------------------------------------------------------------------
 validateSecurityEnv();
 
-// ---------------------------------------------------------------------------
-// Trust proxy (required for rate limiting behind reverse proxy)
-// ---------------------------------------------------------------------------
+// Keep this aligned with the deployment topology: one trusted reverse proxy.
 app.set('trust proxy', 1);
 
-// ---------------------------------------------------------------------------
-// Security Middleware
-// ---------------------------------------------------------------------------
 app.use(enforceHttps);
 app.use(helmet({
-  contentSecurityPolicy: false, // We handle this separately
+  contentSecurityPolicy: false,
   hsts: {
-    maxAge: 31536000, // 1 year
+    maxAge: 31536000,
     includeSubDomains: true,
     preload: true,
   },
   frameguard: { action: 'deny' },
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   noSniff: true,
-  xssFilter: true,
+  crossOriginOpenerPolicy: { policy: 'same-origin' },
 }));
+
 const allowedOrigins = getAllowedOrigins();
 app.use(cors({
   origin: (origin, callback) => {
-    // No Origin header (server-to-server, curl, same-origin) — allow.
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
     callback(new Error('Not allowed by CORS'));
   },
@@ -57,29 +50,22 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: ['X-Total-Count', 'X-Page-Count', 'API-Version'],
-  maxAge: 86400, // 24 hours
+  maxAge: 86400,
 }));
 app.use(stripSensitiveHeaders);
 app.use(setContentSecurityPolicy);
+app.use(setPermissionsPolicy);
 app.use(addApiVersionHeader);
 
-// ---------------------------------------------------------------------------
-// Body Parsing
-// ---------------------------------------------------------------------------
-// Authentication rate limiting below keys failed attempts by account and IP,
-// so the request body must be parsed before those limiters run.
 app.use(requestTimeout());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 app.use(securityLogging);
 
-// ---------------------------------------------------------------------------
-// Rate Limiting
-// ---------------------------------------------------------------------------
 const limiter = rateLimit({
-  windowMs: (parseInt(process.env.RATE_LIMIT_WINDOW || '1')) * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX || '1000'),
+  windowMs: (parseInt(process.env.RATE_LIMIT_WINDOW || '1', 10)) * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX || '300', 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -89,16 +75,9 @@ const limiter = rateLimit({
     data: null,
     errors: null,
   },
-  skip: (req) => req.path === '/v1/health', // Skip health checks — req.path is relative to the '/api/' mount point
+  skip: (req) => req.path === '/v1/health',
 });
 
-// Authentication protection uses TWO independent limits:
-// 1) Account limit: five failed attempts for one normalized email in 10 min.
-//    This follows the account across changing IP addresses.
-// 2) IP limit: thirty failed authentication attempts from one IP in 10 min.
-//    This prevents an attacker from rotating email addresses to evade the
-//    account limit, while still allowing legitimate users on shared networks.
-// Successful requests are removed from both counters.
 const authAccountLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   max: 5,
@@ -139,26 +118,14 @@ app.use('/api/', limiter);
 app.use('/api/v1/auth/login', authAccountLimiter, authIpLimiter);
 app.use('/api/v1/auth/register', authAccountLimiter, authIpLimiter);
 
-// ---------------------------------------------------------------------------
-// Data Sanitization
-// ---------------------------------------------------------------------------
 app.use(mongoSanitize());
 
-// ---------------------------------------------------------------------------
-// Logging
-// ---------------------------------------------------------------------------
 if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
-// ---------------------------------------------------------------------------
-// Routes
-// ---------------------------------------------------------------------------
 app.use(routes);
 
-// ---------------------------------------------------------------------------
-// 404 Handler
-// ---------------------------------------------------------------------------
 app.use((_req, res) => {
   res.status(404).json({
     success: false,
@@ -169,9 +136,6 @@ app.use((_req, res) => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Global Error Handler (must be last)
-// ---------------------------------------------------------------------------
 app.use(errorHandler);
 
 export default app;

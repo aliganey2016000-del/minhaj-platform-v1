@@ -1,24 +1,9 @@
 /**
- * Enhanced Security Middleware
- *
- * Provides comprehensive security features including:
- * - HTTPS/TLS enforcement
- * - Request timeout protection
- * - Content Security Policy
- * - Additional security headers
- * - Response header stripping
+ * Security middleware for transport, browser and request hardening.
  */
 
 import { Request, Response, NextFunction } from 'express';
 
-/**
- * Enforce HTTPS in production
- * Redirect HTTP to HTTPS with appropriate security headers.
- *
- * The internal health endpoint is intentionally exempt because Docker's
- * healthcheck runs inside the container over plain HTTP; redirecting it to
- * HTTPS would make the container appear unhealthy even when the API is up.
- */
 export const enforceHttps = (req: Request, res: Response, next: NextFunction): void => {
   const isHealthCheck = req.path === '/api/v1/health';
 
@@ -27,18 +12,19 @@ export const enforceHttps = (req: Request, res: Response, next: NextFunction): v
     !isHealthCheck &&
     req.header('x-forwarded-proto') !== 'https'
   ) {
-    return res.redirect(301, `https://${req.header('host')}${req.url}`);
+    const host = req.header('host');
+    if (!host) {
+      res.status(400).json({ success: false, statusCode: 400, message: 'Invalid host', data: null, errors: null });
+      return;
+    }
+    return res.redirect(301, `https://${host}${req.url}`);
   }
   next();
 };
 
-/**
- * Request timeout middleware
- * Prevents slow-read attacks and resource exhaustion
- * Default: 30 seconds (configurable via environment)
- */
+/** Prevent slow requests from consuming server resources indefinitely. */
 export const requestTimeout = (
-  timeout: number = parseInt(process.env.REQUEST_TIMEOUT_MS || '120000')
+  timeout: number = parseInt(process.env.REQUEST_TIMEOUT_MS || '30000', 10)
 ) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     const timer = setTimeout(() => {
@@ -51,41 +37,28 @@ export const requestTimeout = (
           errors: null,
         });
       }
+      req.destroy();
     }, timeout);
 
     res.on('finish', () => clearTimeout(timer));
     res.on('close', () => clearTimeout(timer));
-
     next();
   };
 };
 
-/**
- * Strip sensitive headers from response
- * Prevents information disclosure
- */
 export const stripSensitiveHeaders = (
   _req: Request,
   res: Response,
   next: NextFunction
 ): void => {
-  // Remove headers that might leak server information
   res.removeHeader('Server');
   res.removeHeader('X-Powered-By');
   res.removeHeader('X-AspNet-Version');
-
-  // Set safe default headers
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-
   next();
 };
 
-/**
- * Validate and set Content Security Policy
- * Restricts what content can be loaded by the browser
- */
 export const setContentSecurityPolicy = (
   _req: Request,
   res: Response,
@@ -111,9 +84,19 @@ export const setContentSecurityPolicy = (
 };
 
 /**
- * Environment validation middleware
- * Ensures critical security environment variables are set
+ * Helmet 7 does not expose a Permissions-Policy option in its TypeScript
+ * options. Set the browser policy explicitly instead of using an invalid
+ * Helmet configuration that breaks the TypeScript build.
  */
+export const setPermissionsPolicy = (
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  next();
+};
+
 export const validateSecurityEnv = (): void => {
   const requiredEnvVars = [
     'JWT_ACCESS_SECRET',
@@ -132,34 +115,15 @@ export const validateSecurityEnv = (): void => {
 };
 
 /**
- * Request size validation
- * Ensures JSON payload doesn't exceed safe limits
+ * This middleware is intentionally not used for body-size enforcement.
+ * Express's parser limits in app.ts are the authoritative protection.
  */
 export const validateRequestSize = (
-  req: Request,
-  res: Response,
+  _req: Request,
+  _res: Response,
   next: NextFunction
-): void => {
-  const maxJsonSize = 10 * 1024 * 1024; // 10MB default
+): void => next();
 
-  if (req.is('application/json') && req.socket.readableLength > maxJsonSize) {
-    res.status(413).json({
-      success: false,
-      statusCode: 413,
-      message: 'Payload too large',
-      data: null,
-      errors: null,
-    });
-    return;
-  }
-
-  next();
-};
-
-/**
- * API Version Header middleware
- * Adds API version information to responses
- */
 export const addApiVersionHeader = (
   _req: Request,
   res: Response,
@@ -168,7 +132,6 @@ export const addApiVersionHeader = (
   res.setHeader('API-Version', '1.0.0');
   res.setHeader('X-API-Version', '1.0.0');
 
-  // Add deprecation headers if needed
   if (process.env.API_DEPRECATION_DATE) {
     res.setHeader('Deprecation', 'true');
     res.setHeader('Sunset', process.env.API_DEPRECATION_DATE);
@@ -177,21 +140,17 @@ export const addApiVersionHeader = (
   next();
 };
 
-/**
- * Request logging and monitoring
- * Logs suspicious request patterns
- */
+/** Log only metadata; never serialize request bodies into security logs. */
 export const securityLogging = (
   req: Request,
   res: Response,
   next: NextFunction
 ): void => {
-  // Log requests with suspicious patterns
   const suspiciousPatterns = ['<script', 'drop table', 'union select', '--', '/*'];
-  const checkString = `${req.url}${JSON.stringify(req.body)}`.toLowerCase();
+  const checkString = req.url.toLowerCase();
 
   if (suspiciousPatterns.some((pattern) => checkString.includes(pattern))) {
-    console.warn(`[SECURITY] Suspicious request detected from ${req.ip}:`, {
+    console.warn('[SECURITY] Suspicious request detected', {
       url: req.url,
       method: req.method,
       ip: req.ip,
