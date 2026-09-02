@@ -1,13 +1,9 @@
 /**
  * Billing Service — Invoice is the single source of truth for money owed.
  *
- * Payment amounts remain immutable. Invoice discounts are tracked separately
- * from cash received, so the invariant is always:
- *
- *   amountDue = amount - discount - amountPaid
- *
- * All invoice balance mutations use atomic single-document updates because
- * this deployment currently runs MongoDB without a replica set.
+ * Invariant: amountDue = amount - discount - amountPaid.
+ * All balance mutations are atomic single-document operations because this
+ * deployment currently runs MongoDB without a replica set.
  */
 
 import mongoose from 'mongoose';
@@ -17,6 +13,9 @@ import Student from '../models/student.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 
 type Id = mongoose.Types.ObjectId | string;
+
+const invoiceDiscount = { $ifNull: ['$discount', 0] };
+const invoicePaid = { $ifNull: ['$amountPaid', 0] };
 
 export async function recalcStudentBalance(studentId: Id): Promise<void> {
   const invoices = await Invoice.find({ student: studentId, status: { $ne: 'void' } })
@@ -46,20 +45,20 @@ export async function applyInvoicePayment(invoiceId: Id, amount: number, discoun
       status: { $ne: 'void' },
       $expr: {
         $lte: [
-          { $add: [{ $add: ['$amountPaid', effectiveCash] }, { $add: ['$discount', waiver] }] },
+          { $add: [{ $add: [invoicePaid, effectiveCash] }, { $add: [invoiceDiscount, waiver] }] },
           { $add: ['$amount', 0.001] },
         ],
       },
     },
     [
-      { $set: { amountPaid: { $add: ['$amountPaid', effectiveCash] }, discount: { $add: ['$discount', waiver] } } },
+      { $set: { amountPaid: { $add: [invoicePaid, effectiveCash] }, discount: { $add: [invoiceDiscount, waiver] } } },
       {
         $set: {
           status: {
             $cond: [
-              { $gte: [{ $add: ['$amountPaid', '$discount'] }, '$amount'] },
+              { $gte: [{ $add: ['$amountPaid', { $ifNull: ['$discount', 0] }] }, '$amount'] },
               'paid',
-              { $cond: [{ $gt: [{ $add: ['$amountPaid', '$discount'] }, 0] }, 'partial', 'pending'] },
+              { $cond: [{ $gt: [{ $add: ['$amountPaid', { $ifNull: ['$discount', 0] }] }, 0] }, 'partial', 'pending'] },
             ],
           },
         },
@@ -83,9 +82,9 @@ export async function reverseInvoicePayment(invoiceId: Id, amount: number): Prom
   if (!Number.isFinite(cash) || cash <= 0) throw new BadRequestError('Refund amount must be greater than zero');
 
   const updated = await Invoice.findOneAndUpdate(
-    { _id: invoiceId, $expr: { $gte: ['$amountPaid', cash] } },
+    { _id: invoiceId, $expr: { $gte: [invoicePaid, cash] } },
     [
-      { $set: { amountPaid: { $subtract: ['$amountPaid', cash] } } },
+      { $set: { amountPaid: { $subtract: [invoicePaid, cash] } } },
       {
         $set: {
           status: {
@@ -94,9 +93,9 @@ export async function reverseInvoicePayment(invoiceId: Id, amount: number): Prom
               'void',
               {
                 $cond: [
-                  { $gte: [{ $add: ['$amountPaid', '$discount'] }, '$amount'] },
+                  { $gte: [{ $add: ['$amountPaid', { $ifNull: ['$discount', 0] }] }, '$amount'] },
                   'paid',
-                  { $cond: [{ $gt: [{ $add: ['$amountPaid', '$discount'] }, 0] }, 'partial', 'pending'] },
+                  { $cond: [{ $gt: [{ $add: ['$amountPaid', { $ifNull: ['$discount', 0] }] }, 0] }, 'partial', 'pending'] },
                 ],
               },
             ],
@@ -116,7 +115,6 @@ export async function reverseInvoicePayment(invoiceId: Id, amount: number): Prom
   return updated;
 }
 
-/** Compensating operation used only when a downstream refund write fails. */
 export async function restoreInvoicePayment(invoiceId: Id, amount: number): Promise<IInvoice> {
   const cash = Number(amount);
   if (!Number.isFinite(cash) || cash <= 0) throw new BadRequestError('Restore amount must be greater than zero');
@@ -124,14 +122,14 @@ export async function restoreInvoicePayment(invoiceId: Id, amount: number): Prom
   const updated = await Invoice.findOneAndUpdate(
     { _id: invoiceId, status: { $ne: 'void' } },
     [
-      { $set: { amountPaid: { $add: ['$amountPaid', cash] } } },
+      { $set: { amountPaid: { $add: [invoicePaid, cash] } } },
       {
         $set: {
           status: {
             $cond: [
-              { $gte: [{ $add: ['$amountPaid', '$discount'] }, '$amount'] },
+              { $gte: [{ $add: ['$amountPaid', { $ifNull: ['$discount', 0] }] }, '$amount'] },
               'paid',
-              { $cond: [{ $gt: [{ $add: ['$amountPaid', '$discount'] }, 0] }, 'partial', 'pending'] },
+              { $cond: [{ $gt: [{ $add: ['$amountPaid', { $ifNull: ['$discount', 0] }] }, 0] }, 'partial', 'pending'] },
             ],
           },
         },
@@ -178,14 +176,15 @@ export async function collectPaymentService(params: CollectPaymentParams): Promi
     }
   }
 
-  let invoice: IInvoice | null;
+  let invoice: IInvoice;
   let createdAdHocInvoice = false;
 
   if (params.invoiceId) {
-    invoice = await Invoice.findById(params.invoiceId);
-    if (!invoice) throw new NotFoundError('Invoice');
-    if (invoice.status === 'void') throw new BadRequestError('Cannot collect payment on a voided invoice');
-    if (invoice.student.toString() !== studentId.toString()) throw new BadRequestError('Invoice does not belong to the selected student');
+    const found = await Invoice.findById(params.invoiceId);
+    if (!found) throw new NotFoundError('Invoice');
+    if (found.status === 'void') throw new BadRequestError('Cannot collect payment on a voided invoice');
+    if (found.student.toString() !== studentId.toString()) throw new BadRequestError('Invoice does not belong to the selected student');
+    invoice = found;
   } else {
     invoice = await Invoice.create({
       student: studentId,
