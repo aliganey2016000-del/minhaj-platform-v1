@@ -7,7 +7,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Keep CI attached to every main-branch push so dashboard changes get a fresh run.
+permissions:
+  contents: read
 
 jobs:
   backend:
@@ -29,6 +30,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
 
       - name: TypeScript build
         run: npx tsc
@@ -59,14 +63,12 @@ jobs:
           cache: npm
           cache-dependency-path: apps/frontend/package-lock.json
 
-      # npm 11.14+ has a regression that can reject valid lockfiles during npm ci.
-      # Pin the known-good npm 11.13.0 client until that regression is resolved.
-      - name: Use known-good npm
-        run: npx --yes npm@11.13.0 --version
-
-      # Keep frontend installation deterministic from package-lock.json.
+      # Pin the npm client used for deterministic lockfile installation.
       - name: Install dependencies
         run: npx --yes npm@11.13.0 ci
+
+      - name: Dependency audit
+        run: npx --yes npm@11.13.0 audit --audit-level=high
 
       - name: Build
         run: npm run build
