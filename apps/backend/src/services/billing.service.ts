@@ -48,6 +48,32 @@ export async function applyInvoicePayment(invoiceId: Id, amount: number, discoun
   return updated;
 }
 
+// A discount/waiver granted independently of collecting cash — e.g. a
+// scholarship applied against an unpaid or partially-paid invoice. Same
+// atomic-guard shape as applyInvoicePayment: the update only lands if the
+// invoice still has enough remaining balance to absorb it, so two admins
+// granting overlapping discounts on the same invoice can't push it negative.
+export async function applyInvoiceDiscount(invoiceId: Id, amount: number): Promise<IInvoice> {
+  const waiver = Number(amount);
+  if (!Number.isFinite(waiver) || waiver <= 0) throw new BadRequestError('Discount amount must be greater than zero');
+  const updated = await Invoice.findOneAndUpdate(
+    { _id: invoiceId, status: { $ne: 'void' }, $expr: { $lte: [{ $add: [invoiceDiscount, waiver] }, { $subtract: [{ $add: ['$amount', 0.001] }, invoicePaid] }] } },
+    [
+      { $set: { discount: { $add: [invoiceDiscount, waiver] } } },
+      { $set: { status: { $cond: [{ $gte: [{ $add: ['$amountPaid', '$discount'] }, '$amount'] }, 'paid', { $cond: [{ $gt: [{ $add: ['$amountPaid', '$discount'] }, 0] }, 'partial', 'pending'] }] } } },
+    ],
+    { new: true }
+  );
+  if (!updated) {
+    const fresh = await Invoice.findById(invoiceId);
+    if (!fresh) throw new NotFoundError('Invoice');
+    if (fresh.status === 'void') throw new BadRequestError('Cannot apply a discount to a voided invoice');
+    const remaining = Math.max(0, fresh.amount - (fresh.discount || 0) - (fresh.amountPaid || 0));
+    throw new BadRequestError(`Discount exceeds remaining balance of ${remaining}`);
+  }
+  return updated;
+}
+
 export async function reverseInvoicePayment(invoiceId: Id, amount: number): Promise<IInvoice> {
   const cash = Number(amount);
   if (!Number.isFinite(cash) || cash <= 0) throw new BadRequestError('Refund amount must be greater than zero');

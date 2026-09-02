@@ -74,6 +74,7 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/payments/record', label: 'Record Payment', section: 'Payments' },
   { key: 'admin/payments/bulk', label: 'Bulk Payment', section: 'Payments' },
   { key: 'admin/payments/balances', label: 'Student Balances', section: 'Payments' },
+  { key: 'admin/payments/discounts', label: 'Discounts & Scholarships', section: 'Payments' },
   { key: 'admin/payments/history', label: 'Payment History', section: 'Payments' },
 
   { key: 'admin/forum', label: 'Forum', section: 'Communication' },
