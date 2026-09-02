@@ -68,10 +68,17 @@ export const recordPayment = async (req: Request, res: Response): Promise<Respon
 
 // ---------------------------------------------------------------------------
 // PUT /payments/set-fees/:studentId — Assign a total fee amount to a student.
-// Keeps writing the legacy display fields (totalFees/discount, still read by
-// some admin UI), but the amount now also becomes an actual ad-hoc pending
-// Invoice, so it's collectible through the normal flow instead of silently
-// not affecting totalFeesDue.
+// Keeps writing the legacy display field (discount, still read by some admin
+// UI), but the net amount is also expressed as an ad-hoc pending Invoice, so
+// it's collectible through the normal flow and counts toward totalFeesDue
+// (recalcStudentBalance derives totalFees/totalFeesDue from Invoices only —
+// student.totalFees itself is never read back). This is meant as an
+// OVERRIDE, not an addition: editing again must replace the previous manual
+// assignment, not stack another invoice on top of it, so any earlier
+// "Manual Fee Assignment" invoice that hasn't been paid against yet is
+// voided (superseded) before the new one is created. One that already has a
+// payment collected is left alone — same "can't void what's been paid"
+// rule voidInvoice enforces elsewhere in this file.
 // ---------------------------------------------------------------------------
 
 export const setStudentFees = async (req: Request, res: Response): Promise<Response> => {
@@ -91,6 +98,16 @@ export const setStudentFees = async (req: Request, res: Response): Promise<Respo
   }
   await student.save();
 
+  const priorManualInvoices = await Invoice.find({
+    student: student._id, title: 'Manual Fee Assignment', status: { $ne: 'void' }, amountPaid: 0,
+  }).select('_id');
+  if (priorManualInvoices.length > 0) {
+    await Invoice.updateMany(
+      { _id: { $in: priorManualInvoices.map((inv) => inv._id) } },
+      { $set: { status: 'void', voidedAt: new Date(), voidedBy: req.user!.userId, voidReason: 'Superseded by a newer manual fee edit' } }
+    );
+  }
+
   const netAmount = Math.max(0, totalFees - (student.discount || 0));
   if (netAmount > 0) {
     await Invoice.create({
@@ -98,7 +115,7 @@ export const setStudentFees = async (req: Request, res: Response): Promise<Respo
       school: student.school || null,
       feeStructure: null,
       title: 'Manual Fee Assignment',
-      period: `manual-${new Date().toISOString().slice(0, 10)}`,
+      period: `manual-${new Date().toISOString().slice(0, 10)}-${new mongoose.Types.ObjectId().toHexString().slice(-6)}`,
       lineItems: [{ description: 'Manually assigned fee', amount: netAmount }],
       amount: netAmount,
       amountPaid: 0,
@@ -190,7 +207,7 @@ export const getStudentBalances = async (req: Request, res: Response): Promise<R
 // ---------------------------------------------------------------------------
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const { studentId, status, type, method, page = '1', limit = '20', search, school } = req.query;
+  const { studentId, status, type, method, page = '1', limit = '20', search, school, dateFrom, dateTo } = req.query;
 
   const filter: Record<string, unknown> = {};
   if (studentId) filter.student = studentId;
@@ -198,6 +215,12 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   if (status && ['completed', 'pending', 'refunded'].includes(status as string)) filter.status = status;
   if (type && ['tuition', 'registration', 'exam', 'material', 'donation', 'other'].includes(type as string)) filter.type = type;
   if (method && ['cash', 'bank_transfer', 'mobile_money', 'online'].includes(method as string)) filter.method = method;
+  if (dateFrom || dateTo) {
+    const createdAt: Record<string, Date> = {};
+    if (dateFrom) createdAt.$gte = new Date(`${dateFrom}T00:00:00.000`);
+    if (dateTo) createdAt.$lte = new Date(`${dateTo}T23:59:59.999`);
+    if (Object.values(createdAt).every((date) => !Number.isNaN(date.getTime()))) filter.createdAt = createdAt;
+  }
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
 
