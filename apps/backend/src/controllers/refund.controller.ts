@@ -4,20 +4,12 @@ import Refund from '../models/refund.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg } from '../utils/tenant-scope';
-import { reverseInvoicePayment, recalcStudentBalance } from '../services/billing.service';
+import { reverseInvoicePayment, restoreInvoicePayment, recalcStudentBalance } from '../services/billing.service';
 
-/**
- * POST /refunds — Issue a partial or full refund against a completed Payment.
- *
- * The refundable amount is reserved atomically on Payment first. This closes
- * the classic concurrent-refund race where two admins both read the same
- * refundable balance. If any later step fails, the reservation and invoice
- * movement are compensated before the error is returned.
- */
 export const issueRefund = async (req: Request, res: Response): Promise<Response> => {
   const { paymentId, amount, reason } = req.body;
-
   if (!paymentId) throw new BadRequestError('paymentId is required');
+
   const refundAmount = Number(amount);
   if (!Number.isFinite(refundAmount) || refundAmount <= 0) throw new BadRequestError('A valid refund amount is required');
   if (!reason || !String(reason).trim()) throw new BadRequestError('A reason is required for every refund');
@@ -25,25 +17,25 @@ export const issueRefund = async (req: Request, res: Response): Promise<Response
   const payment = await Payment.findById(paymentId);
   if (!payment) throw new NotFoundError('Payment');
   assertOwnsOrg(req, payment, 'school');
-
   if (!payment.invoice) throw new BadRequestError('This payment has no linked invoice to reverse');
   if (payment.status !== 'completed') throw new BadRequestError('Only completed payments can be refunded');
 
-  const refundable = Math.max(0, payment.effectiveAmount - (payment.refundedAmount || 0));
-  if (refundAmount > refundable + 0.001) {
-    throw new BadRequestError(`Refund exceeds refundable amount of ${refundable}`);
+  const effectiveAmount = Math.max(0, payment.amount - (payment.discount || 0));
+  const currentRefunded = payment.refundedAmount || 0;
+  if (refundAmount > effectiveAmount - currentRefunded + 0.001) {
+    throw new BadRequestError(`Refund exceeds refundable amount of ${Math.max(0, effectiveAmount - currentRefunded)}`);
   }
 
-  // Atomic reservation: only one concurrent request can consume the same
-  // remaining refundable balance. No prior-refund read/then-write race.
+  // Reserve the refund atomically. This is the critical concurrency guard:
+  // two admins cannot both consume the same remaining refundable balance.
   const reserved = await Payment.findOneAndUpdate(
     {
       _id: payment._id,
       status: 'completed',
       $expr: {
         $lte: [
-          { $add: ['$refundedAmount', refundAmount] },
-          { $add: ['$amount', -((payment.discount || 0) + 0) ] },
+          { $add: [{ $ifNull: ['$refundedAmount', 0] }, refundAmount] },
+          { $subtract: ['$amount', { $ifNull: ['$discount', 0] }] },
         ],
       },
     },
@@ -51,13 +43,7 @@ export const issueRefund = async (req: Request, res: Response): Promise<Response
     { new: true }
   );
 
-  // The expression above is deliberately based on the immutable payment
-  // amount/discount; also verify against the latest returned document so a
-  // concurrent refund cannot exceed effectiveAmount.
-  if (!reserved || refundAmount > Math.max(0, reserved.effectiveAmount - refundAmount + 0.001)) {
-    // If the atomic guard failed, do not attempt an invoice mutation.
-    throw new BadRequestError('Refund exceeds the remaining refundable amount');
-  }
+  if (!reserved) throw new BadRequestError('Refund exceeds the remaining refundable amount');
 
   let invoice;
   try {
@@ -80,15 +66,13 @@ export const issueRefund = async (req: Request, res: Response): Promise<Response
       processedBy: req.user!.userId,
     });
   } catch (err) {
-    await reverseInvoicePayment(payment.invoice, -refundAmount).catch(() => {});
+    await restoreInvoicePayment(payment.invoice, refundAmount).catch(() => {});
     await Payment.findByIdAndUpdate(payment._id, { $inc: { refundedAmount: -refundAmount } }).catch(() => {});
     throw err;
   }
 
-  const fullyRefunded = reserved.refundedAmount >= reserved.effectiveAmount - 0.001;
-  if (fullyRefunded) {
-    await Payment.findByIdAndUpdate(payment._id, { status: 'refunded' });
-  }
+  const fullyRefunded = reserved.refundedAmount >= effectiveAmount - 0.001;
+  if (fullyRefunded) await Payment.findByIdAndUpdate(payment._id, { status: 'refunded' });
 
   await recalcStudentBalance(payment.student);
   return ApiResponse.created(res, { refund, invoice }, 'Refund issued');
@@ -96,7 +80,6 @@ export const issueRefund = async (req: Request, res: Response): Promise<Response
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
   const { studentId, invoiceId, page = '1', limit = '20' } = req.query;
-
   const filter: Record<string, unknown> = {};
   if (studentId) filter.student = studentId;
   if (invoiceId) filter.invoice = invoiceId;
