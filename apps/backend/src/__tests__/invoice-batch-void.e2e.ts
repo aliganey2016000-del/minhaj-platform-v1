@@ -102,6 +102,14 @@ async function main() {
   const batchId = genRes.body?.data?.batchId;
   assert(!!batchId, `batchId returned (got ${batchId})`);
 
+  // -------------------------------------------------------------------
+  section('STUDENT BALANCE SYNC — generate-bulk alone (no payment collected yet) must populate Student.totalFees/totalFeesDue');
+  // -------------------------------------------------------------------
+  const s1BalanceAfterGenerate: any = await Student.findById(student1._id).select('totalFees totalFeesPaid totalFeesDue').lean();
+  const s2BalanceAfterGenerate: any = await Student.findById(student2._id).select('totalFees totalFeesPaid totalFeesDue').lean();
+  assert(s1BalanceAfterGenerate?.totalFees === 120 && s1BalanceAfterGenerate?.totalFeesDue === 120, `student1 balance reflects the generated invoice with no payment yet (got ${JSON.stringify(s1BalanceAfterGenerate)})`);
+  assert(s2BalanceAfterGenerate?.totalFees === 120 && s2BalanceAfterGenerate?.totalFeesDue === 120, `student2 balance reflects the generated invoice with no payment yet (got ${JSON.stringify(s2BalanceAfterGenerate)})`);
+
   // Simulate the admin realizing student1 already paid in the meantime.
   const invoices = await Invoice.find({ batchId }).lean();
   const paidInvoice: any = invoices.find((i: any) => i.student.toString() === (student1._id as any).toString());
@@ -144,6 +152,11 @@ async function main() {
   const paidOne: any = afterInvoices.find((i: any) => i.student.toString() === (student1._id as any).toString());
   assert(voidedOne?.status === 'void', `the unpaid invoice is now void (got status="${voidedOne?.status}")`);
   assert(paidOne?.status === 'paid' && paidOne?.amountPaid === 120, `the paid invoice was left untouched (status="${paidOne?.status}", amountPaid=${paidOne?.amountPaid})`);
+
+  const s1BalanceAfterVoid: any = await Student.findById(student1._id).select('totalFees totalFeesPaid totalFeesDue').lean();
+  const s2BalanceAfterVoid: any = await Student.findById(student2._id).select('totalFees totalFeesPaid totalFeesDue').lean();
+  assert(s1BalanceAfterVoid?.totalFees === 120 && s1BalanceAfterVoid?.totalFeesPaid === 120 && s1BalanceAfterVoid?.totalFeesDue === 0, `student1 (paid, untouched) balance is unchanged by the void (got ${JSON.stringify(s1BalanceAfterVoid)})`);
+  assert(s2BalanceAfterVoid?.totalFees === 0 && s2BalanceAfterVoid?.totalFeesDue === 0, `student2 (voided invoice) balance drops back to zero (got ${JSON.stringify(s2BalanceAfterVoid)})`);
 
   // -------------------------------------------------------------------
   console.log(`\n${'='.repeat(60)}`);

@@ -9,7 +9,7 @@ import User from '../models/user.model';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/tenant-scope';
-import { collectPaymentService } from '../services/billing.service';
+import { collectPaymentService, recalcStudentBalance } from '../services/billing.service';
 import { notifyUsers } from '../utils/notify';
 import ensureStudentRecord from '../utils/ensure-student';
 
@@ -143,6 +143,8 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       notes: notes || '',
     });
 
+    await recalcStudentBalance(studentId);
+
     return ApiResponse.created(res, invoice, 'Invoice created successfully');
   } catch (err: any) {
     if (err.code === 11000) {
@@ -187,6 +189,7 @@ export const generateBulk = async (req: Request, res: Response): Promise<Respons
   let alreadyBilled = 0;
   let created = 0;
   let failed = 0;
+  const affectedStudentIds = new Set<string>();
 
   for (const structure of structures) {
     // ── Resolve eligible students with one query, branching on scope ──
@@ -265,7 +268,14 @@ export const generateBulk = async (req: Request, res: Response): Promise<Respons
       created += inserted;
       failed += targets.length - inserted;
     }
+    // Recalculating a target that ended up with no new invoice (a lost race
+    // on the unique index) is harmless — it just recomputes the same totals
+    // from what actually exists, so it's simplest to mark every target here
+    // rather than trying to track which inserts actually landed.
+    targets.forEach((id) => affectedStudentIds.add(id.toString()));
   }
+
+  await Promise.all([...affectedStudentIds].map((id) => recalcStudentBalance(id)));
 
   return ApiResponse.created(
     res,
@@ -430,10 +440,11 @@ export const voidBatch = async (req: Request, res: Response): Promise<Response> 
   if (!batchId) throw new BadRequestError('batchId is required');
 
   const filter = applyOrgFilter(req, { batchId, status: { $ne: 'void' } }, 'school');
-  const invoices = await Invoice.find(filter).select('_id amountPaid');
+  const invoices = await Invoice.find(filter).select('_id student amountPaid');
   if (invoices.length === 0) throw new NotFoundError('Batch');
 
-  const voidableIds = invoices.filter((inv) => inv.amountPaid === 0).map((inv) => inv._id);
+  const voidable = invoices.filter((inv) => inv.amountPaid === 0);
+  const voidableIds = voidable.map((inv) => inv._id);
   const skipped = invoices.length - voidableIds.length;
 
   if (voidableIds.length > 0) {
@@ -441,6 +452,8 @@ export const voidBatch = async (req: Request, res: Response): Promise<Response> 
       { _id: { $in: voidableIds } },
       { $set: { status: 'void', voidedAt: new Date(), voidedBy: req.user!.userId, voidReason: 'Bulk void — incorrect bulk generation' } }
     );
+    const affectedStudentIds = new Set(voidable.map((inv) => inv.student.toString()));
+    await Promise.all([...affectedStudentIds].map((id) => recalcStudentBalance(id)));
   }
 
   return ApiResponse.success(
@@ -465,12 +478,15 @@ export const bulkDelete = async (req: Request, res: Response): Promise<Response>
   if (ids.length === 0) throw new BadRequestError('ids is required');
 
   const filter = applyOrgFilter(req, { _id: { $in: ids } }, 'school');
-  const invoices = await Invoice.find(filter).select('_id amountPaid');
-  const deletableIds = invoices.filter((inv) => (inv.amountPaid || 0) === 0).map((inv) => inv._id);
+  const invoices = await Invoice.find(filter).select('_id student amountPaid');
+  const deletable = invoices.filter((inv) => (inv.amountPaid || 0) === 0);
+  const deletableIds = deletable.map((inv) => inv._id);
   const skipped = invoices.length - deletableIds.length;
 
   if (deletableIds.length > 0) {
     await Invoice.deleteMany({ _id: { $in: deletableIds } });
+    const affectedStudentIds = new Set(deletable.map((inv) => inv.student.toString()));
+    await Promise.all([...affectedStudentIds].map((id) => recalcStudentBalance(id)));
   }
 
   return ApiResponse.success(
@@ -498,6 +514,8 @@ export const voidInvoice = async (req: Request, res: Response): Promise<Response
   invoice.voidedBy = new mongoose.Types.ObjectId(req.user!.userId);
   invoice.voidReason = req.body?.reason || '';
   await invoice.save();
+
+  await recalcStudentBalance(invoice.student);
 
   return ApiResponse.success(res, invoice, 'Invoice voided');
 };
