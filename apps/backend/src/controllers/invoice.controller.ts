@@ -534,6 +534,55 @@ export const voidInvoice = async (req: Request, res: Response): Promise<Response
   return ApiResponse.success(res, invoice, 'Invoice voided');
 };
 
+// POST /invoices/:id/correct - replace an unpaid invoice with a corrected one.
+// The original remains in the ledger as void for a complete audit trail.
+export const correctInvoice = async (req: Request, res: Response): Promise<Response> => {
+  const invoice = await Invoice.findById(req.params.id);
+  if (!invoice) throw new NotFoundError('Invoice');
+  assertOwnsOrg(req, invoice, 'school');
+  if (invoice.status === 'void') throw new BadRequestError('Cannot correct a void invoice');
+  if (invoice.amountPaid > 0) throw new BadRequestError('Refund collected payments before correcting this invoice');
+
+  const correctedAmount = Number(req.body?.amount);
+  const reason = String(req.body?.reason || '').trim();
+  if (!Number.isFinite(correctedAmount) || correctedAmount <= 0) throw new BadRequestError('A corrected amount greater than zero is required');
+  if (!reason) throw new BadRequestError('A correction reason is required');
+  if (correctedAmount === invoice.amount) throw new BadRequestError('Corrected amount must be different from the original amount');
+
+  const replacement = await Invoice.create({
+    student: invoice.student,
+    school: invoice.school,
+    feeStructure: null,
+    title: `${invoice.title} (Corrected)`,
+    period: `${invoice.period}-corrected-${new mongoose.Types.ObjectId().toHexString().slice(-6)}`,
+    lineItems: [{ description: `Corrected charge for ${invoice.title}`, amount: correctedAmount }],
+    amount: correctedAmount,
+    discount: 0,
+    amountPaid: 0,
+    status: 'pending',
+    paymentType: invoice.paymentType,
+    dueDate: invoice.dueDate,
+    issueDate: new Date(),
+    academicYear: invoice.academicYear || '',
+    generatedBy: req.user!.userId,
+    notes: `Correction of ${invoice._id}. ${reason}`,
+  });
+
+  try {
+    invoice.status = 'void';
+    invoice.voidedAt = new Date();
+    invoice.voidedBy = new mongoose.Types.ObjectId(req.user!.userId);
+    invoice.voidReason = `Corrected by ${replacement._id}. ${reason}`;
+    await invoice.save();
+  } catch (err) {
+    await Invoice.findByIdAndDelete(replacement._id).catch(() => {});
+    throw err;
+  }
+
+  await recalcStudentBalance(invoice.student);
+  return ApiResponse.created(res, { original: invoice, replacement }, 'Invoice corrected successfully');
+};
+
 // ---------------------------------------------------------------------------
 // GET /invoices/my — student self-service, same pattern as
 // payment.controller.ts's getMyPayments (resolves the caller's own Student

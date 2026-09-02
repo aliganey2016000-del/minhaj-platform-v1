@@ -24,6 +24,7 @@ router.post('/', adminOnly, asyncHandler(invoiceController.create));
 router.delete('/', adminOnly, asyncHandler(invoiceController.bulkDelete));
 router.get('/:id', adminOnly, asyncHandler(invoiceController.getOne));
 router.post('/:id/collect-payment', adminOnly, asyncHandler(invoiceController.collectPayment));
+router.post('/:id/correct', adminOnly, asyncHandler(invoiceController.correctInvoice));
 router.post('/:id/request-payment', roleMiddleware(['parent', 'student']), asyncHandler(invoiceController.requestPayment));
 router.patch('/:id/void', adminOnly, asyncHandler(invoiceController.voidInvoice));
 

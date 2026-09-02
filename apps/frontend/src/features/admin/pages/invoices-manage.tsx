@@ -10,7 +10,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, Download, FileDown, Trash2, type LucideIcon } from 'lucide-react';
+import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, Download, FileDown, Trash2, ClipboardPenLine, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
@@ -416,6 +416,34 @@ function BulkVoidModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
   );
 }
 
+function CorrectInvoiceModal({ invoice, onClose, onDone }: { invoice: InvoiceItem; onClose: () => void; onDone: () => void }) {
+  const [amount, setAmount] = useState(String(invoice.amount ?? ''));
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const studentName = invoice.student?.profile ? `${invoice.student.profile.firstName} ${invoice.student.profile.lastName}` : invoice.student?.studentId || 'Student';
+  const inputClass = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20';
+
+  const submit = async () => {
+    const correctedAmount = Number(amount);
+    if (!Number.isFinite(correctedAmount) || correctedAmount <= 0) { setError('Enter a valid corrected amount'); return; }
+    if (correctedAmount === invoice.amount) { setError('Corrected amount must be different from the original amount'); return; }
+    if (!reason.trim()) { setError('A correction reason is required'); return; }
+    setLoading(true); setError('');
+    try { await api.post(`/invoices/${invoice._id}/correct`, { amount: correctedAmount, reason: reason.trim() }); onDone(); }
+    catch (err: any) { setError(err.response?.data?.message || 'Failed to correct invoice'); }
+    finally { setLoading(false); }
+  };
+
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="w-full max-w-md rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="flex items-start justify-between gap-4"><div><div className="mb-2 inline-flex rounded-lg bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/30"><ClipboardPenLine className="h-5 w-5" /></div><h2 className="text-lg font-bold text-[var(--color-text-primary)]">Correct invoice</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{studentName} · {invoice.title}</p></div><button type="button" onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)]">×</button></div>
+      <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">The original invoice will be voided and kept in the audit trail. A new corrected invoice will be created with the same student and due date.</div>
+      <div className="mt-5 space-y-4"><div><label className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Correct amount ($) *</label><input type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className={inputClass} /></div><div><label className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Reason *</label><textarea rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Annual fee entered as 2,000 instead of 200" className={inputClass} /></div>{error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950/30">{error}</p>}<div className="flex gap-2"><button type="button" onClick={onClose} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)]">Cancel</button><button type="button" onClick={submit} disabled={loading} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60">{loading ? 'Correcting...' : 'Correct Invoice'}</button></div></div>
+    </div>
+  </div>;
+}
+
 function ViewInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: () => void }) {
   const [invoice, setInvoice] = useState<InvoiceItem | null>(null);
   const [payments, setPayments] = useState<PaymentEntry[]>([]);
@@ -544,6 +572,7 @@ export function InvoicesManage() {
   const [showBulkVoid, setShowBulkVoid] = useState(false);
   const [collectingInvoice, setCollectingInvoice] = useState<InvoiceItem | undefined>(undefined);
   const [viewingInvoiceId, setViewingInvoiceId] = useState<string | undefined>(undefined);
+  const [correctingInvoice, setCorrectingInvoice] = useState<InvoiceItem | undefined>(undefined);
 
   useEffect(() => {
     (async () => {
@@ -633,6 +662,7 @@ export function InvoicesManage() {
     { label: 'Collect Payment', icon: Wallet, onClick: () => setCollectingInvoice(inv), tone: 'success', disabled: inv.status === 'paid' || inv.status === 'void' },
     { label: 'View Details', icon: Eye, onClick: () => setViewingInvoiceId(inv._id), tone: 'default' },
     { label: 'Void', icon: Ban, onClick: () => handleVoid(inv), tone: 'danger', disabled: inv.status === 'void' || inv.amountPaid > 0, title: inv.amountPaid > 0 ? 'Cannot void — payments already collected' : undefined },
+    { label: 'Correct Invoice', icon: ClipboardPenLine, onClick: () => setCorrectingInvoice(inv), tone: 'default', disabled: inv.status === 'void' || inv.amountPaid > 0, title: inv.amountPaid > 0 ? 'Refund collected payments before correcting' : undefined },
   ];
 
   const exportCsv = () => {
@@ -743,6 +773,7 @@ export function InvoicesManage() {
         />
       )}
       {viewingInvoiceId && <ViewInvoiceModal invoiceId={viewingInvoiceId} onClose={() => setViewingInvoiceId(undefined)} />}
+      {correctingInvoice && <CorrectInvoiceModal invoice={correctingInvoice} onClose={() => setCorrectingInvoice(undefined)} onDone={() => { setCorrectingInvoice(undefined); setToast({ message: 'Invoice corrected successfully', type: 'success' }); fetchInvoices(); }} />}
       {showBulkVoid && (
         <BulkVoidModal
           onClose={() => setShowBulkVoid(false)}
