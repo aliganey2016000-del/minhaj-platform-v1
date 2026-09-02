@@ -1,13 +1,12 @@
 name: Patch Record Payment V6
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - fix/record-payment-balance-sync-v6
 permissions:
   contents: write
 jobs:
   patch:
-    if: github.event.pull_request.head.ref == 'fix/record-payment-balance-sync-v6'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +47,8 @@ jobs:
 """
           if old not in s:
               raise SystemExit('expected balance marker not found')
+          if 'const [balanceLoading, setBalanceLoading]' in s:
+              raise SystemExit('balance refresh already patched')
           s = s.replace(old, new, 1)
           p.write_text(s)
           PY
