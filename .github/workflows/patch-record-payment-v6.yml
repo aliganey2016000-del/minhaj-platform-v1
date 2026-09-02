@@ -37,4 +37,4 @@ jobs:
           git add apps/frontend/src/features/admin/pages/payments-record.tsx
           if git diff --cached --quiet; then exit 0; fi
           git commit -m "fix(finance): refresh record payment balance from invoices"
-          git push
+          git push origin HEAD:fix/record-payment-balance-sync-v6
