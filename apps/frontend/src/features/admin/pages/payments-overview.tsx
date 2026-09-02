@@ -4,8 +4,9 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import CashSessions from './cash-sessions';
 
 interface Stats {
   totalPaid: number;
@@ -19,6 +20,7 @@ interface Stats {
 }
 
 export function PaymentsOverview() {
+  const [searchParams] = useSearchParams();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -35,6 +37,8 @@ export function PaymentsOverview() {
       }
     })();
   }, []);
+
+  if (searchParams.get('view') === 'cash-sessions') return <CashSessions />;
 
   if (loading) return <div className="flex min-h-[400px] items-center justify-center"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>;
 
@@ -100,34 +104,25 @@ export function PaymentsOverview() {
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Link to="/admin/payments/fee-structures" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
-                <p className="text-2xl mb-2">🧾</p>
-                <p className="font-semibold">Fee Structures</p>
-                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Define tuition & fee templates</p>
+                <p className="text-2xl mb-2">🧾</p><p className="font-semibold">Fee Structures</p><p className="text-xs text-[var(--color-text-tertiary)] mt-1">Define tuition & fee templates</p>
               </Link>
               <Link to="/admin/payments/invoices" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
-                <p className="text-2xl mb-2">📄</p>
-                <p className="font-semibold">Invoices</p>
-                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Generate & collect against bills</p>
+                <p className="text-2xl mb-2">📄</p><p className="font-semibold">Invoices</p><p className="text-xs text-[var(--color-text-tertiary)] mt-1">Generate & collect against bills</p>
               </Link>
               <Link to="/admin/payments/record" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
-                <p className="text-2xl mb-2">💳</p>
-                <p className="font-semibold">Record Payment</p>
-                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Log a single ad-hoc payment</p>
+                <p className="text-2xl mb-2">💳</p><p className="font-semibold">Record Payment</p><p className="text-xs text-[var(--color-text-tertiary)] mt-1">Log a single ad-hoc payment</p>
+              </Link>
+              <Link to="/admin/payments?view=cash-sessions" className="rounded-2xl border border-primary-200 bg-primary-50 p-5 shadow-card transition-colors hover:border-primary-400 dark:border-primary-900/50 dark:bg-primary-950/20">
+                <p className="text-2xl mb-2">💵</p><p className="font-semibold text-primary-800 dark:text-primary-200">Cash Sessions</p><p className="text-xs text-primary-700/80 dark:text-primary-300/80 mt-1">Open drawers, close shifts & reconcile variance</p>
               </Link>
               <Link to="/admin/payments/balances" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
-                <p className="text-2xl mb-2">⚠️</p>
-                <p className="font-semibold">Student Balances</p>
-                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">{stats.studentsWithDebt} student{stats.studentsWithDebt === 1 ? '' : 's'} owe money</p>
+                <p className="text-2xl mb-2">⚠️</p><p className="font-semibold">Student Balances</p><p className="text-xs text-[var(--color-text-tertiary)] mt-1">{stats.studentsWithDebt} student{stats.studentsWithDebt === 1 ? '' : 's'} owe money</p>
               </Link>
               <Link to="/admin/payments/history" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
-                <p className="text-2xl mb-2">📋</p>
-                <p className="font-semibold">Payment History</p>
-                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Search & filter all transactions</p>
+                <p className="text-2xl mb-2">📋</p><p className="font-semibold">Payment History</p><p className="text-xs text-[var(--color-text-tertiary)] mt-1">Search & filter all transactions</p>
               </Link>
               <Link to="/admin/payments/reports" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
-                <p className="text-2xl mb-2">📊</p>
-                <p className="font-semibold">Reports</p>
-                <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Collection, reconciliation & overdue</p>
+                <p className="text-2xl mb-2">📊</p><p className="font-semibold">Reports</p><p className="text-xs text-[var(--color-text-tertiary)] mt-1">Collection, reconciliation & overdue</p>
               </Link>
             </div>
           </>
