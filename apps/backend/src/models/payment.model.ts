@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IPayment extends Document {
   student: mongoose.Types.ObjectId;
   school?: mongoose.Types.ObjectId;
+  cashSession?: mongoose.Types.ObjectId;
   amount: number;
   discount?: number;
   refundedAmount: number;
@@ -27,6 +28,7 @@ const paymentSchema = new Schema<IPayment>(
   {
     student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
     school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
+    cashSession: { type: Schema.Types.ObjectId, ref: 'CashSession', default: null, index: true },
     amount: { type: Number, required: true, min: 0 },
     discount: {
       type: Number,
@@ -35,8 +37,6 @@ const paymentSchema = new Schema<IPayment>(
       validate: { validator: function (this: IPayment, value: number) { return value <= this.amount; }, message: 'Discount cannot exceed payment amount' },
     },
     refundedAmount: { type: Number, default: 0, min: 0 },
-    // Currency is snapshotted on the transaction so a later school setting
-    // change never changes the meaning of an old receipt.
     currency: { type: String, default: 'USD', trim: true, uppercase: true, minlength: 3, maxlength: 3 },
     type: { type: String, enum: ['tuition', 'registration', 'exam', 'material', 'donation', 'other'], default: 'tuition' },
     method: { type: String, enum: ['cash', 'bank_transfer', 'mobile_money', 'online'], default: 'cash' },
@@ -56,19 +56,15 @@ paymentSchema.index({ student: 1, createdAt: -1 });
 paymentSchema.index({ type: 1 });
 paymentSchema.index({ method: 1, createdAt: -1 });
 paymentSchema.index({ reference: 1, createdAt: -1 });
-paymentSchema.index(
-  { idempotencyKey: 1 },
-  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
-);
+paymentSchema.index({ cashSession: 1, createdAt: -1 });
+paymentSchema.index({ idempotencyKey: 1 }, { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } });
 
 export function formatReceiptNumber(id: mongoose.Types.ObjectId, createdAt: Date): string {
   return `RCT-${createdAt.getFullYear()}-${id.toHexString().toUpperCase()}`;
 }
 
 paymentSchema.pre<IPayment>('save', function (next) {
-  if (this.isNew && !this.receiptNumber) {
-    this.receiptNumber = formatReceiptNumber(this._id as mongoose.Types.ObjectId, new Date());
-  }
+  if (this.isNew && !this.receiptNumber) this.receiptNumber = formatReceiptNumber(this._id as mongoose.Types.ObjectId, new Date());
   next();
 });
 

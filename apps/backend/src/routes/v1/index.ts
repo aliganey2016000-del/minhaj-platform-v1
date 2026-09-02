@@ -1,8 +1,6 @@
 /**
  * API v1 Route Aggregator
- *
  * Mounts all v1 resource routes under their respective paths.
- * Serves as the single entry point for /api/v1/*.
  */
 
 import { Router } from 'express';
@@ -53,9 +51,9 @@ import learningActivityRoutes from './learning-activity.routes';
 import gradebookRoutes from './gradebook.routes';
 import gradebookCoursesRoutes from './gradebook-courses.routes';
 import teacherAssignmentGradingRoutes from '../teacher-assignment-grading.routes';
+import cashSessionRoutes from './cash-session.routes';
 
 const router = Router();
-
 router.use('/auth', authRoutes);
 router.use('/courses', courseRoutes);
 router.use('/students', studentRoutes);
@@ -65,6 +63,7 @@ router.use('/fee-structures', feeStructureRoutes);
 router.use('/invoices', invoiceRoutes);
 router.use('/refunds', refundRoutes);
 router.use('/reports', reportRoutes);
+router.use('/cash-sessions', cashSessionRoutes);
 router.use('/attendance', attendanceRoutes);
 router.use('/classes', classRoutes);
 router.use('/trash', trashRoutes);
@@ -108,17 +107,7 @@ router.use('/gradebook/:courseId', gradebookRoutes);
 router.use('/', teacherAssignmentGradingRoutes);
 
 router.get('/health', (_req, res) => {
-  res.status(200).json({
-    success: true,
-    statusCode: 200,
-    message: 'API v1 is operational',
-    data: {
-      uptime: process.uptime(),
-      timestamp: new Date().toISOString(),
-      version: '1.0.0',
-    },
-    errors: null,
-  });
+  res.status(200).json({ success: true, statusCode: 200, message: 'API v1 is operational', data: { uptime: process.uptime(), timestamp: new Date().toISOString(), version: '1.0.0' }, errors: null });
 });
 
 export default router;
