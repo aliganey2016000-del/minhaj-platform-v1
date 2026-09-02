@@ -4,15 +4,13 @@ export interface IPayment extends Document {
   student: mongoose.Types.ObjectId;
   school?: mongoose.Types.ObjectId;
   amount: number;
-  discount?: number;           // discount applied to this payment (reduces amount)
+  discount?: number;
+  refundedAmount: number;
+  currency: string;
   type: 'tuition' | 'registration' | 'exam' | 'material' | 'donation' | 'other';
   method: 'cash' | 'bank_transfer' | 'mobile_money' | 'online';
   status: 'completed' | 'pending' | 'refunded';
   notes: string;
-  // Admin-entered external reference — a mobile money/bank transfer
-  // confirmation code, a bank slip number, anything that ties this record
-  // back to the real-world transaction it represents. Distinct from
-  // receiptNumber below, which this app generates itself.
   reference?: string;
   recordedBy: mongoose.Types.ObjectId;
   dueDate?: Date;
@@ -22,6 +20,7 @@ export interface IPayment extends Document {
   createdAt: Date;
   updatedAt: Date;
   effectiveAmount: number;
+  netCollectedAmount: number;
 }
 
 const paymentSchema = new Schema<IPayment>(
@@ -29,7 +28,16 @@ const paymentSchema = new Schema<IPayment>(
     student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
     school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
     amount: { type: Number, required: true, min: 0 },
-    discount: { type: Number, default: 0, min: 0 },
+    discount: {
+      type: Number,
+      default: 0,
+      min: 0,
+      validate: { validator: function (this: IPayment, value: number) { return value <= this.amount; }, message: 'Discount cannot exceed payment amount' },
+    },
+    refundedAmount: { type: Number, default: 0, min: 0 },
+    // Currency is snapshotted on the transaction so a later school setting
+    // change never changes the meaning of an old receipt.
+    currency: { type: String, default: 'USD', trim: true, uppercase: true, minlength: 3, maxlength: 3 },
     type: { type: String, enum: ['tuition', 'registration', 'exam', 'material', 'donation', 'other'], default: 'tuition' },
     method: { type: String, enum: ['cash', 'bank_transfer', 'mobile_money', 'online'], default: 'cash' },
     status: { type: String, enum: ['completed', 'pending', 'refunded'], default: 'completed', index: true },
@@ -38,37 +46,21 @@ const paymentSchema = new Schema<IPayment>(
     recordedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     dueDate: { type: Date, default: null },
     invoice: { type: Schema.Types.ObjectId, ref: 'Invoice', default: null, index: true },
-    // Client-supplied, e.g. `crypto.randomUUID()` generated once per
-    // submit-attempt and resent unchanged on retry — lets collectPaymentService
-    // recognize and no-op a duplicate submission (double-click, network
-    // retry) instead of creating a second charge. Partial index so older
-    // payments with no key don't collide with each other on `null`.
     idempotencyKey: { type: String, default: undefined },
-    // Human-facing receipt identifier, derived from the payment's own
-    // ObjectId (already globally unique) rather than a counted sequence —
-    // no extra query, no race/collision risk under concurrent writes. Uses
-    // the FULL ObjectId hex (not a truncated slice) so it's exactly as
-    // collision-proof as _id itself — an earlier 8-char-truncated version
-    // had a realistic birthday-bound collision risk, and a collision here
-    // isn't just cosmetic: it throws E11000 out of Payment.create, which
-    // collectPaymentService (billing.service.ts) must not misattribute to
-    // an unrelated idempotencyKey race. `sparse` because payments created
-    // before this field existed have none.
     receiptNumber: { type: String, unique: true, sparse: true },
   },
-  { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
+  { timestamps: true, toJSON: { virtuals: true, transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );
 
 paymentSchema.index({ student: 1, createdAt: -1 });
 paymentSchema.index({ type: 1 });
+paymentSchema.index({ method: 1, createdAt: -1 });
+paymentSchema.index({ reference: 1, createdAt: -1 });
 paymentSchema.index(
   { idempotencyKey: 1 },
   { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
 );
 
-// Shared by the pre-save hook below AND payment.controller.ts's getReceipt
-// (for payments saved before this field existed) so both ever produce the
-// same format instead of two formats coexisting permanently.
 export function formatReceiptNumber(id: mongoose.Types.ObjectId, createdAt: Date): string {
   return `RCT-${createdAt.getFullYear()}-${id.toHexString().toUpperCase()}`;
 }
@@ -80,9 +72,12 @@ paymentSchema.pre<IPayment>('save', function (next) {
   next();
 });
 
-// Virtual: effective amount after discount
 paymentSchema.virtual('effectiveAmount').get(function (this: IPayment) {
   return Math.max(0, this.amount - (this.discount || 0));
+});
+
+paymentSchema.virtual('netCollectedAmount').get(function (this: IPayment) {
+  return Math.max(0, this.effectiveAmount - (this.refundedAmount || 0));
 });
 
 export default mongoose.model<IPayment>('Payment', paymentSchema);
