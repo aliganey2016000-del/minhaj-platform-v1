@@ -435,8 +435,31 @@ export function PaymentsRecord() {
   // gets a fresh one.
   const idempotencyKeyRef = useRef(crypto.randomUUID());
 
+  const [balanceLoading, setBalanceLoading] = useState(false);
   const isValid = !!selectedStudent && !!recordAmount && Number(recordAmount) > 0;
   const selectedFeeSummary = getStudentFeeSummary(selectedStudent);
+
+  useEffect(() => {
+    if (!selectedStudent?._id) return;
+    let cancelled = false;
+    setBalanceLoading(true);
+    api.get('/payments/student-balances', { params: { search: selectedStudent.studentId } })
+      .then(({ data }) => {
+        const match = (data.data?.students || []).find((s: StudentBrief) => s._id === selectedStudent._id);
+        if (!cancelled && match) {
+          setSelectedStudent(prev => prev ? {
+            ...prev,
+            totalFees: Number(match.totalFees ?? 0),
+            totalFeesPaid: Number(match.totalFeesPaid ?? 0),
+            totalFeesDue: Number(match.totalFeesDue ?? 0),
+            discount: Number(match.discount ?? 0),
+          } : prev);
+        }
+      })
+      .catch(() => { /* Keep identity data if balance refresh fails. */ })
+      .finally(() => { if (!cancelled) setBalanceLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedStudent?._id, selectedStudent?.studentId]);
 
   useEffect(() => {
     (async () => {
