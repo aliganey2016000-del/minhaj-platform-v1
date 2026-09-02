@@ -586,35 +586,16 @@ export function PaymentsDiscounts() {
                 : 'Grant a recurring discount policy tied to a student — standing, per academic year, or a fixed period — that auto-applies to every invoice generated for them while it\'s valid.'}
             </p>
           </div>
-          {activeTab === 'one-time' && (
-            <button type="button" onClick={handleGrantClick}
+          <button type="button" onClick={handleGrantClick}
               className="inline-flex flex-shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">
               <Plus className="h-4 w-4" strokeWidth={2.25} />
               Grant Discount
-            </button>
-          )}
-        </div>
-
-        {/* Tab switcher — One-Time Adjustment vs. Recurring Discount Grant are separate tools with separate APIs */}
-        <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1">
-          <button type="button" onClick={() => setActiveTab('one-time')}
-            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'one-time' ? 'bg-[var(--color-surface-primary)] text-primary-600 shadow-sm' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}`}>
-            <BadgePercent className="h-4 w-4" strokeWidth={1.75} />
-            One-Time Adjustment
-          </button>
-          <button type="button" onClick={() => setActiveTab('recurring')}
-            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'recurring' ? 'bg-[var(--color-surface-primary)] text-primary-600 shadow-sm' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}`}>
-            <Repeat className="h-4 w-4" strokeWidth={1.75} />
-            Recurring Grants
           </button>
         </div>
 
         {message && <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700"><CheckCircle2 className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />{message}</div>}
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
 
-        {activeTab === 'recurring' ? (
-          <DiscountGrantsPanel />
-        ) : (
         <>
         {/* Recent Adjustments — placed at the top so admins immediately see current discounts */}
         <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
@@ -665,6 +646,14 @@ export function PaymentsDiscounts() {
             </div>
             <button type="button" onClick={() => setShowAdjustmentModal(false)} className="rounded-lg p-2 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]" title="Close"><X className="h-5 w-5" /></button>
           </div>
+
+          <div className="mb-6 inline-flex w-full items-center gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1 sm:w-auto">
+            <button type="button" onClick={() => setActiveTab('one-time')} className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors sm:flex-none ${activeTab === 'one-time' ? 'bg-[var(--color-surface-primary)] text-primary-600 shadow-sm' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}`}><BadgePercent className="h-4 w-4" strokeWidth={1.75} /> One-Time Adjustment</button>
+            <button type="button" onClick={() => setActiveTab('recurring')} className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors sm:flex-none ${activeTab === 'recurring' ? 'bg-[var(--color-surface-primary)] text-primary-600 shadow-sm' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}`}><Repeat className="h-4 w-4" strokeWidth={1.75} /> Recurring Grants</button>
+          </div>
+
+          {activeTab === 'recurring' && <DiscountGrantsPanel />}
+          {activeTab === 'one-time' && (
           
           <form onSubmit={handleReview} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -749,10 +738,10 @@ export function PaymentsDiscounts() {
               </div>
             </div>
           </form>
+          )}
         </div>
         </div>}
         </>
-        )}
       </div>
 
       {pending && (
