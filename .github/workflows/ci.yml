@@ -42,6 +42,9 @@ jobs:
       - name: Gate report tests
         run: npm run test:gate-report
 
+      - name: Financial core payment tests
+        run: npm run test:financial-core
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
