@@ -77,6 +77,11 @@ const TYPE_BADGE: Record<string, string> = {
 };
 
 const DURATION_LABELS: Record<string, string> = { standing: 'Standing (until graduation)', academic_year: 'Academic Year', fixed_period: 'Fixed Period' };
+const ACADEMIC_YEAR_OPTIONS = Array.from({ length: 7 }, (_, index) => {
+  const startYear = new Date().getFullYear() - 2 + index;
+  return `${startYear}-${startYear + 1}`;
+});
+const CURRENT_ACADEMIC_YEAR = `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
 const EFFECTIVE_STATUS_BADGE: Record<string, string> = {
   active: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400',
   expired: 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-tertiary)]',
@@ -232,7 +237,7 @@ function DiscountGrantsPanel() {
   const [durationType, setDurationType] = useState<'standing' | 'academic_year' | 'fixed_period'>('standing');
   const [valueType, setValueType] = useState<'fixed' | 'percent'>('percent');
   const [value, setValue] = useState('');
-  const [academicYear, setAcademicYear] = useState('');
+  const [academicYear, setAcademicYear] = useState(CURRENT_ACADEMIC_YEAR);
   const [validFrom, setValidFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [validUntil, setValidUntil] = useState('');
   const [reason, setReason] = useState('');
@@ -287,7 +292,7 @@ function DiscountGrantsPanel() {
         reason: reason.trim(),
       });
       setMessage(`${DURATION_LABELS[durationType]} grant "${label.trim()}" created for ${studentLabel(selectedStudent)}.`);
-      setLabel(''); setValue(''); setAcademicYear(''); setValidUntil(''); setReason('');
+      setLabel(''); setValue(''); setAcademicYear(CURRENT_ACADEMIC_YEAR); setValidUntil(''); setReason('');
       await fetchGrants(selectedStudent._id);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to create discount grant');
@@ -420,7 +425,10 @@ function DiscountGrantsPanel() {
               {durationType === 'academic_year' && (
                 <div>
                   <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Academic Year *</label>
-                  <input type="text" value={academicYear} onChange={e => setAcademicYear(e.target.value)} placeholder="e.g. 2026-2027" className={ic} required />
+                    <select value={academicYear} onChange={e => setAcademicYear(e.target.value)} className={ic} required>
+                      <option value="">Select academic year...</option>
+                      {ACADEMIC_YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}</option>)}
+                    </select>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3">
