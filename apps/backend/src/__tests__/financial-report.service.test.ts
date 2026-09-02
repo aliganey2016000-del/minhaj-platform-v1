@@ -1,15 +1,16 @@
 import { getBalanceSheet, getProfitAndLoss } from '../services/financial-report.service';
 
 jest.mock('../models/journal-entry.model', () => ({
-  aggregate: jest.fn(),
+  __esModule: true,
+  default: { aggregate: jest.fn() },
 }));
-
 jest.mock('../models/account.model', () => ({
-  find: jest.fn(),
+  __esModule: true,
+  default: { find: jest.fn() },
 }));
-
 jest.mock('../models/invoice.model', () => ({
-  find: jest.fn(),
+  __esModule: true,
+  default: { find: jest.fn() },
 }));
 
 import JournalEntry from '../models/journal-entry.model';
