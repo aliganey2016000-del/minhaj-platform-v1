@@ -12,6 +12,7 @@ jobs:
         with:
           fetch-depth: 0
       - run: |
+          echo '--- academic year migration retrigger ---'
           echo '--- classes ---'
           grep -n -C 2 'academicYear' apps/frontend/src/features/admin/pages/classes-manage.tsx || true
           echo '--- fee structures ---'
