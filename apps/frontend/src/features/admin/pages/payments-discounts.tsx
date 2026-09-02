@@ -265,7 +265,13 @@ function DiscountGrantsPanel() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isValid || !selectedStudent) { setError('Fill in every field with a valid value'); return; }
+    if (!selectedStudent) { setError('Select a student first'); return; }
+    if (!label.trim()) { setError('A label is required'); return; }
+    if (!(numValue > 0)) { setError('Enter a value greater than zero'); return; }
+    if (valueType === 'percent' && numValue > 100) { setError('Percentage cannot exceed 100'); return; }
+    if (durationType !== 'standing' && !validUntil) { setError('Set an end date, or choose "Standing" for no expiry'); return; }
+    if (durationType === 'academic_year' && !academicYear.trim()) { setError('Academic year is required for this duration type'); return; }
+    if (!reason.trim()) { setError('A reason is required'); return; }
     setSubmitting(true); setError(''); setMessage('');
     try {
       await api.post('/discount-grants', {
@@ -440,8 +446,10 @@ function DiscountGrantsPanel() {
                 <textarea value={reason} onChange={e => setReason(e.target.value)} rows={4} placeholder="e.g. Faculty child, merit scholarship for top GPA, temporary hardship relief..." className={ic} required />
               </div>
               <div className="pt-2">
-                <button type="submit" disabled={!isValid || submitting}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors shadow-sm">
+                {/* Only `submitting` disables the button — staying clickable while the form is incomplete
+                    lets handleSubmit's per-field error messages actually reach the user. */}
+                <button type="submit" disabled={submitting}
+                  className={`inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors shadow-sm ${!isValid && !submitting ? 'opacity-60' : ''}`}>
                   <Repeat className="h-4 w-4" strokeWidth={1.75} />
                   {submitting ? 'Granting...' : 'Grant Recurring Discount'}
                 </button>
@@ -526,7 +534,11 @@ export function PaymentsDiscounts() {
 
   const handleReview = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isValid || !selectedStudent || !selectedInvoice) { setError('Fill in every field with a valid value'); return; }
+    if (!selectedStudent) { setError('Select a student first'); return; }
+    if (!selectedInvoice) { setError('Select an invoice to adjust — this student has no unpaid or partially-paid invoices if the list is empty'); return; }
+    if (!(numValue > 0)) { setError('Enter a value greater than zero'); return; }
+    if (valueType === 'percent' && numValue > 100) { setError('Percentage cannot exceed 100'); return; }
+    if (!reason.trim()) { setError('A reason is required'); return; }
     setError('');
     setPending({ student: selectedStudent, invoice: selectedInvoice, type, valueType, value: numValue, reason: reason.trim(), computedAmount });
   };
@@ -557,7 +569,13 @@ export function PaymentsDiscounts() {
 
   // "+ Grant Discount" scrolls down to the grant form below the table.
   const formRef = useRef<HTMLDivElement>(null);
-  const handleGrantClick = () => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Scrolling alone is invisible when the form is already fully on screen
+  // (common once the history table is short) — focusing the first field
+  // gives a visible response every time, not just when a scroll happens.
+  const handleGrantClick = () => {
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    formRef.current?.querySelector<HTMLInputElement>('input, select, textarea')?.focus();
+  };
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
@@ -720,8 +738,10 @@ export function PaymentsDiscounts() {
                 </div>
 
                 <div className="pt-2">
-                  <button type="submit" disabled={!isValid}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors shadow-sm">
+                  {/* Stays clickable even when incomplete — a disabled submit button can never fire handleReview's
+                      "fill in every field" error, which just leaves the click looking like it did nothing. */}
+                  <button type="submit"
+                    className={`inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm ${!isValid ? 'opacity-60' : ''}`}>
                     <BadgePercent className="h-4 w-4" strokeWidth={1.75} />
                     Review {TYPE_LABELS[type]}
                   </button>
