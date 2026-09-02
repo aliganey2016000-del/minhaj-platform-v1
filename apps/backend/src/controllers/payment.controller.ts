@@ -184,9 +184,10 @@ export const getStudentBalances = async (req: Request, res: Response): Promise<R
   (filter as any).status = { $in: ['active', 'inactive'] };
   (filter as any).approvalStatus = 'approved';
 
-  const { search, classId, sort = 'due' } = req.query;
+  const { search, classId, sort = 'due', page = '1', limit = '20', outstandingOnly } = req.query;
 
   if (classId) (filter as any).class = classId;
+  if (outstandingOnly === 'true') (filter as any).totalFeesDue = { $gt: 0 };
   if (search) {
     const regex = { $regex: escapeRegex(search as string), $options: 'i' };
     (filter as any).$or = [
@@ -216,9 +217,13 @@ export const getStudentBalances = async (req: Request, res: Response): Promise<R
   const aggregateFees = result.reduce((sum, s: any) => sum + (s.totalFees || 0), 0);
   const aggregatePaid = result.reduce((sum, s: any) => sum + (s.totalFeesPaid || 0), 0);
   const aggregateDue = result.reduce((sum, s: any) => sum + (s.totalFeesDue || 0), 0);
+  const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+  const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 20));
+  const start = (pageNum - 1) * limitNum;
+  const pageRows = result.slice(start, start + limitNum);
 
   return ApiResponse.success(res, {
-    students: result.map((s: any) => ({
+    students: pageRows.map((s: any) => ({
       _id: s._id,
       studentId: s.studentId,
       profile: s.profile,
@@ -237,6 +242,7 @@ export const getStudentBalances = async (req: Request, res: Response): Promise<R
       aggregateDue,
       collectionRate: aggregateFees > 0 ? Math.round((aggregatePaid / aggregateFees) * 100) : 0,
     },
+    meta: { page: pageNum, limit: limitNum, total: result.length, totalPages: Math.ceil(result.length / limitNum) },
   });
 };
 

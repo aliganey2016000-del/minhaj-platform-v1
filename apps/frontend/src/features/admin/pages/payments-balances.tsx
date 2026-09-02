@@ -26,6 +26,7 @@ interface StudentBrief {
 
 interface SchoolBrief { _id: string; name: string; }
 interface ClassBrief { _id: string; title: string; section: string; school?: string | { _id: string }; }
+interface BalanceSummary { totalStudents: number; aggregateFees: number; aggregatePaid: number; aggregateDue: number; collectionRate: number; }
 
 // ---------------------------------------------------------------------------
 // Main Component
@@ -46,6 +47,10 @@ export function PaymentsBalances() {
   const [school, setSchool] = useState('');
   const [cls, setCls] = useState('');
   const [outstandingOnly, setOutstandingOnly] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalStudents, setTotalStudents] = useState(0);
+  const [summary, setSummary] = useState<BalanceSummary | null>(null);
+  const pageSize = 20;
 
   useEffect(() => {
     (async () => {
@@ -63,14 +68,17 @@ export function PaymentsBalances() {
   const fetchBalances = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const params: any = { sort };
+      const params: any = { sort, page: String(page), limit: String(pageSize) };
       if (search) params.search = search;
       if (cls) params.classId = cls;
+      if (outstandingOnly) params.outstandingOnly = 'true';
       const { data } = await api.get('/payments/student-balances', { params });
       setStudents(data.data?.students || []);
+      setTotalStudents(data.data?.meta?.total ?? data.data?.summary?.totalStudents ?? 0);
+      setSummary(data.data?.summary || null);
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to load balances'); }
     finally { setLoading(false); }
-  }, [search, sort, cls]);
+  }, [search, sort, cls, page, outstandingOnly]);
 
   useEffect(() => { fetchBalances(); }, [fetchBalances]);
 
@@ -84,13 +92,13 @@ export function PaymentsBalances() {
   // school filtering isn't a server param on /payments/student-balances
   // (org_admin is already org-scoped; super admin narrows via class instead)
   // — applied client-side here so the control stays available for super admins.
-  const displayed = students
-    .filter(s => outstandingOnly ? (s.totalFeesDue || 0) > 0 : true);
+  const displayed = students;
 
-  const aggregateFees = displayed.reduce((sum, s) => sum + (s.totalFees || 0), 0);
-  const aggregatePaid = displayed.reduce((sum, s) => sum + (s.totalFeesPaid || 0), 0);
-  const aggregateDue = displayed.reduce((sum, s) => sum + (s.totalFeesDue || 0), 0);
-  const collectionRate = aggregateFees > 0 ? Math.round((aggregatePaid / aggregateFees) * 100) : 0;
+  const aggregateFees = summary?.aggregateFees ?? displayed.reduce((sum, s) => sum + (s.totalFees || 0), 0);
+  const aggregatePaid = summary?.aggregatePaid ?? displayed.reduce((sum, s) => sum + (s.totalFeesPaid || 0), 0);
+  const aggregateDue = summary?.aggregateDue ?? displayed.reduce((sum, s) => sum + (s.totalFeesDue || 0), 0);
+  const collectionRate = summary?.collectionRate ?? (aggregateFees > 0 ? Math.round((aggregatePaid / aggregateFees) * 100) : 0);
+  const totalPages = Math.max(1, Math.ceil(totalStudents / pageSize));
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
@@ -102,8 +110,9 @@ export function PaymentsBalances() {
 
         <div className="flex flex-col sm:flex-row gap-3 flex-wrap items-center">
           <input type="text" placeholder="Search by name or ID..."
-            value={search} onChange={e => setSearch(e.target.value)}
+            value={search}
             className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
             onKeyDown={e => { if (e.key === 'Enter') fetchBalances(); }} />
           {isSuperAdmin && (
             <select value={school} onChange={e => setSchool(e.target.value)}
@@ -122,7 +131,7 @@ export function PaymentsBalances() {
             <option value="due">Sort: Highest Due</option>
             <option value="paid">Sort: Most Paid</option>
           </select>
-          <button onClick={fetchBalances}
+          <button onClick={() => setPage(1)}
             className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 whitespace-nowrap">
             🔍 Apply
           </button>
@@ -211,6 +220,13 @@ export function PaymentsBalances() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {!loading && displayed.length > 0 && totalPages > 1 && (
+          <div className="flex flex-col gap-3 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-[var(--color-text-tertiary)]">Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, totalStudents)} of {totalStudents} students</p>
+            <div className="flex items-center gap-2"><button type="button" disabled={page <= 1} onClick={() => setPage(value => value - 1)} className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] transition hover:bg-[var(--color-surface-secondary)] disabled:cursor-not-allowed disabled:opacity-40">Previous</button><span className="text-xs font-semibold text-[var(--color-text-secondary)]">Page {page} of {totalPages}</span><button type="button" disabled={page >= totalPages} onClick={() => setPage(value => value + 1)} className="rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] transition hover:bg-[var(--color-surface-secondary)] disabled:cursor-not-allowed disabled:opacity-40">Next</button></div>
           </div>
         )}
       </div>
