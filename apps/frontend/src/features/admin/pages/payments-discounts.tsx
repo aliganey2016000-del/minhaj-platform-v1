@@ -1,13 +1,19 @@
 /**
  * Discounts & Scholarships — Admin/Org Admin
- * Grant a one-time discount, fee waiver, or scholarship against a specific
- * student's unpaid/partially-paid invoice. "Type" is just a label for
- * reporting — every grant reduces the chosen invoice's balance the same way
- * (fixed $ or % of its gross amount) and takes effect immediately; there is
- * no recurring/standing scholarship policy that auto-applies to future bills.
+ *
+ * Two independent tools live on this page:
+ *  - One-Time Adjustment: a discount/waiver/scholarship applied once, right
+ *    now, against one specific invoice (fixed $ or % of its gross amount).
+ *  - Recurring Discount Grant: a policy tied to the STUDENT rather than one
+ *    invoice, auto-applied by the backend every time a new invoice is
+ *    generated for them, for as long as the grant is within its validity
+ *    window — standing (until revoked, e.g. a staff-child discount),
+ *    academic-year (tied to one year, needs re-granting next year, e.g. a
+ *    merit scholarship), or a fixed period (e.g. one term of hardship
+ *    relief, expires on its own).
  */
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { BadgePercent, Search, X, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { BadgePercent, Search, X, ShieldCheck, CheckCircle2, Plus, Repeat, Ban } from 'lucide-react';
 import api from '../../../lib/axios';
 
 // ---------------------------------------------------------------------------
@@ -45,11 +51,36 @@ interface AdjustmentRow {
   grantedBy?: { email: string };
 }
 
+interface DiscountGrantRow {
+  _id: string;
+  label: string;
+  type: 'discount' | 'waiver' | 'scholarship';
+  durationType: 'standing' | 'academic_year' | 'fixed_period';
+  valueType: 'fixed' | 'percent';
+  inputValue: number;
+  academicYear?: string;
+  validFrom: string;
+  validUntil: string | null;
+  status: 'active' | 'revoked';
+  effectiveStatus: 'active' | 'expired' | 'revoked';
+  reason: string;
+  createdAt: string;
+  student?: { studentId: string; profile?: { firstName: string; lastName: string } };
+  grantedBy?: { email: string };
+}
+
 const TYPE_LABELS: Record<string, string> = { discount: 'Discount', waiver: 'Fee Waiver', scholarship: 'Scholarship' };
 const TYPE_BADGE: Record<string, string> = {
   discount: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400',
   waiver: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400',
   scholarship: 'bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400',
+};
+
+const DURATION_LABELS: Record<string, string> = { standing: 'Standing (until graduation)', academic_year: 'Academic Year', fixed_period: 'Fixed Period' };
+const EFFECTIVE_STATUS_BADGE: Record<string, string> = {
+  active: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400',
+  expired: 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-tertiary)]',
+  revoked: 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400',
 };
 
 function studentLabel(s: StudentBrief): string {
@@ -185,6 +216,245 @@ function ConfirmGrantModal({ pending, submitting, onCancel, onConfirm }: { pendi
 }
 
 // ---------------------------------------------------------------------------
+// Recurring Discount Grants — a policy tied to the student, auto-applied by
+// the backend at invoice-generation time. Separate state/API from the
+// one-time adjustment above since it doesn't touch an existing invoice at
+// all — creating one takes effect the next time a bill is generated.
+// ---------------------------------------------------------------------------
+
+function DiscountGrantsPanel() {
+  const [selectedStudent, setSelectedStudent] = useState<StudentBrief | null>(null);
+  const [grants, setGrants] = useState<DiscountGrantRow[]>([]);
+  const [loadingGrants, setLoadingGrants] = useState(false);
+
+  const [label, setLabel] = useState('');
+  const [type, setType] = useState<'discount' | 'waiver' | 'scholarship'>('scholarship');
+  const [durationType, setDurationType] = useState<'standing' | 'academic_year' | 'fixed_period'>('standing');
+  const [valueType, setValueType] = useState<'fixed' | 'percent'>('percent');
+  const [value, setValue] = useState('');
+  const [academicYear, setAcademicYear] = useState('');
+  const [validFrom, setValidFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [validUntil, setValidUntil] = useState('');
+  const [reason, setReason] = useState('');
+
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const fetchGrants = useCallback(async (studentId?: string) => {
+    setLoadingGrants(true);
+    try {
+      const { data } = await api.get('/discount-grants', { params: { limit: '20', ...(studentId ? { studentId } : {}) } });
+      setGrants(data.data || []);
+    } catch {
+      setGrants([]);
+    } finally {
+      setLoadingGrants(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchGrants(selectedStudent?._id);
+  }, [selectedStudent, fetchGrants]);
+
+  const numValue = Number(value) || 0;
+  const isValid = !!selectedStudent && !!label.trim() && numValue > 0 && !!reason.trim()
+    && (valueType !== 'percent' || numValue <= 100)
+    && (durationType === 'standing' || !!validUntil)
+    && (durationType !== 'academic_year' || !!academicYear.trim());
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isValid || !selectedStudent) { setError('Fill in every field with a valid value'); return; }
+    setSubmitting(true); setError(''); setMessage('');
+    try {
+      await api.post('/discount-grants', {
+        studentId: selectedStudent._id,
+        label: label.trim(),
+        type,
+        durationType,
+        valueType,
+        value: numValue,
+        academicYear: durationType === 'academic_year' ? academicYear.trim() : undefined,
+        validFrom,
+        validUntil: durationType === 'standing' ? undefined : validUntil,
+        reason: reason.trim(),
+      });
+      setMessage(`${DURATION_LABELS[durationType]} grant "${label.trim()}" created for ${studentLabel(selectedStudent)}.`);
+      setLabel(''); setValue(''); setAcademicYear(''); setValidUntil(''); setReason('');
+      await fetchGrants(selectedStudent._id);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to create discount grant');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRevoke = async (grant: DiscountGrantRow) => {
+    const revokeReason = window.prompt(`Revoke "${grant.label}"? Optionally give a reason:`);
+    if (revokeReason === null) return;
+    try {
+      await api.patch(`/discount-grants/${grant._id}/revoke`, { reason: revokeReason });
+      await fetchGrants(selectedStudent?._id);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to revoke discount grant');
+    }
+  };
+
+  const ic = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500';
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+        <div className="px-6 py-4 border-b border-[var(--color-border-default)]">
+          <h2 className="font-semibold text-[var(--color-text-primary)]">Recurring Discount Grants{selectedStudent ? ` — ${studentLabel(selectedStudent)}` : ''}</h2>
+        </div>
+        {loadingGrants ? (
+          <div className="flex justify-center py-10"><div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>
+        ) : grants.length === 0 ? (
+          <p className="px-6 py-10 text-center text-sm text-[var(--color-text-tertiary)]">No recurring discount grants yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
+                <tr>
+                  <th className="text-left px-4 py-2.5 font-semibold">Student</th>
+                  <th className="text-left px-4 py-2.5 font-semibold">Label</th>
+                  <th className="text-left px-4 py-2.5 font-semibold hidden sm:table-cell">Duration</th>
+                  <th className="text-right px-4 py-2.5 font-semibold">Value</th>
+                  <th className="text-left px-4 py-2.5 font-semibold hidden md:table-cell">Window</th>
+                  <th className="text-left px-4 py-2.5 font-semibold">Status</th>
+                  <th className="px-4 py-2.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {grants.map(g => (
+                  <tr key={g._id} className="border-b border-[var(--color-border-subtle)] last:border-0">
+                    <td className="px-4 py-2.5">
+                      <p className="font-medium">{g.student?.profile ? `${g.student.profile.firstName} ${g.student.profile.lastName}` : g.student?.studentId}</p>
+                      <p className="text-xs text-[var(--color-text-tertiary)] font-mono">{g.student?.studentId}</p>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <p className="font-medium">{g.label}</p>
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${TYPE_BADGE[g.type]}`}>{TYPE_LABELS[g.type]}</span>
+                    </td>
+                    <td className="px-4 py-2.5 hidden sm:table-cell text-[var(--color-text-secondary)]">{DURATION_LABELS[g.durationType]}{g.academicYear ? ` (${g.academicYear})` : ''}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold">{g.valueType === 'percent' ? `${g.inputValue}%` : `$${g.inputValue.toLocaleString()}`}</td>
+                    <td className="px-4 py-2.5 hidden md:table-cell text-[var(--color-text-tertiary)] text-xs">
+                      {new Date(g.validFrom).toLocaleDateString()} – {g.validUntil ? new Date(g.validUntil).toLocaleDateString() : 'graduation'}
+                    </td>
+                    <td className="px-4 py-2.5"><span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${EFFECTIVE_STATUS_BADGE[g.effectiveStatus]}`}>{g.effectiveStatus}</span></td>
+                    <td className="px-4 py-2.5 text-right">
+                      {g.effectiveStatus === 'active' && (
+                        <button type="button" onClick={() => handleRevoke(g)} title="Revoke" className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30 transition-colors">
+                          <Ban className="h-4 w-4" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-card">
+        <div className="flex items-center gap-2 pb-4 mb-5 border-b border-[var(--color-border-default)]">
+          <Repeat className="h-5 w-5 text-primary-600" strokeWidth={1.75} />
+          <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Grant a Recurring Discount</h2>
+        </div>
+
+        {message && <div className="mb-4 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700"><CheckCircle2 className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />{message}</div>}
+        {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Student *</label>
+                <StudentSearchPicker value={selectedStudent} onSelect={setSelectedStudent} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Label *</label>
+                <input type="text" value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Staff Child Discount, Merit Scholarship 2026" className={ic} required />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Type</label>
+                  <select value={type} onChange={e => setType(e.target.value as any)} className={ic}>
+                    <option value="discount">Discount</option>
+                    <option value="waiver">Fee Waiver</option>
+                    <option value="scholarship">Scholarship</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Value Type</label>
+                  <select value={valueType} onChange={e => setValueType(e.target.value as any)} className={ic}>
+                    <option value="percent">Percentage (%)</option>
+                    <option value="fixed">Fixed Amount ($)</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">{valueType === 'percent' ? 'Percentage (%) *' : 'Amount ($) *'}</label>
+                <input type="number" value={value} onChange={e => setValue(e.target.value)} min={0.01} max={valueType === 'percent' ? 100 : undefined} step="0.01" className={ic} placeholder={valueType === 'percent' ? '0 - 100' : '0.00'} required />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Duration</label>
+                <select value={durationType} onChange={e => setDurationType(e.target.value as any)} className={ic}>
+                  <option value="standing">Standing — until graduation/withdrawal</option>
+                  <option value="academic_year">Academic Year — needs re-granting yearly</option>
+                  <option value="fixed_period">Fixed Period — a specific month/term</option>
+                </select>
+              </div>
+              {durationType === 'academic_year' && (
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Academic Year *</label>
+                  <input type="text" value={academicYear} onChange={e => setAcademicYear(e.target.value)} placeholder="e.g. 2026-2027" className={ic} required />
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Starts</label>
+                  <input type="date" value={validFrom} onChange={e => setValidFrom(e.target.value)} className={ic} />
+                </div>
+                {durationType !== 'standing' && (
+                  <div>
+                    <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Ends *</label>
+                    <input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} className={ic} required />
+                  </div>
+                )}
+              </div>
+              {durationType === 'standing' && (
+                <p className="text-[11px] text-[var(--color-text-tertiary)] rounded-xl border border-dashed border-[var(--color-border-default)] px-4 py-3">No end date — applies to every future invoice until revoked or the student graduates/withdraws.</p>
+              )}
+            </div>
+
+            <div className="flex flex-col justify-between space-y-4">
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Reason *</label>
+                <textarea value={reason} onChange={e => setReason(e.target.value)} rows={4} placeholder="e.g. Faculty child, merit scholarship for top GPA, temporary hardship relief..." className={ic} required />
+              </div>
+              <div className="pt-2">
+                <button type="submit" disabled={!isValid || submitting}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors shadow-sm">
+                  <Repeat className="h-4 w-4" strokeWidth={1.75} />
+                  {submitting ? 'Granting...' : 'Grant Recurring Discount'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -206,6 +476,8 @@ export function PaymentsDiscounts() {
 
   const [history, setHistory] = useState<AdjustmentRow[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<'one-time' | 'recurring'>('one-time');
 
   const fetchInvoices = useCallback(async (studentId: string) => {
     setLoadingInvoices(true);
@@ -283,126 +555,183 @@ export function PaymentsDiscounts() {
 
   const ic = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500';
 
+  // "+ Grant Discount" scrolls down to the grant form below the table.
+  const formRef = useRef<HTMLDivElement>(null);
+  const handleGrantClick = () => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
       <div className="mx-auto max-w-screen-2xl space-y-6">
-        <div>
-          <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]"><BadgePercent className="h-7 w-7 text-primary-600" strokeWidth={1.75} /> Discounts &amp; Scholarships</h1>
-          <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Grant a one-time discount, fee waiver, or scholarship against a student's unpaid invoice. Applies immediately — there is no recurring/auto-renewing policy.</p>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]"><BadgePercent className="h-7 w-7 text-primary-600" strokeWidth={1.75} /> Discounts &amp; Scholarships</h1>
+            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
+              {activeTab === 'one-time'
+                ? "Grant a one-time discount, fee waiver, or scholarship against a student's unpaid invoice. Applies immediately, once."
+                : 'Grant a recurring discount policy tied to a student — standing, per academic year, or a fixed period — that auto-applies to every invoice generated for them while it\'s valid.'}
+            </p>
+          </div>
+          {activeTab === 'one-time' && (
+            <button type="button" onClick={handleGrantClick}
+              className="inline-flex flex-shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">
+              <Plus className="h-4 w-4" strokeWidth={2.25} />
+              Grant Discount
+            </button>
+          )}
+        </div>
+
+        {/* Tab switcher — One-Time Adjustment vs. Recurring Discount Grant are separate tools with separate APIs */}
+        <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1">
+          <button type="button" onClick={() => setActiveTab('one-time')}
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'one-time' ? 'bg-[var(--color-surface-primary)] text-primary-600 shadow-sm' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}`}>
+            <BadgePercent className="h-4 w-4" strokeWidth={1.75} />
+            One-Time Adjustment
+          </button>
+          <button type="button" onClick={() => setActiveTab('recurring')}
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'recurring' ? 'bg-[var(--color-surface-primary)] text-primary-600 shadow-sm' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}`}>
+            <Repeat className="h-4 w-4" strokeWidth={1.75} />
+            Recurring Grants
+          </button>
         </div>
 
         {message && <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700"><CheckCircle2 className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />{message}</div>}
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          <div className="lg:col-span-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-card h-fit">
-            <form onSubmit={handleReview} className="space-y-4">
-              <div>
-                <label className="text-xs font-semibold mb-1 block">Student *</label>
-                <StudentSearchPicker value={selectedStudent} onSelect={setSelectedStudent} />
-              </div>
+        {activeTab === 'recurring' ? (
+          <DiscountGrantsPanel />
+        ) : (
+        <>
+        {/* Recent Adjustments — placed at the top so admins immediately see current discounts */}
+        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+          <div className="px-6 py-4 border-b border-[var(--color-border-default)]">
+            <h2 className="font-semibold text-[var(--color-text-primary)]">Recent Adjustments{selectedStudent ? ` — ${studentLabel(selectedStudent)}` : ''}</h2>
+          </div>
+          {loadingHistory ? (
+            <div className="flex justify-center py-10"><div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>
+          ) : history.length === 0 ? (
+            <p className="px-6 py-10 text-center text-sm text-[var(--color-text-tertiary)]">No discounts, waivers, or scholarships granted yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
+                  <tr>
+                    <th className="text-left px-4 py-2.5 font-semibold">Student</th>
+                    <th className="text-left px-4 py-2.5 font-semibold hidden sm:table-cell">Invoice</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">Type</th>
+                    <th className="text-right px-4 py-2.5 font-semibold">Amount</th>
+                    <th className="text-left px-4 py-2.5 font-semibold hidden md:table-cell">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map(row => (
+                    <tr key={row._id} className="border-b border-[var(--color-border-subtle)] last:border-0">
+                      <td className="px-4 py-2.5">
+                        <p className="font-medium">{row.student?.profile ? `${row.student.profile.firstName} ${row.student.profile.lastName}` : row.student?.studentId}</p>
+                        <p className="text-xs text-[var(--color-text-tertiary)] font-mono">{row.student?.studentId}</p>
+                      </td>
+                      <td className="px-4 py-2.5 hidden sm:table-cell text-[var(--color-text-secondary)]">{row.invoice?.title} <span className="text-xs text-[var(--color-text-tertiary)]">({row.invoice?.period})</span></td>
+                      <td className="px-4 py-2.5"><span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${TYPE_BADGE[row.type]}`}>{TYPE_LABELS[row.type]}</span></td>
+                      <td className="px-4 py-2.5 text-right font-semibold">${row.amount.toLocaleString()}<span className="block text-[10px] text-[var(--color-text-tertiary)] font-normal">{row.valueType === 'percent' ? `${row.inputValue}%` : 'fixed'}</span></td>
+                      <td className="px-4 py-2.5 hidden md:table-cell text-[var(--color-text-tertiary)] max-w-xs truncate" title={row.reason}>{row.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
-              {selectedStudent && (
+        {/* Grant Form Card — placed directly below the Recent Adjustments table */}
+        <div ref={formRef} className="scroll-mt-6 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-card">
+          <div className="flex items-center gap-2 pb-4 mb-5 border-b border-[var(--color-border-default)]">
+            <BadgePercent className="h-5 w-5 text-primary-600" strokeWidth={1.75} />
+            <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Apply New Adjustment</h2>
+          </div>
+          
+          <form onSubmit={handleReview} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Left Column: Student Selection & Invoice Selection */}
+              <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-semibold mb-1 block">Invoice *</label>
-                  {loadingInvoices ? (
-                    <p className="text-xs text-[var(--color-text-tertiary)]">Loading invoices...</p>
-                  ) : invoices.length === 0 ? (
-                    <p className="text-xs text-[var(--color-text-tertiary)] rounded-xl border border-dashed border-[var(--color-border-default)] px-4 py-3">This student has no unpaid or partially-paid invoices to adjust.</p>
-                  ) : (
-                    <select value={invoiceId} onChange={e => setInvoiceId(e.target.value)} className={ic}>
-                      {invoices.map(inv => (
-                        <option key={inv._id} value={inv._id}>{inv.title} — {inv.period} (Due ${inv.amountDue.toLocaleString()})</option>
-                      ))}
-                    </select>
-                  )}
+                  <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Student *</label>
+                  <StudentSearchPicker value={selectedStudent} onSelect={setSelectedStudent} />
                 </div>
-              )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold mb-1 block">Type</label>
-                  <select value={type} onChange={e => setType(e.target.value as any)} className={ic}>
-                    <option value="discount">Discount</option>
-                    <option value="waiver">Fee Waiver</option>
-                    <option value="scholarship">Scholarship</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold mb-1 block">Value Type</label>
-                  <select value={valueType} onChange={e => setValueType(e.target.value as any)} className={ic}>
-                    <option value="fixed">Fixed Amount ($)</option>
-                    <option value="percent">Percentage (%)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold mb-1 block">{valueType === 'percent' ? 'Percentage (%) *' : 'Amount ($) *'}</label>
-                <input type="number" value={value} onChange={e => setValue(e.target.value)}
-                  min={0.01} max={valueType === 'percent' ? 100 : undefined} step="0.01"
-                  className={ic} placeholder={valueType === 'percent' ? '0 - 100' : '0.00'} required />
-                {selectedInvoice && numValue > 0 && (
-                  <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
-                    Applies ${computedAmount.toLocaleString()} against a due balance of ${selectedInvoice.amountDue.toLocaleString()}
-                    {computedAmount > selectedInvoice.amountDue && <span className="text-red-600 dark:text-red-400"> — exceeds remaining balance</span>}
-                  </p>
+                {selectedStudent && (
+                  <div>
+                    <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Invoice *</label>
+                    {loadingInvoices ? (
+                      <p className="text-xs text-[var(--color-text-tertiary)] py-2">Loading invoices...</p>
+                    ) : invoices.length === 0 ? (
+                      <p className="text-xs text-[var(--color-text-tertiary)] rounded-xl border border-dashed border-[var(--color-border-default)] px-4 py-3">This student has no unpaid or partially-paid invoices to adjust.</p>
+                    ) : (
+                      <select value={invoiceId} onChange={e => setInvoiceId(e.target.value)} className={ic}>
+                        {invoices.map(inv => (
+                          <option key={inv._id} value={inv._id}>{inv.title} — {inv.period} (Due ${inv.amountDue.toLocaleString()})</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 )}
               </div>
 
-              <div>
-                <label className="text-xs font-semibold mb-1 block">Reason *</label>
-                <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2}
-                  placeholder="e.g. Sibling discount, hardship waiver, merit scholarship..." className={ic} required />
+              {/* Middle Column: Type, Value Type & Amount */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Type</label>
+                    <select value={type} onChange={e => setType(e.target.value as any)} className={ic}>
+                      <option value="discount">Discount</option>
+                      <option value="waiver">Fee Waiver</option>
+                      <option value="scholarship">Scholarship</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Value Type</label>
+                    <select value={valueType} onChange={e => setValueType(e.target.value as any)} className={ic}>
+                      <option value="fixed">Fixed Amount ($)</option>
+                      <option value="percent">Percentage (%)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">
+                    {valueType === 'percent' ? 'Percentage (%) *' : 'Amount ($) *'}
+                  </label>
+                  <input type="number" value={value} onChange={e => setValue(e.target.value)}
+                    min={0.01} max={valueType === 'percent' ? 100 : undefined} step="0.01"
+                    className={ic} placeholder={valueType === 'percent' ? '0 - 100' : '0.00'} required />
+                  {selectedInvoice && numValue > 0 && (
+                    <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
+                      Applies ${computedAmount.toLocaleString()} against a due balance of ${selectedInvoice.amountDue.toLocaleString()}
+                      {computedAmount > selectedInvoice.amountDue && <span className="text-red-600 dark:text-red-400"> — exceeds remaining balance</span>}
+                    </p>
+                  )}
+                </div>
               </div>
 
-              <button type="submit" disabled={!isValid}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors">
-                <BadgePercent className="h-4 w-4" strokeWidth={1.75} />
-                Review {TYPE_LABELS[type]}
-              </button>
-            </form>
-          </div>
+              {/* Right Column: Reason and Submit Button */}
+              <div className="flex flex-col justify-between space-y-4">
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Reason *</label>
+                  <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2}
+                    placeholder="e.g. Sibling discount, hardship waiver, merit scholarship..." className={ic} required />
+                </div>
 
-          <div className="lg:col-span-3 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card h-fit">
-            <div className="px-6 py-4 border-b border-[var(--color-border-default)]">
-              <h2 className="font-semibold text-[var(--color-text-primary)]">Recent Adjustments{selectedStudent ? ` — ${studentLabel(selectedStudent)}` : ''}</h2>
+                <div className="pt-2">
+                  <button type="submit" disabled={!isValid}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors shadow-sm">
+                    <BadgePercent className="h-4 w-4" strokeWidth={1.75} />
+                    Review {TYPE_LABELS[type]}
+                  </button>
+                </div>
+              </div>
             </div>
-            {loadingHistory ? (
-              <div className="flex justify-center py-10"><div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>
-            ) : history.length === 0 ? (
-              <p className="px-6 py-10 text-center text-sm text-[var(--color-text-tertiary)]">No discounts, waivers, or scholarships granted yet.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
-                    <tr>
-                      <th className="text-left px-4 py-2.5 font-semibold">Student</th>
-                      <th className="text-left px-4 py-2.5 font-semibold hidden sm:table-cell">Invoice</th>
-                      <th className="text-left px-4 py-2.5 font-semibold">Type</th>
-                      <th className="text-right px-4 py-2.5 font-semibold">Amount</th>
-                      <th className="text-left px-4 py-2.5 font-semibold hidden md:table-cell">Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map(row => (
-                      <tr key={row._id} className="border-b border-[var(--color-border-subtle)] last:border-0">
-                        <td className="px-4 py-2.5">
-                          <p className="font-medium">{row.student?.profile ? `${row.student.profile.firstName} ${row.student.profile.lastName}` : row.student?.studentId}</p>
-                          <p className="text-xs text-[var(--color-text-tertiary)] font-mono">{row.student?.studentId}</p>
-                        </td>
-                        <td className="px-4 py-2.5 hidden sm:table-cell text-[var(--color-text-secondary)]">{row.invoice?.title} <span className="text-xs text-[var(--color-text-tertiary)]">({row.invoice?.period})</span></td>
-                        <td className="px-4 py-2.5"><span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${TYPE_BADGE[row.type]}`}>{TYPE_LABELS[row.type]}</span></td>
-                        <td className="px-4 py-2.5 text-right font-semibold">${row.amount.toLocaleString()}<span className="block text-[10px] text-[var(--color-text-tertiary)] font-normal">{row.valueType === 'percent' ? `${row.inputValue}%` : 'fixed'}</span></td>
-                        <td className="px-4 py-2.5 hidden md:table-cell text-[var(--color-text-tertiary)] max-w-xs truncate" title={row.reason}>{row.reason}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          </form>
         </div>
+        </>
+        )}
       </div>
 
       {pending && (

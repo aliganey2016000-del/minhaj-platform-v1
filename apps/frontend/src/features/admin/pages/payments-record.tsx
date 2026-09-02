@@ -6,7 +6,7 @@
  * receipt after a successful record.
  */
 import { useEffect, useState, useRef } from 'react';
-import { Search, X, CreditCard, Wallet, ShieldCheck, Download, Printer, CheckCircle2 } from 'lucide-react';
+import { Search, X, CreditCard, Wallet, ShieldCheck, Download, Printer, CheckCircle2, ArrowUpRight, CircleDollarSign, ReceiptText, RefreshCw } from 'lucide-react';
 import api from '../../../lib/axios';
 import { downloadReceipt } from '../../../lib/receipts';
 
@@ -27,6 +27,16 @@ interface StudentBrief {
 }
 
 interface SchoolBrief { _id: string; name: string; }
+
+interface RecentPayment {
+  _id: string;
+  amount: number;
+  type: string;
+  method: string;
+  status: string;
+  createdAt: string;
+  student?: { studentId?: string; profile?: { firstName?: string; lastName?: string } };
+}
 
 interface InvoiceData {
   invoiceId: string;
@@ -392,6 +402,8 @@ export function PaymentsRecord() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(false);
 
   const [selectedStudent, setSelectedStudent] = useState<StudentBrief | null>(null);
   const [recordAmount, setRecordAmount] = useState('');
@@ -418,6 +430,20 @@ export function PaymentsRecord() {
       } catch { /* ignore */ }
     })();
   }, []);
+
+  const fetchRecentPayments = async () => {
+    setLoadingRecent(true);
+    try {
+      const { data } = await api.get('/payments', { params: { limit: '5', page: '1' } });
+      setRecentPayments(data.data || []);
+    } catch {
+      setRecentPayments([]);
+    } finally {
+      setLoadingRecent(false);
+    }
+  };
+
+  useEffect(() => { fetchRecentPayments(); }, []);
 
   const handleReviewPayment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -481,41 +507,47 @@ export function PaymentsRecord() {
 
       setMessage(`Payment of $${pendingPayment.amount.toLocaleString()} recorded successfully!`);
       setRecordAmount(''); setRecordReference(''); setRecordNotes(''); setSelectedStudent(null); setPendingPayment(null);
+      fetchRecentPayments();
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to record'); setPendingPayment(null); }
     finally { setLoading(false); }
   };
 
   return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-screen-2xl space-y-6">
-        <div>
-          <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]"><CreditCard className="h-7 w-7 text-primary-600" strokeWidth={1.75} /> Record Payment</h1>
-          <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Record an ad-hoc payment for a single student — cash in hand, a donation, anything not tied to a generated invoice.</p>
+    <div className="min-h-screen bg-[var(--color-surface-secondary)] p-4 sm:p-6 lg:p-10 pt-20 lg:pt-10">
+      <div className="mx-auto max-w-6xl space-y-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 dark:border-primary-900/50 dark:bg-primary-950/30 dark:text-primary-300"><CircleDollarSign className="h-3.5 w-3.5" /> Finance desk</div>
+            <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl"><CreditCard className="h-7 w-7 text-primary-600" strokeWidth={1.75} /> Record Payment</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--color-text-tertiary)]">Record an ad-hoc payment for a single student, then issue a printable receipt.</p>
+          </div>
+          <div className="hidden items-center gap-2 text-xs text-[var(--color-text-tertiary)] sm:flex"><ShieldCheck className="h-4 w-4 text-emerald-600" /> Review required before recording</div>
         </div>
 
         {message && <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700"><CheckCircle2 className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />{message}</div>}
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
 
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-card max-w-2xl">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.6fr)] lg:items-start">
+        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card sm:p-7">
           <form onSubmit={handleReviewPayment} className="space-y-4">
             <div>
-              <label className="text-xs font-semibold mb-1 block">Student *</label>
+              <div className="mb-2 flex items-center justify-between gap-3"><label className="text-sm font-semibold text-[var(--color-text-primary)]">Student *</label><span className="text-[11px] text-[var(--color-text-tertiary)]">Search ID, phone, or name</span></div>
               <StudentSearchPicker value={selectedStudent} onSelect={setSelectedStudent} />
               {selectedStudent && (
-                <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                  <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Total Fees</p>
                     <p className="font-bold">${selectedFeeSummary.totalFees.toLocaleString()}</p>
                   </div>
-                  <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
+                  <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Discount</p>
                     <p className="font-bold text-amber-600">${selectedFeeSummary.discount.toLocaleString()}</p>
                   </div>
-                  <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
+                  <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Paid</p>
                     <p className="font-bold text-green-600">${selectedFeeSummary.totalFeesPaid.toLocaleString()}</p>
                   </div>
-                  <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2 text-center">
+                  <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3 text-center">
                     <p className="text-[var(--color-text-tertiary)]">Due</p>
                     <p className="font-bold text-red-600">${selectedFeeSummary.totalFeesDue.toLocaleString()}</p>
                   </div>
@@ -524,9 +556,9 @@ export function PaymentsRecord() {
             </div>
 
             <div>
-              <label className="text-xs font-semibold mb-1 block">Amount ($) *</label>
+              <label className="mb-2 block text-sm font-semibold text-[var(--color-text-primary)]">Amount ($) *</label>
               <input type="number" value={recordAmount} onChange={e => setRecordAmount(e.target.value)}
-                min={0.01} step="0.01" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" placeholder="0.00" required />
+                min={0.01} step="0.01" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-lg font-semibold text-[var(--color-text-primary)] outline-none transition focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10" placeholder="0.00" required />
               {selectedStudent && (
                 <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
                   Balance due: ${selectedFeeSummary.totalFeesDue.toLocaleString()}
@@ -537,41 +569,67 @@ export function PaymentsRecord() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="text-xs font-semibold mb-1 block">Type</label>
+                <label className="mb-2 block text-sm font-semibold text-[var(--color-text-primary)]">Type</label>
                 <select value={recordType} onChange={e => setRecordType(e.target.value)}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm">
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10">
                   {Object.entries(FEE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-xs font-semibold mb-1 block">Method</label>
+                <label className="mb-2 block text-sm font-semibold text-[var(--color-text-primary)]">Method</label>
                 <select value={recordMethod} onChange={e => setRecordMethod(e.target.value)}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm">
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10">
                   {Object.entries(METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               </div>
             </div>
             {(recordMethod === 'mobile_money' || recordMethod === 'bank_transfer' || recordMethod === 'online') && (
               <div>
-                <label className="text-xs font-semibold mb-1 block">Reference / Transaction No.</label>
+                <label className="mb-2 block text-sm font-semibold text-[var(--color-text-primary)]">Reference / Transaction No.</label>
                 <input type="text" value={recordReference} onChange={e => setRecordReference(e.target.value)}
-                  placeholder="e.g. EVC-2026-88213 or bank slip number" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" />
+                  placeholder="e.g. EVC-2026-88213 or bank slip number" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10" />
               </div>
             )}
             <div>
-              <label className="text-xs font-semibold mb-1 block">Notes</label>
+              <label className="mb-2 block text-sm font-semibold text-[var(--color-text-primary)]">Notes</label>
               <textarea value={recordNotes} onChange={e => setRecordNotes(e.target.value)} rows={2}
-                placeholder="Optional notes..." className="w-full resize-y rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" />
+                placeholder="Optional notes..." className="w-full resize-y rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10" />
             </div>
             <button type="submit" disabled={loading || !isValid}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors">
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-primary-600/20 transition-colors hover:bg-primary-700 disabled:opacity-60">
               <Wallet className="h-4 w-4" strokeWidth={1.75} />
               {isValid ? `Record $${Number(recordAmount).toLocaleString()} Payment` : 'Record Payment'}
             </button>
           </form>
         </div>
+        <aside className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card sm:p-6">
+          <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-tertiary)]">Payment snapshot</p><h2 className="mt-1 text-lg font-bold text-[var(--color-text-primary)]">Ready when you are</h2></div><div className="rounded-xl bg-primary-50 p-2.5 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300"><ReceiptText className="h-5 w-5" /></div></div>
+          <div className="mt-6 space-y-4 border-t border-[var(--color-border-subtle)] pt-5 text-sm">
+            <div className="flex items-center justify-between gap-4"><span className="text-[var(--color-text-tertiary)]">Student</span><span className="max-w-[170px] truncate text-right font-semibold text-[var(--color-text-primary)]">{selectedStudent ? studentLabel(selectedStudent) : 'Not selected'}</span></div>
+            <div className="flex items-center justify-between gap-4"><span className="text-[var(--color-text-tertiary)]">Amount</span><span className="font-bold text-primary-600">{recordAmount && Number(recordAmount) > 0 ? `$${Number(recordAmount).toLocaleString()}` : '$0.00'}</span></div>
+            <div className="flex items-center justify-between gap-4"><span className="text-[var(--color-text-tertiary)]">Method</span><span className="font-semibold text-[var(--color-text-primary)]">{METHOD_LABELS[recordMethod]}</span></div>
+          </div>
+          <div className="mt-6 rounded-xl bg-emerald-50 p-4 dark:bg-emerald-950/20"><div className="flex gap-3"><ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" /><p className="text-xs leading-5 text-emerald-800 dark:text-emerald-300">A receipt is generated after confirmation. You can download or print it immediately.</p></div></div>
+          <div className="mt-5 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><ArrowUpRight className="h-3.5 w-3.5" /> Secure review before submission</div>
+        </aside>
+        </div>
+
+        <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
+          <div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div><h2 className="text-base font-bold text-[var(--color-text-primary)]">Recent payments</h2><p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">The latest transactions recorded by your organization</p></div>
+            <button type="button" onClick={fetchRecentPayments} disabled={loadingRecent} className="inline-flex w-fit items-center gap-2 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-secondary)] disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loadingRecent ? 'animate-spin' : ''}`} /> Refresh</button>
+          </div>
+          {loadingRecent && recentPayments.length === 0 ? <div className="px-6 py-10 text-center text-xs text-[var(--color-text-tertiary)]">Loading recent payments...</div> : recentPayments.length === 0 ? <div className="px-6 py-10 text-center text-xs text-[var(--color-text-tertiary)]">No payments recorded yet.</div> : (
+            <div className="divide-y divide-[var(--color-border-subtle)]">
+              {recentPayments.map((payment) => {
+                const name = `${payment.student?.profile?.firstName || ''} ${payment.student?.profile?.lastName || ''}`.trim() || payment.student?.studentId || 'Unknown student';
+                return <div key={payment._id} className="flex items-center justify-between gap-4 px-5 py-3.5 transition-colors hover:bg-[var(--color-surface-secondary)] sm:px-6"><div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--color-text-primary)]">{name}</p><p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{payment.student?.studentId || 'No ID'} · {METHOD_LABELS[payment.method] || payment.method} · {new Date(payment.createdAt).toLocaleDateString()}</p></div><div className="flex flex-shrink-0 items-center gap-3"><span className="hidden rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 sm:inline-flex">{payment.status}</span><span className="text-sm font-bold text-emerald-600">${Number(payment.amount || 0).toLocaleString()}</span></div></div>;
+              })}
+            </div>
+          )}
+        </section>
       </div>
 
       {pendingPayment && (

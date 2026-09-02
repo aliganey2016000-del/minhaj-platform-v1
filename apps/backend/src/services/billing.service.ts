@@ -9,6 +9,7 @@ import Payment, { IPayment } from '../models/payment.model';
 import Student from '../models/student.model';
 import User from '../models/user.model';
 import CashSession from '../models/cash-session.model';
+import DiscountGrant from '../models/discount-grant.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 
 type Id = mongoose.Types.ObjectId | string;
@@ -126,6 +127,52 @@ export async function restoreInvoicePayment(invoiceId: Id, amount: number): Prom
   );
   if (!updated) throw new NotFoundError('Invoice');
   return updated;
+}
+
+// ---------------------------------------------------------------------------
+// Standing discounts — DiscountGrant is a recurring policy tied to a student
+// (not an invoice), so it has to be looked up and applied every time a new
+// invoice is generated, unlike FeeAdjustment which is applied once by hand.
+// ---------------------------------------------------------------------------
+
+export type ActiveGrantLite = { _id: mongoose.Types.ObjectId; valueType: 'fixed' | 'percent'; inputValue: number };
+
+// One query for every student in a generation batch, keyed by studentId, so
+// callers looping over many students (e.g. generateBulk) don't run a query
+// per student.
+export async function getActiveDiscountGrants(studentIds: Id[], onDate: Date = new Date()): Promise<Map<string, ActiveGrantLite[]>> {
+  const grants = await DiscountGrant.find({
+    student: { $in: studentIds },
+    status: 'active',
+    validFrom: { $lte: onDate },
+    $or: [{ validUntil: null }, { validUntil: { $gte: onDate } }],
+  }).select('_id student valueType inputValue').lean();
+
+  const map = new Map<string, ActiveGrantLite[]>();
+  for (const g of grants as any[]) {
+    const key = g.student.toString();
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push({ _id: g._id, valueType: g.valueType, inputValue: g.inputValue });
+  }
+  return map;
+}
+
+// Stacks every active grant onto a gross amount: percent grants are summed
+// and capped at 100%, fixed grants are summed on top of that, and the total
+// is capped at grossAmount so a stack of grants can never push an invoice's
+// discount past its own face value.
+export function sumGrantDiscount(grants: ActiveGrantLite[] | undefined, grossAmount: number): { discount: number; grantIds: mongoose.Types.ObjectId[] } {
+  if (!grants || grants.length === 0) return { discount: 0, grantIds: [] };
+  let percentSum = 0;
+  let fixedSum = 0;
+  for (const g of grants) {
+    if (g.valueType === 'percent') percentSum += g.inputValue;
+    else fixedSum += g.inputValue;
+  }
+  percentSum = Math.min(percentSum, 100);
+  const raw = (percentSum / 100) * grossAmount + fixedSum;
+  const discount = Math.round(Math.min(raw, grossAmount) * 100) / 100;
+  return { discount, grantIds: grants.map((g) => g._id) };
 }
 
 export interface CollectPaymentParams {

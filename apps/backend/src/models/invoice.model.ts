@@ -14,6 +14,7 @@ export interface IInvoice extends Document {
   lineItems: IInvoiceLineItem[];
   amount: number;
   discount: number;
+  appliedDiscountGrants?: mongoose.Types.ObjectId[];
   amountPaid: number;
   status: 'pending' | 'partial' | 'paid' | 'void';
   paymentType: 'tuition' | 'registration' | 'exam' | 'material' | 'donation' | 'other';
@@ -54,6 +55,10 @@ const invoiceSchema = new Schema<IInvoice>(
     // Keeping this separate from amountPaid makes balances and refunds
     // mathematically correct (gross - discount - cash received).
     discount: { type: Number, default: 0, min: 0 },
+    // Which DiscountGrant(s) (recurring/standing policies) produced this
+    // invoice's discount at generation time, for audit/reporting — empty for
+    // invoices discounted only via a one-time FeeAdjustment.
+    appliedDiscountGrants: { type: [{ type: Schema.Types.ObjectId, ref: 'DiscountGrant' }], default: [] },
     amountPaid: { type: Number, default: 0, min: 0 },
     status: { type: String, enum: ['pending', 'partial', 'paid', 'void'], default: 'pending', index: true },
     paymentType: { type: String, enum: ['tuition', 'registration', 'exam', 'material', 'donation', 'other'], default: 'tuition' },

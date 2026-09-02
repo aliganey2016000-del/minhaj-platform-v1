@@ -9,7 +9,7 @@ import User from '../models/user.model';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/tenant-scope';
-import { collectPaymentService, recalcStudentBalance, withComputedInvoiceFields } from '../services/billing.service';
+import { collectPaymentService, recalcStudentBalance, withComputedInvoiceFields, getActiveDiscountGrants, sumGrantDiscount } from '../services/billing.service';
 import { notifyUsers } from '../utils/notify';
 import ensureStudentRecord from '../utils/ensure-student';
 
@@ -126,6 +126,10 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const amount = lineItems.reduce((sum: number, item: any) => sum + Number(item.amount), 0);
 
+  const grantsByStudent = await getActiveDiscountGrants([studentId]);
+  const { discount, grantIds } = sumGrantDiscount(grantsByStudent.get(String(studentId)), amount);
+  const status = discount >= amount && amount > 0 ? 'paid' : discount > 0 ? 'partial' : 'pending';
+
   try {
     const invoice = await Invoice.create({
       student: studentId,
@@ -135,7 +139,9 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       period: String(period).trim(),
       lineItems,
       amount,
-      status: 'pending',
+      discount,
+      appliedDiscountGrants: grantIds,
+      status,
       paymentType: resolvedPaymentType || 'tuition',
       dueDate: new Date(dueDate),
       academicYear: academicYear ? String(academicYear).trim() : '',
@@ -238,23 +244,31 @@ export const generateBulk = async (req: Request, res: Response): Promise<Respons
       ? components.map((c: any) => ({ description: c.description, amount: c.amount }))
       : [{ description: structure.title, amount: structure.amount }];
 
-    const docs = targets.map((studentId) => ({
-      student: studentId,
-      school: structure.school,
-      feeStructure: structure._id,
-      title: `${structure.title} — ${periodTrimmed}`,
-      period: periodTrimmed,
-      lineItems,
-      amount: structure.amount,
-      amountPaid: 0,
-      status: 'pending',
-      paymentType,
-      dueDate: resolvedDueDate,
-      issueDate: new Date(),
-      academicYear: (academicYear || structure.academicYear || '').trim(),
-      batchId,
-      generatedBy: req.user!.userId,
-    }));
+    const grantsByStudent = await getActiveDiscountGrants(targets);
+
+    const docs = targets.map((studentId) => {
+      const { discount, grantIds } = sumGrantDiscount(grantsByStudent.get(studentId.toString()), structure.amount);
+      const status = discount >= structure.amount ? 'paid' : discount > 0 ? 'partial' : 'pending';
+      return {
+        student: studentId,
+        school: structure.school,
+        feeStructure: structure._id,
+        title: `${structure.title} — ${periodTrimmed}`,
+        period: periodTrimmed,
+        lineItems,
+        amount: structure.amount,
+        discount,
+        appliedDiscountGrants: grantIds,
+        amountPaid: 0,
+        status,
+        paymentType,
+        dueDate: resolvedDueDate,
+        issueDate: new Date(),
+        academicYear: (academicYear || structure.academicYear || '').trim(),
+        batchId,
+        generatedBy: req.user!.userId,
+      };
+    });
 
     try {
       const result = await Invoice.insertMany(docs, { ordered: false });
