@@ -13,6 +13,7 @@ export interface IInvoice extends Document {
   period: string;
   lineItems: IInvoiceLineItem[];
   amount: number;
+  discount: number;
   amountPaid: number;
   status: 'pending' | 'partial' | 'paid' | 'void';
   paymentType: 'tuition' | 'registration' | 'exam' | 'material' | 'donation' | 'other';
@@ -49,6 +50,10 @@ const invoiceSchema = new Schema<IInvoice>(
       validate: { validator: (v: IInvoiceLineItem[]) => Array.isArray(v) && v.length > 0, message: 'At least one line item is required' },
     },
     amount: { type: Number, required: true, min: 0 },
+    // Discounts are deductions from the invoice obligation, not payments.
+    // Keeping this separate from amountPaid makes balances and refunds
+    // mathematically correct (gross - discount - cash received).
+    discount: { type: Number, default: 0, min: 0 },
     amountPaid: { type: Number, default: 0, min: 0 },
     status: { type: String, enum: ['pending', 'partial', 'paid', 'void'], default: 'pending', index: true },
     paymentType: { type: String, enum: ['tuition', 'registration', 'exam', 'material', 'donation', 'other'], default: 'tuition' },
@@ -65,12 +70,6 @@ const invoiceSchema = new Schema<IInvoice>(
   { timestamps: true }
 );
 
-// A student can only ever have ONE invoice per (feeStructure, period) — the
-// real backstop against double-billing under a race (two admins clicking
-// "Generate Invoices" for the same period at once), not just the app-level
-// pre-check in the controller. Only applies when feeStructure is set —
-// manual/ad-hoc invoices (feeStructure: null) are exempt, since an admin
-// may legitimately issue several unrelated one-off invoices to one student.
 invoiceSchema.index(
   { student: 1, feeStructure: 1, period: 1 },
   { unique: true, partialFilterExpression: { feeStructure: { $type: 'objectId' } } }
@@ -81,11 +80,13 @@ invoiceSchema.index({ student: 1, createdAt: -1 });
 invoiceSchema.index({ status: 1, dueDate: 1 });
 
 invoiceSchema.virtual('amountDue').get(function (this: IInvoice) {
+  return Math.max(0, this.amount - (this.discount || 0) - (this.amountPaid || 0));
+});
+
+invoiceSchema.virtual('grossAmountDue').get(function (this: IInvoice) {
   return Math.max(0, this.amount - (this.amountPaid || 0));
 });
 
-// Derived, not persisted — there's no cron job in this app to flip a stored
-// 'overdue' status back and forth as dueDate passes or an invoice is voided.
 invoiceSchema.virtual('isOverdue').get(function (this: IInvoice) {
   return this.status !== 'paid' && this.status !== 'void' && this.dueDate < new Date();
 });
