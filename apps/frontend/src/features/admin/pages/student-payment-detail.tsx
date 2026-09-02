@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CalendarDays, CircleDollarSign, Download, Loader2, ReceiptText } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Download, Loader2, ReceiptText, WalletCards } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
@@ -27,6 +27,33 @@ interface PaymentRecord {
   reference?: string;
   notes?: string;
   createdAt: string;
+  recordedBy?: { email?: string };
+}
+
+interface InvoiceRecord {
+  _id: string;
+  title: string;
+  period: string;
+  amount: number;
+  discount?: number;
+  amountPaid: number;
+  amountDue: number;
+  status: string;
+  issueDate?: string;
+  dueDate?: string;
+  generatedBy?: { email?: string };
+}
+
+interface AdjustmentRecord {
+  _id: string;
+  type: string;
+  valueType: string;
+  inputValue: number;
+  amount: number;
+  reason: string;
+  createdAt: string;
+  grantedBy?: { email?: string };
+  invoice?: { title?: string; period?: string };
 }
 
 const typeLabels: Record<string, string> = { tuition: 'Tuition', registration: 'Registration', exam: 'Examination', material: 'Learning materials', donation: 'Donation', other: 'Other' };
@@ -42,6 +69,8 @@ export function StudentPaymentDetail() {
   const navigate = useNavigate();
   const [student, setStudent] = useState<StudentDetails | null>(null);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
+  const [adjustments, setAdjustments] = useState<AdjustmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -50,12 +79,16 @@ export function StudentPaymentDetail() {
     (async () => {
       setLoading(true);
       try {
-        const [studentResponse, paymentsResponse] = await Promise.all([
+        const [studentResponse, paymentsResponse, invoicesResponse, adjustmentsResponse] = await Promise.all([
           api.get(`/students/${studentId}`),
           api.get('/payments', { params: { studentId, page: '1', limit: '100' } }),
+          api.get('/invoices', { params: { studentId, page: '1', limit: '100' } }),
+          api.get('/fee-adjustments', { params: { studentId, page: '1', limit: '100' } }),
         ]);
         setStudent(studentResponse.data.data);
         setPayments(paymentsResponse.data.data || []);
+        setInvoices(invoicesResponse.data.data || []);
+        setAdjustments(adjustmentsResponse.data.data || []);
       } catch (err: any) {
         setError(err.response?.data?.message || 'Failed to load student payment details');
       } finally { setLoading(false); }
@@ -71,6 +104,11 @@ export function StudentPaymentDetail() {
   const totalCharged = Number(student.totalFees || 0) || totalPaid + totalDue + Number(student.discount || 0);
   const currency = payments[0]?.currency || 'USD';
   const collectionRate = totalCharged > 0 ? Math.min(100, Math.round((totalPaid / totalCharged) * 100)) : 0;
+  const activities = [
+    ...invoices.map((invoice) => ({ date: invoice.issueDate || invoice.dueDate || '', kind: 'Invoice', title: invoice.title, detail: invoice.period, actor: invoice.generatedBy?.email || 'System', amount: invoice.amount, discount: invoice.discount || 0, paid: invoice.amountPaid, due: invoice.amountDue, status: invoice.status, paymentId: '' })),
+    ...adjustments.map((adjustment) => ({ date: adjustment.createdAt, kind: 'Adjustment', title: typeLabels[adjustment.type] || adjustment.type, detail: adjustment.invoice?.title || adjustment.reason, actor: adjustment.grantedBy?.email || '—', amount: adjustment.amount, discount: adjustment.amount, paid: 0, due: 0, status: 'applied', paymentId: '' })),
+    ...payments.map((payment) => ({ date: payment.createdAt, kind: 'Payment', title: typeLabels[payment.type] || payment.type, detail: payment.reference ? `Ref: ${payment.reference}` : methodLabels[payment.method] || payment.method, actor: payment.recordedBy?.email || '—', amount: payment.amount, discount: payment.discount || 0, paid: payment.amount, due: 0, status: payment.status, paymentId: payment._id })),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (
     <div className="min-h-screen bg-[var(--color-surface-secondary)] p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
@@ -89,8 +127,8 @@ export function StudentPaymentDetail() {
         </div>
 
         <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
-          <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-5 py-4 sm:px-6"><div><h2 className="text-lg font-bold text-[var(--color-text-primary)]">Payment history</h2><p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">Every payment recorded since this account was created</p></div><span className="rounded-full bg-[var(--color-surface-secondary)] px-3 py-1 text-xs font-semibold text-[var(--color-text-secondary)]">{payments.length} transaction{payments.length === 1 ? '' : 's'}</span></div>
-          {payments.length === 0 ? <div className="px-6 py-14 text-center text-sm text-[var(--color-text-tertiary)]"><ReceiptText className="mx-auto mb-3 h-8 w-8 opacity-50" />No payments recorded yet.</div> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)]"><tr><th className="px-5 py-3 text-left font-semibold">Date</th><th className="px-5 py-3 text-left font-semibold">Description</th><th className="px-5 py-3 text-left font-semibold">Method</th><th className="px-5 py-3 text-right font-semibold">Amount</th><th className="px-5 py-3 text-center font-semibold">Status</th><th className="px-5 py-3 text-center font-semibold">Receipt</th></tr></thead><tbody>{payments.map((payment) => <tr key={payment._id} className="border-t border-[var(--color-border-subtle)] transition-colors hover:bg-[var(--color-surface-secondary)]"><td className="whitespace-nowrap px-5 py-5 text-xs text-[var(--color-text-tertiary)]">{new Date(payment.createdAt).toLocaleDateString()}<p className="mt-0.5 text-[10px]">{new Date(payment.createdAt).toLocaleTimeString()}</p></td><td className="px-5 py-5"><p className="font-semibold text-[var(--color-text-primary)]">{typeLabels[payment.type] || payment.type}</p>{payment.reference && <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">Ref: {payment.reference}</p>}</td><td className="px-5 py-5 text-[var(--color-text-secondary)]">{methodLabels[payment.method] || payment.method}</td><td className="px-5 py-5 text-right"><span className="font-bold text-emerald-600">{money(payment.amount, payment.currency || currency)}</span>{(payment.refundedAmount || 0) > 0 && <p className="text-xs text-rose-600">Refunded {money(payment.refundedAmount || 0, payment.currency || currency)}</p>}</td><td className="px-5 py-5 text-center"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${payment.status === 'completed' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : payment.status === 'refunded' ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'}`}>{payment.status}</span></td><td className="px-5 py-5 text-center">{hasReceipt(payment.status) && <button type="button" onClick={() => downloadReceipt(payment._id)} title="Download official receipt" className="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 px-2.5 py-1.5 text-xs font-semibold text-primary-600 transition-colors hover:bg-primary-50 dark:border-primary-900/50 dark:hover:bg-primary-950/30"><Download className="h-3.5 w-3.5" /> Receipt</button>}</td></tr>)}</tbody></table></div>}
+          <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-5 py-4 sm:px-6"><div><h2 className="text-lg font-bold text-[var(--color-text-primary)]">Financial activity</h2><p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">Charges, discounts, payments, and account changes from the beginning</p></div><span className="rounded-full bg-[var(--color-surface-secondary)] px-3 py-1 text-xs font-semibold text-[var(--color-text-secondary)]">{activities.length} record{activities.length === 1 ? '' : 's'}</span></div>
+          {activities.length === 0 ? <div className="px-6 py-14 text-center text-sm text-[var(--color-text-tertiary)]"><ReceiptText className="mx-auto mb-3 h-8 w-8 opacity-50" />No financial activity recorded yet.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead className="bg-[var(--color-surface-secondary)]"><tr><th className="px-5 py-3 text-left font-semibold">Date</th><th className="px-5 py-3 text-left font-semibold">Activity</th><th className="px-5 py-3 text-left font-semibold">Handled by</th><th className="px-5 py-3 text-right font-semibold">Amount</th><th className="px-5 py-3 text-right font-semibold">Discount</th><th className="px-5 py-3 text-right font-semibold">Paid / Due</th><th className="px-5 py-3 text-center font-semibold">Status</th><th className="px-5 py-3 text-center font-semibold">Receipt</th></tr></thead><tbody>{activities.map((activity, index) => <tr key={`${activity.kind}-${activity.date}-${index}`} className="border-t border-[var(--color-border-subtle)] transition-colors hover:bg-[var(--color-surface-secondary)]"><td className="whitespace-nowrap px-5 py-5 text-xs text-[var(--color-text-tertiary)]">{new Date(activity.date).toLocaleDateString()}<p className="mt-0.5 text-[10px]">{new Date(activity.date).toLocaleTimeString()}</p></td><td className="px-5 py-5"><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${activity.kind === 'Payment' ? 'bg-emerald-50 text-emerald-700' : activity.kind === 'Adjustment' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>{activity.kind}</span><p className="mt-1 font-semibold text-[var(--color-text-primary)]">{activity.title}</p><p className="mt-0.5 max-w-[260px] truncate text-xs text-[var(--color-text-tertiary)]" title={activity.detail}>{activity.detail}</p></td><td className="px-5 py-5 text-xs text-[var(--color-text-secondary)]">{activity.actor}</td><td className="px-5 py-5 text-right font-bold text-[var(--color-text-primary)]">{money(activity.amount, currency)}</td><td className="px-5 py-5 text-right font-semibold text-amber-600">{activity.discount ? money(activity.discount, currency) : '—'}</td><td className="px-5 py-5 text-right text-xs"><span className="text-emerald-600">{activity.paid ? money(activity.paid, currency) : '—'}</span><span className="text-[var(--color-text-tertiary)]"> / {activity.due ? money(activity.due, currency) : '—'}</span></td><td className="px-5 py-5 text-center"><span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-semibold capitalize text-[var(--color-text-secondary)]">{activity.status}</span></td><td className="px-5 py-5 text-center">{activity.paymentId && hasReceipt(activity.status) && <button type="button" onClick={() => downloadReceipt(activity.paymentId)} title="Download official receipt" className="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 px-2.5 py-1.5 text-xs font-semibold text-primary-600 transition-colors hover:bg-primary-50 dark:border-primary-900/50 dark:hover:bg-primary-950/30"><Download className="h-3.5 w-3.5" /> Receipt</button>}</td></tr>)}</tbody></table></div>}
         </section>
       </div>
     </div>

@@ -28,53 +28,6 @@ interface SchoolBrief { _id: string; name: string; }
 interface ClassBrief { _id: string; title: string; section: string; school?: string | { _id: string }; }
 
 // ---------------------------------------------------------------------------
-// Edit Fees Modal — manual totalFees/discount override for one student.
-// ---------------------------------------------------------------------------
-
-function EditFeesModal({ student, onClose, onSaved }: { student: StudentBrief; onClose: () => void; onSaved: () => void }) {
-  const [totalFees, setTotalFees] = useState(String(student.totalFees ?? 0));
-  const [discount, setDiscount] = useState(String(student.discount ?? 0));
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (totalFees === '' || Number(totalFees) < 0) { setError('Enter a valid total fees amount'); return; }
-    setLoading(true); setError('');
-    try {
-      await api.put(`/payments/set-fees/${student._id}`, { totalFees: Number(totalFees), discount: Number(discount || 0) });
-      onSaved();
-      onClose();
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to update fees'); }
-    finally { setLoading(false); }
-  };
-
-  const name = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId;
-  const ic = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500';
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-1"><h2 className="text-lg font-bold text-[var(--color-text-primary)]">📝 Edit Fees</h2><button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button></div>
-        <p className="text-sm text-[var(--color-text-tertiary)] mb-4">{name}</p>
-        <p className="text-xs text-[var(--color-text-tertiary)] mb-4">Manual override for what this student owes in total. Discount reduces the expected amount. Balance recalculates automatically. Prefer Fee Structures → Invoices for anything recurring or templated.</p>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-xs font-semibold mb-1 block">Total Fees ($) *</label><input type="number" value={totalFees} onChange={e => setTotalFees(e.target.value)} min={0} step="0.01" className={ic} required /></div>
-            <div><label className="text-xs font-semibold mb-1 block">Discount ($)</label><input type="number" value={discount} onChange={e => setDiscount(e.target.value)} min={0} step="0.01" className={ic} /></div>
-          </div>
-          {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{error}</div>}
-          <div className="flex gap-2 pt-1">
-            <button type="button" onClick={onClose} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-            <button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}Save</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -93,8 +46,6 @@ export function PaymentsBalances() {
   const [school, setSchool] = useState('');
   const [cls, setCls] = useState('');
   const [outstandingOnly, setOutstandingOnly] = useState(false);
-
-  const [editingStudent, setEditingStudent] = useState<StudentBrief | undefined>(undefined);
 
   useEffect(() => {
     (async () => {
@@ -264,9 +215,6 @@ export function PaymentsBalances() {
         )}
       </div>
 
-      {editingStudent && (
-        <EditFeesModal student={editingStudent} onClose={() => setEditingStudent(undefined)} onSaved={fetchBalances} />
-      )}
     </div>
   );
 }
