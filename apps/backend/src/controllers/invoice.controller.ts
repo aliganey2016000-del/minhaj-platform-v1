@@ -9,7 +9,7 @@ import User from '../models/user.model';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/tenant-scope';
-import { collectPaymentService, recalcStudentBalance } from '../services/billing.service';
+import { collectPaymentService, recalcStudentBalance, withComputedInvoiceFields } from '../services/billing.service';
 import { notifyUsers } from '../utils/notify';
 import ensureStudentRecord from '../utils/ensure-student';
 
@@ -531,9 +531,9 @@ export const getMyInvoices = async (req: Request, res: Response): Promise<Respon
 
   const invoices = await Invoice.find({ student: student._id, status: { $ne: 'void' } })
     .sort({ dueDate: 1 })
-    .lean({ virtuals: true });
+    .lean();
 
-  return ApiResponse.success(res, invoices);
+  return ApiResponse.success(res, invoices.map(withComputedInvoiceFields));
 };
 
 // ---------------------------------------------------------------------------
@@ -550,9 +550,9 @@ export const getStudentInvoices = async (req: Request, res: Response): Promise<R
 
   const invoices = await Invoice.find({ student: req.params.studentId, status: { $ne: 'void' } })
     .sort({ dueDate: 1 })
-    .lean({ virtuals: true });
+    .lean();
 
-  return ApiResponse.success(res, invoices);
+  return ApiResponse.success(res, invoices.map(withComputedInvoiceFields));
 };
 
 // ---------------------------------------------------------------------------

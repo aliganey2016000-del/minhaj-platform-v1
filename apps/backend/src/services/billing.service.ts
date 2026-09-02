@@ -15,6 +15,25 @@ type Id = mongoose.Types.ObjectId | string;
 const invoiceDiscount = { $ifNull: ['$discount', 0] };
 const invoicePaid = { $ifNull: ['$amountPaid', 0] };
 
+// Invoice.amountDue/grossAmountDue/isOverdue are schema virtuals, which only
+// run on hydrated documents — a .lean() query (used everywhere for list
+// endpoints) never executes them, virtuals:true option or not, since this
+// project has no lean-virtuals plugin installed. Any lean invoice response
+// that needs these fields must compute them explicitly with this helper.
+export function withComputedInvoiceFields<T extends { amount: number; discount?: number; amountPaid?: number; status: string; dueDate: Date | string }>(
+  invoice: T
+): T & { amountDue: number; grossAmountDue: number; isOverdue: boolean } {
+  const amount = Number(invoice.amount || 0);
+  const discount = Number(invoice.discount || 0);
+  const amountPaid = Number(invoice.amountPaid || 0);
+  return {
+    ...invoice,
+    amountDue: Math.max(0, amount - discount - amountPaid),
+    grossAmountDue: Math.max(0, amount - amountPaid),
+    isOverdue: invoice.status !== 'paid' && invoice.status !== 'void' && new Date(invoice.dueDate) < new Date(),
+  };
+}
+
 export async function recalcStudentBalance(studentId: Id): Promise<void> {
   const invoices = await Invoice.find({ student: studentId, status: { $ne: 'void' } }).select('amount discount amountPaid').lean();
   const totalFees = invoices.reduce((sum, inv: any) => sum + (inv.amount || 0), 0);

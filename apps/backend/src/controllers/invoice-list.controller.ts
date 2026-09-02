@@ -3,13 +3,13 @@ import Invoice from '../models/invoice.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter } from '../utils/tenant-scope';
+import { withComputedInvoiceFields } from '../services/billing.service';
 
 const INVOICE_STATUSES = ['pending', 'partial', 'paid', 'void'];
 
 /**
- * List invoices with amountDue/isOverdue computed explicitly.
- * The normal invoice controller used lean() and relied on Mongoose virtuals;
- * lean queries do not execute virtuals unless a lean-virtuals plugin is used.
+ * List invoices with amountDue/isOverdue computed explicitly (see
+ * withComputedInvoiceFields — lean queries never execute schema virtuals).
  */
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
   const { page = '1', limit = '20', status, studentId, feeStructureId, classId, period, school, search } = req.query;
@@ -40,18 +40,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     Invoice.countDocuments(scopedFilter),
   ]);
 
-  let result = (invoices as any[]).map((invoice) => {
-    const amount = Number(invoice.amount || 0);
-    const discount = Number(invoice.discount || 0);
-    const amountPaid = Number(invoice.amountPaid || 0);
-    const amountDue = Math.max(0, amount - discount - amountPaid);
-    return {
-      ...invoice,
-      amountDue,
-      grossAmountDue: Math.max(0, amount - amountPaid),
-      isOverdue: invoice.status !== 'paid' && invoice.status !== 'void' && new Date(invoice.dueDate) < new Date(),
-    };
-  });
+  let result = (invoices as any[]).map(withComputedInvoiceFields);
 
   if (search) {
     const term = String(search).toLowerCase();

@@ -99,6 +99,22 @@ async function main() {
   assert(student1AfterDiscount?.totalFees === 500 && student1AfterDiscount?.totalFeesDue === 400, `student balance reflects the discount immediately (got ${JSON.stringify(student1AfterDiscount)})`);
 
   // -------------------------------------------------------------------
+  section('GET /invoices/student/:studentId — amountDue must be a real computed number, not a missing lean virtual');
+  // -------------------------------------------------------------------
+  // Invoice.amountDue is a schema virtual, which lean() queries never
+  // execute (this project has no lean-virtuals plugin). The Discounts &
+  // Scholarships page's invoice picker filters on amountDue > 0 — if this
+  // endpoint ever regresses back to returning amountDue as undefined, every
+  // invoice silently disappears from the picker with no visible error.
+  const studentInvoicesRes = await request(app)
+    .get(`/api/v1/invoices/student/${student1._id}`)
+    .set('Authorization', `Bearer ${orgAdminAToken}`);
+  assert(studentInvoicesRes.status === 200, `student invoices list succeeds (status ${studentInvoicesRes.status})`);
+  const fetchedInvoice1 = (studentInvoicesRes.body?.data || []).find((inv: any) => inv._id === invoice1._id.toString());
+  assert(typeof fetchedInvoice1?.amountDue === 'number', `amountDue is a real number, not undefined (got ${JSON.stringify(fetchedInvoice1?.amountDue)})`);
+  assert(fetchedInvoice1?.amountDue === 400, `amountDue reflects the discount already applied — 500 - 100 discount = 400 (got ${fetchedInvoice1?.amountDue})`);
+
+  // -------------------------------------------------------------------
   section('PERCENT SCHOLARSHIP — computed off the invoice gross amount');
   // -------------------------------------------------------------------
   const invoice2 = await makeInvoice(1000, 'Term 2');

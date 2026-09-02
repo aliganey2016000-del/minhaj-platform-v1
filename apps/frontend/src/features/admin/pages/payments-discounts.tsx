@@ -211,11 +211,12 @@ export function PaymentsDiscounts() {
     setLoadingInvoices(true);
     try {
       const { data } = await api.get(`/invoices/student/${studentId}`);
-      const open = (data.data || []).filter((inv: InvoiceBrief) => inv.status !== 'paid' && inv.amountDue > 0);
+      const open = (data.data || []).filter((inv: InvoiceBrief) => inv.status !== 'paid' && (inv.amountDue ?? 0) > 0);
       setInvoices(open);
       setInvoiceId(open[0]?._id || '');
-    } catch {
+    } catch (err: any) {
       setInvoices([]);
+      setError(err.response?.data?.message || 'Failed to load this student\'s invoices');
     } finally {
       setLoadingInvoices(false);
     }
