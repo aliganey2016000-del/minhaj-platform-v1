@@ -12,6 +12,10 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, Download, FileDown, Trash2, ClipboardPenLine, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
+const ACADEMIC_YEAR_OPTIONS = Array.from({ length: 7 }, (_, index) => {
+  const startYear = new Date().getFullYear() - 3 + index;
+  return `${startYear}-${startYear + 1}`;
+});
 import { useAuth } from '../../../store/auth-context';
 import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
 
@@ -238,7 +242,10 @@ function GenerateInvoicesModal({ feeStructures, departments, onClose, onDone }: 
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Due Date</label><input className={ic} type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} /><p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Defaults from the structure's due-days offset</p></div>
-              <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Academic Year</label><input className={ic} value={academicYear} onChange={e => setAcademicYear(e.target.value)} placeholder="Optional" /></div>
+              <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Academic Year</label><select className={ic} value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
+                <option value="">Select academic year...</option>
+                {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}
+              </select></div>
             </div>
             {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{error}</div>}
             <div className="flex gap-2 pt-2">
