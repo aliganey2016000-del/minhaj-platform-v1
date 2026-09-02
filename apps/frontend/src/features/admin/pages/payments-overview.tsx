@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 import CashSessions from './cash-sessions';
+import { FinanceCenter } from './finance-center';
 
 interface Stats {
   totalPaid: number;
@@ -39,6 +40,7 @@ export function PaymentsOverview() {
   }, []);
 
   if (searchParams.get('view') === 'cash-sessions') return <CashSessions />;
+  if (searchParams.get('view') === 'accounting') return <FinanceCenter />;
 
   if (loading) return <div className="flex min-h-[400px] items-center justify-center"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>;
 
@@ -114,6 +116,9 @@ export function PaymentsOverview() {
               </Link>
               <Link to="/admin/payments?view=cash-sessions" className="rounded-2xl border border-primary-200 bg-primary-50 p-5 shadow-card transition-colors hover:border-primary-400 dark:border-primary-900/50 dark:bg-primary-950/20">
                 <p className="text-2xl mb-2">💵</p><p className="font-semibold text-primary-800 dark:text-primary-200">Cash Sessions</p><p className="text-xs text-primary-700/80 dark:text-primary-300/80 mt-1">Open drawers, close shifts & reconcile variance</p>
+              </Link>
+              <Link to="/admin/payments?view=accounting" className="rounded-2xl border border-primary-200 bg-primary-50 p-5 shadow-card transition-colors hover:border-primary-400 dark:border-primary-900/50 dark:bg-primary-950/20">
+                <p className="text-2xl mb-2">📚</p><p className="font-semibold text-primary-800 dark:text-primary-200">Accounting Center</p><p className="text-xs text-primary-700/80 dark:text-primary-300/80 mt-1">Ledger-backed P&amp;L, balance sheet, AR aging & reconciliation</p>
               </Link>
               <Link to="/admin/payments/balances" className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card hover:border-primary-400 transition-colors">
                 <p className="text-2xl mb-2">⚠️</p><p className="font-semibold">Student Balances</p><p className="text-xs text-[var(--color-text-tertiary)] mt-1">{stats.studentsWithDebt} student{stats.studentsWithDebt === 1 ? '' : 's'} owe money</p>
