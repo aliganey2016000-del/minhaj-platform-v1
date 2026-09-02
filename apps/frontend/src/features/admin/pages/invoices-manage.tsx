@@ -134,7 +134,14 @@ function GenerateInvoicesModal({ feeStructures, departments, onClose, onDone }: 
   }, []);
 
   const handleGenerate = async () => {
-    if (selectedIds.length === 0 || !period.trim()) return;
+    if (selectedIds.length === 0) {
+      setError('Select at least one fee structure before generating invoices.');
+      return;
+    }
+    if (!period.trim()) {
+      setError('Enter a billing period before generating invoices.');
+      return;
+    }
     setLoading(true); setError('');
     try {
       const { data } = await api.post('/invoices/generate-bulk', {
@@ -236,7 +243,7 @@ function GenerateInvoicesModal({ feeStructures, departments, onClose, onDone }: 
             {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{error}</div>}
             <div className="flex gap-2 pt-2">
               <button type="button" onClick={onClose} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-              <button type="button" onClick={handleGenerate} disabled={loading || selectedIds.length === 0 || !period.trim()} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}{loading ? 'Generating...' : `Generate (${selectedIds.length})`}</button>
+              <button type="button" onClick={handleGenerate} disabled={loading} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}{loading ? 'Generating...' : `Generate${selectedIds.length ? ` (${selectedIds.length})` : ''}`}</button>
             </div>
           </div>
         )}

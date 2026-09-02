@@ -555,7 +555,7 @@ export function PaymentsDiscounts() {
         reason: pending.reason,
       });
       setMessage(`${TYPE_LABELS[pending.type]} of $${pending.computedAmount.toLocaleString()} applied to ${pending.invoice.title}.`);
-      setValue(''); setReason(''); setPending(null);
+      setValue(''); setReason(''); setPending(null); setShowAdjustmentModal(false);
       if (selectedStudent) { await fetchInvoices(selectedStudent._id); await fetchHistory(selectedStudent._id); }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to apply adjustment');
@@ -567,14 +567,11 @@ export function PaymentsDiscounts() {
 
   const ic = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500';
 
-  // "+ Grant Discount" scrolls down to the grant form below the table.
-  const formRef = useRef<HTMLDivElement>(null);
-  // Scrolling alone is invisible when the form is already fully on screen
-  // (common once the history table is short) — focusing the first field
-  // gives a visible response every time, not just when a scroll happens.
+  const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
+
   const handleGrantClick = () => {
-    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    formRef.current?.querySelector<HTMLInputElement>('input, select, textarea')?.focus();
+    setError('');
+    setShowAdjustmentModal(true);
   };
 
   return (
@@ -659,11 +656,14 @@ export function PaymentsDiscounts() {
           )}
         </div>
 
-        {/* Grant Form Card — placed directly below the Recent Adjustments table */}
-        <div ref={formRef} className="scroll-mt-6 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-card">
-          <div className="flex items-center gap-2 pb-4 mb-5 border-b border-[var(--color-border-default)]">
+        {showAdjustmentModal && <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm" onClick={() => setShowAdjustmentModal(false)}>
+        <div className="my-8 max-h-[calc(100vh-4rem)] w-full max-w-4xl overflow-y-auto rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-2xl sm:p-7" onClick={e => e.stopPropagation()}>
+          <div className="mb-5 flex items-center justify-between gap-4 border-b border-[var(--color-border-default)] pb-4">
+            <div className="flex items-center gap-2">
             <BadgePercent className="h-5 w-5 text-primary-600" strokeWidth={1.75} />
             <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Apply New Adjustment</h2>
+            </div>
+            <button type="button" onClick={() => setShowAdjustmentModal(false)} className="rounded-lg p-2 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]" title="Close"><X className="h-5 w-5" /></button>
           </div>
           
           <form onSubmit={handleReview} className="space-y-6">
@@ -750,6 +750,7 @@ export function PaymentsDiscounts() {
             </div>
           </form>
         </div>
+        </div>}
         </>
         )}
       </div>
