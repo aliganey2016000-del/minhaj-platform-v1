@@ -1,0 +1,35 @@
+name: Tmp Patch Payment Loading
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/record-payment-balance-sync-v6
+          fetch-depth: 0
+      - name: Add loading indicator
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('apps/frontend/src/features/admin/pages/payments-record.tsx')
+          s = p.read_text()
+          marker = '                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">\n'
+          if marker not in s:
+              raise SystemExit('payment balance card marker not found')
+          if 'Refreshing invoice balance' in s:
+              raise SystemExit(0)
+          replacement = '                {balanceLoading && (\n                  <div className="col-span-2 sm:col-span-4 text-center text-[11px] text-[var(--color-text-tertiary)]">Refreshing invoice balance…</div>\n                )}\n' + marker
+          p.write_text(s.replace(marker, replacement, 1))
+          PY
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/frontend/src/features/admin/pages/payments-record.tsx
+          git commit -m "fix(finance): show invoice balance refresh state"
+          git push origin HEAD:fix/record-payment-balance-sync-v6
