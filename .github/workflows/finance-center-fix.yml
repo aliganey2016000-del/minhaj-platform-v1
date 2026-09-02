@@ -1,0 +1,36 @@
+name: Finance Center Fix
+
+on:
+  push:
+    branches:
+      - feature/finance-center-production-fix
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fix report endpoint
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/frontend/src/features/admin/pages/finance-center.tsx')
+          text = path.read_text()
+          old = "api.get('/accounting/reports/profit-loss', { params: { dateFrom: from, dateTo: to } })"
+          new = "api.get('/accounting/reports/profit-and-loss', { params: { dateFrom: from, dateTo: to } })"
+          if old not in text:
+              raise SystemExit('Expected P&L endpoint was not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit patch and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/frontend/src/features/admin/pages/finance-center.tsx
+          git rm .github/workflows/finance-center-fix.yml
+          git commit -m "fix(finance): use registered P&L report endpoint"
+          git push
