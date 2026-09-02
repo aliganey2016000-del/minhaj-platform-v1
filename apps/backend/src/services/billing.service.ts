@@ -11,6 +11,7 @@ import User from '../models/user.model';
 import CashSession from '../models/cash-session.model';
 import DiscountGrant from '../models/discount-grant.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { postInvoiceToLedger, postPaymentToLedger } from './accounting.service';
 
 type Id = mongoose.Types.ObjectId | string;
 const invoiceDiscount = { $ifNull: ['$discount', 0] };
@@ -36,10 +37,32 @@ export function withComputedInvoiceFields<T extends { amount: number; discount?:
 }
 
 export async function recalcStudentBalance(studentId: Id): Promise<void> {
-  const invoices = await Invoice.find({ student: studentId, status: { $ne: 'void' } }).select('amount discount amountPaid').lean();
+  const invoices = await Invoice.find({ student: studentId, status: { $ne: 'void' } })
+    .select('amount discount amountPaid school paymentType title issueDate generatedBy')
+    .lean();
   const totalFees = invoices.reduce((sum, inv: any) => sum + (inv.amount || 0), 0);
   const totalFeesPaid = invoices.reduce((sum, inv: any) => sum + (inv.amountPaid || 0), 0);
   const totalFeesDue = invoices.reduce((sum, inv: any) => sum + Math.max(0, (inv.amount || 0) - (inv.discount || 0) - (inv.amountPaid || 0)), 0);
+
+  // Balance recalculation is already called after invoice creation throughout
+  // the billing flows, so it also serves as the safe reconciliation point for
+  // any invoice that has not yet been represented in the double-entry ledger.
+  // The accounting source key makes this idempotent.
+  for (const invoice of invoices as any[]) {
+    if (invoice.school && invoice.generatedBy) {
+      await postInvoiceToLedger({
+        schoolId: invoice.school,
+        invoiceId: invoice._id,
+        amount: invoice.amount,
+        discount: invoice.discount || 0,
+        paymentType: invoice.paymentType,
+        description: `Invoice: ${invoice.title || 'Student fee'}`,
+        postedBy: invoice.generatedBy,
+        entryDate: invoice.issueDate,
+      });
+    }
+  }
+
   await Student.findByIdAndUpdate(studentId, { totalFees, totalFeesPaid, totalFeesDue });
 }
 
@@ -275,6 +298,19 @@ export async function collectPaymentService(params: CollectPaymentParams): Promi
       idempotencyKey: idempotencyKey || undefined,
       ...(paymentDate ? { createdAt: paymentDate } : {}),
     });
+
+    if (updatedInvoice.school) {
+      await postPaymentToLedger({
+        schoolId: updatedInvoice.school,
+        paymentId: payment._id,
+        amount: cash,
+        discount: waiver,
+        method,
+        postedBy: recordedBy,
+        entryDate: paymentDate,
+      });
+    }
+
     await recalcStudentBalance(studentId);
     return { payment, invoice: updatedInvoice };
   } catch (err: any) {
