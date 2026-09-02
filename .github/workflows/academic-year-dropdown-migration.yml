@@ -1,5 +1,7 @@
 name: Academic Year Migration
 on:
+  pull_request:
+    types: [opened, synchronize]
   push:
     branches:
       - fix/academic-year-dropdowns-v1
