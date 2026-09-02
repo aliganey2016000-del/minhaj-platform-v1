@@ -75,6 +75,127 @@ export async function createJournalEntry(params: {
   return entry;
 }
 
+async function getPostingAccounts(schoolId: Id, postedBy: Id) {
+  const accounts = await ensureDefaultAccounts(schoolId, postedBy);
+  const byCode = new Map(accounts.map((account) => [account.code, account]));
+  for (const code of DEFAULT_ACCOUNTS.map((account) => account.code)) {
+    if (!byCode.has(code)) throw new BadRequestError(`Missing default accounting account ${code}`);
+  }
+  return byCode;
+}
+
+export async function postInvoiceToLedger(params: {
+  schoolId: Id;
+  invoiceId: Id;
+  amount: number;
+  discount?: number;
+  paymentType?: string;
+  description?: string;
+  postedBy: Id;
+  entryDate?: Date;
+}) {
+  const amount = Number(params.amount || 0);
+  const discount = Math.min(amount, Math.max(0, Number(params.discount || 0)));
+  const net = Math.max(0, amount - discount);
+  if (amount <= 0) return null;
+
+  const school = toId(params.schoolId);
+  const invoiceId = toId(params.invoiceId);
+  const existing = await JournalEntry.findOne({ school, sourceType: 'invoice', sourceId: invoiceId });
+  if (existing) return existing;
+
+  const accounts = await getPostingAccounts(school, params.postedBy);
+  const revenueCode = params.paymentType === 'tuition' ? '4100' : '4200';
+  const lines: IJournalLine[] = [];
+  if (net > 0) lines.push({ account: accounts.get('1200')!._id as mongoose.Types.ObjectId, description: 'Accounts receivable', debit: net, credit: 0 });
+  if (discount > 0) lines.push({ account: accounts.get('5100')!._id as mongoose.Types.ObjectId, description: 'Invoice discount', debit: discount, credit: 0 });
+  lines.push({ account: accounts.get(revenueCode)!._id as mongoose.Types.ObjectId, description: 'Student fee revenue', debit: 0, credit: amount });
+
+  try {
+    return await createJournalEntry({ schoolId: school, entryDate: params.entryDate, description: params.description || 'Invoice posted to accounting ledger', sourceType: 'invoice', sourceId: invoiceId, lines, postedBy: params.postedBy });
+  } catch (err: any) {
+    if (err?.code === 11000) return JournalEntry.findOne({ school, sourceType: 'invoice', sourceId: invoiceId });
+    throw err;
+  }
+}
+
+function paymentAssetCode(method?: string): string {
+  const normalized = String(method || 'cash').toLowerCase();
+  if (normalized === 'bank_transfer') return '1110';
+  if (normalized === 'mobile_money') return '1120';
+  if (normalized === 'online') return '1130';
+  return '1100';
+}
+
+export async function postPaymentToLedger(params: {
+  schoolId: Id;
+  paymentId: Id;
+  amount: number;
+  discount?: number;
+  method?: string;
+  postedBy: Id;
+  entryDate?: Date;
+}) {
+  const amount = Number(params.amount || 0);
+  const discount = Math.min(amount, Math.max(0, Number(params.discount || 0)));
+  const cash = Math.max(0, amount - discount);
+  if (amount <= 0) return null;
+
+  const school = toId(params.schoolId);
+  const paymentId = toId(params.paymentId);
+  const existing = await JournalEntry.findOne({ school, sourceType: 'payment', sourceId: paymentId });
+  if (existing) return existing;
+
+  const accounts = await getPostingAccounts(school, params.postedBy);
+  const lines: IJournalLine[] = [];
+  if (cash > 0) lines.push({ account: accounts.get(paymentAssetCode(params.method))!._id as mongoose.Types.ObjectId, description: `${String(params.method || 'cash').toLowerCase()} payment`, debit: cash, credit: 0 });
+  if (discount > 0) lines.push({ account: accounts.get('5100')!._id as mongoose.Types.ObjectId, description: 'Payment discount', debit: discount, credit: 0 });
+  lines.push({ account: accounts.get('1200')!._id as mongoose.Types.ObjectId, description: 'Accounts receivable settlement', debit: 0, credit: amount });
+
+  try {
+    return await createJournalEntry({ schoolId: school, entryDate: params.entryDate, description: 'Payment posted to accounting ledger', sourceType: 'payment', sourceId: paymentId, lines, postedBy: params.postedBy });
+  } catch (err: any) {
+    if (err?.code === 11000) return JournalEntry.findOne({ school, sourceType: 'payment', sourceId: paymentId });
+    throw err;
+  }
+}
+
+export async function postRefundToLedger(params: {
+  schoolId: Id;
+  refundId: Id;
+  amount: number;
+  method?: string;
+  postedBy: Id;
+  entryDate?: Date;
+}) {
+  const amount = Number(params.amount || 0);
+  if (amount <= 0) return null;
+
+  const school = toId(params.schoolId);
+  const refundId = toId(params.refundId);
+  const existing = await JournalEntry.findOne({ school, sourceType: 'refund', sourceId: refundId });
+  if (existing) return existing;
+
+  const accounts = await getPostingAccounts(school, params.postedBy);
+  try {
+    return await createJournalEntry({
+      schoolId: school,
+      entryDate: params.entryDate,
+      description: 'Refund posted to accounting ledger',
+      sourceType: 'refund',
+      sourceId: refundId,
+      lines: [
+        { account: accounts.get('1200')!._id as mongoose.Types.ObjectId, description: 'Refunded receivable', debit: amount, credit: 0 },
+        { account: accounts.get(paymentAssetCode(params.method))!._id as mongoose.Types.ObjectId, description: `${String(params.method || 'cash').toLowerCase()} refund`, debit: 0, credit: amount },
+      ],
+      postedBy: params.postedBy,
+    });
+  } catch (err: any) {
+    if (err?.code === 11000) return JournalEntry.findOne({ school, sourceType: 'refund', sourceId: refundId });
+    throw err;
+  }
+}
+
 export async function listJournalEntries(schoolId: Id, options?: { page?: number; limit?: number; dateFrom?: Date; dateTo?: Date }) {
   const school = toId(schoolId);
   const page = Math.max(1, options?.page || 1);
