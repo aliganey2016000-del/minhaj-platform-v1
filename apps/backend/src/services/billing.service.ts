@@ -32,11 +32,6 @@ export async function recalcStudentBalance(studentId: Id): Promise<void> {
   await Student.findByIdAndUpdate(studentId, { totalFeesPaid, totalFeesDue });
 }
 
-/**
- * Apply cash received plus an optional invoice discount in one atomic update.
- * The guard prevents paid + discounted from exceeding the invoice total even
- * when two cashiers submit at the same time.
- */
 export async function applyInvoicePayment(invoiceId: Id, amount: number, discount = 0): Promise<IInvoice> {
   const cash = Number(amount);
   const waiver = Number(discount || 0);
@@ -45,7 +40,6 @@ export async function applyInvoicePayment(invoiceId: Id, amount: number, discoun
   if (waiver > cash) throw new BadRequestError('Discount cannot exceed payment amount');
 
   const effectiveCash = cash - waiver;
-
   const updated = await Invoice.findOneAndUpdate(
     {
       _id: invoiceId,
@@ -58,21 +52,14 @@ export async function applyInvoicePayment(invoiceId: Id, amount: number, discoun
       },
     },
     [
-      {
-        $set: {
-          amountPaid: { $add: ['$amountPaid', effectiveCash] },
-          discount: { $add: ['$discount', waiver] },
-        },
-      },
+      { $set: { amountPaid: { $add: ['$amountPaid', effectiveCash] }, discount: { $add: ['$discount', waiver] } } },
       {
         $set: {
           status: {
             $cond: [
               { $gte: [{ $add: ['$amountPaid', '$discount'] }, '$amount'] },
               'paid',
-              {
-                $cond: [{ $gt: [{ $add: ['$amountPaid', '$discount'] }, 0] }, 'partial', 'pending'],
-              },
+              { $cond: [{ $gt: [{ $add: ['$amountPaid', '$discount'] }, 0] }, 'partial', 'pending'] },
             ],
           },
         },
@@ -88,7 +75,6 @@ export async function applyInvoicePayment(invoiceId: Id, amount: number, discoun
     const remaining = Math.max(0, fresh.amount - (fresh.discount || 0) - (fresh.amountPaid || 0));
     throw new BadRequestError(`Amount exceeds remaining balance of ${remaining}`);
   }
-
   return updated;
 }
 
@@ -97,10 +83,7 @@ export async function reverseInvoicePayment(invoiceId: Id, amount: number): Prom
   if (!Number.isFinite(cash) || cash <= 0) throw new BadRequestError('Refund amount must be greater than zero');
 
   const updated = await Invoice.findOneAndUpdate(
-    {
-      _id: invoiceId,
-      $expr: { $gte: ['$amountPaid', cash] },
-    },
+    { _id: invoiceId, $expr: { $gte: ['$amountPaid', cash] } },
     [
       { $set: { amountPaid: { $subtract: ['$amountPaid', cash] } } },
       {
@@ -113,9 +96,7 @@ export async function reverseInvoicePayment(invoiceId: Id, amount: number): Prom
                 $cond: [
                   { $gte: [{ $add: ['$amountPaid', '$discount'] }, '$amount'] },
                   'paid',
-                  {
-                    $cond: [{ $gt: [{ $add: ['$amountPaid', '$discount'] }, 0] }, 'partial', 'pending'],
-                  },
+                  { $cond: [{ $gt: [{ $add: ['$amountPaid', '$discount'] }, 0] }, 'partial', 'pending'] },
                 ],
               },
             ],
@@ -132,7 +113,34 @@ export async function reverseInvoicePayment(invoiceId: Id, amount: number): Prom
     if (fresh.status === 'void') throw new BadRequestError('Cannot refund a payment on a voided invoice');
     throw new BadRequestError('Refund exceeds the cash amount currently applied to this invoice');
   }
+  return updated;
+}
 
+/** Compensating operation used only when a downstream refund write fails. */
+export async function restoreInvoicePayment(invoiceId: Id, amount: number): Promise<IInvoice> {
+  const cash = Number(amount);
+  if (!Number.isFinite(cash) || cash <= 0) throw new BadRequestError('Restore amount must be greater than zero');
+
+  const updated = await Invoice.findOneAndUpdate(
+    { _id: invoiceId, status: { $ne: 'void' } },
+    [
+      { $set: { amountPaid: { $add: ['$amountPaid', cash] } } },
+      {
+        $set: {
+          status: {
+            $cond: [
+              { $gte: [{ $add: ['$amountPaid', '$discount'] }, '$amount'] },
+              'paid',
+              { $cond: [{ $gt: [{ $add: ['$amountPaid', '$discount'] }, 0] }, 'partial', 'pending'] },
+            ],
+          },
+        },
+      },
+    ],
+    { new: true }
+  );
+
+  if (!updated) throw new NotFoundError('Invoice');
   return updated;
 }
 
@@ -151,32 +159,16 @@ export interface CollectPaymentParams {
   idempotencyKey?: string;
 }
 
-export async function collectPaymentService(
-  params: CollectPaymentParams
-): Promise<{ payment: IPayment; invoice: IInvoice }> {
-  const {
-    studentId,
-    schoolId,
-    amount,
-    discount = 0,
-    currency = 'USD',
-    method = 'cash',
-    type,
-    notes,
-    reference,
-    recordedBy,
-    idempotencyKey,
-  } = params;
-
+export async function collectPaymentService(params: CollectPaymentParams): Promise<{ payment: IPayment; invoice: IInvoice }> {
+  const { studentId, schoolId, amount, discount = 0, currency = 'USD', method = 'cash', type, notes, reference, recordedBy, idempotencyKey } = params;
   const cash = Number(amount);
   const waiver = Number(discount || 0);
+
   if (!Number.isFinite(cash) || cash <= 0) throw new BadRequestError('A valid amount is required');
   if (!Number.isFinite(waiver) || waiver < 0 || waiver > cash) throw new BadRequestError('Discount must be between zero and the payment amount');
   if (cash - waiver <= 0) throw new BadRequestError('A payment must have a positive amount after discount');
   if (!/^[A-Z]{3}$/.test(String(currency).toUpperCase())) throw new BadRequestError('Currency must be a 3-letter ISO code');
 
-  // Idempotent replay: return the original financial result before creating
-  // another invoice or touching any balance.
   if (idempotencyKey) {
     const existing = await Payment.findOne({ idempotencyKey });
     if (existing) {
@@ -193,9 +185,7 @@ export async function collectPaymentService(
     invoice = await Invoice.findById(params.invoiceId);
     if (!invoice) throw new NotFoundError('Invoice');
     if (invoice.status === 'void') throw new BadRequestError('Cannot collect payment on a voided invoice');
-    if (invoice.student.toString() !== studentId.toString()) {
-      throw new BadRequestError('Invoice does not belong to the selected student');
-    }
+    if (invoice.student.toString() !== studentId.toString()) throw new BadRequestError('Invoice does not belong to the selected student');
   } else {
     invoice = await Invoice.create({
       student: studentId,
@@ -224,9 +214,8 @@ export async function collectPaymentService(
     throw err;
   }
 
-  let payment: IPayment;
   try {
-    payment = await Payment.create({
+    const payment = await Payment.create({
       student: studentId,
       school: schoolId || updatedInvoice.school || null,
       amount: cash,
@@ -242,6 +231,9 @@ export async function collectPaymentService(
       invoice: updatedInvoice._id,
       idempotencyKey: idempotencyKey || undefined,
     });
+
+    await recalcStudentBalance(studentId);
+    return { payment, invoice: updatedInvoice };
   } catch (err: any) {
     const isIdempotencyRace = err.code === 11000 && idempotencyKey && err.keyPattern?.idempotencyKey;
 
@@ -250,9 +242,7 @@ export async function collectPaymentService(
         await Invoice.findByIdAndDelete(updatedInvoice._id).catch(() => {});
       } else {
         await reverseInvoicePayment(updatedInvoice._id as mongoose.Types.ObjectId, cash - waiver).catch(() => {});
-        if (waiver > 0) {
-          await Invoice.findByIdAndUpdate(updatedInvoice._id, { $inc: { discount: -waiver } }).catch(() => {});
-        }
+        if (waiver > 0) await Invoice.findByIdAndUpdate(updatedInvoice._id, { $inc: { discount: -waiver } }).catch(() => {});
       }
       const winner = await Payment.findOne({ idempotencyKey });
       if (!winner) throw err;
@@ -261,19 +251,12 @@ export async function collectPaymentService(
       return { payment: winner, invoice: winnerInvoice };
     }
 
-    // Payment creation failed, so remove exactly the financial changes this
-    // request made. For an ad-hoc invoice, deleting the new invoice is safest.
     if (createdAdHocInvoice) {
       await Invoice.findByIdAndDelete(updatedInvoice._id).catch(() => {});
     } else {
       await reverseInvoicePayment(updatedInvoice._id as mongoose.Types.ObjectId, cash - waiver).catch(() => {});
-      if (waiver > 0) {
-        await Invoice.findByIdAndUpdate(updatedInvoice._id, { $inc: { discount: -waiver } }).catch(() => {});
-      }
+      if (waiver > 0) await Invoice.findByIdAndUpdate(updatedInvoice._id, { $inc: { discount: -waiver } }).catch(() => {});
     }
     throw err;
   }
-
-  await recalcStudentBalance(studentId);
-  return { payment, invoice: updatedInvoice };
 }
