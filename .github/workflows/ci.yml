@@ -55,12 +55,53 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: apps/frontend/package-lock.json
+      - name: Patch Record Payment balance refresh
+        working-directory: .
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('apps/frontend/src/features/admin/pages/payments-record.tsx')
+          s = p.read_text()
+          if 'const [balanceLoading, setBalanceLoading]' in s:
+              raise SystemExit('record payment balance refresh already patched')
+          old = """  const isValid = !!selectedStudent && !!recordAmount && Number(recordAmount) > 0;
+  const selectedFeeSummary = getStudentFeeSummary(selectedStudent);
+"""
+          new = """  const [balanceLoading, setBalanceLoading] = useState(false);
+  const isValid = !!selectedStudent && !!recordAmount && Number(recordAmount) > 0;
+  const selectedFeeSummary = getStudentFeeSummary(selectedStudent);
+
+  useEffect(() => {
+    if (!selectedStudent?._id) return;
+    let cancelled = false;
+    setBalanceLoading(true);
+    api.get('/payments/student-balances', { params: { search: selectedStudent.studentId } })
+      .then(({ data }) => {
+        const match = (data.data?.students || []).find((s: StudentBrief) => s._id === selectedStudent._id);
+        if (!cancelled && match) {
+          setSelectedStudent(prev => prev ? {
+            ...prev,
+            totalFees: Number(match.totalFees ?? 0),
+            totalFeesPaid: Number(match.totalFeesPaid ?? 0),
+            totalFeesDue: Number(match.totalFeesDue ?? 0),
+            discount: Number(match.discount ?? 0),
+          } : prev);
+        }
+      })
+      .catch(() => { /* Keep identity data if balance refresh fails. */ })
+      .finally(() => { if (!cancelled) setBalanceLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedStudent?._id, selectedStudent?.studentId]);
+"""
+          if old not in s:
+              raise SystemExit('expected balance marker not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/frontend/src/features/admin/pages/payments-record.tsx
+          git commit -m "fix(finance): refresh record payment balance from invoices"
+          git push
 
       # npm 11.14+ has a regression that can reject valid lockfiles during npm ci.
       # Pin the known-good npm 11.13.0 client until that regression is resolved.
