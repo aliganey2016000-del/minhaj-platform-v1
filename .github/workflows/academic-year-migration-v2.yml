@@ -39,12 +39,12 @@ jobs:
 
           patch(
               'apps/frontend/src/features/admin/pages/classes-manage.tsx',
-              r'<input id="academicYear"\b[^>]*?/>',
+              r'<input id="academicYear"[^>]*?/>',
               '''<select id="academicYear" name="academicYear" value={form.academicYear} onChange={handleChange} className={ic('academicYear')} required>\n                <option value="">Select academic year...</option>\n                {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, form.academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}\n              </select>'''
           )
           patch(
               'apps/frontend/src/features/admin/pages/classes-manage.tsx',
-              r'<input id="targetAcademicYear"\b[^>]*?/>',
+              r'<input id="targetAcademicYear"[^>]*?/>',
               '''<select id="targetAcademicYear" value={targetAcademicYear} onChange={e => setTargetAcademicYear(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)]">\n                  <option value="">Select academic year...</option>\n                  {ACADEMIC_YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}</option>)}\n                </select>'''
           )
           patch(
