@@ -11,7 +11,7 @@ import User from '../models/user.model';
 import CashSession from '../models/cash-session.model';
 import DiscountGrant from '../models/discount-grant.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
-import { postInvoiceToLedger, postPaymentToLedger } from './accounting.service';
+import { postInvoicesToLedger, postPaymentToLedger } from './accounting.service';
 
 type Id = mongoose.Types.ObjectId | string;
 const invoiceDiscount = { $ifNull: ['$discount', 0] };
@@ -47,21 +47,11 @@ export async function recalcStudentBalance(studentId: Id): Promise<void> {
   // Balance recalculation is already called after invoice creation throughout
   // the billing flows, so it also serves as the safe reconciliation point for
   // any invoice that has not yet been represented in the double-entry ledger.
-  // The accounting source key makes this idempotent.
-  for (const invoice of invoices as any[]) {
-    if (invoice.school && invoice.generatedBy) {
-      await postInvoiceToLedger({
-        schoolId: invoice.school,
-        invoiceId: invoice._id,
-        amount: invoice.amount,
-        discount: invoice.discount || 0,
-        paymentType: invoice.paymentType,
-        description: `Invoice: ${invoice.title || 'Student fee'}`,
-        postedBy: invoice.generatedBy,
-        entryDate: invoice.issueDate,
-      });
-    }
-  }
+  // Batched: one existence-check query for the whole list, not one per
+  // invoice — this runs on every payment/invoice/discount action, so its
+  // cost must not grow linearly with how many invoices a student has
+  // accumulated over time.
+  await postInvoicesToLedger(invoices as any[]);
 
   await Student.findByIdAndUpdate(studentId, { totalFees, totalFeesPaid, totalFeesDue });
 }

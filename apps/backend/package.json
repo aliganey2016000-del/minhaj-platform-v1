@@ -28,7 +28,9 @@
     "test:fee-adjustment": "ts-node src/__tests__/fee-adjustment.e2e.ts",
     "test:discount-grant": "ts-node src/__tests__/discount-grant.e2e.ts",
     "test:set-fees-idempotent": "ts-node src/__tests__/set-fees-idempotent.e2e.ts",
-    "test:telegram": "ts-node src/__tests__/telegram.e2e.ts"
+    "test:telegram": "ts-node src/__tests__/telegram.e2e.ts",
+    "test:financial-report": "ts-node src/__tests__/financial-report.e2e.ts",
+    "test:finance-reconciliation": "ts-node src/__tests__/finance-reconciliation.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

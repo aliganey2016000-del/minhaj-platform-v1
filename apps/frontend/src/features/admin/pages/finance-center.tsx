@@ -34,10 +34,10 @@ export function FinanceCenter() {
     setLoading(true); setError('');
     try {
       const [pnlRes, balanceRes, arRes, cashRes] = await Promise.all([
-        api.get('/accounting/reports/profit-loss', { params: { dateFrom: from, dateTo: to } }),
-        api.get('/accounting/reports/balance-sheet', { params: { asOf } }),
-        api.get('/accounting/reports/ar-aging', { params: { asOf } }),
-        api.get('/accounting/reports/cash-position', { params: { asOf } }),
+        api.get('/finance/reports/profit-and-loss', { params: { dateFrom: from, dateTo: to } }),
+        api.get('/finance/reports/balance-sheet', { params: { asOf } }),
+        api.get('/finance/reports/ar-aging', { params: { asOf } }),
+        api.get('/finance/reports/cash-position', { params: { asOf } }),
       ]);
       setPnl(pnlRes.data?.data); setBalance(balanceRes.data?.data); setAr(arRes.data?.data); setCash(cashRes.data?.data);
     } catch (err: any) { setError(err?.response?.data?.message || 'Unable to load accounting reports.'); }

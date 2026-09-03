@@ -122,6 +122,48 @@ export async function postInvoiceToLedger(params: {
   }
 }
 
+// Batched sibling of postInvoiceToLedger for recalcStudentBalance, which
+// fires after every invoice/payment/discount action and re-scans a
+// student's ENTIRE invoice history each time. postInvoiceToLedger's own
+// existence check is one query per invoice — fine for a single post, but it
+// made that full rescan cost one DB round trip per invoice the student has
+// ever had, every single time, even though only newly-created invoices ever
+// actually need posting. This does the existence check for the whole batch
+// in one query, then only posts the invoices that were missing from it.
+export async function postInvoicesToLedger(invoices: Array<{
+  _id: Id;
+  school?: Id | null;
+  amount: number;
+  discount?: number;
+  paymentType?: string;
+  title?: string;
+  issueDate?: Date;
+  generatedBy?: Id | null;
+}>): Promise<void> {
+  const postable = invoices.filter((inv) => inv.school && inv.generatedBy);
+  if (postable.length === 0) return;
+
+  const alreadyPosted = await JournalEntry.find({
+    sourceType: 'invoice',
+    sourceId: { $in: postable.map((inv) => toId(inv._id)) },
+  }).select('sourceId').lean();
+  const postedIds = new Set(alreadyPosted.map((entry: any) => String(entry.sourceId)));
+
+  for (const invoice of postable) {
+    if (postedIds.has(String(invoice._id))) continue;
+    await postInvoiceToLedger({
+      schoolId: invoice.school!,
+      invoiceId: invoice._id,
+      amount: invoice.amount,
+      discount: invoice.discount || 0,
+      paymentType: invoice.paymentType,
+      description: `Invoice: ${invoice.title || 'Student fee'}`,
+      postedBy: invoice.generatedBy!,
+      entryDate: invoice.issueDate,
+    });
+  }
+}
+
 function paymentAssetCode(method?: string): string {
   const normalized = String(method || 'cash').toLowerCase();
   if (normalized === 'bank_transfer') return '1110';
