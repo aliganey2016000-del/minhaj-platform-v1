@@ -140,6 +140,7 @@ interface Schedule {
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 interface ScheduleColumnParams {
+  schoolIds: string[];
   departmentIds: string[];
   classIds: string[];
   courseIds: string[];
@@ -150,7 +151,7 @@ interface ScheduleColumnParams {
   sortDir: 'asc' | 'desc';
 }
 const EMPTY_SCHEDULE_COLUMN_PARAMS: ScheduleColumnParams = {
-  departmentIds: [], classIds: [], courseIds: [], teacherIds: [], days: [], statuses: [], sortBy: null, sortDir: 'asc',
+  schoolIds: [], departmentIds: [], classIds: [], courseIds: [], teacherIds: [], days: [], statuses: [], sortBy: null, sortDir: 'asc',
 };
 const STATUS_OPTIONS = [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }];
 
@@ -249,7 +250,10 @@ export function SchedulesManage() {
     try {
       const cp = overrideParams ?? columnParams;
       const params: any = { page: String(pageNum), limit: String(limit) };
-      if (filterSchool) params.school = filterSchool;
+      // Organization column header filter wins over the top-bar org select —
+      // backend accepts comma-separated multi-value for ?school=
+      if (cp.schoolIds.length > 0) params.school = cp.schoolIds.join(',');
+      else if (filterSchool) params.school = filterSchool;
       if (searchTerm.trim()) params.search = searchTerm.trim();
       if (cp.departmentIds.length > 0) params.department = cp.departmentIds.join(',');
       if (cp.classIds.length > 0) params.class = cp.classIds.join(',');
@@ -300,6 +304,7 @@ export function SchedulesManage() {
   // ── Column filter commit -> server refetch ──
   const handleColumnFilterChange = (state: { filters: Record<string, string[]>; sortBy: string | null; sortDir: 'asc' | 'desc' }) => {
     const next: ScheduleColumnParams = {
+      schoolIds: state.filters.organization || [],
       departmentIds: state.filters.department || [],
       classIds: state.filters.class || [],
       courseIds: state.filters.course || [],
@@ -543,6 +548,8 @@ export function SchedulesManage() {
 
   // ── Excel-style column header filters (server-side) ──
   const scheduleColumnAccessors: Record<string, (s: Schedule) => string> = {
+    organization: (s) => s.school?.name || '',
+    time: (s) => s.startTime || '',
     department: (s) => (typeof s.class?.department === 'string' ? '' : s.class?.department?.name || ''),
     class: (s) => `${s.class?.title || ''} ${s.class?.section || ''}`,
     course: (s) => s.course?.title?.en || '',
@@ -772,7 +779,9 @@ export function SchedulesManage() {
       const payload = selectAllMatching
         ? { selectAllMatching: true, filters: {
             search: searchTerm || undefined,
-            school: filterSchool || undefined,
+            school: columnParams.schoolIds.length
+              ? columnParams.schoolIds.join(',')
+              : (filterSchool || undefined),
             department: columnParams.departmentIds.length ? columnParams.departmentIds.join(',') : undefined,
             class: columnParams.classIds.length ? columnParams.classIds.join(',') : undefined,
             course: columnParams.courseIds.length ? columnParams.courseIds.join(',') : undefined,
@@ -1337,13 +1346,13 @@ export function SchedulesManage() {
                     <th className="px-4 py-3 w-10">
                       <input type="checkbox" checked={selectAllMatching || allOnPageSelected} onChange={toggleSelectAll} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30 cursor-pointer" />
                     </th>
-                    <th className="px-4 py-3">Organization</th>
+                    <th className="px-4 py-3"><ColumnFilterHeader label="Organization" colKey="organization" options={schools.map((s) => ({ value: s._id, label: s.name }))} currentSelected={scheduleColumnFilters.organization ?? null} currentSort={scheduleSortCol === 'organization' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3"><ColumnFilterHeader label="Department" colKey="department" options={filterDepartments.map((d) => ({ value: d._id, label: d.name }))} currentSelected={scheduleColumnFilters.department ?? null} currentSort={scheduleSortCol === 'department' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3"><ColumnFilterHeader label="Class" colKey="class" options={filterClasses.map((c) => ({ value: c._id, label: `${c.title} — ${c.section}` }))} currentSelected={scheduleColumnFilters.class ?? null} currentSort={scheduleSortCol === 'class' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3"><ColumnFilterHeader label="Course" colKey="course" options={filterCourses.map((c) => ({ value: c._id, label: c.title.en }))} currentSelected={scheduleColumnFilters.course ?? null} currentSort={scheduleSortCol === 'course' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3"><ColumnFilterHeader label="Teacher" colKey="teacher" options={teachers.map((t) => ({ value: t._id, label: teacherLabel(t) }))} currentSelected={scheduleColumnFilters.teacher ?? null} currentSort={scheduleSortCol === 'teacher' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3"><ColumnFilterHeader label="Day" colKey="day" options={DAYS.map((d, i) => ({ value: String(i), label: d }))} currentSelected={scheduleColumnFilters.day ?? null} currentSort={scheduleSortCol === 'day' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
-                    <th className="px-4 py-3">Time</th>
+                    <th className="px-4 py-3"><ColumnFilterHeader label="Time" colKey="time" currentSelected={scheduleColumnFilters.time ?? null} currentSort={scheduleSortCol === 'time' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3"><ColumnFilterHeader label="Status" colKey="status" options={STATUS_OPTIONS} currentSelected={scheduleColumnFilters.status ?? null} currentSort={scheduleSortCol === 'status' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>

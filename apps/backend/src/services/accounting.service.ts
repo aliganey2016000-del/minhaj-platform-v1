@@ -24,12 +24,15 @@ function toId(value: Id): mongoose.Types.ObjectId {
 export async function ensureDefaultAccounts(schoolId: Id, createdBy: Id): Promise<IAccount[]> {
   const school = toId(schoolId);
   const creator = toId(createdBy);
-  const existing = await Account.find({ school }).sort({ code: 1 });
-  const byCode = new Map(existing.map((account) => [account.code, account]));
-  const missing = DEFAULT_ACCOUNTS.filter((account) => !byCode.has(account.code));
-  if (missing.length) {
-    await Account.insertMany(missing.map((account) => ({ ...account, school, createdBy: creator })));
-  }
+  await Account.bulkWrite(
+    DEFAULT_ACCOUNTS.map((account) => ({
+      updateOne: {
+        filter: { school, code: account.code },
+        update: { $setOnInsert: { ...account, school, createdBy: creator } },
+        upsert: true,
+      },
+    }))
+  );
   return Account.find({ school }).sort({ code: 1 });
 }
 

@@ -4,10 +4,11 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "nodemon --ext ts,json --exec ts-node src/server.ts",
-    "prebuild": "if [ -f scripts/apply-teacher-edit-account-patch.mjs ]; then node scripts/apply-teacher-edit-account-patch.mjs; fi",
+    "prebuild": "node scripts/apply-teacher-edit-account-patch.mjs",
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",
+    "test": "node scripts/run-e2e-tests.mjs",
     "test:promotion": "ts-node src/__tests__/promotion.e2e.ts",
     "test:teacher-promotion": "ts-node src/__tests__/teacher-promotion.e2e.ts",
     "test:gate-report": "ts-node src/__tests__/gate-report.e2e.ts",

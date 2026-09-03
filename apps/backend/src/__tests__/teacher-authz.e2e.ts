@@ -18,7 +18,8 @@ const teacherReq = {
   user: { role: 'teacher', userId: 'user-teacher-1' },
 } as any;
 
-try {
+async function main() {
+  try {
   (Teacher as any).findOne = async () => ({ _id: teacherId });
 
   let requestedCourseId: string | undefined;
@@ -65,7 +66,13 @@ try {
   );
 
   console.log('teacher-authz: all ownership regression checks passed');
-} finally {
-  (Teacher as any).findOne = originalTeacherFindOne;
-  (Course as any).exists = originalCourseExists;
+  } finally {
+    (Teacher as any).findOne = originalTeacherFindOne;
+    (Course as any).exists = originalCourseExists;
+  }
 }
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

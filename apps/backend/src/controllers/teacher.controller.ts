@@ -41,7 +41,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const skip = (pageNum - 1) * limitNum;
 
   let query = Teacher.find(scopedFilter)
-    .populate('user', 'email isVerified isActive')
+    .populate('user', 'email phone isVerified isActive')
     .populate('profile', 'firstName lastName gender')
     .populate('school', 'name')
     .populate('courses', 'title.en slug')
@@ -75,7 +75,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
 export const getById = async (req: Request, res: Response): Promise<Response> => {
   const teacher = await Teacher.findById(req.params.id)
-    .populate('user', 'email isVerified isActive preferredLanguage')
+    .populate('user', 'email phone isVerified isActive preferredLanguage')
     .populate('profile')
     .populate('school', 'name')
     .populate('courses', 'title.en slug category status');
@@ -118,7 +118,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   });
 
   const populated = await Teacher.findById(teacher._id)
-    .populate('user', 'email isVerified isActive')
+    .populate('user', 'email phone isVerified isActive')
     .populate('profile', 'firstName lastName gender')
     .populate('school', 'name');
 
@@ -134,7 +134,39 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (!teacher) throw new NotFoundError('Teacher');
   assertOwnsOrg(req, teacher, 'school');
 
-  const { firstName, lastName, gender, school, qualification, specialization, experience, bio, status, joiningDate } = req.body;
+  const { firstName, lastName, gender, school, qualification, specialization, experience, bio, status, joiningDate, email, phone, password } = req.body;
+
+  const user = await User.findById(teacher.user).select('+password +tokenVersion');
+  if (!user) throw new NotFoundError('Teacher user');
+
+  if (email !== undefined) {
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!normalizedEmail) throw new BadRequestError('Email cannot be empty');
+    const emailOwner = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } }).select('_id');
+    if (emailOwner) throw new ConflictError('A user with this email already exists');
+    user.email = normalizedEmail;
+  }
+
+  if (phone !== undefined) {
+    const normalizedPhone = String(phone).trim();
+    if (normalizedPhone) {
+      const phoneOwner = await User.findOne({ phone: normalizedPhone, _id: { $ne: user._id } }).select('_id');
+      if (phoneOwner) throw new ConflictError('A user with this phone number already exists');
+      user.phone = normalizedPhone;
+    } else {
+      user.phone = undefined;
+    }
+  }
+
+  if (password !== undefined && String(password).length > 0) {
+    if (String(password).length < 8) throw new BadRequestError('Password must be at least 8 characters');
+    user.password = String(password);
+    user.tokenVersion = Number(user.tokenVersion || 0) + 1;
+  }
+
+  if (email !== undefined || phone !== undefined || (password !== undefined && String(password).length > 0)) {
+    await user.save();
+  }
 
   if (firstName || lastName || gender) {
     const profileUpdate: any = {};
@@ -155,7 +187,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   await teacher.save();
 
   const updated = await Teacher.findById(teacher._id)
-    .populate('user', 'email isVerified isActive')
+    .populate('user', 'email phone isVerified isActive')
     .populate('profile')
     .populate('school', 'name')
     .populate('courses', 'title.en slug category status');
@@ -184,7 +216,7 @@ async function deleteTeacherToTrash(teacherId: string, req: Request): Promise<vo
   const [userDoc, profileDoc] = await Promise.all([
     // +password: it's `select: false` on the schema, but the snapshot must
     // carry it or a restore fails Mongoose's `required` validation on User.
-    User.findById(teacher.user).select('+password'),
+    User.findById(teacher.user).select('+password +tokenVersion'),
     Profile.findById(teacher.profile),
   ]);
   const label = profileDoc ? `${profileDoc.firstName} ${profileDoc.lastName}`.trim() || 'Teacher' : 'Teacher';
