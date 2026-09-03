@@ -86,6 +86,7 @@ interface ScheduleFilterParams {
   department?: unknown;
   day?: unknown;
   status?: unknown;
+  time?: unknown;
   search?: unknown;
 }
 
@@ -106,6 +107,15 @@ async function resolveMatchingSchedules(req: Request, params: ScheduleFilterPara
     .map((d) => parseInt(d, 10))
     .filter((d) => !isNaN(d) && d >= 0 && d <= 6);
   const statusValues = parseMultiValue(params.status).filter((s) => s === 'active' || s === 'inactive');
+  // Time ranges ("07:45-08:25", one or comma-separated) — matched exactly
+  // against startTime+endTime post-populate, mirroring what the Time column
+  // of the table displays.
+  const timeRanges = parseMultiValue(params.time)
+    .map((t) => {
+      const m = t.match(/^(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})$/);
+      return m ? { start: m[1], end: m[2] } : null;
+    })
+    .filter((r): r is { start: string; end: string } => r !== null);
 
   const baseFilter: Record<string, unknown> = {};
   if (schoolIds.length > 0) baseFilter.school = { $in: schoolIds };
@@ -159,6 +169,13 @@ async function resolveMatchingSchedules(req: Request, params: ScheduleFilterPara
     filtered = filtered.filter((sch: any) => {
       const deptId = typeof sch.class?.department === 'string' ? sch.class.department : sch.class?.department?._id;
       return !!deptId && deptSet.has(String(deptId));
+    });
+  }
+  if (timeRanges.length > 0) {
+    filtered = filtered.filter((sch: any) => {
+      const schStart = String(sch.startTime || '').slice(0, 5);
+      const schEnd = String(sch.endTime || '').slice(0, 5);
+      return timeRanges.some((r) => r.start === schStart && r.end === schEnd);
     });
   }
 

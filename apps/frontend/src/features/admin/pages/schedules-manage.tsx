@@ -141,6 +141,7 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 
 interface ScheduleColumnParams {
   schoolIds: string[];
+  timeRanges: string[];
   departmentIds: string[];
   classIds: string[];
   courseIds: string[];
@@ -151,7 +152,7 @@ interface ScheduleColumnParams {
   sortDir: 'asc' | 'desc';
 }
 const EMPTY_SCHEDULE_COLUMN_PARAMS: ScheduleColumnParams = {
-  schoolIds: [], departmentIds: [], classIds: [], courseIds: [], teacherIds: [], days: [], statuses: [], sortBy: null, sortDir: 'asc',
+  schoolIds: [], timeRanges: [], departmentIds: [], classIds: [], courseIds: [], teacherIds: [], days: [], statuses: [], sortBy: null, sortDir: 'asc',
 };
 const STATUS_OPTIONS = [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }];
 
@@ -254,6 +255,7 @@ export function SchedulesManage() {
       // backend accepts comma-separated multi-value for ?school=
       if (cp.schoolIds.length > 0) params.school = cp.schoolIds.join(',');
       else if (filterSchool) params.school = filterSchool;
+      if (cp.timeRanges.length > 0) params.time = cp.timeRanges.join(',');
       if (searchTerm.trim()) params.search = searchTerm.trim();
       if (cp.departmentIds.length > 0) params.department = cp.departmentIds.join(',');
       if (cp.classIds.length > 0) params.class = cp.classIds.join(',');
@@ -305,6 +307,7 @@ export function SchedulesManage() {
   const handleColumnFilterChange = (state: { filters: Record<string, string[]>; sortBy: string | null; sortDir: 'asc' | 'desc' }) => {
     const next: ScheduleColumnParams = {
       schoolIds: state.filters.organization || [],
+      timeRanges: state.filters.time || [],
       departmentIds: state.filters.department || [],
       classIds: state.filters.class || [],
       courseIds: state.filters.course || [],
@@ -549,7 +552,7 @@ export function SchedulesManage() {
   // ── Excel-style column header filters (server-side) ──
   const scheduleColumnAccessors: Record<string, (s: Schedule) => string> = {
     organization: (s) => s.school?.name || '',
-    time: (s) => s.startTime || '',
+    time: (s) => `${String(s.startTime || '').slice(0, 5)}-${String(s.endTime || '').slice(0, 5)}`,
     department: (s) => (typeof s.class?.department === 'string' ? '' : s.class?.department?.name || ''),
     class: (s) => `${s.class?.title || ''} ${s.class?.section || ''}`,
     course: (s) => s.course?.title?.en || '',
@@ -782,6 +785,7 @@ export function SchedulesManage() {
             school: columnParams.schoolIds.length
               ? columnParams.schoolIds.join(',')
               : (filterSchool || undefined),
+            time: columnParams.timeRanges.length ? columnParams.timeRanges.join(',') : undefined,
             department: columnParams.departmentIds.length ? columnParams.departmentIds.join(',') : undefined,
             class: columnParams.classIds.length ? columnParams.classIds.join(',') : undefined,
             course: columnParams.courseIds.length ? columnParams.courseIds.join(',') : undefined,
@@ -1352,7 +1356,7 @@ export function SchedulesManage() {
                     <th className="px-4 py-3"><ColumnFilterHeader label="Course" colKey="course" options={filterCourses.map((c) => ({ value: c._id, label: c.title.en }))} currentSelected={scheduleColumnFilters.course ?? null} currentSort={scheduleSortCol === 'course' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3"><ColumnFilterHeader label="Teacher" colKey="teacher" options={teachers.map((t) => ({ value: t._id, label: teacherLabel(t) }))} currentSelected={scheduleColumnFilters.teacher ?? null} currentSort={scheduleSortCol === 'teacher' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3"><ColumnFilterHeader label="Day" colKey="day" options={DAYS.map((d, i) => ({ value: String(i), label: d }))} currentSelected={scheduleColumnFilters.day ?? null} currentSort={scheduleSortCol === 'day' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
-                    <th className="px-4 py-3"><ColumnFilterHeader label="Time" colKey="time" currentSelected={scheduleColumnFilters.time ?? null} currentSort={scheduleSortCol === 'time' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
+                    <th className="px-4 py-3"><ColumnFilterHeader label="Time" colKey="time" options={Array.from(new Set(schedules.map((s) => `${String(s.startTime || '').slice(0, 5)}-${String(s.endTime || '').slice(0, 5)}`))).sort().map((r) => { const [a, b] = r.split('-'); return { value: r, label: `${a} – ${b}` }; })} currentSelected={scheduleColumnFilters.time ?? null} currentSort={scheduleSortCol === 'time' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3"><ColumnFilterHeader label="Status" colKey="status" options={STATUS_OPTIONS} currentSelected={scheduleColumnFilters.status ?? null} currentSort={scheduleSortCol === 'status' ? scheduleSortDir : null} onCommit={applyScheduleColumnCommit} onClear={clearScheduleColumnFilter} /></th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
