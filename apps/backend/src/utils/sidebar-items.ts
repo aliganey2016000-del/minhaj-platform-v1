@@ -55,8 +55,12 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/activity', label: 'Student Activity', section: 'Main' },
   { key: 'admin/parents', label: 'Manage Parents', section: 'Main' },
   { key: 'admin/teachers', label: 'Manage Teachers', section: 'Main' },
-  { key: 'admin/staff', label: 'Manage Staff', section: 'Main' },
   { key: 'admin/courses', label: 'Manage Courses', section: 'Main' },
+
+  { key: 'group:hr-management', label: 'HR Management (entire menu)', section: 'HR' },
+  { key: 'admin/hr', label: 'HR Dashboard', section: 'HR' },
+  { key: 'admin/staff', label: 'Staff Directory', section: 'HR' },
+  { key: 'admin/hr/access', label: 'Access & Permissions', section: 'HR' },
   { key: 'admin/courses/builder', label: 'Course Builder', section: 'Main' },
   { key: 'admin/courses/gradebook', label: 'Course Gradebook', section: 'Main' },
   { key: 'admin/courses/gate-report', label: 'Course Gate Report', section: 'Main' },
@@ -122,6 +126,7 @@ export function moduleForSidebarKey(key: string): 'finance' | 'exams' | 'admissi
   if (key.startsWith('admin/students') || key === 'admin/activity') return 'admissions';
   if (key.startsWith('admin/courses')) return 'courses';
   if (['admin/parents', 'admin/teachers', 'admin/staff', 'admin/schools', 'admin/users', 'admin/classes'].includes(key)) return 'organization';
+  if (key === 'admin/hr' || key === 'admin/hr/access' || key === 'group:hr-management') return 'organization';
   if (['admin/schedules', 'admin/attendance', 'admin/assignments'].includes(key)) return 'academic';
   if (['admin/announcements', 'admin/news', 'admin/events', 'admin/gallery'].includes(key)) return 'content';
   if (['admin/forum', 'admin/whatsapp', 'admin/telegram'].includes(key)) return 'communication';

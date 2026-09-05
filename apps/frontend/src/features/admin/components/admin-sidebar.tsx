@@ -24,7 +24,7 @@ import {
   PieChart, CreditCard, History, Zap, Award, MessagesSquare, Megaphone,
   Newspaper, PartyPopper, Image, ShieldCheck, Settings, Compass, TrendingUp,
   ScrollText, User, KeyRound, LogOut, Percent, ClipboardEdit, PanelLeftClose, PanelLeftOpen,
-  Trash2, FileText, Receipt, FileBarChart, BadgePercent, Landmark,
+  Trash2, FileText, Receipt, FileBarChart, BadgePercent, Landmark, UsersRound, UserCog2,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -55,11 +55,23 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/activity',     label: 'Student Activity',   icon: Activity },
       { path: '/admin/parents',      label: 'Manage Parents',     icon: Users },
       { path: '/admin/teachers',     label: 'Manage Teachers',    icon: Presentation },
-      { path: '/admin/staff',        label: 'Manage Staff',       icon: UserRound },
       { path: '/admin/courses',      label: 'Manage Courses',     icon: BookOpen },
       { path: '/admin/schools',      label: 'Organization Management',  icon: Building2 },
       { path: '/admin/users',        label: 'User Management',    icon: UserCog },
       { path: '/admin/classes',      label: 'Manage Classes',     icon: School },
+    ],
+  },
+  {
+    title: 'HR',
+    items: [
+      {
+        key: 'group:hr-management', label: 'HR Management', icon: UsersRound,
+        children: [
+          { path: '/admin/hr',          label: 'HR Dashboard',        icon: UserCog2 },
+          { path: '/admin/staff',       label: 'Staff Directory',     icon: UserRound },
+          { path: '/admin/hr/access',   label: 'Access & Permissions', icon: ShieldCheck },
+        ],
+      },
     ],
   },
   {
