@@ -22,17 +22,25 @@ jobs:
           hr = """  {\n    title: 'HR',\n    items: [\n      {\n        key: 'group:hr-management', label: 'HR Management', icon: UsersRound,\n        children: [\n          { path: '/admin/hr',          label: 'HR Dashboard',        icon: UserCog2 },\n          { path: '/admin/staff',       label: 'Staff Directory',     icon: UserRound },\n          { path: '/admin/hr/access',   label: 'Access & Permissions', icon: ShieldCheck },\n        ],\n      },\n    ],\n  },\n"""
           if s.count(hr) != 1:
               raise SystemExit(f'Expected exactly one HR section, found {s.count(hr)}')
-          s = s.replace(hr, '', 1)
-          marker = "  {\n    title: 'System',\n"
-          if marker not in s:
-              raise SystemExit('System section marker not found')
-          s = s.replace(marker, hr + marker, 1)
-          p.write_text(s)
+          content_pos = s.find("    title: 'Content',")
+          system_pos = s.find("    title: 'System',")
+          hr_pos = s.find("    title: 'HR',")
+          if not (content_pos < hr_pos < system_pos):
+              s = s.replace(hr, '', 1)
+              marker = "  {\n    title: 'System',\n"
+              if marker not in s:
+                  raise SystemExit('System section marker not found')
+              s = s.replace(marker, hr + marker, 1)
+              p.write_text(s)
           PY
       - name: Commit and remove temporary workflow
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/hr-sidebar-order.yml
           git add apps/frontend/src/features/admin/components/admin-sidebar.tsx .github/workflows/hr-sidebar-order.yml
+          if git diff --cached --quiet; then
+            exit 0
+          fi
           git commit -m "fix(admin): place HR between Content and System"
           git push
