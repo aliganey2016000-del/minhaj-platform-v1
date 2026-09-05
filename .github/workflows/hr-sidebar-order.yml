@@ -1,0 +1,38 @@
+name: HR sidebar order fix
+
+on:
+  push:
+    branches:
+      - fix/hr-sidebar-order
+
+permissions:
+  contents: write
+
+jobs:
+  reorder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Move HR section between Content and System
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('apps/frontend/src/features/admin/components/admin-sidebar.tsx')
+          s = p.read_text()
+          hr = """  {\n    title: 'HR',\n    items: [\n      {\n        key: 'group:hr-management', label: 'HR Management', icon: UsersRound,\n        children: [\n          { path: '/admin/hr',          label: 'HR Dashboard',        icon: UserCog2 },\n          { path: '/admin/staff',       label: 'Staff Directory',     icon: UserRound },\n          { path: '/admin/hr/access',   label: 'Access & Permissions', icon: ShieldCheck },\n        ],\n      },\n    ],\n  },\n"""
+          if s.count(hr) != 1:
+              raise SystemExit(f'Expected exactly one HR section, found {s.count(hr)}')
+          s = s.replace(hr, '', 1)
+          marker = "  {\n    title: 'System',\n"
+          if marker not in s:
+              raise SystemExit('System section marker not found')
+          s = s.replace(marker, hr + marker, 1)
+          p.write_text(s)
+          PY
+      - name: Commit and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/frontend/src/features/admin/components/admin-sidebar.tsx .github/workflows/hr-sidebar-order.yml
+          git commit -m "fix(admin): place HR between Content and System"
+          git push
