@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import EmployeeProfile from '../models/employee-profile.model';
+import Teacher from '../models/teacher.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 
@@ -15,6 +16,54 @@ function assertStaff(user: any, req: Request) {
 function orgFilter(req: Request, organizationId: any) {
   if (req.user?.role === 'org_admin') return req.user.organizationId;
   return organizationId;
+}
+
+function isTeacherTitle(title: string) {
+  return /\bteacher\b/i.test(title.trim());
+}
+
+async function syncTeacherFromStaff({ user, profile, employeeProfile, organizationId }: { user: any; profile: any; employeeProfile: any; organizationId: any }) {
+  const title = String(user.title || '').trim();
+  const existing = await Teacher.findOne({ user: user._id });
+
+  if (!isTeacherTitle(title)) {
+    if (existing) {
+      existing.status = employeeProfile.employmentStatus === 'on_leave' ? 'on_leave' : 'inactive';
+      await existing.save();
+    }
+    return;
+  }
+
+  const specialization = String(employeeProfile.specialization || '').trim();
+  const status = employeeProfile.employmentStatus === 'on_leave' ? 'on_leave' : employeeProfile.employmentStatus === 'active' || employeeProfile.employmentStatus === 'hired' ? 'active' : 'inactive';
+
+  if (existing) {
+    existing.profile = profile._id;
+    existing.school = organizationId;
+    existing.qualification = employeeProfile.qualification || '';
+    existing.specialization = specialization ? [specialization] : [];
+    existing.joiningDate = employeeProfile.joiningDate || new Date();
+    existing.status = status;
+    await existing.save();
+    return;
+  }
+
+  const count = await Teacher.countDocuments();
+  const teacherId = `TCH-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+  await Teacher.create({
+    user: user._id,
+    profile: profile._id,
+    school: organizationId,
+    teacherId,
+    qualification: employeeProfile.qualification || '',
+    specialization: specialization ? [specialization] : [],
+    experience: 0,
+    bio: employeeProfile.notes || '',
+    courses: [],
+    coursePermission: 'COURSE_BUILDER',
+    joiningDate: employeeProfile.joiningDate || new Date(),
+    status,
+  });
 }
 
 export const get = async (req: Request, res: Response): Promise<Response> => {
@@ -55,11 +104,10 @@ export const upsert = async (req: Request, res: Response): Promise<Response> => 
     throw new BadRequestError('First name and last name are required');
   }
   const currentProfile = await Profile.findOne({ user: user._id });
-  if (currentProfile) {
-    await Profile.findByIdAndUpdate(currentProfile._id, profilePayload, { new: true, runValidators: true });
-  } else {
-    await Profile.create({ user: user._id, ...profilePayload });
-  }
+  const profile = currentProfile
+    ? await Profile.findByIdAndUpdate(currentProfile._id, profilePayload, { new: true, runValidators: true })
+    : await Profile.create({ user: user._id, ...profilePayload });
+  if (!profile) throw new BadRequestError('Unable to save Staff profile');
 
   if (req.body.email !== undefined) user.email = String(req.body.email).trim().toLowerCase();
   if (req.body.phone !== undefined) user.phone = String(req.body.phone || '').trim() || undefined;
@@ -85,6 +133,8 @@ export const upsert = async (req: Request, res: Response): Promise<Response> => 
   const employeeProfile = existing
     ? await EmployeeProfile.findByIdAndUpdate(existing._id, payload, { new: true, runValidators: true }).lean()
     : await EmployeeProfile.create({ user: user._id, ...payload });
+
+  await syncTeacherFromStaff({ user, profile, employeeProfile, organizationId });
 
   return ApiResponse.success(res, employeeProfile, 'Staff profile saved successfully');
 };
