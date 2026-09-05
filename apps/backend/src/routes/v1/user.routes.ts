@@ -14,6 +14,9 @@ import * as userController from '../../controllers/user.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
+import multer from 'multer';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = Router();
 
@@ -23,6 +26,9 @@ router.use(roleMiddleware(['admin', 'org_admin']));
 
 router.get('/', asyncHandler(userController.getAll));
 router.get('/permissions/catalog', asyncHandler(userController.getPermissionCatalog));
+router.get('/staff/export', asyncHandler(userController.exportStaff));
+router.get('/staff/template', asyncHandler(userController.downloadStaffTemplate));
+router.post('/staff/import', upload.single('file'), asyncHandler(userController.importStaff));
 router.get('/:id', asyncHandler(userController.getById));
 router.post('/', asyncHandler(userController.create));
 router.patch('/:id', asyncHandler(userController.update));

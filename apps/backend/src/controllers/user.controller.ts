@@ -16,6 +16,8 @@ import ApiResponse from '../utils/api-response';
 import { applyOrgFilter } from '../utils/tenant-scope';
 import { escapeRegex } from '../utils/escape-regex';
 import { normalizeStaffPermissions, STAFF_PERMISSION_CATALOG } from '../utils/staff-permissions';
+import * as XLSX from 'xlsx';
+import School from '../models/school.model';
 
 export const getPermissionCatalog = async (_req: Request, res: Response): Promise<Response> => {
   return ApiResponse.success(res, STAFF_PERMISSION_CATALOG);
@@ -169,6 +171,10 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     throw new BadRequestError('Email, password, first name, last name, gender, and role are required');
   }
 
+  if (role === 'staff' && req.user?.role === 'admin' && !organizationId) {
+    throw new BadRequestError('Organization is required when creating Staff');
+  }
+
   // Check if email already exists
   const existing = await User.findOne({ email: email.toLowerCase() });
   if (existing) throw new ConflictError('A user with this email already exists');
@@ -255,7 +261,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     }
   }
 
-  const allowedUpdates = ['email', 'role', 'organizationId', 'isActive', 'isVerified'];
+  const allowedUpdates = ['email', 'role', 'organizationId', 'isActive', 'isVerified', 'phone'];
   const updates: Record<string, unknown> = {};
 
   for (const key of allowedUpdates) {
@@ -275,6 +281,11 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     .lean();
 
   if (!updated) throw new NotFoundError('User');
+
+  if (req.body.password) {
+    user.password = req.body.password;
+    await user.save();
+  }
 
   // Name/gender live on the separate Profile document — some legacy users
   // (e.g. ones created before this page collected a gender) have none at
@@ -329,4 +340,88 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   await user.save();
 
   return ApiResponse.noContent(res, 'User deactivated successfully');
+};
+
+function spreadsheetField(row: Record<string, unknown>, ...names: string[]): string {
+  const key = Object.keys(row).find((candidate) => names.some((name) => candidate.trim().toLowerCase() === name.toLowerCase()));
+  return key ? String(row[key] ?? '').trim() : '';
+}
+
+export const exportStaff = async (req: Request, res: Response): Promise<void> => {
+  const filter: Record<string, unknown> = { role: 'staff' };
+  if (req.user?.role === 'org_admin') filter.organizationId = req.user.organizationId;
+  else if (req.query.school) filter.organizationId = req.query.school;
+
+  const users = await User.find(filter).populate('organizationId', 'name').sort({ createdAt: -1 }).lean();
+  const profileIds = users.map((item: any) => item._id);
+  const profiles = await Profile.find({ user: { $in: profileIds } }).select('user firstName lastName gender').lean();
+  const profileMap = new Map(profiles.map((item: any) => [item.user.toString(), item]));
+  const rows = users.map((item: any) => {
+    const profile = profileMap.get(item._id.toString());
+    return {
+      'First Name': profile?.firstName || '', 'Last Name': profile?.lastName || '',
+      Gender: profile?.gender || '', Email: item.email || '', Phone: item.phone || '',
+      Organization: item.organizationId?.name || '', Status: item.isActive ? 'active' : 'inactive',
+    };
+  });
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Staff');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=staff-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  res.end(buffer);
+};
+
+export const downloadStaffTemplate = async (_req: Request, res: Response): Promise<void> => {
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet([{
+    'First Name': 'Ahmed', 'Last Name': 'Hassan', Gender: 'male', Email: 'ahmed@example.com',
+    Password: 'ChangeMe123', Phone: '+252612345678', Organization: 'Organization name (required for Super Admin)',
+  }]);
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Staff Template');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=staff-template.xlsx');
+  res.end(buffer);
+};
+
+export const importStaff = async (req: Request, res: Response): Promise<Response> => {
+  if (!req.file) throw new BadRequestError('An Excel file is required (field name "file")');
+  const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!sheet) throw new BadRequestError('The uploaded file has no sheets');
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+  const errors: { row: number; message: string }[] = [];
+  let created = 0;
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const rowNumber = index + 2;
+    try {
+      const firstName = spreadsheetField(row, 'First Name', 'First');
+      const lastName = spreadsheetField(row, 'Last Name', 'Last');
+      const email = spreadsheetField(row, 'Email').toLowerCase();
+      const password = spreadsheetField(row, 'Password') || 'ChangeMe123';
+      const gender = spreadsheetField(row, 'Gender').toLowerCase() || 'male';
+      if (!firstName || !lastName || !email) throw new Error('First Name, Last Name and Email are required');
+      if (await User.exists({ email })) throw new Error(`Email "${email}" is already registered`);
+
+      let organizationId = req.user?.role === 'org_admin' ? req.user.organizationId : undefined;
+      if (!organizationId) {
+        const organizationName = spreadsheetField(row, 'Organization', 'School');
+        if (!organizationName) throw new Error('Organization is required for Super Admin');
+        const organization = await School.findOne({ name: new RegExp(`^${organizationName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }).select('_id').lean();
+        if (!organization) throw new Error(`Organization "${organizationName}" was not found`);
+        organizationId = organization._id.toString();
+      }
+
+      const user = await User.create({ email, password, phone: spreadsheetField(row, 'Phone') || undefined, role: 'staff', organizationId, isVerified: true, isActive: true });
+      await Profile.create({ user: user._id, firstName, lastName, gender: gender === 'female' ? 'female' : 'male' });
+      created += 1;
+    } catch (error: any) {
+      errors.push({ row: rowNumber, message: error.message || 'Could not import row' });
+    }
+  }
+
+  return ApiResponse.success(res, { totalRows: rows.length, created, failed: errors.length, errors }, 'Staff import completed');
 };

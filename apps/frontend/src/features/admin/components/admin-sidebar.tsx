@@ -18,7 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/axios';
 import type { LucideIcon } from 'lucide-react';
 import {
-  LayoutDashboard, GraduationCap, Activity, Users, UserCog, Presentation, BookOpen,
+  LayoutDashboard, GraduationCap, Activity, Users, UserCog, Presentation, BookOpen, UserRound,
   Building2, School, CalendarClock, CalendarCheck, ClipboardList, NotebookPen,
   CalendarRange, Building, CheckCircle2, FileCheck2, BarChart3, AlertTriangle,
   PieChart, CreditCard, History, Zap, Award, MessagesSquare, Megaphone,
@@ -55,6 +55,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/activity',     label: 'Student Activity',   icon: Activity },
       { path: '/admin/parents',      label: 'Manage Parents',     icon: Users },
       { path: '/admin/teachers',     label: 'Manage Teachers',    icon: Presentation },
+      { path: '/admin/staff',        label: 'Manage Staff',       icon: UserRound },
       { path: '/admin/courses',      label: 'Manage Courses',     icon: BookOpen },
       { path: '/admin/schools',      label: 'Organization Management',  icon: Building2 },
       { path: '/admin/users',        label: 'User Management',    icon: UserCog },

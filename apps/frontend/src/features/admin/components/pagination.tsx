@@ -14,7 +14,7 @@ interface PaginationProps {
   limit: number;
   total: number;
   onPageChange: (page: number) => void;
-  onLimitChange: (limit: number) => void;
+  onLimitChange?: (limit: number) => void;
   pageSizeOptions?: number[];
   /** Plural noun for the "Showing X-Y of Z {itemLabel}" line, e.g. "teachers". */
   itemLabel?: string;
@@ -40,7 +40,7 @@ export function Pagination({ page, limit, total, onPageChange, onLimitChange, pa
   const start = total === 0 ? 0 : (page - 1) * limit + 1;
   const end = Math.min(page * limit, total);
 
-  const handleLimitChange = (e: ChangeEvent<HTMLSelectElement>) => onLimitChange(Number(e.target.value));
+  const handleLimitChange = (e: ChangeEvent<HTMLSelectElement>) => onLimitChange?.(Number(e.target.value));
 
   return (
     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-[var(--color-border-subtle)] px-4 sm:px-6 py-3">
