@@ -9,7 +9,7 @@ Both apps are already built locally:
 
 ## Step 1: Upload Files to VPS
 
-Open PowerShell/CMD and run one line at a time. Enter password `635110Liiali@` when prompted:
+Open PowerShell/CMD and run one line at a time. Authenticate using your SSH key or a password stored in your secret manager. Never put credentials in this document:
 
 ```bash
 scp -r backend\dist backend\package.json backend\package-lock.json backend\.env.production root@152.239.119.129:/root/
@@ -30,7 +30,7 @@ scp -r deploy\nginx.conf deploy\ecosystem.config.js deploy\setup.sh root@152.239
 ```bash
 ssh root@152.239.119.129
 ```
-Password: `635110Liiali@`
+Use your configured SSH authentication method. Do not share or commit the VPS password.
 
 ---
 
@@ -119,12 +119,14 @@ Visit `http://152.239.119.129` in your browser.
 
 ---
 
-## Step 9: Setup HTTPS (if you have a domain)
+## Step 9: Setup HTTPS (mandatory before public launch)
 
 ```bash
 apt install -y certbot python3-certbot-nginx
 certbot --nginx -d your-domain.com
 ```
+
+After HTTPS is configured, set `HTTPS_ONLY=true` and the production frontend origin in `backend/.env.production`, then restart PM2.
 
 ---
 

@@ -26,6 +26,9 @@ export interface IUser extends Document {
   password: string;
   role: UserRole;
   permissions: StaffPermission[];
+  sidebarAccess: string[];
+  department?: mongoose.Types.ObjectId;
+  title?: string;
   organizationId?: mongoose.Types.ObjectId;
   isVerified: boolean;
   isActive: boolean;
@@ -67,10 +70,14 @@ const userSchema = new Schema<IUser, IUserModel>(
     permissions: {
       type: [{
         module: { type: String, enum: STAFF_MODULES },
+        page: { type: String, trim: true },
         actions: [{ type: String, enum: STAFF_ACTIONS }],
       }],
       default: [],
     },
+    sidebarAccess: { type: [String], default: [] },
+    department: { type: Schema.Types.ObjectId, ref: 'Department', default: null, index: true },
+    title: { type: String, trim: true, maxlength: [100, 'Title cannot exceed 100 characters'], default: '' },
     organizationId: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
     isVerified: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },

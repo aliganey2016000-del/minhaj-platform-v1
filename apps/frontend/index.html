@@ -29,8 +29,10 @@
     <meta property="og:image" content="/icons/pwa-512x512.png" />
     <meta property="og:url" content="https://alrahma.edu.so" />
 
-    <!-- Manifest -->
-    <link rel="manifest" href="/manifest.json" />
+    <!-- Manifest — resolved per-org by the backend from the request's
+         subdomain (falls back to the platform default on the main site),
+         so "Add to Home Screen" shows the organization's own name/logo. -->
+    <link rel="manifest" href="/api/v1/tenant/manifest.webmanifest" />
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

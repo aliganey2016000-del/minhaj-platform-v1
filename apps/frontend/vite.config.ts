@@ -26,86 +26,13 @@ export default defineConfig({
         globIgnores: ['images/**'],
       },
       includeAssets: ['favicon.svg', 'icons/*.png', 'screenshots/*.png', 'offline.html'],
-      manifest: {
-        name: 'Masjid Al-Rahma Academy',
-        short_name: 'Al-Rahma LMS',
-        description: 'Barashada Diinta Islaamka — Learn Quran, Fiqh, Aqeedah & Arabic online',
-        theme_color: '#059669',
-        background_color: '#ffffff',
-        display: 'standalone',
-        orientation: 'any',
-        scope: '/',
-        start_url: '/',
-        lang: 'en',
-        dir: 'ltr',
-        categories: ['education', 'religious', 'productivity'],
-        icons: [
-          {
-            src: '/icons/pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any maskable',
-          },
-          {
-            src: '/icons/pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable',
-          },
-          {
-            src: '/icons/pwa-180x180.png',
-            sizes: '180x180',
-            type: 'image/png',
-            purpose: 'apple touch icon',
-          },
-        ],
-        screenshots: [
-          {
-            src: '/screenshots/desktop-landing.png',
-            sizes: '1280x800',
-            type: 'image/png',
-            form_factor: 'wide',
-            label: 'Landing Page',
-          },
-          {
-            src: '/screenshots/mobile-dashboard.png',
-            sizes: '390x844',
-            type: 'image/png',
-            form_factor: 'narrow',
-            label: 'Student Dashboard',
-          },
-        ],
-        shortcuts: [
-          {
-            name: 'My Courses',
-            short_name: 'Courses',
-            description: 'Go to your enrolled courses',
-            url: '/student/courses',
-            icons: [{ src: '/icons/shortcut-courses.png', sizes: '96x96' }],
-          },
-          {
-            name: 'Assignments',
-            short_name: 'Assignments',
-            description: 'View your assignments',
-            url: '/student/assignments',
-            icons: [{ src: '/icons/shortcut-assignments.png', sizes: '96x96' }],
-          },
-          {
-            name: 'Exams',
-            short_name: 'Exams',
-            description: 'View upcoming exams',
-            url: '/student/exams',
-            icons: [{ src: '/icons/shortcut-exams.png', sizes: '96x96' }],
-          },
-          {
-            name: 'Analytics',
-            short_name: 'Analytics',
-            description: 'Track your progress',
-            url: '/student/analytics',
-            icons: [{ src: '/icons/shortcut-analytics.png', sizes: '96x96' }],
-          },
-        ],
-      },
+      // The manifest is served dynamically by the backend
+      // (/api/v1/tenant/manifest.webmanifest, linked from index.html) so
+      // each org's subdomain gets its own name/logo on "Add to Home
+      // Screen" instead of one hardcoded platform identity. Letting this
+      // plugin also generate a static manifest.webmanifest would inject a
+      // second, conflicting <link rel="manifest"> into the built HTML.
+      manifest: false,
     }),
   ],
   resolve: {

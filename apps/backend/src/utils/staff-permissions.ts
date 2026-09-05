@@ -1,4 +1,4 @@
-export const STAFF_MODULES = ['finance', 'exams', 'admissions', 'courses'] as const;
+export const STAFF_MODULES = ['finance', 'exams', 'admissions', 'courses', 'organization', 'academic', 'content', 'communication', 'system'] as const;
 
 export type StaffModule = (typeof STAFF_MODULES)[number];
 export const STAFF_ACTIONS = ['read', 'create', 'edit', 'delete', 'export', 'import'] as const;
@@ -6,6 +6,7 @@ export type StaffAction = (typeof STAFF_ACTIONS)[number];
 
 export interface StaffPermission {
   module: StaffModule;
+  page?: string;
   actions: StaffAction[];
 }
 
@@ -19,16 +20,22 @@ export const STAFF_PERMISSION_CATALOG: Array<{
   { module: 'exams', label: 'Exam Office', description: 'Exams, seating, papers, attendance, and results', actions: [...STAFF_ACTIONS] },
   { module: 'admissions', label: 'Admissions', description: 'Student and admission records', actions: [...STAFF_ACTIONS] },
   { module: 'courses', label: 'Courses', description: 'Courses, categories, and course content', actions: [...STAFF_ACTIONS] },
+  { module: 'organization', label: 'Organization', description: 'Schools, users, classes, teachers, parents, and staff', actions: [...STAFF_ACTIONS] },
+  { module: 'academic', label: 'Academic Operations', description: 'Schedules, attendance, assignments, and certificates', actions: [...STAFF_ACTIONS] },
+  { module: 'content', label: 'Content', description: 'Announcements, news, events, and gallery', actions: [...STAFF_ACTIONS] },
+  { module: 'communication', label: 'Communication', description: 'Forum, WhatsApp, and Telegram', actions: [...STAFF_ACTIONS] },
+  { module: 'system', label: 'System', description: 'Settings, analytics, logs, trash, profile, and access controls', actions: [...STAFF_ACTIONS] },
 ];
 
 export function normalizeStaffPermissions(value: unknown): StaffPermission[] {
   if (!Array.isArray(value)) return [];
-  return STAFF_MODULES.flatMap((module) => {
-    const entry = value.find((item: any) => item?.module === module);
-    const actions = Array.isArray(entry?.actions)
-      ? STAFF_ACTIONS.filter((action) => entry.actions.includes(action))
+  return value.flatMap((item: any) => {
+    const module = item?.module as StaffModule;
+    if (!STAFF_MODULES.includes(module)) return [];
+    const actions = Array.isArray(item?.actions)
+      ? STAFF_ACTIONS.filter((action) => item.actions.includes(action))
       : [];
-    return actions.length ? [{ module, actions }] : [];
+    return actions.length ? [{ module, ...(typeof item.page === 'string' ? { page: item.page } : {}), actions }] : [];
   });
 }
 

@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 import { useTheme } from '../../../store/theme-context';
 import { toTitleCase } from '../../../lib/format';
 
@@ -27,6 +28,18 @@ interface DashboardStats {
   monthlyRegistrations: { month: string; count: number }[];
   enrollment: { totalEnrolled: number; totalCapacity: number; occupancyRate: number };
 }
+
+const EMPTY_DASHBOARD_STATS: DashboardStats = {
+  students: { total: 0, active: 0 },
+  courses: { total: 0, published: 0 },
+  teachers: 0,
+  parents: 0,
+  recentRegistrations: 0,
+  totalRevenue: 0,
+  courseDistribution: [],
+  monthlyRegistrations: [],
+  enrollment: { totalEnrolled: 0, totalCapacity: 0, occupancyRate: 0 },
+};
 
 // ---------------------------------------------------------------------------
 // Categorical palette (dataviz skill reference instance), CVD-validated for
@@ -136,14 +149,21 @@ function ChartTooltip({ active, payload, label }: any) {
 }
 
 export function AdminDashboard() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const { user } = useAuth();
+  const isStaff = user?.role === 'staff';
+  const [stats, setStats] = useState<DashboardStats | null>(isStaff ? EMPTY_DASHBOARD_STATS : null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { isDark } = useTheme();
 
   useEffect(() => {
+    if (isStaff) {
+      setStats(EMPTY_DASHBOARD_STATS);
+      setLoading(false);
+      return;
+    }
     fetchStats();
-  }, []);
+  }, [isStaff]);
 
   const fetchStats = async () => {
     try {

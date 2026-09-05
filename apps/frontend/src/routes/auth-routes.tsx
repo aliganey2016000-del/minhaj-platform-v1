@@ -13,6 +13,18 @@ const RegisterPage = lazy(() =>
   import('../features/auth/pages/register').then((m) => ({ default: m.RegisterPage }))
 );
 
+const ForgotPasswordPage = lazy(() =>
+  import('../features/auth/pages/forgot-password').then((m) => ({ default: m.ForgotPasswordPage }))
+);
+
+const ResetPasswordPage = lazy(() =>
+  import('../features/auth/pages/reset-password').then((m) => ({ default: m.ResetPasswordPage }))
+);
+
+const VerifyEmailPage = lazy(() =>
+  import('../features/auth/pages/verify-email').then((m) => ({ default: m.VerifyEmailPage }))
+);
+
 function PageLoader() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-primary)]">
@@ -41,6 +53,30 @@ export const authRoutes: RouteObject[] = [
         element: (
           <Suspense fallback={<PageLoader />}>
             <RegisterPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'forgot-password',
+        element: (
+          <Suspense fallback={<PageLoader />}>
+            <ForgotPasswordPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'reset-password',
+        element: (
+          <Suspense fallback={<PageLoader />}>
+            <ResetPasswordPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'verify-email',
+        element: (
+          <Suspense fallback={<PageLoader />}>
+            <VerifyEmailPage />
           </Suspense>
         ),
       },

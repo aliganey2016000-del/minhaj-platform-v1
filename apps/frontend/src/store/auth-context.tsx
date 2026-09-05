@@ -16,12 +16,14 @@ interface User {
   id: string;
   email: string;
   role: string;
+  title?: string;
   isVerified: boolean;
   preferredLanguage: string;
   organizationId?: string;
   organizationName?: string;
   onboardingCompleted?: boolean;
-  permissions: Array<{ module: string; actions: string[] }>;
+  permissions: Array<{ module: string; page?: string; actions: string[] }>;
+  sidebarAccess: string[];
 }
 
 interface AuthContextValue {
@@ -61,12 +63,14 @@ function normalizeUser(raw: any): User {
     id: raw.id || raw._id,
     email: raw.email,
     role: raw.role,
+    title: raw.title || undefined,
     isVerified: raw.isVerified,
     preferredLanguage: raw.preferredLanguage || 'en',
     organizationId: orgId,
     organizationName: raw.organizationName || (typeof raw.organizationId === 'object' && raw.organizationId?.name) || undefined,
     onboardingCompleted: raw.onboardingCompleted ?? true,
     permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
+    sidebarAccess: Array.isArray(raw.sidebarAccess) ? raw.sidebarAccess : [],
   };
 }
 

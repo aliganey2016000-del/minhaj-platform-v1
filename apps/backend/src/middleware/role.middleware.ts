@@ -89,6 +89,10 @@ export const requirePermission = (module: StaffModule, action: StaffAction) => {
     try {
       if (!req.user) throw new UnauthorizedError('Authentication required.');
       if (req.user.role !== 'staff') return next();
+      const page = (req as any).staffPage as string | undefined;
+      if (req.user.permissions.includes(`${module}.${action}`) || (page && req.user.permissions.includes(`page:${page}.${action}`))) {
+        return next();
+      }
       if (!req.user.permissions.includes(`${module}.${action}`)) {
         throw new ForbiddenError(`Staff permission required: ${module}.${action}`);
       }
@@ -103,8 +107,94 @@ export const requirePermission = (module: StaffModule, action: StaffAction) => {
 export const requireModulePermission = (module: StaffModule) => {
   return (req: Request, _res: Response, next: NextFunction): void => {
     (req as any).staffModule = module;
-    const path = req.path.toLowerCase();
-    const action: StaffAction = path.includes('import')
+    const path = `${req.baseUrl}${req.path}`.toLowerCase();
+    const page = path.includes('/students/report')
+      ? 'admin/students/report'
+      : path.includes('/students')
+        ? 'admin/students'
+      : path.includes('/activity')
+        ? 'admin/activity'
+        : path.includes('/courses/') && path.includes('/builder')
+          ? 'admin/courses/builder'
+          : path.includes('/courses/') && path.includes('/gradebook')
+            ? 'admin/courses/gradebook'
+            : path.includes('/courses/') && path.includes('/gate-report')
+              ? 'admin/courses/gate-report'
+              : path.includes('/courses/') && path.includes('/lessons/')
+                ? 'admin/courses/lesson-edit'
+                : path.includes('/courses/') && path.includes('/quizzes/')
+                  ? 'admin/courses/quiz-edit'
+                  : path.includes('/courses/') && path.includes('/exams/')
+                    ? 'admin/courses/exam-paper-edit'
+                    : path.includes('/courses/') && path.includes('/preview')
+                      ? 'admin/courses/preview'
+                      : path.includes('/fee-structures')
+        ? 'admin/payments/fee-structures'
+        : path.includes('/invoices')
+          ? 'admin/payments/invoices'
+          : path.includes('/discount-grants')
+            ? 'admin/payments/discounts'
+            : path.includes('/payments') || path.includes('/refunds') || path.includes('/cash-sessions') || path.includes('/finance')
+              ? 'admin/payments'
+              : path.includes('/exams/') && path.includes('/paper/review')
+                ? 'admin/exams/paper-review'
+                : path.includes('/exam-rooms')
+                ? 'admin/exams/rooms'
+                : path.includes('/exam-incidents')
+                  ? 'admin/exams/compliance'
+                  : path.includes('/exams')
+                    ? 'admin/exams'
+                    : path.includes('/results')
+                      ? 'admin/results'
+                      : path.includes('/certificates')
+                        ? 'admin/certificates'
+                        : path.includes('/courses')
+                          ? 'admin/courses'
+                          : path.includes('/parents')
+                            ? 'admin/parents'
+                            : path.includes('/teachers')
+                              ? 'admin/teachers'
+                              : path.includes('/staff')
+                                ? 'admin/staff'
+                                : path.includes('/schools')
+                                  ? 'admin/schools'
+                                  : path.includes('/users/permissions')
+                                    ? 'admin/roles'
+                                    : path.includes('/users')
+                                      ? 'admin/users'
+                                    : path.includes('/classes')
+                                      ? 'admin/classes'
+                                      : path.includes('/payments/balances/')
+                                        ? 'admin/payments/balances/detail'
+                                        : path.includes('/class-schedules')
+                                        ? 'admin/schedules'
+                                        : path.includes('/attendance')
+                                          ? 'admin/attendance'
+                                          : path.includes('/assignments')
+                                            ? 'admin/assignments'
+                                            : path.includes('/forum')
+                                              ? 'admin/forum'
+                                              : path.includes('/whatsapp')
+                                                ? 'admin/whatsapp'
+                                                : path.includes('/telegram')
+                                                  ? 'admin/telegram'
+                                                  : path.includes('/announcements')
+                                                    ? 'admin/announcements'
+                                                    : path.includes('/news')
+                                                      ? 'admin/news'
+                                                      : path.includes('/events')
+                                                        ? 'admin/events'
+                                                        : path.includes('/gallery')
+                                                          ? 'admin/gallery'
+                                                          : path.includes('/sidebar-settings')
+                                                            ? 'admin/settings/sidebar'
+                                                            : path.includes('/system')
+                                                              ? 'admin/settings'
+                                                              : path.includes('/trash')
+                                                                ? 'admin/trash'
+                                                                : undefined;
+    (req as any).staffPage = page;
+    const action: StaffAction = req.path.toLowerCase().includes('import')
       ? 'import'
       : path.includes('export') || path.includes('template')
         ? 'export'

@@ -8,6 +8,7 @@
  *   POST /forgot-password
  *   POST /reset-password/:token
  *   POST /verify-email/:token
+ *   POST /resend-verification
  *
  * Protected endpoints (auth required):
  *   POST /logout
@@ -15,7 +16,6 @@
  *   PATCH /change-password
  *   PATCH /update-profile
  *   POST /upload-avatar
- *   POST /resend-verification
  */
 
 import { Router } from 'express';
@@ -29,6 +29,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  resendVerificationSchema,
 } from '../../validators/auth.validator';
 
 const router = Router();
@@ -75,6 +76,13 @@ router.post(
 router.post(
   '/verify-email/:token',
   asyncHandler(authController.verifyEmail)
+);
+
+// POST /api/v1/auth/resend-verification
+router.post(
+  '/resend-verification',
+  validate(resendVerificationSchema),
+  asyncHandler(authController.resendVerification)
 );
 
 // ---------------------------------------------------------------------------
@@ -131,13 +139,6 @@ router.patch(
 //   authMiddleware,
 //   upload.single('avatar'),
 //   asyncHandler(authController.uploadAvatar)
-// );
-
-// POST /api/v1/auth/resend-verification
-// router.post(
-//   '/resend-verification',
-//   authMiddleware,
-//   asyncHandler(authController.resendVerification)
 // );
 
 export default router;

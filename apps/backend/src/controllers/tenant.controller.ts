@@ -67,3 +67,53 @@ export const getCurrentBranding = async (req: Request, res: Response): Promise<R
     portalUrl: `${process.env.BASE_DOMAIN || 'sahaledu.com'}`,
   });
 };
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/tenant/manifest.webmanifest — Per-org PWA install manifest
+// ---------------------------------------------------------------------------
+
+const DEFAULT_ICONS = [
+  { src: '/icons/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+  { src: '/icons/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+  { src: '/icons/pwa-180x180.png', sizes: '180x180', type: 'image/png', purpose: 'apple touch icon' },
+];
+
+/**
+ * Served as the page's <link rel="manifest">, resolved per-tenant via the
+ * same Host-header lookup as getCurrentBranding — so "Add to Home Screen"
+ * on an org's own subdomain shows that org's name/logo instead of the
+ * platform's. Must stay outside ApiResponse's {success,data} envelope: the
+ * browser's install prompt reads this JSON directly, not through the app.
+ */
+export const getManifest = async (req: Request, res: Response): Promise<void> => {
+  const tenant = req.tenant;
+  const name = tenant?.name?.trim() || 'Sahal Education Platform';
+  const shortName = name.length > 30 ? `${name.slice(0, 29)}…` : name;
+  const themeColor = tenant?.branding?.themeColor || '#059669';
+  const logo = tenant?.branding?.logo;
+
+  res.set('Content-Type', 'application/manifest+json');
+  res.set('Cache-Control', 'no-cache');
+  res.json({
+    name,
+    short_name: shortName,
+    description: tenant
+      ? `${name} — Islamic education platform`
+      : 'Barashada Diinta Islaamka — Learn Quran, Fiqh, Aqeedah & Arabic online',
+    start_url: '/',
+    display: 'standalone',
+    background_color: '#ffffff',
+    theme_color: themeColor,
+    orientation: 'any',
+    scope: '/',
+    lang: 'en',
+    dir: 'ltr',
+    categories: ['education', 'religious', 'productivity'],
+    icons: logo
+      ? [
+          { src: logo, sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: logo, sizes: '512x512', type: 'image/png', purpose: 'any' },
+        ]
+      : DEFAULT_ICONS,
+  });
+};

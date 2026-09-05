@@ -30,6 +30,7 @@ interface School {
   name: string;
   organizationType: OrganizationType;
   subdomain: string;
+  customDomain?: string;
   country: string;
   city: string;
   orgId?: string;
@@ -53,6 +54,7 @@ interface SchoolFormData {
   name: string;
   organizationType: OrganizationType;
   subdomain: string;
+  customDomain: string;
   country: string;
   city: string;
   orgId: string;
@@ -72,7 +74,7 @@ interface SchoolFormData {
 
 // Step field groups for the 3-step "Register Organization" wizard.
 const STEP_FIELDS: Record<number, (keyof SchoolFormData)[]> = {
-  1: ['name', 'organizationType', 'subdomain', 'country', 'city', 'address', 'orgId', 'establishedYear', 'website'],
+  1: ['name', 'organizationType', 'subdomain', 'customDomain', 'country', 'city', 'address', 'orgId', 'establishedYear', 'website'],
   2: ['principalName', 'email', 'adminPassword', 'phone'],
   3: ['estimatedStudents', 'subscriptionPlan', 'registrationNo', 'attendanceType'],
 };
@@ -91,6 +93,7 @@ const INITIAL_FORM: SchoolFormData = {
   name: '',
   organizationType: 'school',
   subdomain: '',
+  customDomain: '',
   country: '',
   city: '',
   orgId: '',
@@ -496,6 +499,13 @@ export function SchoolsManage() {
       else if (sub.length < 3 || sub.length > 63) errors.subdomain = 'Subdomain must be 3-63 characters';
     }
 
+    if (include('customDomain') && form.customDomain.trim()) {
+      const domain = form.customDomain.trim().toLowerCase();
+      if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)) {
+        errors.customDomain = 'Enter a plain domain, e.g. masjidalrahma.so (no https:// or trailing slash)';
+      }
+    }
+
     if (include('country') && !form.country.trim()) errors.country = 'Country is required';
     if (include('city') && !form.city.trim()) errors.city = 'City is required';
 
@@ -594,6 +604,7 @@ export function SchoolsManage() {
       name: school.name,
       organizationType: school.organizationType || 'school',
       subdomain: school.subdomain || '',
+      customDomain: school.customDomain || '',
       country: school.country || '',
       city: school.city || '',
       orgId: school.orgId || '',
@@ -983,6 +994,18 @@ export function SchoolsManage() {
                     />
                     <FormInput label="Subdomain / Slug" name="subdomain" value={form.subdomain} error={formErrors.subdomain} onChange={handleChange} placeholder="e.g., al-huda" required maxLength={63} />
                   </div>
+                  <FormInput
+                    label="Custom Domain (optional)"
+                    name="customDomain"
+                    value={form.customDomain}
+                    error={formErrors.customDomain}
+                    onChange={handleChange}
+                    placeholder="e.g., masjidalrahma.so"
+                    maxLength={255}
+                  />
+                  <p className="-mt-2 text-xs text-[var(--color-text-tertiary)]">
+                    Point this domain's DNS at the platform first — ask an administrator to add it in the hosting dashboard so a certificate can be issued. Once that's done, the portal (and "Add to Home Screen" on mobile) will use this domain instead of the subdomain above.
+                  </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormInput label="Country" name="country" value={form.country} error={formErrors.country} onChange={handleChange} placeholder="e.g., Somalia" required />
                     <FormInput label="City" name="city" value={form.city} error={formErrors.city} onChange={handleChange} placeholder="e.g., Mogadishu" required />

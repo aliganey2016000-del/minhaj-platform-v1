@@ -50,12 +50,13 @@ export async function tenantMiddleware(
     // The frontend's nginx proxies /api/ to this backend's public URL (they
     // are separate Coolify apps with no shared Docker network), which means
     // the Host header nginx sends must stay api.sahaledu.com so Coolify's
-    // edge proxy routes the request here. The real tenant subdomain the
-    // visitor requested travels in X-Forwarded-Host instead.
+    // edge proxy routes the request here. The real host the visitor
+    // requested (their org's subdomain, or a fully custom domain they
+    // pointed at the platform) travels in X-Forwarded-Host instead.
     const host = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
+    const hostname = host.replace(/:\d+$/, '').toLowerCase();
 
     // Fast-path: localhost or IP → main site (no tenant lookup)
-    const hostname = host.replace(/:\d+$/, '');
     if (
       hostname === 'localhost' ||
       /^\d+\.\d+\.\d+\.\d+$/.test(hostname)
@@ -64,27 +65,20 @@ export async function tenantMiddleware(
       return next();
     }
 
-    const parts = hostname.split('.');
-
-    // Single-part host or only two parts (e.g. example.com) → main site
-    if (parts.length <= 2) {
+    // The platform's own root/www domain is always the main marketing
+    // site — never a tenant lookup, even though a bare org customDomain
+    // (e.g. "masjidalrahma.so") has the same two-label shape.
+    const baseDomain = (process.env.BASE_DOMAIN || 'sahaledu.com').toLowerCase();
+    if (hostname === baseDomain || hostname === `www.${baseDomain}`) {
       req.tenant = null;
       return next();
     }
 
-    const subdomain = parts[0].toLowerCase();
-
-    // www → main site
-    if (subdomain === 'www') {
-      req.tenant = null;
-      return next();
-    }
-
-    // Look up tenant by slug or subdomain
-    const tenant = await School.findBySubdomain(host);
+    // Look up tenant by custom domain, then by slug/subdomain.
+    const tenant = await School.findByHost(host);
 
     if (!tenant) {
-      // Unknown subdomain — return 404
+      // Unrecognized subdomain or custom domain — return 404
       ApiResponse.error(
         res,
         404,

@@ -212,7 +212,9 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
   const location = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const isSuperAdmin = user?.role === 'admin';
-  const hasStaffRead = (module: string) => user?.role !== 'staff' || user.permissions.some((permission) => permission.module === module && permission.actions.includes('read'));
+  const hasStaffRead = (module: string, page?: string) => user?.role !== 'staff' || user.permissions.some((permission) => (
+    permission.module === module && permission.actions.includes('read') && (!permission.page || permission.page === page)
+  ));
   const moduleForPath = (path: string) => {
     if (/\/admin\/(payments|fee-structures|invoices)/.test(path)) return 'finance';
     if (/\/admin\/(exams|results|certificates)/.test(path)) return 'exams';
@@ -242,6 +244,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
   }, [isSuperAdmin, user?.role]);
 
   const isVisible = (key: string) => isSuperAdmin || visibility?.[key] !== false;
+  const hasStaffSidebarAccess = (key: string) => user?.role !== 'staff' || user.sidebarAccess.includes(key);
 
   // Super admin gets one extra System item: the tool that configures other
   // orgs' admin/teacher sidebars. org_admin/teacher never see it.
@@ -262,11 +265,11 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
       items: section.items
         .map((item) => {
           if (isGroup(item)) {
-            if (item.key && !isVisible(item.key)) return null;
-            const children = item.children.filter((c) => isVisible(keyForPath(c.path)) && (!moduleForPath(c.path) || hasStaffRead(moduleForPath(c.path)!)));
+            if (item.key && (!isVisible(item.key) || !hasStaffSidebarAccess(item.key))) return null;
+            const children = item.children.filter((c) => isVisible(keyForPath(c.path)) && hasStaffSidebarAccess(keyForPath(c.path)) && (!moduleForPath(c.path) || hasStaffRead(moduleForPath(c.path)!, keyForPath(c.path))));
             return children.length > 0 ? { ...item, children } : null;
           }
-          return isVisible(keyForPath(item.path)) && (!moduleForPath(item.path) || hasStaffRead(moduleForPath(item.path)!)) ? item : null;
+          return isVisible(keyForPath(item.path)) && hasStaffSidebarAccess(keyForPath(item.path)) && (!moduleForPath(item.path) || hasStaffRead(moduleForPath(item.path)!, keyForPath(item.path))) ? item : null;
         })
         .filter((item): item is NavEntry => item !== null),
     }))

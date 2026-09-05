@@ -61,6 +61,9 @@ export interface ISchool extends Document {
   organizationType: 'school' | 'university' | 'training_center' | 'private';
   slug: string;
   subdomain: string;
+  /** A fully custom domain (e.g. "masjidalrahma.so") an org points its own
+   * DNS at, resolved before the platform's <slug>.<base domain> routing. */
+  customDomain?: string;
   branding: IBranding;
   country: string;
   city: string;
@@ -136,6 +139,18 @@ const schoolSchema = new Schema<ISchool>(
       minlength: [3, 'Subdomain must be at least 3 characters'],
       maxlength: [63, 'Subdomain cannot exceed 63 characters'],
       match: [/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Subdomain may only contain lowercase letters, numbers, and hyphens'],
+    },
+    customDomain: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      unique: true,
+      sparse: true, // allow many docs with no custom domain set
+      maxlength: [255, 'Domain cannot exceed 255 characters'],
+      match: [
+        /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/,
+        'Enter a plain domain name, e.g. "masjidalrahma.so" (no https:// or trailing slash)',
+      ],
     },
     branding: { type: brandingSchema, default: () => ({}) },
     country: {
@@ -306,30 +321,49 @@ export interface TenantBranding {
 }
 
 interface SchoolModel extends mongoose.Model<ISchool> {
-  findBySubdomain(host: string): Promise<TenantBranding | null>;
+  findByHost(host: string): Promise<TenantBranding | null>;
 }
 
 // ---------------------------------------------------------------------------
-// Static Helper — resolve tenant by slug from Host header subdomain
+// Static Helper — resolve tenant from a request Host header.
+//
+// Tries an exact `customDomain` match first (an org's own domain, e.g.
+// "masjidalrahma.so", pointed straight at the platform) before falling back
+// to <slug>.<platform base domain> subdomain routing. Custom domains must be
+// checked first: a bare custom domain has only two labels — the same shape
+// as the platform's own root domain — so subdomain parsing alone can't tell
+// them apart.
 // ---------------------------------------------------------------------------
 
-schoolSchema.statics.findBySubdomain = async function (
+schoolSchema.statics.findByHost = async function (
   host: string
 ): Promise<TenantBranding | null> {
   // Strip port if present
-  const hostname = host.replace(/:\d+$/, '');
-  const parts = hostname.split('.');
+  const hostname = host.replace(/:\d+$/, '').toLowerCase();
 
-  // localhost or IP → no subdomain tenant
-  if (
-    parts.length < 2 ||
-    hostname === 'localhost' ||
-    /^\d+\.\d+\.\d+\.\d+$/.test(hostname)
-  ) {
+  if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
     return null;
   }
 
-  const subdomain = parts[0].toLowerCase();
+  const byCustomDomain = await this.findOne({
+    customDomain: hostname,
+    status: 'active',
+  })
+    .select('slug name organizationType branding')
+    .lean();
+
+  if (byCustomDomain) {
+    return byCustomDomain as TenantBranding;
+  }
+
+  const parts = hostname.split('.');
+
+  // Fewer than 3 labels (e.g. "sahaledu.com") → no room for a subdomain.
+  if (parts.length < 3) {
+    return null;
+  }
+
+  const subdomain = parts[0];
 
   // Ignore root / www — those are the main marketing site
   if (subdomain === 'www' || subdomain === parts[parts.length - 1]) {

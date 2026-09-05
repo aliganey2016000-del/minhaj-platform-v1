@@ -78,6 +78,17 @@ export const forgotPasswordSchema = Joi.object({
 });
 
 // ---------------------------------------------------------------------------
+// Resend Verification Email
+// ---------------------------------------------------------------------------
+
+export const resendVerificationSchema = Joi.object({
+  email: Joi.string().email().required().messages({
+    'string.email': 'Please provide a valid email address',
+    'any.required': 'Email is required',
+  }),
+});
+
+// ---------------------------------------------------------------------------
 // Reset Password
 // ---------------------------------------------------------------------------
 

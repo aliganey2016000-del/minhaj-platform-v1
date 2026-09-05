@@ -22,6 +22,7 @@ import {
 } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { logLearningActivity } from '../utils/learning-activity-logger';
+import { sendVerificationEmail, sendPasswordResetEmail } from '../services/email.service';
 
 function clientIp(req: Request): string {
   return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
@@ -180,7 +181,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     {
       userId: user._id.toString(),
       role: user.role,
-      permissions: user.permissions.flatMap((permission) => permission.actions.map((action) => `${permission.module}.${action}`)),
+      permissions: user.permissions.flatMap((permission) => permission.actions.map((action) => permission.page ? `page:${permission.page}.${action}` : `${permission.module}.${action}`)),
       organizationId: effectiveOrg.organizationId,
     },
     { userId: user._id.toString(), tokenVersion: user.tokenVersion }
@@ -201,7 +202,14 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     path: '/api',
   });
 
-  // TODO: Send verification email with verificationToken
+  // Send the verification email. A failure here must never break the
+  // registration response — the user can always request a fresh link via
+  // POST /auth/resend-verification.
+  try {
+    await sendVerificationEmail(user.email, firstName, verificationToken);
+  } catch (error) {
+    console.error('Failed to send verification email:', error);
+  }
 
   return ApiResponse.created(
     res,
@@ -210,12 +218,14 @@ export const register = async (req: Request, res: Response): Promise<Response> =
         id: user._id,
         email: user.email,
         role: user.role,
+        title: user.title,
         isVerified: user.isVerified,
         preferredLanguage: user.preferredLanguage,
         organizationId: effectiveOrg.organizationId,
         organizationName: effectiveOrg.organizationName,
         onboardingCompleted: user.onboardingCompleted,
         permissions: user.permissions,
+        sidebarAccess: user.sidebarAccess,
       },
       accessToken: tokenPair.accessToken,
     },
@@ -280,7 +290,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     {
       userId: user._id.toString(),
       role: user.role,
-      permissions: user.permissions.flatMap((permission) => permission.actions.map((action) => `${permission.module}.${action}`)),
+      permissions: user.permissions.flatMap((permission) => permission.actions.map((action) => permission.page ? `page:${permission.page}.${action}` : `${permission.module}.${action}`)),
       organizationId: effectiveOrg.organizationId,
     },
     { userId: user._id.toString(), tokenVersion: user.tokenVersion }
@@ -329,12 +339,14 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         id: user._id,
         email: user.email,
         role: user.role,
+        title: user.title,
         isVerified: user.isVerified,
         preferredLanguage: user.preferredLanguage,
         organizationId: effectiveOrg.organizationId,
         organizationName: effectiveOrg.organizationName,
         onboardingCompleted: user.onboardingCompleted,
         permissions: user.permissions,
+        sidebarAccess: user.sidebarAccess,
       },
       accessToken: tokenPair.accessToken,
     },
@@ -452,7 +464,7 @@ export const refreshToken = async (req: Request, res: Response): Promise<Respons
     {
       userId: user._id.toString(),
       role: user.role,
-      permissions: user.permissions.flatMap((permission) => permission.actions.map((action) => `${permission.module}.${action}`)),
+      permissions: user.permissions.flatMap((permission) => permission.actions.map((action) => permission.page ? `page:${permission.page}.${action}` : `${permission.module}.${action}`)),
       organizationId: effectiveOrg.organizationId,
     },
     { userId: user._id.toString(), tokenVersion: user.tokenVersion }
@@ -561,7 +573,12 @@ export const forgotPassword = async (req: Request, res: Response): Promise<Respo
 
   await user.save({ validateBeforeSave: false });
 
-  // TODO: Send password reset email with resetToken
+  try {
+    const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
+    await sendPasswordResetEmail(user.email, (profile?.firstName as string) || '', resetToken);
+  } catch (error) {
+    console.error('Failed to send password reset email:', error);
+  }
 
   return ApiResponse.success(
     res,
@@ -627,6 +644,46 @@ export const verifyEmail = async (req: Request, res: Response): Promise<Response
   await user.save({ validateBeforeSave: false });
 
   return ApiResponse.success(res, null, 'Email verified successfully');
+};
+
+// ---------------------------------------------------------------------------
+// Resend Verification Email (public, keyed by email)
+// ---------------------------------------------------------------------------
+
+export const resendVerification = async (req: Request, res: Response): Promise<Response> => {
+  const { email } = req.body;
+
+  const user = await User.findOne({ email: email.toLowerCase() }).select(
+    '+verificationToken +verificationTokenExpires'
+  );
+
+  // Return the same generic message whether or not the account exists or is
+  // already verified — revealing either would let an attacker enumerate emails.
+  if (!user || user.isVerified) {
+    return ApiResponse.success(
+      res,
+      null,
+      'If an account with that email needs verification, a new link has been sent.'
+    );
+  }
+
+  const verificationToken = crypto.randomBytes(32).toString('hex');
+  user.verificationToken = verificationToken;
+  user.verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+  await user.save({ validateBeforeSave: false });
+
+  try {
+    const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
+    await sendVerificationEmail(user.email, (profile?.firstName as string) || '', verificationToken);
+  } catch (error) {
+    console.error('Failed to resend verification email:', error);
+  }
+
+  return ApiResponse.success(
+    res,
+    null,
+    'If an account with that email needs verification, a new link has been sent.'
+  );
 };
 
 // ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ router.use(roleMiddleware(['admin', 'org_admin']));
 
 router.get('/', asyncHandler(userController.getAll));
 router.get('/permissions/catalog', asyncHandler(userController.getPermissionCatalog));
+router.get('/sidebar/catalog', asyncHandler(userController.getSidebarCatalog));
 router.get('/staff/export', asyncHandler(userController.exportStaff));
 router.get('/staff/template', asyncHandler(userController.downloadStaffTemplate));
 router.post('/staff/import', upload.single('file'), asyncHandler(userController.importStaff));
@@ -33,6 +34,7 @@ router.get('/:id', asyncHandler(userController.getById));
 router.post('/', asyncHandler(userController.create));
 router.patch('/:id', asyncHandler(userController.update));
 router.patch('/:id/permissions', asyncHandler(userController.updatePermissions));
+router.patch('/:id/sidebar-access', asyncHandler(userController.updateSidebarAccess));
 router.delete('/:id', asyncHandler(userController.remove));
 
 export default router;

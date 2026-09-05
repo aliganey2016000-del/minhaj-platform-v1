@@ -16,8 +16,10 @@ import ApiResponse from '../utils/api-response';
 import { applyOrgFilter } from '../utils/tenant-scope';
 import { escapeRegex } from '../utils/escape-regex';
 import { normalizeStaffPermissions, STAFF_PERMISSION_CATALOG } from '../utils/staff-permissions';
+import { ADMIN_SIDEBAR_ITEMS, moduleForSidebarKey } from '../utils/sidebar-items';
 import * as XLSX from 'xlsx';
 import School from '../models/school.model';
+import Department from '../models/department.model';
 
 export const getPermissionCatalog = async (_req: Request, res: Response): Promise<Response> => {
   return ApiResponse.success(res, STAFF_PERMISSION_CATALOG);
@@ -84,6 +86,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     // Fetch ALL users matching role/status/org filters (no pagination yet)
     const allUsers = await User.find(filter)
       .populate('organizationId', 'name')
+      .populate('department', 'name')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -121,6 +124,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const [users, total] = await Promise.all([
     User.find(filter)
       .populate('organizationId', 'name')
+      .populate('department', 'name')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -150,6 +154,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 export const getById = async (req: Request, res: Response): Promise<Response> => {
   const user = await User.findById(req.params.id)
     .populate('organizationId', 'name')
+    .populate('department', 'name')
     .lean();
 
   if (!user) throw new NotFoundError('User');
@@ -164,7 +169,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { email, password, firstName, lastName, gender, role, organizationId, phone } = req.body;
+  const { email, password, firstName, lastName, gender, role, organizationId, phone, department, title } = req.body;
 
   // Validate required fields
   if (!email || !password || !firstName || !lastName || !gender || !role) {
@@ -194,12 +199,21 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     ? req.user.organizationId
     : (organizationId || null);
 
+  let departmentId = department || null;
+  if (departmentId) {
+    const departmentDoc = await Department.findOne({ _id: departmentId, tenantId: resolvedOrgId });
+    if (!departmentDoc) throw new BadRequestError('Department does not belong to the selected organization');
+    departmentId = departmentDoc._id;
+  }
+
   const user = await User.create({
     email: email.toLowerCase(),
     password,
     phone: phone || undefined,
     role,
     organizationId: resolvedOrgId || undefined,
+    department: departmentId || undefined,
+    title: title ? String(title).trim() : '',
     isVerified: true, // Admin-created users are pre-verified
   });
 
@@ -235,6 +249,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const populated = await User.findById(user._id)
     .populate('organizationId', 'name')
+    .populate('department', 'name')
     .lean();
 
   return ApiResponse.created(res, { ...populated, profile }, 'User created successfully');
@@ -247,6 +262,10 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 export const update = async (req: Request, res: Response): Promise<Response> => {
   const user = await User.findById(req.params.id);
   if (!user) throw new NotFoundError('User');
+
+  if (req.user?.role === 'org_admin' && user.role === 'staff' && user.organizationId?.toString() !== req.user.organizationId?.toString()) {
+    throw new ForbiddenError('You can only edit Staff in your own organization');
+  }
 
   // Org admin can only update users in their own org
   if (req.user?.role === 'org_admin') {
@@ -262,12 +281,22 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     }
   }
 
-  const allowedUpdates = ['email', 'role', 'organizationId', 'isActive', 'isVerified', 'phone'];
+  const allowedUpdates = ['email', 'role', 'organizationId', 'isActive', 'isVerified', 'phone', 'title'];
   const updates: Record<string, unknown> = {};
 
   for (const key of allowedUpdates) {
     if (req.body[key] !== undefined) {
       updates[key] = req.body[key];
+    }
+  }
+
+  if (req.body.department !== undefined) {
+    if (req.body.department) {
+      const departmentDoc = await Department.findOne({ _id: req.body.department, tenantId: user.organizationId });
+      if (!departmentDoc) throw new BadRequestError('Department does not belong to this organization');
+      updates.department = departmentDoc._id;
+    } else {
+      updates.department = null;
     }
   }
 
@@ -279,6 +308,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   const updated = await User.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true })
     .populate('organizationId', 'name')
+    .populate('department', 'name')
     .lean();
 
   if (!updated) throw new NotFoundError('User');
@@ -425,4 +455,22 @@ export const importStaff = async (req: Request, res: Response): Promise<Response
   }
 
   return ApiResponse.success(res, { totalRows: rows.length, created, failed: errors.length, errors }, 'Staff import completed');
+};
+
+export const getSidebarCatalog = async (_req: Request, res: Response): Promise<Response> => ApiResponse.success(
+  res,
+  ADMIN_SIDEBAR_ITEMS.map((item) => ({ ...item, module: moduleForSidebarKey(item.key) })),
+);
+
+export const updateSidebarAccess = async (req: Request, res: Response): Promise<Response> => {
+  const user = await User.findById(req.params.id);
+  if (!user) throw new NotFoundError('User');
+  if (user.role !== 'staff') throw new BadRequestError('Sidebar access can only be assigned to Staff users');
+  if (req.user?.role === 'org_admin' && user.organizationId?.toString() !== req.user.organizationId?.toString()) {
+    throw new ForbiddenError('You can only manage Staff in your own organization');
+  }
+  const validKeys = new Set(ADMIN_SIDEBAR_ITEMS.map((item) => item.key));
+  user.sidebarAccess = Array.isArray(req.body.keys) ? req.body.keys.filter((key: unknown) => typeof key === 'string' && validKeys.has(key)) : [];
+  await user.save();
+  return ApiResponse.success(res, { userId: user._id, keys: user.sidebarAccess }, 'Staff sidebar access updated successfully');
 };

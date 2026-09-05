@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, Search, X, Lock, Unlock, CalendarDays, Award } from 'lucide-react';
+import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, Search, X, Lock, Unlock, CalendarDays, Award, CalendarCheck } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { categoryLabels, inferCategoryIcon, inferCategoryColor, levelColors, statusColors } from '../../../lib/course-category-visuals';
@@ -690,11 +690,16 @@ export function AttendanceManage() {
       <div className="mx-auto max-w-screen-2xl space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">📅 Attendance Management</h1>
-            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-              {selectedCourseObj ? `${selectedCourseObj.title.en} — ${selectedCourseObj.effectiveEnrolled ?? selectedCourseObj.enrolledStudents} enrolled` : 'Select a course to get started'}
-            </p>
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/20">
+              <CalendarCheck className="h-7 w-7 text-white" strokeWidth={1.75} />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text-primary)]">Attendance Management</h1>
+              <p className="text-sm text-[var(--color-text-tertiary)] mt-0.5">
+                {selectedCourseObj ? `${selectedCourseObj.title.en} — ${selectedCourseObj.effectiveEnrolled ?? selectedCourseObj.enrolledStudents} enrolled` : 'Select a course to get started'}
+              </p>
+            </div>
           </div>
         </div>
 

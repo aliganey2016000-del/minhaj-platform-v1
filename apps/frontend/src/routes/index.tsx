@@ -64,6 +64,7 @@ const SchedulesManage = lazy(() => import('../features/admin/pages/schedules-man
 const ClassesManage = lazy(() => import('../features/admin/pages/classes-manage').then((m) => ({ default: m.ClassesManage })));
 const TeachersManage = lazy(() => import('../features/admin/pages/teachers-manage').then((m) => ({ default: m.TeachersManage })));
 const StaffManage = lazy(() => import('../features/admin/pages/staff-manage').then((m) => ({ default: m.StaffManage })));
+const StaffAccessManage = lazy(() => import('../features/admin/pages/staff-access-manage').then((m) => ({ default: m.StaffAccessManage })));
 const ParentsManage = lazy(() => import('../features/admin/pages/parents-manage').then((m) => ({ default: m.ParentsManage })));
 const ExamsManage = lazy(() => import('../features/admin/pages/exams-manage').then((m) => ({ default: m.ExamsManage })));
 const ResultsView = lazy(() => import('../features/admin/pages/results-view').then((m) => ({ default: m.ResultsView })));
@@ -128,7 +129,7 @@ const L = (el: JSX.Element) => <Suspense fallback={<PageLoader />}>{el}</Suspens
 export const router = createBrowserRouter([
   ...publicRoutes,
   ...authRoutes,
-  { path: 'admin/staff', element: L(<AdminGuard><AdminLayout /></AdminGuard>), children: [{ index: true, element: L(<StaffManage />) }] },
+  { path: 'admin/staff', element: L(<AdminGuard><AdminLayout /></AdminGuard>), children: [{ index: true, element: L(<StaffManage />) }, { path: ':staffId/access', element: L(<StaffAccessManage />) }] },
   { path: 'student', element: L(<StudentLayout />), children: [
     { index: true, element: L(<StudentDashboard />) }, { path: 'courses', element: L(<StudentCourses />) }, { path: 'courses/:courseId', element: L(<StudentCourseDetail />) }, { path: 'courses/:courseId/learn', element: L(<StudentCourseLearn />) }, { path: 'courses/:courseId/ai-tutor', element: L(<StudentAiTutor />) }, { path: 'courses/:courseId/quiz/:quizId/take', element: L(<StudentQuizTake />) }, { path: 'analytics', element: L(<StudentAnalytics />) }, { path: 'schedule', element: L(<StudentSchedule />) }, { path: 'available', element: L(<StudentAvailable />) }, { path: 'assignments', element: L(<StudentAssignments />) }, { path: 'assignments/:assignmentId', element: L(<StudentAssignmentDetail />) }, { path: 'exams', element: L(<StudentExams />) }, { path: 'exams/seating', element: L(<StudentExamSeating />) }, { path: 'exams/active', element: L(<StudentExamActive />) }, { path: 'exams/:examId/review', element: L(<StudentExamReview />) }, { path: 'exams/attendance', element: L(<StudentExamAttendance />) }, { path: 'exams/results', element: L(<StudentExamResults />) }, { path: 'exams/appeals', element: L(<StudentExamAppeals />) }, { path: 'certificates', element: L(<StudentCertificates />) }, { path: 'attendance', element: L(<StudentAttendance />) }, { path: 'downloads', element: L(<StudentDownloads />) }, { path: 'bookmarks', element: L(<StudentBookmarks />) }, { path: 'payments', element: L(<StudentPayments />) }, { path: 'notifications', element: L(<StudentNotifications />) }, { path: 'forum', element: L(<ForumPage />) }, { path: 'profile', element: L(<StudentProfileView />) }, { path: 'settings', element: L(<StudentSettings />) },
   ] },

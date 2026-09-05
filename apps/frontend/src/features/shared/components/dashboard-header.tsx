@@ -32,6 +32,7 @@ interface HeaderData {
   lastName: string;
   email: string;
   role: string;
+  title?: string;
   orgName: string;
   orgInitial: string;
 }
@@ -50,6 +51,7 @@ interface DashboardHeaderProps {
 const roleBadge: Record<string, { label: string; color: string }> = {
   admin:     { label: 'Super Admin',  color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
   org_admin: { label: 'Org Admin',    color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+  staff:     { label: 'Admin Staff',  color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
   teacher:   { label: 'Teacher',      color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
   student:   { label: 'Student',      color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
   parent:    { label: 'Parent',       color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
@@ -142,6 +144,7 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
           lastName: profile?.lastName || '',
           email: me?.user?.email || user.email,
           role: me?.user?.role || user.role,
+          title: me?.user?.title || user.title,
           orgName,
           orgInitial: orgName.charAt(0).toUpperCase(),
         });
@@ -153,6 +156,7 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
           lastName: '',
           email: user.email,
           role: user.role,
+          title: user.title,
           orgName: fallbackOrg,
           orgInitial: fallbackOrg.charAt(0).toUpperCase(),
         });
@@ -171,7 +175,9 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
     day: 'numeric',
   });
 
-  const badge = roleBadge[data?.role || ''] || roleBadge.student;
+  const badge = data?.role === 'staff' && data.title?.trim()
+    ? { ...roleBadge.staff, label: data.title.trim() }
+    : roleBadge[data?.role || ''] || roleBadge.staff;
   const canQuickAct = data?.role === 'admin' || data?.role === 'org_admin';
 
   if (hidden) return null;

@@ -67,15 +67,21 @@ export function LoginPage() {
       const isSafeRelativePath = (p: string | null | undefined): p is string =>
         !!p && p.startsWith('/') && !p.startsWith('//');
       const from = isSafeRelativePath(stateFrom) ? stateFrom : isSafeRelativePath(queryFrom) ? queryFrom : null;
-      if (from) {
+      const role = userData?.role || 'student';
+      const canUseRequestedPortal = !from
+        || (role === 'staff' && from.startsWith('/admin'))
+        || ((role === 'admin' || role === 'org_admin') && from.startsWith('/admin'))
+        || (role === 'teacher' && from.startsWith('/teacher'))
+        || (role === 'parent' && from.startsWith('/parent'))
+        || (role === 'student' && from.startsWith('/student'));
+      if (from && canUseRequestedPortal) {
         navigate(from);
         return;
       }
-      // Redirect based on role — teachers have their own sandboxed portal
-      // at /teacher, admins/org_admins at /admin.
-      const role = userData?.role || 'student';
-      if (role === 'teacher') navigate('/teacher');
-      else if (role === 'admin' || role === 'org_admin') navigate('/admin');
+      // Redirect based on role — staff use the admin shell, while the
+      // sidebar and backend permissions limit them to the pages granted.
+      if (role === 'staff' || role === 'admin' || role === 'org_admin') navigate('/admin');
+      else if (role === 'teacher') navigate('/teacher');
       else if (role === 'parent') navigate('/parent');
       else navigate('/student');
     } catch {
