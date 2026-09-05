@@ -62,19 +62,6 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     ],
   },
   {
-    title: 'HR',
-    items: [
-      {
-        key: 'group:hr-management', label: 'HR Management', icon: UsersRound,
-        children: [
-          { path: '/admin/hr',          label: 'HR Dashboard',        icon: UserCog2 },
-          { path: '/admin/staff',       label: 'Staff Directory',     icon: UserRound },
-          { path: '/admin/hr/access',   label: 'Access & Permissions', icon: ShieldCheck },
-        ],
-      },
-    ],
-  },
-  {
     title: 'Academic',
     items: [
       { path: '/admin/schedules',    label: 'Class Schedules',    icon: CalendarClock },
@@ -126,6 +113,19 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/news',         label: 'News',               icon: Newspaper },
       { path: '/admin/events',       label: 'Events',             icon: PartyPopper },
       { path: '/admin/gallery',      label: 'Gallery',            icon: Image },
+    ],
+  },
+  {
+    title: 'HR',
+    items: [
+      {
+        key: 'group:hr-management', label: 'HR Management', icon: UsersRound,
+        children: [
+          { path: '/admin/hr',          label: 'HR Dashboard',        icon: UserCog2 },
+          { path: '/admin/staff',       label: 'Staff Directory',     icon: UserRound },
+          { path: '/admin/hr/access',   label: 'Access & Permissions', icon: ShieldCheck },
+        ],
+      },
     ],
   },
   {
