@@ -54,7 +54,8 @@ function StaffModal({ member, isSuperAdmin, onClose, onSaved }: { member?: Staff
       } else {
         await api.post('/users', { ...form, role: 'staff', organizationId: form.organizationId || undefined });
       }
-      onSaved(); onClose();
+      onClose();
+      void onSaved();
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to save Staff member'); }
     finally { setSaving(false); }
   };

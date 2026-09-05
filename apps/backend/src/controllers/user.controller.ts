@@ -164,7 +164,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { email, password, firstName, lastName, gender, role, organizationId } = req.body;
+  const { email, password, firstName, lastName, gender, role, organizationId, phone } = req.body;
 
   // Validate required fields
   if (!email || !password || !firstName || !lastName || !gender || !role) {
@@ -197,6 +197,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const user = await User.create({
     email: email.toLowerCase(),
     password,
+    phone: phone || undefined,
     role,
     organizationId: resolvedOrgId || undefined,
     isVerified: true, // Admin-created users are pre-verified
