@@ -1,8 +1,3 @@
-/**
- * API v1 Route Aggregator
- * Mounts all v1 resource routes under their respective paths.
- */
-
 import { Router } from 'express';
 import authRoutes from './auth.routes';
 import courseRoutes from './course.routes';
@@ -17,6 +12,7 @@ import feeAdjustmentRoutes from './fee-adjustment.routes';
 import discountGrantRoutes from './discount-grant.routes';
 import reportRoutes from './report.routes';
 import attendanceRoutes from './attendance.routes';
+import staffAttendanceRoutes from './staff-attendance.routes';
 import classRoutes from './class.routes';
 import trashRoutes from './trash.routes';
 import teacherRoutes from './teacher.routes';
@@ -77,6 +73,7 @@ router.use('/cash-sessions', authMiddleware, requireModulePermission('finance'),
 router.use('/finance/reconciliations', authMiddleware, requireModulePermission('finance'), financeReconciliationRoutes);
 router.use('/finance', authMiddleware, requireModulePermission('finance'), accountingRoutes);
 router.use('/attendance', authMiddleware, requireModulePermission('academic'), attendanceRoutes);
+router.use('/hr/staff-attendance', authMiddleware, requireModulePermission('organization'), staffAttendanceRoutes);
 router.use('/classes', authMiddleware, requireModulePermission('organization'), classRoutes);
 router.use('/trash', authMiddleware, requireModulePermission('system'), trashRoutes);
 router.use('/teachers', authMiddleware, requireModulePermission('organization'), teacherRoutes);
@@ -118,21 +115,6 @@ router.use('/activity', learningActivityRoutes);
 router.use('/gradebook-courses', gradebookCoursesRoutes);
 router.use('/gradebook/:courseId', gradebookRoutes);
 router.use('/', teacherAssignmentGradingRoutes);
-
-router.get('/health', (_req, res) => {
-  res.status(200).json({ success: true, statusCode: 200, message: 'API v1 is operational', data: { uptime: process.uptime(), timestamp: new Date().toISOString(), version: '1.0.0' }, errors: null });
-});
-
-router.get('/health/ready', (_req, res) => {
-  const databaseReady = mongoose.connection.readyState === 1;
-  const statusCode = databaseReady ? 200 : 503;
-  res.status(statusCode).json({
-    success: databaseReady,
-    statusCode,
-    message: databaseReady ? 'API v1 is ready' : 'Database is not ready',
-    data: { database: databaseReady ? 'connected' : 'disconnected', timestamp: new Date().toISOString(), version: '1.0.0' },
-    errors: null,
-  });
-});
-
+router.get('/health', (_req, res) => { res.status(200).json({ success: true, statusCode: 200, message: 'API v1 is operational', data: { uptime: process.uptime(), timestamp: new Date().toISOString(), version: '1.0.0' }, errors: null }); });
+router.get('/health/ready', (_req, res) => { const databaseReady = mongoose.connection.readyState === 1; const statusCode = databaseReady ? 200 : 503; res.status(statusCode).json({ success: databaseReady, statusCode, message: databaseReady ? 'API v1 is ready' : 'Database is not ready', data: { database: databaseReady ? 'connected' : 'disconnected', timestamp: new Date().toISOString(), version: '1.0.0' }, errors: null }); });
 export default router;
