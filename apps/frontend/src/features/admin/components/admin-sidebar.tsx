@@ -116,16 +116,10 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     ],
   },
   {
-    title: 'HR',
+    title: 'HR Management',
     items: [
-      {
-        key: 'group:hr-management', label: 'HR Management', icon: UsersRound,
-        children: [
-          { path: '/admin/hr',          label: 'HR Dashboard',        icon: UserCog2 },
-          { path: '/admin/staff',       label: 'Staff Directory',     icon: UserRound },
-          { path: '/admin/hr/access',   label: 'Access & Permissions', icon: ShieldCheck },
-        ],
-      },
+      { path: '/admin/staff',     label: 'Staff Directory',     icon: UserRound },
+      { path: '/admin/hr/access', label: 'Access & Permissions', icon: ShieldCheck },
     ],
   },
   {
