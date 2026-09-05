@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import authRoutes from './auth.routes';
 import courseRoutes from './course.routes';
+import mongoose from 'mongoose';
 import studentRoutes from './student.routes';
 import analyticsRoutes from './analytics.routes';
 import paymentRoutes from './payment.routes';
@@ -57,33 +58,35 @@ import teacherAssignmentGradingRoutes from '../teacher-assignment-grading.routes
 import cashSessionRoutes from './cash-session.routes';
 import accountingRoutes from './accounting.routes';
 import financeReconciliationRoutes from './finance-reconciliation.routes';
+import { authMiddleware } from '../../middleware/auth.middleware';
+import { requireModulePermission } from '../../middleware/role.middleware';
 
 const router = Router();
 router.use('/auth', authRoutes);
 router.use('/courses', courseRoutes);
-router.use('/students', studentRoutes);
+router.use('/students', authMiddleware, requireModulePermission('admissions'), studentRoutes);
 router.use('/analytics', analyticsRoutes);
-router.use('/payments', paymentRoutes);
-router.use('/fee-structures', feeStructureRoutes);
-router.use('/invoices', invoiceRoutes);
-router.use('/refunds', refundRoutes);
-router.use('/fee-adjustments', feeAdjustmentRoutes);
-router.use('/discount-grants', discountGrantRoutes);
+router.use('/payments', authMiddleware, requireModulePermission('finance'), paymentRoutes);
+router.use('/fee-structures', authMiddleware, requireModulePermission('finance'), feeStructureRoutes);
+router.use('/invoices', authMiddleware, requireModulePermission('finance'), invoiceRoutes);
+router.use('/refunds', authMiddleware, requireModulePermission('finance'), refundRoutes);
+router.use('/fee-adjustments', authMiddleware, requireModulePermission('finance'), feeAdjustmentRoutes);
+router.use('/discount-grants', authMiddleware, requireModulePermission('finance'), discountGrantRoutes);
 router.use('/reports', reportRoutes);
-router.use('/cash-sessions', cashSessionRoutes);
-router.use('/finance', accountingRoutes);
-router.use('/finance/reconciliations', financeReconciliationRoutes);
+router.use('/cash-sessions', authMiddleware, requireModulePermission('finance'), cashSessionRoutes);
+router.use('/finance/reconciliations', authMiddleware, requireModulePermission('finance'), financeReconciliationRoutes);
+router.use('/finance', authMiddleware, requireModulePermission('finance'), accountingRoutes);
 router.use('/attendance', attendanceRoutes);
 router.use('/classes', classRoutes);
 router.use('/trash', trashRoutes);
 router.use('/teachers', teacherRoutes);
 router.use('/parents', parentRoutes);
-router.use('/exams', examRoutes);
-router.use('/exam-rooms', examRoomRoutes);
-router.use('/exam-incidents', examIncidentRoutes);
-router.use('/exam-appeals', examAppealRoutes);
-router.use('/results', resultRoutes);
-router.use('/certificates', certificateRoutes);
+router.use('/exams', authMiddleware, requireModulePermission('exams'), examRoutes);
+router.use('/exam-rooms', authMiddleware, requireModulePermission('exams'), examRoomRoutes);
+router.use('/exam-incidents', authMiddleware, requireModulePermission('exams'), examIncidentRoutes);
+router.use('/exam-appeals', authMiddleware, requireModulePermission('exams'), examAppealRoutes);
+router.use('/results', authMiddleware, requireModulePermission('exams'), resultRoutes);
+router.use('/certificates', authMiddleware, requireModulePermission('exams'), certificateRoutes);
 router.use('/assignments', assignmentRoutes);
 router.use('/resources', resourceRoutes);
 router.use('/notifications', notificationRoutes);
@@ -95,7 +98,7 @@ router.use('/events', contentRoutes('Event'));
 router.use('/gallery', contentRoutes('Gallery'));
 router.use('/system', systemRoutes);
 router.use('/schools', schoolRoutes);
-router.use('/courses/:courseId/content', courseContentRoutes);
+router.use('/courses/:courseId/content', authMiddleware, requireModulePermission('courses'), courseContentRoutes);
 router.use('/content-blocks-import', contentBlocksImportRoutes);
 router.use('/quizzes', quizRoutes);
 router.use('/courses/:courseId/lessons/:lessonId/gate', lessonBlockProgressRoutes);
@@ -118,6 +121,18 @@ router.use('/', teacherAssignmentGradingRoutes);
 
 router.get('/health', (_req, res) => {
   res.status(200).json({ success: true, statusCode: 200, message: 'API v1 is operational', data: { uptime: process.uptime(), timestamp: new Date().toISOString(), version: '1.0.0' }, errors: null });
+});
+
+router.get('/health/ready', (_req, res) => {
+  const databaseReady = mongoose.connection.readyState === 1;
+  const statusCode = databaseReady ? 200 : 503;
+  res.status(statusCode).json({
+    success: databaseReady,
+    statusCode,
+    message: databaseReady ? 'API v1 is ready' : 'Database is not ready',
+    data: { database: databaseReady ? 'connected' : 'disconnected', timestamp: new Date().toISOString(), version: '1.0.0' },
+    errors: null,
+  });
 });
 
 export default router;

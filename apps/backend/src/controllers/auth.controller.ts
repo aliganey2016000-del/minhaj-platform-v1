@@ -180,7 +180,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     {
       userId: user._id.toString(),
       role: user.role,
-      permissions: [],
+      permissions: user.permissions.flatMap((permission) => permission.actions.map((action) => `${permission.module}.${action}`)),
       organizationId: effectiveOrg.organizationId,
     },
     { userId: user._id.toString(), tokenVersion: user.tokenVersion }
@@ -215,6 +215,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
         organizationId: effectiveOrg.organizationId,
         organizationName: effectiveOrg.organizationName,
         onboardingCompleted: user.onboardingCompleted,
+        permissions: user.permissions,
       },
       accessToken: tokenPair.accessToken,
     },
@@ -279,7 +280,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     {
       userId: user._id.toString(),
       role: user.role,
-      permissions: [], // Will be populated from Role model in production
+      permissions: user.permissions.flatMap((permission) => permission.actions.map((action) => `${permission.module}.${action}`)),
       organizationId: effectiveOrg.organizationId,
     },
     { userId: user._id.toString(), tokenVersion: user.tokenVersion }
@@ -333,6 +334,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         organizationId: effectiveOrg.organizationId,
         organizationName: effectiveOrg.organizationName,
         onboardingCompleted: user.onboardingCompleted,
+        permissions: user.permissions,
       },
       accessToken: tokenPair.accessToken,
     },
@@ -450,7 +452,7 @@ export const refreshToken = async (req: Request, res: Response): Promise<Respons
     {
       userId: user._id.toString(),
       role: user.role,
-      permissions: [],
+      permissions: user.permissions.flatMap((permission) => permission.actions.map((action) => `${permission.module}.${action}`)),
       organizationId: effectiveOrg.organizationId,
     },
     { userId: user._id.toString(), tokenVersion: user.tokenVersion }

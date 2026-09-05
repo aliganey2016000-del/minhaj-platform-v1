@@ -15,6 +15,25 @@ import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '.
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter } from '../utils/tenant-scope';
 import { escapeRegex } from '../utils/escape-regex';
+import { normalizeStaffPermissions, STAFF_PERMISSION_CATALOG } from '../utils/staff-permissions';
+
+export const getPermissionCatalog = async (_req: Request, res: Response): Promise<Response> => {
+  return ApiResponse.success(res, STAFF_PERMISSION_CATALOG);
+};
+
+export const updatePermissions = async (req: Request, res: Response): Promise<Response> => {
+  const user = await User.findById(req.params.id);
+  if (!user) throw new NotFoundError('User');
+  if (user.role !== 'staff') throw new BadRequestError('Permissions can only be assigned to Staff users');
+
+  if (req.user?.role === 'org_admin' && user.organizationId?.toString() !== req.user.organizationId?.toString()) {
+    throw new ForbiddenError('You can only manage users in your own organization');
+  }
+
+  user.permissions = normalizeStaffPermissions(req.body.permissions) as any;
+  await user.save();
+  return ApiResponse.success(res, { userId: user._id, permissions: user.permissions }, 'Staff permissions updated successfully');
+};
 
 // ---------------------------------------------------------------------------
 // List Users (admin / org_admin)

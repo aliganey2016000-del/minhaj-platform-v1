@@ -7,6 +7,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { ForbiddenError, UnauthorizedError } from '../utils/api-error';
+import { StaffAction, StaffModule } from '../utils/staff-permissions';
 
 export type AllowedRole =
   | 'admin'
@@ -16,7 +17,8 @@ export type AllowedRole =
   | 'org_admin'
   | 'finance_manager'
   | 'cashier'
-  | 'auditor';
+  | 'auditor'
+  | 'staff';
 
 export const roleMiddleware = (allowedRoles: AllowedRole[]) => {
   if (!allowedRoles || allowedRoles.length === 0) {
@@ -27,6 +29,7 @@ export const roleMiddleware = (allowedRoles: AllowedRole[]) => {
     try {
       if (!req.user) throw new UnauthorizedError('Authentication required.');
       const userRole = req.user.role as AllowedRole;
+      if (userRole === 'staff' && (req as any).staffModule) return next();
       if (!allowedRoles.includes(userRole)) {
         throw new ForbiddenError(
           `Access denied. Required role(s): ${allowedRoles.join(', ')}. Your role: ${userRole}.`
@@ -77,7 +80,44 @@ export const anyAuthenticatedUser = roleMiddleware([
   'finance_manager',
   'cashier',
   'auditor',
+  'staff',
 ]);
+
+/** Legacy roles retain their existing access; Staff must have an explicit grant. */
+export const requirePermission = (module: StaffModule, action: StaffAction) => {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    try {
+      if (!req.user) throw new UnauthorizedError('Authentication required.');
+      if (req.user.role !== 'staff') return next();
+      if (!req.user.permissions.includes(`${module}.${action}`)) {
+        throw new ForbiddenError(`Staff permission required: ${module}.${action}`);
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+
+/** Maps conventional REST endpoints to the action checkbox used by Staff. */
+export const requireModulePermission = (module: StaffModule) => {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    (req as any).staffModule = module;
+    const path = req.path.toLowerCase();
+    const action: StaffAction = path.includes('import')
+      ? 'import'
+      : path.includes('export') || path.includes('template')
+        ? 'export'
+        : req.method === 'GET' || req.method === 'HEAD'
+          ? 'read'
+          : req.method === 'POST'
+            ? 'create'
+            : req.method === 'DELETE'
+              ? 'delete'
+              : 'edit';
+    requirePermission(module, action)(req, _res, next);
+  };
+};
 
 export const adminOrSelf = (getResourceOwnerId: (req: Request) => string) => {
   return (req: Request, _res: Response, next: NextFunction): void => {

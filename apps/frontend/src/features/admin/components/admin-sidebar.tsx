@@ -211,6 +211,14 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
   const location = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const isSuperAdmin = user?.role === 'admin';
+  const hasStaffRead = (module: string) => user?.role !== 'staff' || user.permissions.some((permission) => permission.module === module && permission.actions.includes('read'));
+  const moduleForPath = (path: string) => {
+    if (/\/admin\/(payments|fee-structures|invoices)/.test(path)) return 'finance';
+    if (/\/admin\/(exams|results|certificates)/.test(path)) return 'exams';
+    if (/\/admin\/students/.test(path)) return 'admissions';
+    if (/\/admin\/courses/.test(path)) return 'courses';
+    return null;
+  };
 
   // Tenant-scoped visibility for org_admin/teacher, configured by a super
   // admin via the Org Admin Sidebar Manager. Super admin always sees
@@ -254,10 +262,10 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
         .map((item) => {
           if (isGroup(item)) {
             if (item.key && !isVisible(item.key)) return null;
-            const children = item.children.filter((c) => isVisible(keyForPath(c.path)));
+            const children = item.children.filter((c) => isVisible(keyForPath(c.path)) && (!moduleForPath(c.path) || hasStaffRead(moduleForPath(c.path)!)));
             return children.length > 0 ? { ...item, children } : null;
           }
-          return isVisible(keyForPath(item.path)) ? item : null;
+          return isVisible(keyForPath(item.path)) && (!moduleForPath(item.path) || hasStaffRead(moduleForPath(item.path)!)) ? item : null;
         })
         .filter((item): item is NavEntry => item !== null),
     }))

@@ -22,9 +22,11 @@ router.use(authMiddleware);
 router.use(roleMiddleware(['admin', 'org_admin']));
 
 router.get('/', asyncHandler(userController.getAll));
+router.get('/permissions/catalog', asyncHandler(userController.getPermissionCatalog));
 router.get('/:id', asyncHandler(userController.getById));
 router.post('/', asyncHandler(userController.create));
 router.patch('/:id', asyncHandler(userController.update));
+router.patch('/:id/permissions', asyncHandler(userController.updatePermissions));
 router.delete('/:id', asyncHandler(userController.remove));
 
 export default router;

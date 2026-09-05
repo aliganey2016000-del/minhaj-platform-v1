@@ -14,6 +14,7 @@ const ROLE_PORTAL: Record<string, string> = {
   teacher: '/teacher',
   student: '/student',
   parent: '/parent',
+  staff: '/admin',
 };
 
 export function AdminGuard({ children }: { children: React.ReactNode }) {
@@ -31,13 +32,13 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
       navigate('/auth/login', { replace: true, state: { from: location.pathname + location.search } });
       return;
     }
-    if (user.role !== 'admin' && user.role !== 'org_admin') {
+    if (user.role !== 'admin' && user.role !== 'org_admin' && user.role !== 'staff') {
       const redirect = ROLE_PORTAL[user.role] || '/auth/login';
       navigate(redirect, { replace: true });
     }
   }, [user, isLoading, navigate, location]);
 
-  if (isLoading || !user || (user.role !== 'admin' && user.role !== 'org_admin')) {
+  if (isLoading || !user || (user.role !== 'admin' && user.role !== 'org_admin' && user.role !== 'staff')) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-primary)]">
         <div className="flex flex-col items-center gap-4">

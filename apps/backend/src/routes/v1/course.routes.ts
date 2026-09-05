@@ -27,7 +27,7 @@ import multer from 'multer';
 import * as courseController from '../../controllers/course.controller';
 import * as gateReportController from '../../controllers/gate-report.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { roleMiddleware, adminOnly, adminOrTeacher } from '../../middleware/role.middleware';
+import { roleMiddleware, adminOnly, adminOrTeacher, requireModulePermission } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
@@ -47,6 +47,7 @@ router.get(
 router.get(
   '/admin',
   authMiddleware,
+  requireModulePermission('courses'),
   adminOrTeacher,
   asyncHandler(courseController.getAllAdmin)
 );
@@ -56,6 +57,7 @@ router.get(
 router.get(
   '/gate-accuracy-summary',
   authMiddleware,
+  requireModulePermission('courses'),
   adminOrTeacher,
   asyncHandler(gateReportController.getGateAccuracySummary)
 );
@@ -70,6 +72,7 @@ router.get(
 router.post(
   '/',
   authMiddleware,
+  requireModulePermission('courses'),
   adminOnly,
   asyncHandler(courseController.create)
 );
@@ -78,6 +81,7 @@ router.post(
 router.get(
   '/:id/admin',
   authMiddleware,
+  requireModulePermission('courses'),
   adminOrTeacher,
   asyncHandler(courseController.getByIdAdmin)
 );
@@ -86,6 +90,7 @@ router.get(
 router.patch(
   '/:id',
   authMiddleware,
+  requireModulePermission('courses'),
   adminOnly,
   asyncHandler(courseController.update)
 );
@@ -94,6 +99,7 @@ router.patch(
 router.delete(
   '/:id',
   authMiddleware,
+  requireModulePermission('courses'),
   adminOnly,
   asyncHandler(courseController.remove)
 );
@@ -103,6 +109,7 @@ router.delete(
 router.patch(
   '/:id/live',
   authMiddleware,
+  requireModulePermission('courses'),
   roleMiddleware(['admin', 'org_admin', 'teacher']),
   asyncHandler(courseController.toggleLive)
 );
@@ -112,6 +119,7 @@ router.patch(
 router.get(
   '/:id/gate-report',
   authMiddleware,
+  requireModulePermission('courses'),
   adminOrTeacher,
   asyncHandler(gateReportController.getCourseGateReport)
 );
@@ -120,6 +128,7 @@ router.get(
 router.get(
   '/:id/students',
   authMiddleware,
+  requireModulePermission('courses'),
   adminOrTeacher,
   asyncHandler(courseController.getEnrolledStudents)
 );
@@ -128,6 +137,7 @@ router.get(
 router.get(
   '/:id/video-gating',
   authMiddleware,
+  requireModulePermission('courses'),
   adminOrTeacher,
   asyncHandler(courseController.getVideoGating)
 );
@@ -136,6 +146,7 @@ router.get(
 router.post(
   '/:id/video-gating',
   authMiddleware,
+  requireModulePermission('courses'),
   adminOrTeacher,
   asyncHandler(courseController.updateVideoGating)
 );
@@ -144,6 +155,7 @@ router.post(
 router.post(
   '/:courseId/enroll',
   authMiddleware,
+  requireModulePermission('courses'),
   roleMiddleware(['admin']),
   asyncHandler(courseController.enrollStudent)
 );
@@ -152,6 +164,7 @@ router.post(
 router.post(
   '/:courseId/unenroll',
   authMiddleware,
+  requireModulePermission('courses'),
   roleMiddleware(['admin']),
   asyncHandler(courseController.unenrollStudent)
 );
@@ -183,13 +196,13 @@ router.post(
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // POST /api/v1/courses/import — Bulk import (admin + org_admin)
-router.post('/import', authMiddleware, adminOnly, upload.single('file'), asyncHandler(courseController.bulkImport));
+router.post('/import', authMiddleware, requireModulePermission('courses'), adminOnly, upload.single('file'), asyncHandler(courseController.bulkImport));
 
 // GET /api/v1/courses/export — Export courses (admin + org_admin)
-router.get('/export', authMiddleware, adminOnly, asyncHandler(courseController.exportCourses as any));
+router.get('/export', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseController.exportCourses as any));
 
 // GET /api/v1/courses/template — Download import template
-router.get('/template', authMiddleware, adminOnly, asyncHandler(courseController.downloadTemplate as any));
+router.get('/template', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseController.downloadTemplate as any));
 
 // GET /api/v1/courses/:slug — Get published course by slug (MUST be last)
 router.get(

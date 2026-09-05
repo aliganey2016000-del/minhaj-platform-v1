@@ -21,6 +21,7 @@ interface User {
   organizationId?: string;
   organizationName?: string;
   onboardingCompleted?: boolean;
+  permissions: Array<{ module: string; actions: string[] }>;
 }
 
 interface AuthContextValue {
@@ -65,6 +66,7 @@ function normalizeUser(raw: any): User {
     organizationId: orgId,
     organizationName: raw.organizationName || (typeof raw.organizationId === 'object' && raw.organizationId?.name) || undefined,
     onboardingCompleted: raw.onboardingCompleted ?? true,
+    permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
   };
 }
 

@@ -36,7 +36,7 @@ interface UserOrg {
 interface UserRecord {
   _id: string;
   email: string;
-  role: 'admin' | 'org_admin' | 'teacher' | 'student' | 'parent';
+    role: 'admin' | 'org_admin' | 'teacher' | 'student' | 'parent' | 'staff';
   organizationId?: UserOrg | null;
   isActive: boolean;
   isVerified: boolean;
@@ -60,6 +60,7 @@ const roleLabels: Record<string, { label: string; color: string }> = {
   teacher:    { label: 'Teacher',       color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
   student:    { label: 'Student',       color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
   parent:     { label: 'Parent',        color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+    staff:      { label: 'Staff',        color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300' },
 };
 
 // ---------------------------------------------------------------------------
@@ -260,6 +261,7 @@ function UserModal({
                 <option value="teacher">Teacher</option>
                 <option value="student">Student</option>
                 <option value="parent">Parent</option>
+                  <option value="staff">Staff</option>
               </select>
             )}
           </div>

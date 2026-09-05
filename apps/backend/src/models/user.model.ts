@@ -6,6 +6,7 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import { STAFF_MODULES, STAFF_ACTIONS, StaffPermission } from '../utils/staff-permissions';
 
 export type UserRole =
   | 'admin'
@@ -15,7 +16,8 @@ export type UserRole =
   | 'org_admin'
   | 'finance_manager'
   | 'cashier'
-  | 'auditor';
+  | 'auditor'
+  | 'staff';
 
 export interface IUser extends Document {
   _id: mongoose.Types.ObjectId;
@@ -23,6 +25,7 @@ export interface IUser extends Document {
   phone?: string;
   password: string;
   role: UserRole;
+  permissions: StaffPermission[];
   organizationId?: mongoose.Types.ObjectId;
   isVerified: boolean;
   isActive: boolean;
@@ -57,9 +60,16 @@ const userSchema = new Schema<IUser, IUserModel>(
       type: String,
       required: [true, 'Role is required'],
       enum: {
-        values: ['admin', 'teacher', 'student', 'parent', 'org_admin', 'finance_manager', 'cashier', 'auditor'],
+        values: ['admin', 'teacher', 'student', 'parent', 'org_admin', 'finance_manager', 'cashier', 'auditor', 'staff'],
         message: 'Invalid user role',
       },
+    },
+    permissions: {
+      type: [{
+        module: { type: String, enum: STAFF_MODULES },
+        actions: [{ type: String, enum: STAFF_ACTIONS }],
+      }],
+      default: [],
     },
     organizationId: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
     isVerified: { type: Boolean, default: false },
