@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import User from '../models/user.model';
+import Profile from '../models/profile.model';
 import EmployeeProfile from '../models/employee-profile.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
@@ -21,8 +22,11 @@ export const get = async (req: Request, res: Response): Promise<Response> => {
   if (!user) throw new NotFoundError('User');
   assertStaff(user, req);
 
-  const profile = await EmployeeProfile.findOne({ user: user._id, organizationId: orgFilter(req, user.organizationId) }).lean();
-  return ApiResponse.success(res, { user, employeeProfile: profile || null });
+  const [profile, employeeProfile] = await Promise.all([
+    Profile.findOne({ user: user._id }).lean(),
+    EmployeeProfile.findOne({ user: user._id, organizationId: orgFilter(req, user.organizationId) }).lean(),
+  ]);
+  return ApiResponse.success(res, { user, profile: profile || null, employeeProfile: employeeProfile || null });
 };
 
 export const upsert = async (req: Request, res: Response): Promise<Response> => {
@@ -39,6 +43,30 @@ export const upsert = async (req: Request, res: Response): Promise<Response> => 
   const duplicate = await EmployeeProfile.findOne({ organizationId, employeeId, user: { $ne: user._id } });
   if (duplicate) throw new BadRequestError('Employee ID is already used in this organization');
 
+  const profilePayload = {
+    firstName: String(req.body.firstName || '').trim(),
+    lastName: String(req.body.lastName || '').trim(),
+    gender: req.body.gender || 'male',
+    dateOfBirth: req.body.dateOfBirth || null,
+    address: req.body.address || {},
+    emergencyContact: req.body.emergencyContact || {},
+  };
+  if (!profilePayload.firstName || !profilePayload.lastName) {
+    throw new BadRequestError('First name and last name are required');
+  }
+  const currentProfile = await Profile.findOne({ user: user._id });
+  if (currentProfile) {
+    await Profile.findByIdAndUpdate(currentProfile._id, profilePayload, { new: true, runValidators: true });
+  } else {
+    await Profile.create({ user: user._id, ...profilePayload });
+  }
+
+  if (req.body.email !== undefined) user.email = String(req.body.email).trim().toLowerCase();
+  if (req.body.phone !== undefined) user.phone = String(req.body.phone || '').trim() || undefined;
+  if (req.body.title !== undefined) user.title = String(req.body.title || '').trim();
+  if (req.body.department !== undefined) user.department = req.body.department || undefined;
+  await user.save();
+
   const payload = {
     organizationId,
     employeeId,
@@ -54,9 +82,9 @@ export const upsert = async (req: Request, res: Response): Promise<Response> => 
     notes: String(req.body.notes || '').trim(),
   };
 
-  const profile = existing
+  const employeeProfile = existing
     ? await EmployeeProfile.findByIdAndUpdate(existing._id, payload, { new: true, runValidators: true }).lean()
     : await EmployeeProfile.create({ user: user._id, ...payload });
 
-  return ApiResponse.success(res, profile, 'Employee profile saved successfully');
+  return ApiResponse.success(res, employeeProfile, 'Staff profile saved successfully');
 };
