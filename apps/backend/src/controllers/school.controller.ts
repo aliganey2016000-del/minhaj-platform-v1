@@ -14,9 +14,11 @@ import Profile from '../models/profile.model';
 import Student from '../models/student.model';
 import Teacher from '../models/teacher.model';
 import Parent from '../models/parent.model';
+import AcademicStructure from '../models/academic-structure.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
+import { resolveInstitutionType, defaultAcademicConfig, validateAcademicConfig, INSTITUTION_TYPES, OWNERSHIP_TYPES } from '../utils/academic-config';
 
 // ---------------------------------------------------------------------------
 // GET /schools — List all with pagination, search, and filters
@@ -99,18 +101,52 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { adminPassword, ...schoolFields } = req.body;
+  const { adminPassword, academicSystem, semestersPerAcademicYear, usesFaculty, ...schoolFields } = req.body;
 
   if (!adminPassword || String(adminPassword).length < 8) {
     throw new BadRequestError('Admin password is required and must be at least 8 characters');
   }
 
+  // institutionType is the new, authoritative classification field. A caller
+  // may still send only the legacy `organizationType` (e.g. during frontend
+  // rollout lag) — resolveInstitutionType derives institutionType from it in
+  // that case, same fallback the schema's own pre-validate hook applies.
+  const institutionType = resolveInstitutionType(schoolFields);
+  if (schoolFields.institutionType && !INSTITUTION_TYPES.includes(schoolFields.institutionType)) {
+    throw new BadRequestError(`Institution type must be one of: ${INSTITUTION_TYPES.join(', ')}`);
+  }
+  if (schoolFields.ownershipType && !OWNERSHIP_TYPES.includes(schoolFields.ownershipType)) {
+    throw new BadRequestError(`Ownership type must be one of: ${OWNERSHIP_TYPES.join(', ')}`);
+  }
+
+  const defaults = defaultAcademicConfig(institutionType);
+  const resolvedAcademicSystem = academicSystem !== undefined ? academicSystem : defaults.academicSystem;
+  const resolvedSemesters = semestersPerAcademicYear !== undefined ? Number(semestersPerAcademicYear) : defaults.semestersPerAcademicYear;
+  validateAcademicConfig(resolvedAcademicSystem, resolvedSemesters);
+
   const payload = {
     ...schoolFields,
+    institutionType,
     createdBy: new mongoose.Types.ObjectId(req.user!.userId),
+    onboardingCompleted: false,
   };
 
   const school = await School.create(payload);
+
+  // Establish the org's academic operating model in the same step — this is
+  // the authoritative source academic-structure.controller.ts, class-related
+  // middleware, and the department/faculty controllers all read from. Not
+  // isolated in its own try/catch (unlike org_admin provisioning below):
+  // a failure here leaves the org genuinely mis-set-up, and unlike the
+  // admin-user path there's a lazy getOrCreateStructure() fallback used
+  // elsewhere, but it would silently fall back to type-based defaults
+  // instead of the operator's actual choice — better to surface the error.
+  const academicStructure = await AcademicStructure.create({
+    school: school._id,
+    academicSystem: resolvedAcademicSystem,
+    semestersPerAcademicYear: resolvedAcademicSystem === 'annual' ? 1 : resolvedSemesters,
+    usesFaculty: usesFaculty !== undefined ? Boolean(usesFaculty) : defaults.usesFaculty,
+  });
 
   // ── Auto-assign Org_Admin user for this school's principal email ──
   // Isolated in its own try/catch: the school itself is already created at
@@ -168,11 +204,43 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     res,
     {
       school: populated,
+      academicStructure,
       portalUrl,
       slug: school.slug,
     },
     orgAdminWarning || 'School registered successfully'
   );
+};
+
+// ---------------------------------------------------------------------------
+// PATCH /schools/:id/complete-onboarding — Mark registration as finished.
+//
+// A newly registered org starts with onboardingCompleted: false. This is a
+// deliberate, explicit action (not an automatic side effect of registration)
+// so the review/confirmation step in the onboarding UI has something real to
+// submit — it re-validates that the org's academic configuration is coherent
+// before flipping the flag, rather than trusting whatever was true at
+// creation time (which may have been edited since).
+// ---------------------------------------------------------------------------
+
+export const completeOnboarding = async (req: Request, res: Response): Promise<Response> => {
+  if (req.user?.role === 'org_admin' && req.params.id !== req.user.organizationId) {
+    throw new ForbiddenError("You do not have permission to modify another organization's onboarding.");
+  }
+
+  const school = await School.findById(req.params.id);
+  if (!school) throw new NotFoundError('School not found');
+
+  const structure = await AcademicStructure.findOne({ school: school._id }).lean();
+  if (!structure) {
+    throw new BadRequestError('Academic structure has not been configured for this organization yet.');
+  }
+  validateAcademicConfig(structure.academicSystem, structure.semestersPerAcademicYear);
+
+  school.onboardingCompleted = true;
+  await school.save();
+
+  return ApiResponse.success(res, school, 'Onboarding completed — organization is fully set up');
 };
 
 // ---------------------------------------------------------------------------

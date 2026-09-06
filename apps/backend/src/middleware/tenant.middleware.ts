@@ -67,7 +67,7 @@ export async function tenantMiddleware(
 
     // The platform's own root/www domain is always the main marketing
     // site — never a tenant lookup, even though a bare org customDomain
-    // (e.g. "masjidalrahma.so") has the same two-label shape.
+    // (e.g. "yourschool.edu") has the same two-label shape.
     const baseDomain = (process.env.BASE_DOMAIN || 'sahaledu.com').toLowerCase();
     if (hostname === baseDomain || hostname === `www.${baseDomain}`) {
       req.tenant = null;

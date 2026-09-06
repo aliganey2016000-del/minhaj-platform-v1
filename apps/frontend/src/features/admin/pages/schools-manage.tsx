@@ -20,15 +20,19 @@ import { Pagination } from '../components/pagination';
 // Types
 // ---------------------------------------------------------------------------
 
-type OrganizationType = 'school' | 'university' | 'training_center' | 'private';
+type InstitutionType = 'school' | 'college' | 'university' | 'training_center';
+type OwnershipType = 'public' | 'private' | 'nonprofit' | 'other';
 type EstimatedStudents = '<50' | '50-200' | '200-1000' | '1000+';
 type SubscriptionPlan = 'free_trial' | 'basic' | 'premium';
 type AttendanceType = 'course_based' | 'class_based';
+type AcademicSystem = 'annual' | 'semester';
 
 interface School {
   _id: string;
   name: string;
-  organizationType: OrganizationType;
+  institutionType: InstitutionType;
+  ownershipType?: OwnershipType;
+  onboardingCompleted?: boolean;
   subdomain: string;
   customDomain?: string;
   country: string;
@@ -52,7 +56,11 @@ interface School {
 
 interface SchoolFormData {
   name: string;
-  organizationType: OrganizationType;
+  institutionType: InstitutionType;
+  ownershipType: OwnershipType;
+  academicSystem: AcademicSystem;
+  semestersPerAcademicYear: '2' | '3';
+  usesFaculty: boolean;
   subdomain: string;
   customDomain: string;
   country: string;
@@ -72,14 +80,25 @@ interface SchoolFormData {
   status: 'active' | 'inactive';
 }
 
-// Step field groups for the 3-step "Register Organization" wizard.
-const STEP_FIELDS: Record<number, (keyof SchoolFormData)[]> = {
-  1: ['name', 'organizationType', 'subdomain', 'customDomain', 'country', 'city', 'address', 'orgId', 'establishedYear', 'website'],
-  2: ['principalName', 'email', 'adminPassword', 'phone'],
-  3: ['estimatedStudents', 'subscriptionPlan', 'registrationNo', 'attendanceType'],
+// Sensible per-institution-type starting points — mirrors backend's
+// defaultAcademicConfig() (academic-config.ts). Applied when the operator
+// picks an institution type; never a hard limit, every field stays editable.
+const INSTITUTION_DEFAULTS: Record<InstitutionType, { academicSystem: AcademicSystem; semestersPerAcademicYear: '2' | '3'; usesFaculty: boolean }> = {
+  school: { academicSystem: 'annual', semestersPerAcademicYear: '2', usesFaculty: false },
+  training_center: { academicSystem: 'annual', semestersPerAcademicYear: '2', usesFaculty: false },
+  college: { academicSystem: 'semester', semestersPerAcademicYear: '2', usesFaculty: false },
+  university: { academicSystem: 'semester', semestersPerAcademicYear: '2', usesFaculty: true },
 };
 
-const STEP_LABELS = ['Organization Details', 'Org Admin', 'Size & Plan'];
+// Step field groups for the 4-step "Register Organization" wizard.
+const STEP_FIELDS: Record<number, (keyof SchoolFormData)[]> = {
+  1: ['name', 'institutionType', 'ownershipType', 'subdomain', 'customDomain', 'country', 'city', 'address', 'orgId', 'establishedYear', 'website'],
+  2: ['academicSystem', 'semestersPerAcademicYear', 'usesFaculty'],
+  3: ['principalName', 'email', 'adminPassword', 'phone'],
+  4: ['estimatedStudents', 'subscriptionPlan', 'registrationNo', 'attendanceType'],
+};
+
+const STEP_LABELS = ['Organization Details', 'Academic Setup', 'Org Admin', 'Size & Plan'];
 
 interface PaginationMeta {
   page: number;
@@ -91,7 +110,11 @@ type ToastType = 'success' | 'error' | null;
 
 const INITIAL_FORM: SchoolFormData = {
   name: '',
-  organizationType: 'school',
+  institutionType: 'school',
+  ownershipType: 'private',
+  academicSystem: 'annual',
+  semestersPerAcademicYear: '2',
+  usesFaculty: false,
   subdomain: '',
   customDomain: '',
   country: '',
@@ -306,7 +329,28 @@ function FormSelect({
 }
 
 // ---------------------------------------------------------------------------
-// Step Indicator — used by the 3-step "Register Organization" wizard
+// Checkbox Field — plain-language toggle, used for "Uses Faculty"
+// ---------------------------------------------------------------------------
+
+function FormCheckbox({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-3 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer"
+      />
+      <span>
+        <span className="block text-sm font-medium text-[var(--color-text-primary)]">{label}</span>
+        {hint && <span className="block text-xs text-[var(--color-text-tertiary)] mt-0.5">{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Step Indicator — used by the 4-step "Register Organization" wizard
 // ---------------------------------------------------------------------------
 
 function StepIndicator({ current }: { current: number }) {
@@ -488,8 +532,12 @@ export function SchoolsManage() {
       else if (form.name.length > 200) errors.name = 'Name cannot exceed 200 characters';
     }
 
-    if (include('organizationType') && !form.organizationType) {
-      errors.organizationType = 'Organization type is required';
+    if (include('institutionType') && !form.institutionType) {
+      errors.institutionType = 'Institution type is required';
+    }
+
+    if (include('semestersPerAcademicYear') && form.academicSystem === 'semester' && !['2', '3'].includes(form.semestersPerAcademicYear)) {
+      errors.semestersPerAcademicYear = 'Choose 2 or 3 semesters per academic year';
     }
 
     if (include('subdomain')) {
@@ -502,7 +550,7 @@ export function SchoolsManage() {
     if (include('customDomain') && form.customDomain.trim()) {
       const domain = form.customDomain.trim().toLowerCase();
       if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)) {
-        errors.customDomain = 'Enter a plain domain, e.g. masjidalrahma.so (no https:// or trailing slash)';
+        errors.customDomain = 'Enter a plain domain, e.g. yourschool.edu (no https:// or trailing slash)';
       }
     }
 
@@ -548,8 +596,8 @@ export function SchoolsManage() {
       else if (!/^[+]?[\d\s()-]{7,20}$/.test(form.phone.trim())) errors.phone = 'Enter a valid phone number';
     }
 
-    if (include('registrationNo') && ['school', 'university'].includes(form.organizationType) && !form.registrationNo.trim()) {
-      errors.registrationNo = 'Registration number is required for schools and universities';
+    if (include('registrationNo') && ['school', 'university', 'college'].includes(form.institutionType) && !form.registrationNo.trim()) {
+      errors.registrationNo = 'Registration number is required for schools, colleges, and universities';
     }
 
     return errors;
@@ -577,7 +625,16 @@ export function SchoolsManage() {
   // ── Field change handler ──
   const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => {
+      // Changing institution type re-applies that type's sensible academic
+      // defaults (only on create — editing an existing org shouldn't
+      // silently rewrite academic settings the org may have already
+      // customized away from the type default).
+      if (name === 'institutionType' && !editingSchool) {
+        return { ...prev, institutionType: value as InstitutionType, ...INSTITUTION_DEFAULTS[value as InstitutionType] };
+      }
+      return { ...prev, [name]: value };
+    });
     // Clear field error on change
     if (formErrors[name as keyof SchoolFormData]) {
       setFormErrors((prev) => {
@@ -598,11 +655,16 @@ export function SchoolsManage() {
   };
 
   // ── Open edit modal ──
-  const openEdit = (school: School) => {
+  const openEdit = async (school: School) => {
     setEditingSchool(school);
+    const defaults = INSTITUTION_DEFAULTS[school.institutionType || 'school'];
     setForm({
       name: school.name,
-      organizationType: school.organizationType || 'school',
+      institutionType: school.institutionType || 'school',
+      ownershipType: school.ownershipType || 'private',
+      academicSystem: defaults.academicSystem,
+      semestersPerAcademicYear: defaults.semestersPerAcademicYear,
+      usesFaculty: defaults.usesFaculty,
       subdomain: school.subdomain || '',
       customDomain: school.customDomain || '',
       country: school.country || '',
@@ -624,11 +686,28 @@ export function SchoolsManage() {
     setFormErrors({});
     setStep(1);
     setModalOpen(true);
+
+    // The org's actual academic configuration lives in a separate
+    // AcademicStructure document — fetch it to replace the type-based
+    // defaults just seeded above with what's really configured.
+    try {
+      const { data } = await api.get('/classes/academic-structure', { params: { schoolId: school._id } });
+      if (data.success) {
+        setForm((prev) => ({
+          ...prev,
+          academicSystem: data.data.academicSystem,
+          semestersPerAcademicYear: data.data.semestersPerAcademicYear === 3 ? '3' : '2',
+          usesFaculty: !!data.data.usesFaculty,
+        }));
+      }
+    } catch {
+      // Fall back to the type-based defaults already set above.
+    }
   };
 
   // ── Wizard navigation (create mode only) ──
   const goNext = () => {
-    if (validateStep(step)) setStep((s) => Math.min(3, s + 1));
+    if (validateStep(step)) setStep((s) => Math.min(4, s + 1));
   };
   const goBack = () => setStep((s) => Math.max(1, s - 1));
 
@@ -636,10 +715,10 @@ export function SchoolsManage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    // The wizard is one <form> spanning all 3 steps, so an Enter keypress on
+    // The wizard is one <form> spanning all 4 steps, so an Enter keypress on
     // an early step could reach here before the final step — treat that as
     // "advance to next step" instead of submitting.
-    if (!editingSchool && step < 3) {
+    if (!editingSchool && step < 4) {
       goNext();
       return;
     }
@@ -648,17 +727,32 @@ export function SchoolsManage() {
 
     setSubmitting(true);
     try {
-      const { adminPassword, ...rest } = form;
+      const { adminPassword, academicSystem, semestersPerAcademicYear, usesFaculty, ...rest } = form;
       const payload: Record<string, unknown> = {
         ...rest,
+        academicSystem,
+        semestersPerAcademicYear: Number(semestersPerAcademicYear),
+        usesFaculty,
         establishedYear: parseInt(form.establishedYear, 10),
       };
       if (!editingSchool || adminPassword) payload.adminPassword = adminPassword;
 
       if (editingSchool) {
-        // Update
+        // Update — the school identity/classification fields go through
+        // PATCH /schools/:id; academic system config is a separate
+        // document (AcademicStructure) updated through its own endpoint.
         const { data } = await api.patch(`/schools/${editingSchool._id}`, payload);
         if (data.success) {
+          try {
+            await api.patch('/classes/academic-structure', {
+              schoolId: editingSchool._id,
+              academicSystem,
+              semestersPerAcademicYear: Number(semestersPerAcademicYear),
+              usesFaculty,
+            });
+          } catch (structureErr: any) {
+            showToast(structureErr.response?.data?.message || 'Organization updated, but academic setup could not be saved', 'error');
+          }
           showToast(data.message || 'Organization updated successfully', 'success');
           setModalOpen(false);
           fetchSchools();
@@ -979,28 +1073,41 @@ export function SchoolsManage() {
                   <FormInput label="Organization Name" name="name" value={form.name} error={formErrors.name} onChange={handleChange} placeholder="e.g., Al-Huda International" required maxLength={200} />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormSelect
-                      label="Organization Type"
-                      name="organizationType"
-                      value={form.organizationType}
-                      error={formErrors.organizationType}
+                      label="Institution Type"
+                      name="institutionType"
+                      value={form.institutionType}
+                      error={formErrors.institutionType}
                       onChange={handleChange}
                       required
                       options={[
                         { value: 'school', label: 'School' },
+                        { value: 'college', label: 'College' },
                         { value: 'university', label: 'University' },
                         { value: 'training_center', label: 'Training Center' },
-                        { value: 'private', label: 'Private' },
                       ]}
                     />
-                    <FormInput label="Subdomain / Slug" name="subdomain" value={form.subdomain} error={formErrors.subdomain} onChange={handleChange} placeholder="e.g., al-huda" required maxLength={63} />
+                    <FormSelect
+                      label="Ownership"
+                      name="ownershipType"
+                      value={form.ownershipType}
+                      error={formErrors.ownershipType}
+                      onChange={handleChange}
+                      options={[
+                        { value: 'private', label: 'Private' },
+                        { value: 'public', label: 'Public / Government' },
+                        { value: 'nonprofit', label: 'Non-Profit' },
+                        { value: 'other', label: 'Other' },
+                      ]}
+                    />
                   </div>
+                  <FormInput label="Subdomain / Slug" name="subdomain" value={form.subdomain} error={formErrors.subdomain} onChange={handleChange} placeholder="e.g., al-huda" required maxLength={63} />
                   <FormInput
                     label="Custom Domain (optional)"
                     name="customDomain"
                     value={form.customDomain}
                     error={formErrors.customDomain}
                     onChange={handleChange}
-                    placeholder="e.g., masjidalrahma.so"
+                    placeholder="e.g., yourschool.edu"
                     maxLength={255}
                   />
                   <p className="-mt-2 text-xs text-[var(--color-text-tertiary)]">
@@ -1031,8 +1138,53 @@ export function SchoolsManage() {
                 </>
               )}
 
-              {/* ── Step 2 / Edit: Org Admin ── */}
+              {/* ── Step 2 / Edit: Academic Setup ── */}
               {(editingSchool || step === 2) && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--color-text-primary)] mb-1">How does your institution organize the academic year?</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium cursor-pointer transition-colors ${form.academicSystem === 'annual' ? 'border-primary-600 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300' : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'}`}>
+                        <input type="radio" name="academicSystem" value="annual" checked={form.academicSystem === 'annual'} onChange={handleChange} className="sr-only" />
+                        One academic year at a time
+                      </label>
+                      <label className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium cursor-pointer transition-colors ${form.academicSystem === 'semester' ? 'border-primary-600 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300' : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'}`}>
+                        <input type="radio" name="academicSystem" value="semester" checked={form.academicSystem === 'semester'} onChange={handleChange} className="sr-only" />
+                        Semesters
+                      </label>
+                    </div>
+                  </div>
+                  {form.academicSystem === 'semester' && (
+                    <FormSelect
+                      label="How many semesters are in one academic year?"
+                      name="semestersPerAcademicYear"
+                      value={form.semestersPerAcademicYear}
+                      error={formErrors.semestersPerAcademicYear}
+                      onChange={handleChange}
+                      options={[
+                        { value: '2', label: '2 semesters' },
+                        { value: '3', label: '3 semesters' },
+                      ]}
+                    />
+                  )}
+                  {(form.institutionType === 'university' || form.institutionType === 'college') && (
+                    <FormCheckbox
+                      label="Uses Faculties above Departments"
+                      hint="Enable this if departments are grouped under Faculties (e.g. Faculty of Engineering → Department of Civil Engineering). Leave off if departments stand on their own."
+                      checked={form.usesFaculty}
+                      onChange={(checked) => setForm((prev) => ({ ...prev, usesFaculty: checked }))}
+                    />
+                  )}
+                  {form.institutionType === 'training_center' && (
+                    <p className="text-xs text-[var(--color-text-tertiary)]">
+                      Training centers organize learners into batches/cohorts rather than academic-year grades — you'll set that up when creating classes.
+                    </p>
+                  )}
+                </>
+              )}
+
+              {/* ── Step 3 / Edit: Org Admin ── */}
+              {(editingSchool || step === 3) && (
                 <>
                   <FormInput label="Admin Full Name" name="principalName" value={form.principalName} error={formErrors.principalName} onChange={handleChange} placeholder="Full name of the org admin" required maxLength={100} />
                   <FormInput label="Login Email" name="email" type="email" value={form.email} error={formErrors.email} onChange={handleChange} placeholder="org@example.com" required />
@@ -1045,8 +1197,8 @@ export function SchoolsManage() {
                 </>
               )}
 
-              {/* ── Step 3 / Edit: Size & Plan ── */}
-              {(editingSchool || step === 3) && (
+              {/* ── Step 4 / Edit: Size & Plan ── */}
+              {(editingSchool || step === 4) && (
                 <>
                   <FormSelect
                     label="Estimated Students"
@@ -1074,7 +1226,7 @@ export function SchoolsManage() {
                       { value: 'premium', label: 'Premium' },
                     ]}
                   />
-                  {['school', 'university'].includes(form.organizationType) && (
+                  {['school', 'university', 'college'].includes(form.institutionType) && (
                     <FormInput
                       label="Registration No. / Email Domain"
                       name="registrationNo"
@@ -1109,7 +1261,7 @@ export function SchoolsManage() {
                 >
                   {!editingSchool && step > 1 ? 'Back' : 'Cancel'}
                 </button>
-                {!editingSchool && step < 3 ? (
+                {!editingSchool && step < 4 ? (
                   <button
                     type="button"
                     onClick={goNext}

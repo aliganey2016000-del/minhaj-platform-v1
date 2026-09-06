@@ -11,6 +11,9 @@
  */
 
 import mongoose, { Schema, Document } from 'mongoose';
+import { INSTITUTION_TYPES, OWNERSHIP_TYPES, resolveInstitutionType, type InstitutionType, type OwnershipType } from '../utils/academic-config';
+
+export { resolveInstitutionType };
 
 // ---------------------------------------------------------------------------
 // Reserved subdomain slugs — must never be assignable to any organization
@@ -58,10 +61,28 @@ export interface IBranding {
 export interface ISchool extends Document {
   _id: mongoose.Types.ObjectId;
   name: string;
-  organizationType: 'school' | 'university' | 'training_center' | 'private';
+  /** Institutional classification: what kind of institution this is. Prefer
+   * `resolveInstitutionType(doc)` over reading this field directly anywhere
+   * that matters — a document written before this field existed will have
+   * it as `undefined` until the org is next saved or the backfill script
+   * (src/scripts/backfill-institution-type.ts) runs against it. */
+  institutionType?: InstitutionType;
+  /** Ownership/category, independent of institutionType (e.g. a university
+   * can be public or private) — see academic-config.ts for rationale. */
+  ownershipType?: OwnershipType;
+  /** @deprecated Superseded by institutionType/ownershipType. Kept only for
+   * backward compatibility with documents and test fixtures written before
+   * that split; new code should never read this — use resolveInstitutionType(). */
+  organizationType?: 'school' | 'university' | 'training_center' | 'private';
+  /** Whether this org has completed the required onboarding configuration
+   * (institution type + academic structure). Existing orgs predating this
+   * field default to `true` (grandfathered as already fully set up) —
+   * only newly registered orgs start `false`. Independent of `status`
+   * (active/inactive), which is the super-admin enable/disable switch. */
+  onboardingCompleted: boolean;
   slug: string;
   subdomain: string;
-  /** A fully custom domain (e.g. "masjidalrahma.so") an org points its own
+  /** A fully custom domain (e.g. "yourschool.edu") an org points its own
    * DNS at, resolved before the platform's <slug>.<base domain> routing. */
   customDomain?: string;
   branding: IBranding;
@@ -113,10 +134,32 @@ const schoolSchema = new Schema<ISchool>(
       trim: true,
       maxlength: [200, 'School name cannot exceed 200 characters'],
     },
+    institutionType: {
+      type: String,
+      enum: INSTITUTION_TYPES,
+      // No schema-level default — left unset here so the pre-validate hook
+      // below can tell "not provided" apart from an explicit value and fall
+      // back to the legacy organizationType field first, 'school' only as
+      // the last resort (see resolveInstitutionType in academic-config.ts).
+    },
+    ownershipType: {
+      type: String,
+      enum: OWNERSHIP_TYPES,
+      default: 'private',
+    },
+    // Deprecated — see the ISchool interface comment above. No longer
+    // required so new registrations (which set institutionType instead) can
+    // omit it; still accepted so the ~25 existing test fixtures and helper
+    // scripts that construct a School with `organizationType` keep working
+    // unchanged. The pre-validate hook below backfills institutionType from
+    // this field when a document is saved with the old field but not the new.
     organizationType: {
       type: String,
-      required: [true, 'Organization type is required'],
       enum: ['school', 'university', 'training_center', 'private'],
+    },
+    onboardingCompleted: {
+      type: Boolean,
+      default: true,
     },
     slug: {
       type: String,
@@ -149,7 +192,7 @@ const schoolSchema = new Schema<ISchool>(
       maxlength: [255, 'Domain cannot exceed 255 characters'],
       match: [
         /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/,
-        'Enter a plain domain name, e.g. "masjidalrahma.so" (no https:// or trailing slash)',
+        'Enter a plain domain name, e.g. "yourschool.edu" (no https:// or trailing slash)',
       ],
     },
     branding: { type: brandingSchema, default: () => ({}) },
@@ -259,6 +302,21 @@ const schoolSchema = new Schema<ISchool>(
 // Pre-Save Hook — Auto-generate unique slug when not explicitly provided
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Pre-Save Hook — Backfill institutionType from the legacy organizationType
+// field on any document saved without it explicitly set (old documents being
+// touched for an unrelated update, or code/tests still only passing the
+// deprecated field). Runs on every save, not just creation, so a document
+// that predates this field self-heals the first time it's written again.
+// ---------------------------------------------------------------------------
+
+schoolSchema.pre<ISchool>('validate', function (next) {
+  if (!this.institutionType) {
+    this.institutionType = resolveInstitutionType({ organizationType: this.organizationType });
+  }
+  next();
+});
+
 schoolSchema.pre<ISchool>('validate', async function (next) {
   // Only generate if slug is missing or was cleared
   if (this.slug && this.slug.length >= 3) return next();
@@ -316,6 +374,8 @@ schoolSchema.index({ createdBy: 1 });
 export interface TenantBranding {
   slug: string;
   name: string;
+  institutionType: string;
+  /** @deprecated mirrors institutionType for API back-compat */
   organizationType: string;
   branding: IBranding;
 }
@@ -328,7 +388,7 @@ interface SchoolModel extends mongoose.Model<ISchool> {
 // Static Helper — resolve tenant from a request Host header.
 //
 // Tries an exact `customDomain` match first (an org's own domain, e.g.
-// "masjidalrahma.so", pointed straight at the platform) before falling back
+// "yourschool.edu", pointed straight at the platform) before falling back
 // to <slug>.<platform base domain> subdomain routing. Custom domains must be
 // checked first: a bare custom domain has only two labels — the same shape
 // as the platform's own root domain — so subdomain parsing alone can't tell
@@ -349,11 +409,11 @@ schoolSchema.statics.findByHost = async function (
     customDomain: hostname,
     status: 'active',
   })
-    .select('slug name organizationType branding')
+    .select('slug name institutionType organizationType branding')
     .lean();
 
   if (byCustomDomain) {
-    return byCustomDomain as TenantBranding;
+    return { ...byCustomDomain, institutionType: resolveInstitutionType(byCustomDomain) } as TenantBranding;
   }
 
   const parts = hostname.split('.');
@@ -374,10 +434,11 @@ schoolSchema.statics.findByHost = async function (
     $or: [{ slug: subdomain }, { subdomain }],
     status: 'active',
   })
-    .select('slug name organizationType branding')
+    .select('slug name institutionType organizationType branding')
     .lean();
 
-  return school as TenantBranding | null;
+  if (!school) return null;
+  return { ...school, institutionType: resolveInstitutionType(school) } as TenantBranding;
 };
 
 // ---------------------------------------------------------------------------

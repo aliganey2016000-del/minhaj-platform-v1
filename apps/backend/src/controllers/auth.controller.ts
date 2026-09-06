@@ -131,7 +131,8 @@ export const register = async (req: Request, res: Response): Promise<Response> =
       if (!targetSchool) {
         targetSchool = await School.create({
           name: 'Public School',
-          organizationType: 'private',
+          institutionType: 'school',
+          ownershipType: 'public',
           country: 'Somalia',
           city: 'Mogadishu',
           address: 'Online',
@@ -169,9 +170,9 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     // Seed welcome notification
     const Notification = mongoose.model('Notification');
     await Notification.create([
-      { user: user._id, title: 'Welcome to Masjid Al-Rahma! 🎉', message: 'Your account has been created successfully. Start browsing available courses to enroll.', type: 'success' },
+      { user: user._id, title: `Welcome to ${targetSchool.name}! 🎉`, message: 'Your account has been created successfully. Start browsing available courses to enroll.', type: 'success' },
       { user: user._id, title: 'Complete Your Profile', message: 'Add your profile details to get the most out of your learning experience.', type: 'info' },
-      { user: user._id, title: 'Browse Available Courses', message: 'Explore our Islamic studies catalog and enroll in courses that interest you.', type: 'info', link: '/student/available' },
+      { user: user._id, title: 'Browse Available Courses', message: 'Explore our course catalog and enroll in courses that interest you.', type: 'info', link: '/student/available' },
     ]);
   }
 

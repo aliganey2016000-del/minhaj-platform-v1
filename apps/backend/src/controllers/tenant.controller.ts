@@ -7,7 +7,7 @@
  */
 
 import { Request, Response } from 'express';
-import School from '../models/school.model';
+import School, { resolveInstitutionType } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 
@@ -28,7 +28,7 @@ export const getBrandingBySlug = async (req: Request, res: Response): Promise<Re
   }
 
   const school = await School.findOne({ slug, status: 'active' })
-    .select('slug name organizationType branding')
+    .select('slug name institutionType organizationType branding')
     .lean();
 
   if (!school) {
@@ -38,6 +38,8 @@ export const getBrandingBySlug = async (req: Request, res: Response): Promise<Re
   return ApiResponse.success(res, {
     slug: school.slug,
     name: school.name,
+    institutionType: resolveInstitutionType(school),
+    // @deprecated kept for API back-compat — use institutionType
     organizationType: school.organizationType,
     branding: school.branding || {},
     portalUrl: `${school.slug}.${process.env.BASE_DOMAIN || 'sahaledu.com'}`,

@@ -1,10 +1,17 @@
 import { Request, Response } from 'express';
 import Faculty from '../models/faculty.model';
 import Department from '../models/department.model';
-import School from '../models/school.model';
+import AcademicStructure from '../models/academic-structure.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+
+async function assertUsesFaculty(tenantId: string): Promise<void> {
+  const structure = await AcademicStructure.findOne({ school: tenantId }).select('usesFaculty').lean();
+  if (!structure?.usesFaculty) {
+    throw new BadRequestError('Faculties are not enabled for this organization. Enable "Uses Faculty" in Academic Structure settings first.');
+  }
+}
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
   const tenantId = req.user?.role === 'org_admin' ? req.user.organizationId : (req.query.school as string | undefined);
@@ -16,9 +23,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 export const create = async (req: Request, res: Response): Promise<Response> => {
   const tenantId = resolveOrgIdForCreate(req, req.body.tenantId);
   if (!tenantId) throw new BadRequestError('Tenant ID is required');
-  const school = await School.findById(tenantId).select('organizationType').lean();
-  if (!school) throw new NotFoundError('Organization');
-  if (school.organizationType !== 'university') throw new BadRequestError('Faculties are available only for university organizations');
+  await assertUsesFaculty(String(tenantId));
   const name = String(req.body.name || '').trim();
   if (!name) throw new BadRequestError('Faculty name is required');
   const exists = await Faculty.findOne({ tenantId, name: new RegExp(`^${name.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}$`, 'i') });

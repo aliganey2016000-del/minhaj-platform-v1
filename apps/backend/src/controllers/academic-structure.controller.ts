@@ -8,6 +8,7 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { refreshStudentCoursesForCurrentClass } from '../services/enrollment.service';
+import { resolveInstitutionType, defaultAcademicConfig, validateAcademicConfig } from '../utils/academic-config';
 
 function getSchoolId(req: Request): string {
   const requested = req.method === 'GET' ? req.query.schoolId : req.body?.schoolId;
@@ -17,17 +18,14 @@ function getSchoolId(req: Request): string {
 }
 
 async function getOrCreateStructure(schoolId: string) {
-  const school = await School.findById(schoolId).select('_id organizationType').lean();
-  if (!school) throw new NotFoundError('Organization');
   const existing = await AcademicStructure.findOne({ school: schoolId });
   if (existing) return existing;
 
-  const universityDefaults = school.organizationType === 'university';
-  return AcademicStructure.create({
-    school: schoolId,
-    academicSystem: universityDefaults ? 'semester' : 'annual',
-    semestersPerAcademicYear: universityDefaults ? 2 : 1,
-  });
+  const school = await School.findById(schoolId).select('_id institutionType organizationType').lean();
+  if (!school) throw new NotFoundError('Organization');
+
+  const defaults = defaultAcademicConfig(resolveInstitutionType(school));
+  return AcademicStructure.create({ school: schoolId, ...defaults });
 }
 
 export const getStructure = async (req: Request, res: Response): Promise<Response> => {
@@ -42,14 +40,20 @@ export const updateStructure = async (req: Request, res: Response): Promise<Resp
 
   const academicSystem = String(req.body?.academicSystem || '').trim() as AcademicSystem;
   const semestersPerAcademicYear = Number(req.body?.semestersPerAcademicYear);
-  if (!['annual', 'semester'].includes(academicSystem)) throw new BadRequestError('Academic system must be annual or semester');
-  if (academicSystem === 'semester' && ![2, 3].includes(semestersPerAcademicYear)) {
-    throw new BadRequestError('Semester-based institutions must use 2 or 3 semesters per academic year');
-  }
+  validateAcademicConfig(academicSystem, semestersPerAcademicYear);
+
+  const set: Record<string, unknown> = {
+    academicSystem,
+    semestersPerAcademicYear: academicSystem === 'annual' ? 1 : semestersPerAcademicYear,
+  };
+  // usesFaculty is optional in the request — omit it to leave the org's
+  // current setting untouched (e.g. a plain annual/semester toggle shouldn't
+  // silently reset a college's opt-in Faculty layer).
+  if (typeof req.body?.usesFaculty === 'boolean') set.usesFaculty = req.body.usesFaculty;
 
   const structure = await AcademicStructure.findOneAndUpdate(
     { school: schoolId },
-    { $set: { academicSystem, semestersPerAcademicYear: academicSystem === 'annual' ? 1 : semestersPerAcademicYear } },
+    { $set: set },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
   );
   return ApiResponse.success(res, structure, 'Academic structure updated successfully');

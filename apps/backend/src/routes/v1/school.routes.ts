@@ -22,6 +22,7 @@ router.get('/:id', adminOrTeacher, asyncHandler(ctrl.getById));
 
 // ── Update own org info (admin, or org_admin for their own organization only) ──
 router.patch('/:id', adminOnly, asyncHandler(ctrl.update));
+router.patch('/:id/complete-onboarding', adminOnly, asyncHandler(ctrl.completeOnboarding));
 
 // ── Registering new organizations, activation/deactivation, and deletion are
 //    super-admin only — an org_admin must never create another tenant,

@@ -1,11 +1,16 @@
 import { Request, Response } from 'express';
 import Department from '../models/department.model';
 import Faculty from '../models/faculty.model';
-import School from '../models/school.model';
+import AcademicStructure from '../models/academic-structure.model';
 import ClassModel from '../models/class.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+
+async function usesFaculty(tenantId: string): Promise<boolean> {
+  const structure = await AcademicStructure.findOne({ school: tenantId }).select('usesFaculty').lean();
+  return !!structure?.usesFaculty;
+}
 
 const DEPARTMENT_LIMIT = 200;
 
@@ -35,14 +40,11 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const tenantId = resolveOrgIdForCreate(req, req.body.tenantId);
   if (!tenantId) throw new BadRequestError('Tenant ID is required');
 
-  const school = await School.findById(tenantId).select('organizationType').lean();
-  if (!school) throw new NotFoundError('Organization');
-
   let resolvedFacultyId = facultyId || undefined;
-  if (school.organizationType === 'university') {
-    if (!resolvedFacultyId) throw new BadRequestError('Faculty is required for university departments');
+  if (await usesFaculty(String(tenantId))) {
+    if (!resolvedFacultyId) throw new BadRequestError('Faculty is required for departments in this organization');
     const faculty = await Faculty.findOne({ _id: resolvedFacultyId, tenantId });
-    if (!faculty) throw new BadRequestError('Selected faculty does not belong to this university');
+    if (!faculty) throw new BadRequestError('Selected faculty does not belong to this organization');
   } else {
     resolvedFacultyId = undefined;
   }
@@ -69,14 +71,11 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const { name, code, facultyId } = req.body;
   if (name !== undefined && !String(name).trim()) throw new BadRequestError('Department name cannot be empty');
 
-  const school = await School.findById(department.tenantId).select('organizationType').lean();
-  if (!school) throw new NotFoundError('Organization');
-
-  if (school.organizationType === 'university') {
+  if (await usesFaculty(String(department.tenantId))) {
     const nextFacultyId = facultyId !== undefined ? facultyId : department.facultyId;
-    if (!nextFacultyId) throw new BadRequestError('Faculty is required for university departments');
+    if (!nextFacultyId) throw new BadRequestError('Faculty is required for departments in this organization');
     const faculty = await Faculty.findOne({ _id: nextFacultyId, tenantId: department.tenantId });
-    if (!faculty) throw new BadRequestError('Selected faculty does not belong to this university');
+    if (!faculty) throw new BadRequestError('Selected faculty does not belong to this organization');
     department.facultyId = nextFacultyId;
   } else {
     department.facultyId = undefined;

@@ -33,7 +33,7 @@ export interface TenantData {
   isMainSite: boolean;
   slug: string;
   name: string;
-  organizationType: string;
+  institutionType: string;
   branding: TenantBranding;
   portalUrl?: string;
 }
@@ -125,7 +125,7 @@ export function TenantProvider({ children }: TenantProviderProps) {
               isMainSite: true,
               slug: '',
               name: 'Sahal Education Platform',
-              organizationType: 'school',
+              institutionType: 'school',
               branding: DEFAULT_BRANDING,
             });
           }
@@ -139,7 +139,7 @@ export function TenantProvider({ children }: TenantProviderProps) {
             isMainSite: false,
             slug: data.data?.slug || subdomain,
             name: data.data?.name || '',
-            organizationType: data.data?.organizationType || 'school',
+            institutionType: data.data?.institutionType || data.data?.organizationType || 'school',
             branding: data.data?.branding || DEFAULT_BRANDING,
             portalUrl: data.data?.portalUrl,
           });

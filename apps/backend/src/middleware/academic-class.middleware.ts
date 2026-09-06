@@ -4,6 +4,7 @@ import ClassModel from '../models/class.model';
 import School from '../models/school.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { resolveInstitutionType, isHigherEdInstitutionType } from '../utils/academic-config';
 
 export async function validateAcademicClass(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const requestedSchool = req.method === 'POST' ? req.body?.school : undefined;
@@ -16,12 +17,12 @@ export async function validateAcademicClass(req: Request, _res: Response, next: 
   }
   if (!schoolId) throw new BadRequestError('An organization must be selected');
 
-  const school = await School.findById(schoolId).select('organizationType').lean();
+  const school = await School.findById(schoolId).select('institutionType organizationType').lean();
   if (!school) throw new NotFoundError('Organization');
   const structure = await AcademicStructure.findOne({ school: schoolId });
-  const university = school.organizationType === 'university';
+  const higherEd = isHigherEdInstitutionType(resolveInstitutionType(school));
 
-  if (!university) {
+  if (!higherEd) {
     req.body.semesterNumber = null;
     req.body.semesterInYear = null;
     req.body.studyYear = null;
@@ -33,14 +34,14 @@ export async function validateAcademicClass(req: Request, _res: Response, next: 
     const perYear = structure?.semestersPerAcademicYear === 3 ? 3 : 2;
     const semester = Number(req.body?.semesterNumber);
     if (!Number.isInteger(semester) || semester < 1 || semester > 100) {
-      throw new BadRequestError('A valid semester number is required for semester-based universities');
+      throw new BadRequestError('A valid semester number is required for semester-based institutions');
     }
     req.body.studyYear = Math.ceil(semester / perYear);
     req.body.semesterInYear = ((semester - 1) % perYear) + 1;
   } else {
     const studyYear = Number(req.body?.studyYear);
     if (!Number.isInteger(studyYear) || studyYear < 1 || studyYear > 30) {
-      throw new BadRequestError('A valid study year is required for annual university progression');
+      throw new BadRequestError('A valid study year is required for annual progression');
     }
     req.body.studyYear = studyYear;
     req.body.semesterNumber = null;
