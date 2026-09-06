@@ -43,12 +43,6 @@ export const STUDENT_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'student/settings', label: 'Settings', section: 'Account' },
 ];
 
-/**
- * The admin-portal sidebar is shared by org_admin and teacher. This registry
- * lets a super admin decide what each organization's staff see there —
- * e.g. hiding "Roles & Permissions" or "Tenant Sidebar Config" from an
- * org_admin, or trimming the menu down for a smaller org.
- */
 export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/students', label: 'Manage Students', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/students/report', label: 'Student Reports', section: 'INSTITUTION MANAGEMENT' },
@@ -56,6 +50,7 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/parents', label: 'Manage Parents', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/teachers', label: 'Manage Teachers', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/courses', label: 'Manage Courses', section: 'INSTITUTION MANAGEMENT' },
+  { key: 'admin/hr?tab=structure', label: 'Institution Structure', section: 'INSTITUTION MANAGEMENT' },
 
   { key: 'group:hr-management', label: 'HR Management (entire menu)', section: 'HR' },
   { key: 'admin/hr', label: 'HR Dashboard', section: 'HR' },
@@ -125,7 +120,7 @@ export function moduleForSidebarKey(key: string): 'finance' | 'exams' | 'admissi
   if (key.startsWith('admin/exams') || key.startsWith('admin/results') || key === 'admin/certificates') return 'exams';
   if (key.startsWith('admin/students') || key === 'admin/activity') return 'admissions';
   if (key.startsWith('admin/courses')) return 'courses';
-  if (['admin/parents', 'admin/teachers', 'admin/staff', 'admin/schools', 'admin/users', 'admin/classes'].includes(key)) return 'organization';
+  if (['admin/parents', 'admin/teachers', 'admin/staff', 'admin/schools', 'admin/users', 'admin/classes', 'admin/hr?tab=structure'].includes(key)) return 'organization';
   if (key === 'admin/hr' || key === 'admin/hr/access' || key === 'group:hr-management') return 'organization';
   if (['admin/schedules', 'admin/attendance', 'admin/assignments'].includes(key)) return 'academic';
   if (['admin/announcements', 'admin/news', 'admin/events', 'admin/gallery'].includes(key)) return 'content';
@@ -142,7 +137,6 @@ export function keysFor(portal: SidebarPortal): Set<string> {
   return portal === 'admin' ? ADMIN_SIDEBAR_ITEM_KEYS : STUDENT_SIDEBAR_ITEM_KEYS;
 }
 
-/** Merges an org's stored overrides onto the full item registry (default: visible). */
 export function mergeSidebarOverrides(
   overrides: { key: string; visible: boolean }[],
   portal: SidebarPortal = 'student'
