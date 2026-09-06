@@ -30,6 +30,9 @@ type AcademicSystem = 'annual' | 'semester';
 interface School {
   _id: string;
   name: string;
+  code?: string;
+  facultyName?: string;
+  deanName?: string;
   institutionType: InstitutionType;
   ownershipType?: OwnershipType;
   onboardingCompleted?: boolean;
@@ -56,6 +59,9 @@ interface School {
 
 interface SchoolFormData {
   name: string;
+  code: string;
+  facultyName: string;
+  deanName: string;
   institutionType: InstitutionType;
   ownershipType: OwnershipType;
   academicSystem: AcademicSystem;
@@ -92,7 +98,7 @@ const INSTITUTION_DEFAULTS: Record<InstitutionType, { academicSystem: AcademicSy
 
 // Step field groups for the 4-step "Register Organization" wizard.
 const STEP_FIELDS: Record<number, (keyof SchoolFormData)[]> = {
-  1: ['name', 'institutionType', 'ownershipType', 'subdomain', 'customDomain', 'country', 'city', 'address', 'orgId', 'establishedYear', 'website'],
+  1: ['name', 'code', 'facultyName', 'deanName', 'institutionType', 'ownershipType', 'subdomain', 'customDomain', 'country', 'city', 'address', 'orgId', 'establishedYear', 'website'],
   2: ['academicSystem', 'semestersPerAcademicYear', 'usesFaculty'],
   3: ['principalName', 'email', 'adminPassword', 'phone'],
   4: ['estimatedStudents', 'subscriptionPlan', 'registrationNo', 'attendanceType'],
@@ -110,6 +116,9 @@ type ToastType = 'success' | 'error' | null;
 
 const INITIAL_FORM: SchoolFormData = {
   name: '',
+  code: '',
+  facultyName: '',
+  deanName: '',
   institutionType: 'school',
   ownershipType: 'private',
   academicSystem: 'annual',
@@ -532,6 +541,12 @@ export function SchoolsManage() {
       else if (form.name.length > 200) errors.name = 'Name cannot exceed 200 characters';
     }
 
+    if (form.institutionType === 'college') {
+      if (include('code') && !form.code.trim()) errors.code = 'College code is required';
+      if (include('facultyName') && !form.facultyName.trim()) errors.facultyName = 'Faculty name is required';
+      if (include('deanName') && !form.deanName.trim()) errors.deanName = 'Dean name is required';
+    }
+
     if (include('institutionType') && !form.institutionType) {
       errors.institutionType = 'Institution type is required';
     }
@@ -660,6 +675,9 @@ export function SchoolsManage() {
     const defaults = INSTITUTION_DEFAULTS[school.institutionType || 'school'];
     setForm({
       name: school.name,
+      code: school.code || '',
+      facultyName: school.facultyName || '',
+      deanName: school.deanName || '',
       institutionType: school.institutionType || 'school',
       ownershipType: school.ownershipType || 'private',
       academicSystem: defaults.academicSystem,
@@ -1100,6 +1118,16 @@ export function SchoolsManage() {
                       ]}
                     />
                   </div>
+                  {form.institutionType === 'college' && (
+                    <div className="rounded-xl border border-primary-200 bg-primary-50/50 p-4 dark:border-primary-900 dark:bg-primary-950/20">
+                      <p className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">College Information</p>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <FormInput label="College Code" name="code" value={form.code} error={formErrors.code} onChange={handleChange} placeholder="e.g., COE-001" required maxLength={50} />
+                        <FormInput label="Faculty" name="facultyName" value={form.facultyName} error={formErrors.facultyName} onChange={handleChange} placeholder="e.g., Faculty of Education" required maxLength={200} />
+                        <FormInput label="Dean" name="deanName" value={form.deanName} error={formErrors.deanName} onChange={handleChange} placeholder="Dean full name" required maxLength={100} />
+                      </div>
+                    </div>
+                  )}
                   <FormInput label="Subdomain / Slug" name="subdomain" value={form.subdomain} error={formErrors.subdomain} onChange={handleChange} placeholder="e.g., al-huda" required maxLength={63} />
                   <FormInput
                     label="Custom Domain (optional)"

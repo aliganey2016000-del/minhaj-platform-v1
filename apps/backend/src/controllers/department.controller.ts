@@ -6,10 +6,14 @@ import ClassModel from '../models/class.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import School from '../models/school.model';
 
 async function usesFaculty(tenantId: string): Promise<boolean> {
-  const structure = await AcademicStructure.findOne({ school: tenantId }).select('usesFaculty').lean();
-  return !!structure?.usesFaculty;
+  const [structure, school] = await Promise.all([
+    AcademicStructure.findOne({ school: tenantId }).select('usesFaculty').lean(),
+    School.findById(tenantId).select('institutionType organizationType').lean(),
+  ]);
+  return !!structure?.usesFaculty || school?.institutionType === 'university' || school?.organizationType === 'university';
 }
 
 const DEPARTMENT_LIMIT = 200;
@@ -34,7 +38,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 };
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { name, code, facultyId } = req.body;
+  const { name, code, facultyId, headOfDepartment, phone, email, establishedYear } = req.body;
   if (!name || !String(name).trim()) throw new BadRequestError('Department name is required');
 
   const tenantId = resolveOrgIdForCreate(req, req.body.tenantId);
@@ -55,6 +59,10 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const department = await Department.create({
     name: String(name).trim(),
     code: code ? String(code).trim() : undefined,
+    headOfDepartment: headOfDepartment ? String(headOfDepartment).trim() : undefined,
+    phone: phone ? String(phone).trim() : undefined,
+    email: email ? String(email).trim() : undefined,
+    establishedYear: establishedYear ? Number(establishedYear) : undefined,
     tenantId,
     facultyId: resolvedFacultyId,
   });
@@ -68,7 +76,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   if (req.user?.role === 'org_admin') assertOwnsOrg(req, { school: department.tenantId }, 'school');
 
-  const { name, code, facultyId } = req.body;
+  const { name, code, facultyId, headOfDepartment, phone, email, establishedYear } = req.body;
   if (name !== undefined && !String(name).trim()) throw new BadRequestError('Department name cannot be empty');
 
   if (await usesFaculty(String(department.tenantId))) {
@@ -87,6 +95,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     department.name = String(name).trim();
   }
   if (code !== undefined) department.code = String(code).trim();
+  if (headOfDepartment !== undefined) department.headOfDepartment = String(headOfDepartment).trim();
+  if (phone !== undefined) department.phone = String(phone).trim();
+  if (email !== undefined) department.email = String(email).trim();
+  if (establishedYear !== undefined) department.establishedYear = establishedYear ? Number(establishedYear) : undefined;
   await department.save();
   return ApiResponse.success(res, await department.populate('facultyId', 'name code'), 'Department updated successfully');
 };

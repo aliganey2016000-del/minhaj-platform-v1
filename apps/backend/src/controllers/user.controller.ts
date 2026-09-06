@@ -180,6 +180,13 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     throw new BadRequestError('Organization is required when creating Staff');
   }
 
+  // Super Admin / Org Admin accounts represent organization ownership — the
+  // creating super admin must identify which organization the new admin
+  // account owns (or is being created for) so ownership is always recorded.
+  if ((role === 'admin' || role === 'org_admin') && !organizationId) {
+    throw new BadRequestError('Organization is required when creating a Super Admin or Org Admin');
+  }
+
   // Check if email already exists
   const existing = await User.findOne({ email: email.toLowerCase() });
   if (existing) throw new ConflictError('A user with this email already exists');

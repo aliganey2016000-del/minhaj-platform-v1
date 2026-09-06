@@ -57,6 +57,7 @@ function ClassModal({ cls, organization, structure, faculties, departments, prog
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setError('');
     if (!isTrainingCenter && !form.department) return setError('Department is required.');
+    if (higherEd && !form.program) return setError('Program is required for college and university classes.');
     if (!form.title.trim()) return setError(higherEd ? 'Program / Cohort Name is required.' : isTrainingCenter ? 'Program / Course Name is required.' : 'Class Name is required.');
     if (!form.room.trim()) return setError('Room is required.');
     if (!form.academicYear) return setError('Academic Year is required.');

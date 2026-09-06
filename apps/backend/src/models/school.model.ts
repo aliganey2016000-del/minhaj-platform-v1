@@ -61,6 +61,9 @@ export interface IBranding {
 export interface ISchool extends Document {
   _id: mongoose.Types.ObjectId;
   name: string;
+  code?: string;
+  facultyName?: string;
+  deanName?: string;
   /** Institutional classification: what kind of institution this is. Prefer
    * `resolveInstitutionType(doc)` over reading this field directly anywhere
    * that matters — a document written before this field existed will have
@@ -133,6 +136,25 @@ const schoolSchema = new Schema<ISchool>(
       required: [true, 'School name is required'],
       trim: true,
       maxlength: [200, 'School name cannot exceed 200 characters'],
+    },
+    code: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: [50, 'Institution code cannot exceed 50 characters'],
+      default: '',
+    },
+    facultyName: {
+      type: String,
+      trim: true,
+      maxlength: [200, 'Faculty name cannot exceed 200 characters'],
+      default: '',
+    },
+    deanName: {
+      type: String,
+      trim: true,
+      maxlength: [100, 'Dean name cannot exceed 100 characters'],
+      default: '',
     },
     institutionType: {
       type: String,

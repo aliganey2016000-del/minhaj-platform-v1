@@ -89,7 +89,7 @@ async function main() {
   // ── E. COLLEGE — Faculty is optional/configurable, not hardcoded ──
   section('E. COLLEGE — Faculty is opt-in, not assumed');
   const collegeRes = await request(app).post('/api/v1/schools').set('Authorization', `Bearer ${adminToken}`)
-    .send({ ...baseFields('Test College'), institutionType: 'college' });
+    .send({ ...baseFields('Test College'), institutionType: 'college', code: 'COE-001', facultyName: 'Faculty of Education', deanName: 'Dr. Amina Yusuf' });
   assert(collegeRes.status === 201 && collegeRes.body.data.school.institutionType === 'college', `college registration succeeds (got ${collegeRes.status})`);
   const collegeId = collegeRes.body.data.school._id;
 
@@ -144,6 +144,10 @@ async function main() {
   const badOwnershipType = await request(app).post('/api/v1/schools').set('Authorization', `Bearer ${adminToken}`)
     .send({ ...baseFields('Bad Ownership Type'), institutionType: 'school', ownershipType: 'communal' });
   assert(badOwnershipType.status === 400, `unknown ownershipType is rejected (got ${badOwnershipType.status})`);
+
+  const collegeMissingInfo = await request(app).post('/api/v1/schools').set('Authorization', `Bearer ${adminToken}`)
+    .send({ ...baseFields('College Missing Info'), institutionType: 'college' });
+  assert(collegeMissingInfo.status === 400, `college registration without code/facultyName/deanName is rejected server-side (got ${collegeMissingInfo.status})`);
 
   const facultyRejectedForSchool = await request(app).post('/api/v1/departments/faculties').set('Authorization', `Bearer ${adminToken}`)
     .send({ name: 'Should Fail', tenantId: schoolRes.body.data.school._id });

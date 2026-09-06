@@ -5,10 +5,15 @@ import AcademicStructure from '../models/academic-structure.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import School from '../models/school.model';
 
 async function assertUsesFaculty(tenantId: string): Promise<void> {
-  const structure = await AcademicStructure.findOne({ school: tenantId }).select('usesFaculty').lean();
-  if (!structure?.usesFaculty) {
+  const [structure, school] = await Promise.all([
+    AcademicStructure.findOne({ school: tenantId }).select('usesFaculty').lean(),
+    School.findById(tenantId).select('institutionType organizationType').lean(),
+  ]);
+  const universityUsesFaculty = school?.institutionType === 'university' || school?.organizationType === 'university';
+  if (!structure?.usesFaculty && !universityUsesFaculty) {
     throw new BadRequestError('Faculties are not enabled for this organization. Enable "Uses Faculty" in Academic Structure settings first.');
   }
 }
@@ -28,7 +33,15 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   if (!name) throw new BadRequestError('Faculty name is required');
   const exists = await Faculty.findOne({ tenantId, name: new RegExp(`^${name.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}$`, 'i') });
   if (exists) throw new ConflictError('A faculty with this name already exists in this organization');
-  const faculty = await Faculty.create({ tenantId, name, code: req.body.code ? String(req.body.code).trim() : undefined });
+  const faculty = await Faculty.create({
+    tenantId,
+    name,
+    code: req.body.code ? String(req.body.code).trim() : undefined,
+    deanName: req.body.deanName ? String(req.body.deanName).trim() : undefined,
+    phone: req.body.phone ? String(req.body.phone).trim() : undefined,
+    email: req.body.email ? String(req.body.email).trim().toLowerCase() : undefined,
+    establishedYear: req.body.establishedYear ? Number(req.body.establishedYear) : undefined,
+  });
   return ApiResponse.created(res, faculty, 'Faculty created successfully');
 };
 
@@ -44,6 +57,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     faculty.name = name;
   }
   if (req.body.code !== undefined) faculty.code = String(req.body.code).trim();
+  if (req.body.deanName !== undefined) faculty.deanName = String(req.body.deanName).trim();
+  if (req.body.phone !== undefined) faculty.phone = String(req.body.phone).trim();
+  if (req.body.email !== undefined) faculty.email = String(req.body.email).trim().toLowerCase();
+  if (req.body.establishedYear !== undefined) faculty.establishedYear = req.body.establishedYear ? Number(req.body.establishedYear) : undefined;
   await faculty.save();
   return ApiResponse.success(res, faculty, 'Faculty updated successfully');
 };

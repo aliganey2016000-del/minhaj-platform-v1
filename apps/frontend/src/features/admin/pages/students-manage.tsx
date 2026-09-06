@@ -18,8 +18,8 @@ import { Pagination } from '../components/pagination';
 // Types
 // ---------------------------------------------------------------------------
 
-interface SchoolBrief { _id: string; name: string; }
-interface ClassBrief { _id: string; title: string; section: string; department?: string; shiftMode?: string; }
+interface SchoolBrief { _id: string; name: string; institutionType?: string; }
+interface ClassBrief { _id: string; title: string; section: string; department?: string; program?: string; shiftMode?: string; gradeLevel?: number; academicYear?: string; studyYear?: number; semesterNumber?: number; semesterInYear?: number; }
 
 // Server-side column filter state — each field a comma-joined value string
 // ready to send as its query param (see column-filter-header.tsx's
@@ -242,6 +242,8 @@ function StudentModal({ student, schools, onClose, onSaved }: {
 
   // Read-only cascade source for the Department/Shift badges below the Class selector.
   const selectedClass = classes.find(c => c._id === form.classId);
+  const selectedSchool = schools.find(s => s._id === form.school);
+  const isHigherEd = selectedSchool?.institutionType === 'university' || selectedSchool?.institutionType === 'college';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
@@ -262,7 +264,7 @@ function StudentModal({ student, schools, onClose, onSaved }: {
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Organization *</label><select className={ic('school')} name="school" value={form.school} onChange={handleChange}><option value="">Select an organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>{errors.school && <p className="mt-1 text-xs text-red-500">{errors.school}</p>}</div>
           <div>
             <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Class *</label>
-            <select className={ic('classId')} name="classId" value={form.classId} onChange={handleChange} disabled={!form.school}><option value="">{form.school ? 'Select a class...' : 'Select an organization first'}</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title} — Section {c.section}</option>)}</select>
+            <select className={ic('classId')} name="classId" value={form.classId} onChange={handleChange} disabled={!form.school}><option value="">{form.school ? 'Select a class...' : 'Select an organization first'}</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title}{c.section ? ` — Section ${c.section}` : ''}{c.department ? ` · ${c.department}` : ''}{c.program ? ` · ${c.program}` : ''}</option>)}</select>
             {errors.classId && <p className="mt-1 text-xs text-red-500">{errors.classId}</p>}
             {/* Read-only cascade — Department + Shift/Learning Mode are inherited
                 from the selected Class, never edited directly here. */}
@@ -273,6 +275,16 @@ function StudentModal({ student, schools, onClose, onSaved }: {
                     🏛️ Department: {selectedClass.department}
                   </span>
                 )}
+                {selectedClass.program && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 dark:bg-sky-950/30 px-2.5 py-1 text-xs font-medium text-sky-700 dark:text-sky-300">
+                    🎓 Program: {selectedClass.program}
+                  </span>
+                )}
+                {selectedClass.semesterNumber && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 dark:bg-violet-950/30 px-2.5 py-1 text-xs font-medium text-violet-700 dark:text-violet-300">
+                    S{selectedClass.semesterNumber} · Year {selectedClass.studyYear || '—'}
+                  </span>
+                )}
                 {selectedClass.shiftMode && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-300">
                     🕐 Shift: {selectedClass.shiftMode}
@@ -281,7 +293,7 @@ function StudentModal({ student, schools, onClose, onSaved }: {
               </div>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Grade</label><input className={ic('grade')} name="grade" placeholder="e.g. Level 3" value={form.grade} onChange={handleChange} /></div><div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Enrollment Date</label><input className={ic('enrollmentDate')} name="enrollmentDate" type="date" value={form.enrollmentDate} onChange={handleChange} /></div></div>
+          <div className="grid grid-cols-2 gap-3">{!isHigherEd && <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Grade</label><input className={ic('grade')} name="grade" placeholder="e.g. Level 3" value={form.grade} onChange={handleChange} /></div>}<div className={isHigherEd ? 'col-span-2' : ''}><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Enrollment Date</label><input className={ic('enrollmentDate')} name="enrollmentDate" type="date" value={form.enrollmentDate} onChange={handleChange} /></div></div>
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Medical Notes</label><textarea className={ic('medicalNotes')} name="medicalNotes" rows={2} value={form.medicalNotes} onChange={handleChange} /></div>
           <div className="border-t border-[var(--color-border-subtle)] pt-3"><p className="text-xs font-bold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">👨‍👩‍👧 Parent / Guardian Information (Optional)</p>
             <div className="space-y-3">

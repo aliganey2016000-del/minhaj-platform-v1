@@ -56,8 +56,11 @@ export async function validateAcademicClass(req: Request, _res: Response, next: 
     if (!dept) throw new BadRequestError('Selected department does not belong to this organization');
   }
   if (req.body?.program) {
-    const program = await Program.findOne({ _id: req.body.program, school: schoolId }).select('_id').lean();
+    const program = await Program.findOne({ _id: req.body.program, school: schoolId }).select('_id department').lean();
     if (!program) throw new BadRequestError('Selected program does not belong to this organization');
+    if (req.body?.department && program.department && String(program.department) !== String(req.body.department)) {
+      throw new BadRequestError('Selected program does not belong to the selected department');
+    }
   }
 
   if (isSchool) {
@@ -87,6 +90,7 @@ export async function validateAcademicClass(req: Request, _res: Response, next: 
 
   // higherEd (university/college)
   if (!req.body?.department) throw new BadRequestError('Department is required');
+  if (!req.body?.program) throw new BadRequestError('Program is required for college and university classes');
   req.body.gradeLevel = null;
   req.body.isGraduatingGrade = false;
   req.body.isEntryGrade = false;

@@ -146,11 +146,24 @@ function UserModal({
 
   const orgName = schools.find(s => s._id === form.organizationId)?.name || user?.organizationId?.name || '';
 
+  // Organization ownership: a Super Admin (admin) or Org Admin account must be
+  // linked to an organization when it is created so the platform can always
+  // answer "who owns this organization". On edit, only org_admin stays
+  // mandatory — the global platform admin (no org) must remain editable.
+  const isOrgBoundRole = form.role === 'admin' || form.role === 'org_admin';
+  const orgRequired = isOrgBoundRole && (!isEdit || form.role === 'org_admin');
+
   const update = (field: string, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (orgRequired && !form.organizationId) {
+      setError('Please select the organization this account owns / belongs to');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -268,7 +281,7 @@ function UserModal({
 
           {/* Organization */}
           <div>
-            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Organization</label>
+            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Organization{orgRequired ? ' *' : ''}</label>
             {isOrgAdmin ? (
               <div className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
                 {orgName || 'Your Organization'}
@@ -278,12 +291,20 @@ function UserModal({
                 className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
                 value={form.organizationId}
                 onChange={(e) => update('organizationId', e.target.value)}
+                required={orgRequired}
               >
                 <option value="">-- Select Organization --</option>
                 {schools.map(s => (
                   <option key={s._id} value={s._id}>{s.name}</option>
                 ))}
               </select>
+            )}
+            {isSuperAdmin && isOrgBoundRole && (
+              <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
+                {form.role === 'admin'
+                  ? 'Assign the organization this Super Admin owns / manages.'
+                  : 'Assign the organization this Org Admin will manage.'}
+              </p>
             )}
           </div>
 

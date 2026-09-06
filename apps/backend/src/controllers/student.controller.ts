@@ -536,6 +536,11 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const resolvedSchool = resolveOrgIdForCreate(req, school) || undefined;
 
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) throw new BadRequestError('Student email is required');
+  const existingUser = await User.findOne({ email: normalizedEmail }).select('_id role organizationId').lean();
+  if (existingUser) throw new ConflictError(`Email "${normalizedEmail}" is already registered. Use a different email address.`);
+
   // Optional — leave blank to let the model's pre-validate hook auto-generate
   // one (STU-YYYY-NNNN). If supplied, it only has to be unique within this
   // organization (see the compound index on Student), not platform-wide.
@@ -556,7 +561,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   // syncGuardian fails it still throws (see its own doc comment), which
   // aborts here before the student row is returned to the client.
   const user = await User.create({
-    email: email.toLowerCase(), password, role: 'student', organizationId: resolvedSchool,
+    email: normalizedEmail, password, role: 'student', organizationId: resolvedSchool,
     phone: phone || undefined, preferredLanguage: preferredLanguage || 'en', isVerified: true,
   });
 
@@ -568,12 +573,18 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   let department: string | undefined;
   let shiftMode: string | undefined;
   if (classId) {
-    const classDoc = await ClassModel.findById(classId).populate('department', 'name');
+    const classDoc = await ClassModel.findById(classId).populate('department', 'name').populate('program', 'name');
     if (!classDoc) throw new NotFoundError('Class not found');
     assertOwnsOrg(req, classDoc, 'school');
+    if (resolvedSchool && String(classDoc.school) !== String(resolvedSchool)) {
+      throw new BadRequestError('Selected class does not belong to the selected organization.');
+    }
     const dept = (classDoc as any).department;
     department = typeof dept === 'string' ? dept : dept?.name || undefined;
     shiftMode = classDoc.shiftMode;
+    if ((classDoc as any).gradeLevel !== null && (classDoc as any).gradeLevel !== undefined) {
+      req.body.grade = String((classDoc as any).gradeLevel);
+    }
   }
 
   const student = await Student.create({
@@ -706,6 +717,9 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       const dept = (classDoc as any).department;
       (student as any).department = typeof dept === 'string' ? dept : dept?.name || undefined;
       (student as any).shiftMode = classDoc.shiftMode;
+      if ((classDoc as any).gradeLevel !== null && (classDoc as any).gradeLevel !== undefined) {
+        student.grade = String((classDoc as any).gradeLevel);
+      }
     } else {
       student.department = undefined;
       student.shiftMode = undefined;

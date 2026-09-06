@@ -30,7 +30,10 @@ export interface IStudent extends Document {
   approvalStatus: 'pending' | 'approved' | 'rejected';
   school?: mongoose.Types.ObjectId;
   class?: mongoose.Types.ObjectId;
-  department?: 'Primary' | 'Middle School' | 'Secondary';
+  /** Department name cascaded from the selected Class. Schools may use the
+   * legacy grade departments; colleges/universities may use arbitrary names
+   * such as Mathematics, Engineering, or Business. */
+  department?: string;
   shiftMode?: 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
   grade?: string;
   medicalNotes?: string;
@@ -75,7 +78,7 @@ const studentSchema = new Schema<IStudent>(
     approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved', index: true },
     school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
     class: { type: Schema.Types.ObjectId, ref: 'Class', default: null, index: true },
-    department: { type: String, enum: ['Primary', 'Middle School', 'Secondary'], default: null, index: true },
+    department: { type: String, trim: true, maxlength: 200, default: null, index: true },
     shiftMode: { type: String, enum: ['Morning', 'Afternoon', 'Evening', 'Virtual'], default: null, index: true },
     grade: { type: String, default: null },
     medicalNotes: { type: String, default: null, maxlength: [500, 'Medical notes cannot exceed 500 characters'] },

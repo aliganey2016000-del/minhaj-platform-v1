@@ -3,6 +3,10 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IDepartment extends Document {
   name: string;
   code?: string;
+  headOfDepartment?: string;
+  phone?: string;
+  email?: string;
+  establishedYear?: number;
   tenantId: mongoose.Types.ObjectId;
   facultyId?: mongoose.Types.ObjectId;
   createdAt: Date;
@@ -22,6 +26,31 @@ const departmentSchema = new Schema<IDepartment>(
       trim: true,
       maxlength: [20, 'Department code cannot exceed 20 characters'],
       default: '',
+    },
+    headOfDepartment: {
+      type: String,
+      trim: true,
+      maxlength: [100, 'Head of department name cannot exceed 100 characters'],
+      default: '',
+    },
+    phone: {
+      type: String,
+      trim: true,
+      maxlength: [30, 'Phone cannot exceed 30 characters'],
+      default: '',
+    },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      maxlength: [200, 'Email cannot exceed 200 characters'],
+      default: '',
+    },
+    establishedYear: {
+      type: Number,
+      min: [1900, 'Year must be 1900 or later'],
+      max: [new Date().getFullYear(), 'Year cannot be in the future'],
+      default: null,
     },
     tenantId: {
       type: Schema.Types.ObjectId,

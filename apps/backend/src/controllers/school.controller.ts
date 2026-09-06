@@ -122,6 +122,16 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   if (schoolFields.ownershipType && !OWNERSHIP_TYPES.includes(schoolFields.ownershipType)) {
     throw new BadRequestError(`Ownership type must be one of: ${OWNERSHIP_TYPES.join(', ')}`);
   }
+  // A college's code/faculty/dean are collected as free-text identifying
+  // metadata at registration time (before any real Faculty/Department
+  // structure can exist yet) — the frontend already requires these for
+  // institutionType 'college'; enforce it here too so the rule holds for
+  // any caller, not just the admin UI.
+  if (institutionType === 'college') {
+    if (!String(schoolFields.code || '').trim()) throw new BadRequestError('College code is required');
+    if (!String(schoolFields.facultyName || '').trim()) throw new BadRequestError('Faculty name is required for a college');
+    if (!String(schoolFields.deanName || '').trim()) throw new BadRequestError('Dean name is required for a college');
+  }
 
   const defaults = defaultAcademicConfig(institutionType);
   const resolvedAcademicSystem = academicSystem !== undefined ? academicSystem : defaults.academicSystem;
