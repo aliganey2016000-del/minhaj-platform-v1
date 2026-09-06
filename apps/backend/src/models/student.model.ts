@@ -10,6 +10,9 @@ export interface IStudentEnrollmentHistory {
   academicYear: string;
   class: mongoose.Types.ObjectId;
   grade?: string;
+  studyYear?: number;
+  semesterNumber?: number;
+  semesterInYear?: number;
   courses: mongoose.Types.ObjectId[];
   status: 'active' | 'completed' | 'graduated';
   startedAt: Date;
@@ -50,6 +53,9 @@ const enrollmentHistorySchema = new Schema<IStudentEnrollmentHistory>(
     academicYear: { type: String, required: true, trim: true },
     class: { type: Schema.Types.ObjectId, ref: 'Class', required: true },
     grade: { type: String, default: null },
+    studyYear: { type: Number, default: null, min: 1 },
+    semesterNumber: { type: Number, default: null, min: 1 },
+    semesterInYear: { type: Number, default: null, min: 1 },
     courses: [{ type: Schema.Types.ObjectId, ref: 'Course' }],
     status: { type: String, enum: ['active', 'completed', 'graduated'], required: true },
     startedAt: { type: Date, required: true },
@@ -113,7 +119,7 @@ studentSchema.post('updateOne', async function () {
   if (!changedClass && !graduated) return;
 
   const query: any = this.getQuery();
-  const student = await mongoose.model<IStudent>('Student').findOne(query).select('class grade enrolledCourses enrollmentHistory status');
+  const student = await mongoose.model<IStudent>('Student').findOne(query).select('class grade enrolledCourses enrollmentHistory');
   if (!student) return;
 
   if (graduated) {
@@ -131,15 +137,20 @@ studentSchema.post('updateOne', async function () {
 
   if (!student.class) return;
   const ClassModel = mongoose.model('Class');
-  const cls: any = await ClassModel.findById(student.class).select('_id title academicYear');
+  const cls: any = await ClassModel.findById(student.class).select('_id title academicYear studyYear semesterNumber semesterInYear');
   if (!cls?.academicYear) return;
 
   const history = student.enrollmentHistory || [];
   const existing = history.find(
-    (entry: any) => String(entry.class) === String(cls._id) && entry.academicYear === cls.academicYear && entry.status === 'active',
+    (entry: any) => String(entry.class) === String(cls._id)
+      && entry.academicYear === cls.academicYear
+      && entry.semesterNumber === (cls.semesterNumber ?? null)
+      && entry.studyYear === (cls.studyYear ?? null)
+      && entry.status === 'active',
   );
   if (existing) {
     existing.courses = (student.enrolledCourses || []).map((id) => new mongoose.Types.ObjectId(id));
+    existing.semesterInYear = cls.semesterInYear ?? null;
     await student.save();
     return;
   }
@@ -155,6 +166,9 @@ studentSchema.post('updateOne', async function () {
     academicYear: cls.academicYear,
     class: cls._id,
     grade: cls.title,
+    studyYear: cls.studyYear ?? undefined,
+    semesterNumber: cls.semesterNumber ?? undefined,
+    semesterInYear: cls.semesterInYear ?? undefined,
     courses: (student.enrolledCourses || []).map((id) => new mongoose.Types.ObjectId(id)),
     status: 'active',
     startedAt: now,
