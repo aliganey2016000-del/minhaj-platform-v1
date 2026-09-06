@@ -1,0 +1,54 @@
+import { Request, Response } from 'express';
+import Faculty from '../models/faculty.model';
+import Department from '../models/department.model';
+import School from '../models/school.model';
+import ApiResponse from '../utils/api-response';
+import { BadRequestError, ConflictError, NotFoundError } from '../utils/api-error';
+import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+
+export const getAll = async (req: Request, res: Response): Promise<Response> => {
+  const tenantId = req.user?.role === 'org_admin' ? req.user.organizationId : (req.query.school as string | undefined);
+  if (!tenantId) return ApiResponse.success(res, []);
+  const faculties = await Faculty.find({ tenantId }).sort({ name: 1 }).limit(200).lean();
+  return ApiResponse.success(res, faculties);
+};
+
+export const create = async (req: Request, res: Response): Promise<Response> => {
+  const tenantId = resolveOrgIdForCreate(req, req.body.tenantId);
+  if (!tenantId) throw new BadRequestError('Tenant ID is required');
+  const school = await School.findById(tenantId).select('organizationType').lean();
+  if (!school) throw new NotFoundError('Organization');
+  if (school.organizationType !== 'university') throw new BadRequestError('Faculties are available only for university organizations');
+  const name = String(req.body.name || '').trim();
+  if (!name) throw new BadRequestError('Faculty name is required');
+  const exists = await Faculty.findOne({ tenantId, name: new RegExp(`^${name.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}$`, 'i') });
+  if (exists) throw new ConflictError('A faculty with this name already exists in this organization');
+  const faculty = await Faculty.create({ tenantId, name, code: req.body.code ? String(req.body.code).trim() : undefined });
+  return ApiResponse.created(res, faculty, 'Faculty created successfully');
+};
+
+export const update = async (req: Request, res: Response): Promise<Response> => {
+  const faculty = await Faculty.findById(req.params.id);
+  if (!faculty) throw new NotFoundError('Faculty');
+  if (req.user?.role === 'org_admin') assertOwnsOrg(req, { school: faculty.tenantId }, 'school');
+  if (req.body.name !== undefined) {
+    const name = String(req.body.name).trim();
+    if (!name) throw new BadRequestError('Faculty name cannot be empty');
+    const conflict = await Faculty.findOne({ tenantId: faculty.tenantId, _id: { $ne: faculty._id }, name: new RegExp(`^${name.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}$`, 'i') });
+    if (conflict) throw new ConflictError('A faculty with this name already exists in this organization');
+    faculty.name = name;
+  }
+  if (req.body.code !== undefined) faculty.code = String(req.body.code).trim();
+  await faculty.save();
+  return ApiResponse.success(res, faculty, 'Faculty updated successfully');
+};
+
+export const remove = async (req: Request, res: Response): Promise<Response> => {
+  const faculty = await Faculty.findById(req.params.id);
+  if (!faculty) throw new NotFoundError('Faculty');
+  if (req.user?.role === 'org_admin') assertOwnsOrg(req, { school: faculty.tenantId }, 'school');
+  const linkedDepartment = await Department.exists({ facultyId: faculty._id });
+  if (linkedDepartment) throw new BadRequestError('Cannot delete faculty while departments are linked to it. Reassign departments first.');
+  await Faculty.findByIdAndDelete(faculty._id);
+  return ApiResponse.noContent(res, 'Faculty deleted successfully');
+};
