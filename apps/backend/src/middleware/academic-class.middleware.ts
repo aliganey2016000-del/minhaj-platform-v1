@@ -2,9 +2,22 @@ import { Request, Response, NextFunction } from 'express';
 import AcademicStructure from '../models/academic-structure.model';
 import ClassModel from '../models/class.model';
 import School from '../models/school.model';
+import Department from '../models/department.model';
+import Program from '../models/program.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { resolveInstitutionType, isHigherEdInstitutionType } from '../utils/academic-config';
+
+// ---------------------------------------------------------------------------
+// Validates and normalizes a Class/Cohort/Batch write (POST or PATCH) against
+// the owning organization's institution type — the authoritative,
+// server-side counterpart to classes-manage.tsx's conditional form. Frontend
+// hiding a field is not enough: this middleware enforces which fields are
+// actually required per institution type, nulls out fields that don't apply
+// (so a school's gradeLevel can never leak onto a training center row and
+// vice versa), and rejects Department/Program references that belong to a
+// different organization.
+// ---------------------------------------------------------------------------
 
 export async function validateAcademicClass(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const requestedSchool = req.method === 'POST' ? req.body?.school : undefined;
@@ -20,14 +33,63 @@ export async function validateAcademicClass(req: Request, _res: Response, next: 
   const school = await School.findById(schoolId).select('institutionType organizationType').lean();
   if (!school) throw new NotFoundError('Organization');
   const structure = await AcademicStructure.findOne({ school: schoolId });
-  const higherEd = isHigherEdInstitutionType(resolveInstitutionType(school));
+  const institutionType = resolveInstitutionType(school);
+  const higherEd = isHigherEdInstitutionType(institutionType);
+  const isSchool = institutionType === 'school';
+  const isTrainingCenter = institutionType === 'training_center';
 
-  if (!higherEd) {
+  if (!String(req.body?.academicYear || '').trim()) {
+    throw new BadRequestError('Academic Year is required');
+  }
+
+  if (req.body?.capacity !== undefined && req.body?.capacity !== null && req.body?.capacity !== '') {
+    const capacity = Number(req.body.capacity);
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 5000) {
+      throw new BadRequestError('Capacity must be a whole number between 1 and 5000');
+    }
+  }
+
+  // ── Cross-tenant reference checks — a Department/Program id supplied by
+  // the client must actually belong to this same organization. ──
+  if (req.body?.department) {
+    const dept = await Department.findOne({ _id: req.body.department, tenantId: schoolId }).select('_id').lean();
+    if (!dept) throw new BadRequestError('Selected department does not belong to this organization');
+  }
+  if (req.body?.program) {
+    const program = await Program.findOne({ _id: req.body.program, school: schoolId }).select('_id').lean();
+    if (!program) throw new BadRequestError('Selected program does not belong to this organization');
+  }
+
+  if (isSchool) {
+    if (!req.body?.department) throw new BadRequestError('Department is required for schools');
+    if (!String(req.body?.batch || '').trim()) throw new BadRequestError('Batch Number is required for schools');
+    const gradeLevel = Number(req.body?.gradeLevel);
+    if (!Number.isInteger(gradeLevel) || gradeLevel < 0 || gradeLevel > 30) {
+      throw new BadRequestError('A valid Grade Level (0-30) is required for schools');
+    }
+    req.body.program = null;
     req.body.semesterNumber = null;
     req.body.semesterInYear = null;
     req.body.studyYear = null;
     return next();
   }
+
+  if (isTrainingCenter) {
+    if (!String(req.body?.batch || '').trim()) throw new BadRequestError('Batch / Cohort is required for training centers');
+    req.body.gradeLevel = null;
+    req.body.isGraduatingGrade = false;
+    req.body.isEntryGrade = false;
+    req.body.semesterNumber = null;
+    req.body.semesterInYear = null;
+    req.body.studyYear = null;
+    return next();
+  }
+
+  // higherEd (university/college)
+  if (!req.body?.department) throw new BadRequestError('Department is required');
+  req.body.gradeLevel = null;
+  req.body.isGraduatingGrade = false;
+  req.body.isEntryGrade = false;
 
   const academicSystem = structure?.academicSystem || 'semester';
   if (academicSystem === 'semester') {

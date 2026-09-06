@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import ClassModel from '../models/class.model';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Department from '../models/department.model';
+import AcademicStructure from '../models/academic-structure.model';
 import School from '../models/school.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
@@ -11,6 +12,7 @@ import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import ensureStudentRecord from '../utils/ensure-student';
+import { resolveInstitutionType } from '../utils/academic-config';
 
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -85,6 +87,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
       .populate('course', 'title.en slug category')
       .populate('teacher', 'teacherId')
       .populate('department', 'name code')
+      .populate('program', 'name code')
       .sort({ createdAt: -1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum)
@@ -96,6 +99,8 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     ...c,
     department: typeof c.department === 'string' ? c.department : c.department?.name || '',
     departmentId: typeof c.department === 'object' && c.department?._id ? c.department._id.toString() : undefined,
+    program: typeof c.program === 'string' ? c.program : c.program?.name || '',
+    programId: typeof c.program === 'object' && c.program?._id ? c.program._id.toString() : undefined,
   }));
 
   let result = normalizedClasses;
@@ -133,12 +138,15 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     .populate('course', 'title.en slug category')
     .populate('teacher', 'teacherId')
     .populate('department', 'name code')
+    .populate('program', 'name code')
     .lean();
 
   const response = {
     ...populated,
     department: typeof (populated as any)?.department === 'string' ? (populated as any).department : (populated as any)?.department?.name || '',
     departmentId: typeof (populated as any)?.department === 'object' && (populated as any).department?._id ? (populated as any).department._id.toString() : undefined,
+    program: typeof (populated as any)?.program === 'string' ? (populated as any).program : (populated as any)?.program?.name || '',
+    programId: typeof (populated as any)?.program === 'object' && (populated as any).program?._id ? (populated as any).program._id.toString() : undefined,
   };
   return ApiResponse.created(res, response, 'Class created successfully');
 };
@@ -164,6 +172,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     .populate('course', 'title.en slug category')
     .populate('teacher', 'teacherId')
     .populate('department', 'name code')
+    .populate('program', 'name code')
     .lean();
 
   if (!cls) throw new NotFoundError('Class');
@@ -171,6 +180,8 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     ...cls,
     department: typeof (cls as any).department === 'string' ? (cls as any).department : (cls as any)?.department?.name || '',
     departmentId: typeof (cls as any).department === 'object' && (cls as any).department?._id ? (cls as any).department._id.toString() : undefined,
+    program: typeof (cls as any).program === 'string' ? (cls as any).program : (cls as any)?.program?.name || '',
+    programId: typeof (cls as any).program === 'object' && (cls as any).program?._id ? (cls as any).program._id.toString() : undefined,
   };
   return ApiResponse.success(res, response, 'Class updated successfully');
 };
@@ -335,33 +346,51 @@ export const getSchedule = async (req: Request, res: Response): Promise<Response
 // GET /classes/export — Export all classes as formatted XLSX
 // ---------------------------------------------------------------------------
 
+// Shared header list for export/template — a superset covering all four
+// institution types. Column NAMES (not position) drive import matching via
+// getField() below, so this list is purely additive over the original
+// school-only columns: old exported files re-import unchanged.
+const CLASS_EXPORT_HEADERS = [
+  'Organization', 'Faculty', 'Department', 'Program',
+  'Batch Number', 'Grade Level', 'Academic Year', 'Study Year', 'Semester Number', 'Semester In Year',
+  'Final Grade (Yes/No)', 'Entry Grade (Yes/No)',
+  'Class Name', 'Section', 'Room', 'Capacity', 'Shift / Learning Mode',
+];
+
 export const exportClasses = async (req: Request, res: Response): Promise<void> => {
   const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
 
   const classes = await ClassModel.find(filter)
     .populate('school', 'name')
+    .populate({ path: 'department', select: 'name code facultyId', populate: { path: 'facultyId', select: 'name' } })
+    .populate('program', 'name')
     .sort({ createdAt: -1 })
     .lean();
 
-  const headers = ['Organization', 'Batch Number', 'Grade Level', 'Academic Year', 'Final Grade (Yes/No)', 'Entry Grade (Yes/No)', 'Department', 'Class Name', 'Section', 'Room', 'Shift / Learning Mode'];
   const rows = classes.map((c: any) => {
-    const departmentValue = typeof c.department === 'string' ? c.department : c.department?.name || '';
+    const dept = typeof c.department === 'object' ? c.department : null;
     return [
       c.school?.name || '',
+      dept?.facultyId?.name || '',
+      dept?.name || (typeof c.department === 'string' ? c.department : '') || '',
+      c.program?.name || '',
       c.batch || '',
       c.gradeLevel !== null && c.gradeLevel !== undefined ? String(c.gradeLevel) : '',
       c.academicYear || '',
+      c.studyYear !== null && c.studyYear !== undefined ? String(c.studyYear) : '',
+      c.semesterNumber !== null && c.semesterNumber !== undefined ? String(c.semesterNumber) : '',
+      c.semesterInYear !== null && c.semesterInYear !== undefined ? String(c.semesterInYear) : '',
       c.isGraduatingGrade ? 'Yes' : 'No',
       c.isEntryGrade ? 'Yes' : 'No',
-      departmentValue || 'Primary',
       c.title || '',
       c.section || '',
       c.room || '',
+      c.capacity !== null && c.capacity !== undefined ? String(c.capacity) : '',
       c.shiftMode || 'Morning',
     ];
   });
 
-  const buffer = buildXlsxBuffer(headers, rows, 'Classes');
+  const buffer = buildXlsxBuffer(CLASS_EXPORT_HEADERS, rows, 'Classes');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=classes-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -369,13 +398,28 @@ export const exportClasses = async (req: Request, res: Response): Promise<void> 
 };
 
 // ---------------------------------------------------------------------------
-// GET /classes/template — Download empty structured template (XLSX)
+// GET /classes/template — Download empty structured template (XLSX).
+// Institution-aware: ?institutionType=school|college|university|training_center
+// picks a tailored example row; omitted, it resolves the caller's own org
+// (falling back to a school-shaped example for a super admin with none).
 // ---------------------------------------------------------------------------
 
-export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
-  const headers = ['Organization', 'Batch Number', 'Grade Level', 'Academic Year', 'Final Grade (Yes/No)', 'Entry Grade (Yes/No)', 'Department', 'Class Name', 'Section', 'Room', 'Shift / Learning Mode'];
-  const rows = [['', '10026', '3', '2026-2027', 'No', 'No', 'Primary', 'Grade 3', 'A', 'Room 5', 'Morning']];
-  const buffer = buildXlsxBuffer(headers, rows, 'Class Template');
+const TEMPLATE_EXAMPLE_ROWS: Record<string, (string | number)[]> = {
+  school: ['', '', 'Primary', '', '10026', '3', '2026-2027', '', '', '', 'No', 'No', 'Grade 3', 'A', 'Room 5', '35', 'Morning'],
+  college: ['', '', 'Business', 'BA Accounting', '', '', '2026-2027', '1', '', '', '', '', 'Cohort 2026', 'A', 'Hall 2', '60', 'Morning'],
+  university: ['', 'Faculty of Science', 'Computer Science', 'BSc Computer Science', '', '', '2026-2027', '', '1', '1', '', '', 'Cohort 2026', 'A', 'Hall 204', '80', 'Morning'],
+  training_center: ['', '', '', 'Web Development', 'B12', '', '2026-2027', '', '', '', '', '', 'Web Development Bootcamp', '', 'Lab 1', '20', 'Evening'],
+};
+
+export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
+  let institutionType = String(req.query.institutionType || '').trim();
+  if (!TEMPLATE_EXAMPLE_ROWS[institutionType]) {
+    const schoolId = resolveOrgIdForCreate(req);
+    const org = schoolId ? await School.findById(schoolId).select('institutionType organizationType').lean() : null;
+    institutionType = org ? resolveInstitutionType(org) : 'school';
+  }
+  const rows = [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.school];
+  const buffer = buildXlsxBuffer(CLASS_EXPORT_HEADERS, rows, 'Class Template');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=classes-template.xlsx');
@@ -420,43 +464,64 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   if (rows.length === 0) throw new BadRequestError('The uploaded file has no data rows');
 
   const ownOrgId = resolveOrgIdForCreate(req) as string | undefined;
-  const isOrgAdmin = req.user?.role === 'org_admin';
 
   const errors: { row: number; message: string }[] = [];
   const documents: any[] = [];
 
-  // In-memory cache for resolved department IDs during this import batch
+  // In-memory caches for this import batch — avoid re-querying the same
+  // school/department/program lookup for every row.
   const deptCache = new Map<string, mongoose.Types.ObjectId>();
+  const programCache = new Map<string, mongoose.Types.ObjectId>();
+  const institutionCache = new Map<string, { institutionType: string; academicSystem: string; semestersPerAcademicYear: number }>();
+
+  async function resolveInstitution(schoolId: string) {
+    const cached = institutionCache.get(schoolId);
+    if (cached) return cached;
+    const [school, structure] = await Promise.all([
+      School.findById(schoolId).select('institutionType organizationType').lean(),
+      AcademicStructure.findOne({ school: schoolId }).select('academicSystem semestersPerAcademicYear').lean(),
+    ]);
+    const resolved = {
+      institutionType: school ? resolveInstitutionType(school) : 'school',
+      academicSystem: structure?.academicSystem || 'annual',
+      semestersPerAcademicYear: structure?.semestersPerAcademicYear || 1,
+    };
+    institutionCache.set(schoolId, resolved);
+    return resolved;
+  }
 
   for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 2;
     const row = rows[i];
 
     try {
-      const className = String(getField(row, 'Class Name', 'Class') ?? '').trim();
+      const className = String(getField(row, 'Class Name', 'Class', 'Program Name') ?? '').trim();
       const section = String(getField(row, 'Section') ?? '').trim();
       const room = String(getField(row, 'Room') ?? '').trim();
       const departmentRaw = String(getField(row, 'Department') ?? '').trim();
+      const facultyRaw = String(getField(row, 'Faculty') ?? '').trim();
+      const programRaw = String(getField(row, 'Program') ?? '').trim();
       const shiftRaw = String(getField(row, 'Shift / Learning Mode', 'Shift Mode', 'Shift') ?? 'Morning').trim();
       const batch = String(getField(row, 'Batch Number', 'Batch') ?? '').trim();
       const gradeLevelRaw = String(getField(row, 'Grade Level', 'Grade') ?? '').trim();
       const academicYear = String(getField(row, 'Academic Year', 'Year') ?? '').trim();
+      const studyYearRaw = String(getField(row, 'Study Year') ?? '').trim();
+      const semesterNumberRaw = String(getField(row, 'Semester Number', 'Semester') ?? '').trim();
+      const capacityRaw = String(getField(row, 'Capacity') ?? '').trim();
       const isGraduatingGrade = isTruthy(getField(row, 'Final Grade (Yes/No)', 'Final Grade', 'Graduating Grade', 'Is Graduating Grade'));
       const isEntryGrade = isTruthy(getField(row, 'Entry Grade (Yes/No)', 'Entry Grade', 'Is Entry Grade'));
 
       if (!className) throw new Error('Class Name is required');
       if (!room) throw new Error('Room is required');
-      if (!departmentRaw) throw new Error('Department is required');
-      // These three mirror the required fields on the manual "Add Class"
-      // form — without them a class can't be picked up by "Promote All
-      // Classes" (which matches on department + gradeLevel + academicYear).
-      if (!batch) throw new Error('Batch Number is required');
-      if (!gradeLevelRaw) throw new Error('Grade Level is required');
-      const gradeLevel = Number(gradeLevelRaw);
-      if (!Number.isFinite(gradeLevel) || gradeLevel < 0 || gradeLevel > 30) throw new Error('Grade Level must be a number between 0 and 30');
       if (!academicYear) throw new Error('Academic Year is required');
 
       const shiftMode = VALID_SHIFT_MODES.includes(shiftRaw) ? shiftRaw : 'Morning';
+
+      let capacity: number | undefined;
+      if (capacityRaw) {
+        capacity = Number(capacityRaw);
+        if (!Number.isFinite(capacity) || capacity < 1) throw new Error('Capacity must be a positive number');
+      }
 
       let schoolId: string | undefined = ownOrgId;
       if (!schoolId) {
@@ -467,31 +532,106 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         schoolId = school._id.toString();
       }
 
+      const { institutionType, academicSystem, semestersPerAcademicYear } = await resolveInstitution(schoolId);
+
+      // ── Institution-specific required fields — mirrors the manual "Add
+      // Class" form's per-type requirements (and validateAcademicClass for
+      // the manual-entry path) so an import can't create a row the UI would
+      // never let you save by hand. ──
+      let gradeLevel: number | null = null;
+      let studyYear: number | null = null;
+      let semesterNumber: number | null = null;
+      let semesterInYear: number | null = null;
+
+      if (institutionType === 'school') {
+        // Unchanged from the original school-only import — these three
+        // mirror what "Promote All Classes" matches on.
+        if (!departmentRaw) throw new Error('Department is required');
+        if (!batch) throw new Error('Batch Number is required');
+        if (!gradeLevelRaw) throw new Error('Grade Level is required');
+        gradeLevel = Number(gradeLevelRaw);
+        if (!Number.isFinite(gradeLevel) || gradeLevel < 0 || gradeLevel > 30) throw new Error('Grade Level must be a number between 0 and 30');
+      } else if (institutionType === 'training_center') {
+        if (!batch) throw new Error('Batch / Cohort is required');
+      } else {
+        // university / college
+        if (!departmentRaw) throw new Error('Department is required');
+        if (academicSystem === 'semester') {
+          if (!semesterNumberRaw) throw new Error('Semester Number is required');
+          semesterNumber = Number(semesterNumberRaw);
+          if (!Number.isInteger(semesterNumber) || semesterNumber < 1) throw new Error('Semester Number must be a positive whole number');
+          studyYear = Math.ceil(semesterNumber / semestersPerAcademicYear);
+          semesterInYear = ((semesterNumber - 1) % semestersPerAcademicYear) + 1;
+        } else {
+          if (!studyYearRaw) throw new Error('Study Year is required');
+          studyYear = Number(studyYearRaw);
+          if (!Number.isInteger(studyYear) || studyYear < 1 || studyYear > 30) throw new Error('Study Year must be a whole number between 1 and 30');
+        }
+      }
+
       // Auto-provision department: case-insensitive lookup, upsert if missing.
-      const cacheKey = `${schoolId}::${departmentRaw.toLowerCase()}`;
-      let deptId = deptCache.get(cacheKey);
-      if (!deptId) {
-        const dept = await Department.findOneAndUpdate(
-          { tenantId: new mongoose.Types.ObjectId(schoolId), name: new RegExp(`^${esc(departmentRaw)}$`, 'i') },
-          { $setOnInsert: { name: departmentRaw, tenantId: new mongoose.Types.ObjectId(schoolId) } },
-          { upsert: true, new: true, lean: true },
-        );
-        if (!dept) throw new Error(`Failed to resolve or create department "${departmentRaw}"`);
-        deptId = dept._id;
-        deptCache.set(cacheKey, deptId);
+      // Skipped entirely when the row has no Department (allowed for a
+      // training center, which may organize purely by Program).
+      let deptId: mongoose.Types.ObjectId | undefined;
+      if (departmentRaw) {
+        const cacheKey = `${schoolId}::${departmentRaw.toLowerCase()}`;
+        deptId = deptCache.get(cacheKey);
+        if (!deptId) {
+          let facultyId: mongoose.Types.ObjectId | undefined;
+          if (facultyRaw) {
+            const Faculty = (await import('../models/faculty.model')).default;
+            const faculty = await Faculty.findOneAndUpdate(
+              { tenantId: new mongoose.Types.ObjectId(schoolId), name: new RegExp(`^${esc(facultyRaw)}$`, 'i') },
+              { $setOnInsert: { name: facultyRaw, tenantId: new mongoose.Types.ObjectId(schoolId) } },
+              { upsert: true, new: true, lean: true },
+            );
+            facultyId = faculty?._id;
+          }
+          const dept = await Department.findOneAndUpdate(
+            { tenantId: new mongoose.Types.ObjectId(schoolId), name: new RegExp(`^${esc(departmentRaw)}$`, 'i') },
+            { $setOnInsert: { name: departmentRaw, tenantId: new mongoose.Types.ObjectId(schoolId), ...(facultyId ? { facultyId } : {}) } },
+            { upsert: true, new: true, lean: true },
+          );
+          if (!dept) throw new Error(`Failed to resolve or create department "${departmentRaw}"`);
+          deptId = dept._id;
+          deptCache.set(cacheKey, deptId);
+        }
+      }
+
+      // Auto-provision program the same way — optional for every type.
+      let programId: mongoose.Types.ObjectId | undefined;
+      if (programRaw) {
+        const cacheKey = `${schoolId}::${programRaw.toLowerCase()}`;
+        programId = programCache.get(cacheKey);
+        if (!programId) {
+          const Program = (await import('../models/program.model')).default;
+          const program = await Program.findOneAndUpdate(
+            { school: new mongoose.Types.ObjectId(schoolId), name: new RegExp(`^${esc(programRaw)}$`, 'i') },
+            { $setOnInsert: { name: programRaw, school: new mongoose.Types.ObjectId(schoolId), ...(deptId ? { department: deptId } : {}) } },
+            { upsert: true, new: true, lean: true },
+          );
+          if (!program) throw new Error(`Failed to resolve or create program "${programRaw}"`);
+          programId = program._id;
+          programCache.set(cacheKey, programId);
+        }
       }
 
       documents.push({
         school: new mongoose.Types.ObjectId(schoolId),
         department: deptId,
+        program: programId,
         title: className,
         section,
         room,
+        capacity,
         shiftMode,
         status: 'active',
         batch,
         gradeLevel,
         academicYear,
+        studyYear,
+        semesterNumber,
+        semesterInYear,
         isGraduatingGrade,
         isEntryGrade,
       });

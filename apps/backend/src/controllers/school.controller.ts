@@ -15,6 +15,10 @@ import Student from '../models/student.model';
 import Teacher from '../models/teacher.model';
 import Parent from '../models/parent.model';
 import AcademicStructure from '../models/academic-structure.model';
+import Department from '../models/department.model';
+import Faculty from '../models/faculty.model';
+import Program from '../models/program.model';
+import ClassModel from '../models/class.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
@@ -210,6 +214,70 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     },
     orgAdminWarning || 'School registered successfully'
   );
+};
+
+// ---------------------------------------------------------------------------
+// GET /schools/:id/onboarding — Resumable onboarding status.
+//
+// Rather than persisting a separate step-tracker that could drift from
+// reality, "started"/"partially complete" is derived directly from what
+// structure actually exists for this org — so a page refresh, a new login
+// session, or a different admin picking up setup always sees the true
+// state, never a stale flag. institutionType decides which structure counts
+// are even relevant (a school never needs Faculty/Program; a training
+// center never needs Faculty).
+// ---------------------------------------------------------------------------
+
+export const getOnboardingStatus = async (req: Request, res: Response): Promise<Response> => {
+  if (req.user?.role === 'org_admin' && req.params.id !== req.user.organizationId) {
+    throw new ForbiddenError("You do not have permission to view another organization's onboarding.");
+  }
+
+  const school = await School.findById(req.params.id).lean();
+  if (!school) throw new NotFoundError('School not found');
+
+  const institutionType = resolveInstitutionType(school);
+  const structure = await AcademicStructure.findOne({ school: school._id }).lean();
+
+  const [facultyCount, departmentCount, programCount, classCount] = await Promise.all([
+    Faculty.countDocuments({ tenantId: school._id }),
+    Department.countDocuments({ tenantId: school._id }),
+    Program.countDocuments({ school: school._id }),
+    ClassModel.countDocuments({ school: school._id }),
+  ]);
+
+  const structureCounts = { faculties: facultyCount, departments: departmentCount, programs: programCount, classes: classCount };
+
+  // What "ready to complete" means differs by institution type: a school
+  // just needs at least one class; a university/college needs at least one
+  // department (and a faculty too, if it uses them); a training center
+  // needs at least one class/batch (department and program are optional
+  // for it either way).
+  let structureReady: boolean;
+  if (institutionType === 'school') {
+    structureReady = classCount > 0;
+  } else if (institutionType === 'training_center') {
+    structureReady = classCount > 0;
+  } else {
+    structureReady = departmentCount > 0 && (!structure?.usesFaculty || facultyCount > 0);
+  }
+
+  const started = facultyCount > 0 || departmentCount > 0 || programCount > 0 || classCount > 0;
+
+  let stage: 'not_started' | 'in_progress' | 'ready_to_complete' | 'completed';
+  if (school.onboardingCompleted) stage = 'completed';
+  else if (structureReady) stage = 'ready_to_complete';
+  else if (started) stage = 'in_progress';
+  else stage = 'not_started';
+
+  return ApiResponse.success(res, {
+    onboardingCompleted: !!school.onboardingCompleted,
+    stage,
+    institutionType,
+    ownershipType: school.ownershipType,
+    academicStructure: structure,
+    structureCounts,
+  });
 };
 
 // ---------------------------------------------------------------------------

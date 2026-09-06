@@ -2,10 +2,19 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IClass extends Document {
   school: mongoose.Types.ObjectId;
-  department: mongoose.Types.ObjectId;
+  /** Required for schools and higher-ed (university/college); optional for a
+   * training center, which may organize purely by Program with no
+   * Department layer at all — enforced per-type in academic-class.middleware.ts. */
+  department?: mongoose.Types.ObjectId;
+  /** Optional grouping above this Cohort/Batch (Department → Program →
+   * Cohort/Class for college/university; top-level for a training center,
+   * which commonly has no department). Unset for schools. */
+  program?: mongoose.Types.ObjectId;
   title: string;
   section?: string;
   room: string;
+  /** Maximum enrollable students/learners. Optional — unlimited if unset. */
+  capacity?: number;
   shiftMode: 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
   course?: mongoose.Types.ObjectId;
   dayOfWeek?: number;
@@ -31,10 +40,12 @@ export interface IClass extends Document {
 const classSchema = new Schema<IClass>(
   {
     school: { type: Schema.Types.ObjectId, ref: 'School', required: true, index: true },
-    department: { type: Schema.Types.ObjectId, ref: 'Department', required: true, index: true },
+    department: { type: Schema.Types.ObjectId, ref: 'Department', default: null, index: true },
+    program: { type: Schema.Types.ObjectId, ref: 'Program', default: null, index: true },
     title: { type: String, required: true, trim: true, maxlength: 200 },
     section: { type: String, trim: true, maxlength: 10 },
     room: { type: String, required: true, trim: true, maxlength: 50 },
+    capacity: { type: Number, min: [1, 'Capacity must be at least 1'], max: 5000, default: null },
     shiftMode: { type: String, enum: ['Morning', 'Afternoon', 'Evening', 'Virtual'], default: 'Morning' },
     course: { type: Schema.Types.ObjectId, ref: 'Course', default: null, index: true },
     dayOfWeek: { type: Number, min: 0, max: 6, default: null },

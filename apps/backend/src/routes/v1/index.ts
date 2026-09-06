@@ -39,6 +39,7 @@ import forumRoutes from './forum.routes';
 import sidebarSettingRoutes from './sidebar-setting.routes';
 import tenantRoutes from './tenant.routes';
 import departmentRoutes from './department.routes';
+import programRoutes from './program.routes';
 import courseCategoryRoutes from './course-category.routes';
 import userRoutes from './user.routes';
 import classScheduleRoutes from './class-schedule.routes';
@@ -104,6 +105,7 @@ router.use('/forum', authMiddleware, requireModulePermission('communication'), f
 router.use('/sidebar-settings', authMiddleware, requireModulePermission('system'), sidebarSettingRoutes);
 router.use('/tenant', tenantRoutes);
 router.use('/departments', departmentRoutes);
+router.use('/programs', authMiddleware, requireModulePermission('organization'), programRoutes);
 router.use('/course-categories', courseCategoryRoutes);
 router.use('/users', authMiddleware, requireModulePermission('organization'), userRoutes);
 router.use('/class-schedules', authMiddleware, requireModulePermission('academic'), classScheduleRoutes);

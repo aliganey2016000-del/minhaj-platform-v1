@@ -18,12 +18,12 @@ router.get('/browse', roleMiddleware(['admin', 'org_admin', 'teacher', 'student'
 router.get('/academic-structure', adminOnly, asyncHandler(academicStructureController.getStructure));
 router.patch('/academic-structure', adminOnly, asyncHandler(academicStructureController.updateStructure));
 router.post('/advance-semester', adminOnly, asyncHandler(academicStructureController.advanceSemester));
-router.post('/', adminOnly, validateAcademicClass, syncClassExamRoom, asyncHandler(classController.create));
+router.post('/', adminOnly, asyncHandler(validateAcademicClass), syncClassExamRoom, asyncHandler(classController.create));
 router.post('/import', adminOnly, upload.single('file'), asyncHandler(classController.bulkImport));
 router.get('/export', adminOnly, asyncHandler(classController.exportClasses as any));
 router.get('/template', adminOnly, asyncHandler(classController.downloadTemplate as any));
 router.delete('/bulk', adminOnly, asyncHandler(classController.bulkRemove));
-router.patch('/:id', adminOnly, validateAcademicClass, syncClassExamRoom, asyncHandler(classController.update));
+router.patch('/:id', adminOnly, asyncHandler(validateAcademicClass), syncClassExamRoom, asyncHandler(classController.update));
 router.delete('/:id', adminOnly, asyncHandler(classController.remove));
 router.patch('/:id/status', adminOnly, asyncHandler(classController.updateStatus));
 router.get('/schedule/:courseId', asyncHandler(classController.getSchedule));

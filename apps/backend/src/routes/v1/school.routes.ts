@@ -19,6 +19,7 @@ router.use(authMiddleware);
 // ── Read (admin, org_admin, or teacher — results scoped to own org inside the controller for org_admin) ──
 router.get('/', adminOrTeacher, asyncHandler(ctrl.getAll));
 router.get('/:id', adminOrTeacher, asyncHandler(ctrl.getById));
+router.get('/:id/onboarding', adminOnly, asyncHandler(ctrl.getOnboardingStatus));
 
 // ── Update own org info (admin, or org_admin for their own organization only) ──
 router.patch('/:id', adminOnly, asyncHandler(ctrl.update));
