@@ -88,7 +88,7 @@ router.use('/assignments', authMiddleware, requireModulePermission('academic'), 
 router.use('/resources', resourceRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/whatsapp', authMiddleware, requireModulePermission('communication'), whatsappRoutes);
-router.use('/telegram', authMiddleware, requireModulePermission('communication'), telegramRoutes);
+router.use('/telegram', telegramRoutes);
 router.use('/announcements', authMiddleware, requireModulePermission('content'), contentRoutes('Announcement'));
 router.use('/news', authMiddleware, requireModulePermission('content'), contentRoutes('News'));
 router.use('/events', authMiddleware, requireModulePermission('content'), contentRoutes('Event'));

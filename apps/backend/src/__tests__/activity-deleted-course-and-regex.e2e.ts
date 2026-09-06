@@ -84,7 +84,21 @@ async function main() {
 
   const studentUser = await User.create({ email: 'leyla@test.local', password: 'Password123!', role: 'student' });
   const studentProfile = await Profile.create({ user: studentUser._id, firstName: 'Leyla', lastName: 'Isaaq', gender: 'female' });
-  const student = await Student.create({ user: studentUser._id, profile: studentProfile._id, school: school._id, enrolledCourses: [liveCourse._id] });
+  const studentClassId = new mongoose.Types.ObjectId();
+  const student = await Student.create({
+    user: studentUser._id,
+    profile: studentProfile._id,
+    school: school._id,
+    class: studentClassId,
+    enrolledCourses: [liveCourse._id],
+    enrollmentHistory: [{
+      academicYear: '2025-2026',
+      class: studentClassId,
+      courses: [liveCourse._id],
+      status: 'active',
+      startedAt: new Date(),
+    }],
+  });
 
   await LearningActivity.create({ user: studentUser._id, student: student._id, school: school._id, type: 'login', createdAt: new Date() });
   await LearningActivity.create({ user: studentUser._id, student: student._id, school: school._id, type: 'lesson_view', course: liveCourse._id, lessonId: 'l1', resourceName: 'Lesson 1', durationSeconds: 30, createdAt: new Date() });

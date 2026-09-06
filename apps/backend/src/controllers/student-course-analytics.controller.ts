@@ -24,7 +24,7 @@ export const getStudentCourseAnalytics = async (req: Request, res: Response): Pr
   const { studentId } = req.params;
   await canViewStudent(req, studentId);
 
-  const student = await Student.findById(studentId).select('enrolledCourses').lean();
+  const student = await Student.findById(studentId).select('status enrolledCourses enrollmentHistory').lean();
   if (!student) throw new NotFoundError('Student');
 
   const courseIds = (student.enrolledCourses || []).map((id) => new mongoose.Types.ObjectId(id));

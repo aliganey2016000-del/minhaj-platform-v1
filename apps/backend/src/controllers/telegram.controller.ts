@@ -141,7 +141,8 @@ export const unlink = async (req: Request, res: Response): Promise<Response> => 
 
 export const webhook = async (req: Request, res: Response): Promise<Response> => {
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
-  if (expectedSecret && req.headers['x-telegram-bot-api-secret-token'] !== expectedSecret) {
+  const receivedSecret = req.get('X-Telegram-Bot-Api-Secret-Token')?.trim();
+  if (expectedSecret && receivedSecret !== expectedSecret) {
     return res.status(401).json({ ok: false });
   }
 

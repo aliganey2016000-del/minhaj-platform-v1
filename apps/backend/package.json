@@ -24,6 +24,8 @@
     "test:student-search-phone": "ts-node src/__tests__/student-search-phone.e2e.ts",
     "test:activity-deleted-course": "ts-node src/__tests__/activity-deleted-course-and-regex.e2e.ts",
     "test:student-course-source-of-truth": "ts-node src/__tests__/student-course-source-of-truth.e2e.ts",
+    "test:semester-progression": "ts-node src/__tests__/semester-progression.e2e.ts",
+    "test:course-completion": "ts-node src/__tests__/course-completion.e2e.ts",
     "test:payment-reference": "ts-node src/__tests__/payment-reference-and-receipt.e2e.ts",
     "test:financial-core": "ts-node src/__tests__/financial-core.e2e.ts",
     "test:fee-adjustment": "ts-node src/__tests__/fee-adjustment.e2e.ts",

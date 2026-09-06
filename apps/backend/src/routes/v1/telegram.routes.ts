@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as ctrl from '../../controllers/telegram.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { adminOnly, roleMiddleware } from '../../middleware/role.middleware';
+import { adminOnly, requireModulePermission, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
@@ -10,7 +10,7 @@ const router = Router();
 // authMiddleware below or every webhook delivery would 401.
 router.post('/webhook', asyncHandler(ctrl.webhook));
 
-router.use(authMiddleware);
+router.use(authMiddleware, requireModulePermission('communication'));
 
 router.get('/status', adminOnly, asyncHandler(ctrl.status));
 router.get('/history', adminOnly, asyncHandler(ctrl.history));
