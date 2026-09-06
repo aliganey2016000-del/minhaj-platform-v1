@@ -107,6 +107,45 @@ studentSchema.pre<IStudent>('validate', async function (next) {
 });
 
 /**
+ * Current course links are derived from the active enrollment record.
+ * This prevents stale `enrolledCourses` ids from leaking into the student
+ * profile/dashboard after a class or semester transition. The hook only
+ * normalizes the returned document; persistence remains the responsibility
+ * of enrollment.service.ts, which is the write-side source of truth.
+ */
+function normalizeCurrentCourseLinks(student: any): void {
+  if (!student) return;
+
+  if (student.status !== 'active') {
+    student.enrolledCourses = [];
+    return;
+  }
+
+  const activeHistory = Array.isArray(student.enrollmentHistory)
+    ? student.enrollmentHistory
+        .filter((entry: any) => entry?.status === 'active')
+        .sort((a: any, b: any) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime())[0]
+    : undefined;
+
+  const courseIds = Array.isArray(activeHistory?.courses) ? activeHistory.courses : [];
+  const seen = new Set<string>();
+  student.enrolledCourses = courseIds.filter((courseId: any) => {
+    if (!courseId) return false;
+    const key = String(courseId);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// `findOne()` is the common read path behind both the student profile and
+// self-service dashboard. Applying the same normalization to lean results
+// also covers getById(), which intentionally returns a lean object.
+studentSchema.post('findOne', function (result: any) {
+  normalizeCurrentCourseLinks(result);
+});
+
+/**
  * Central safeguard: bulk promotion currently uses updateOne(), while the
  * enrollment service uses save(). This query hook keeps both paths on the
  * same enrollment-history source of truth without duplicating promotion code.
