@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, Building2, Pencil, Plus, ShieldCheck, Trash2, UsersRound, UserRound } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../../store/auth-context';
-import { useTenant } from '../../../store/tenant-context';
 import api from '../../../lib/axios';
 import { StaffAttendance } from './staff-attendance';
 
@@ -20,7 +19,7 @@ const inputClass = 'w-full rounded-xl border border-[var(--color-border-default)
 
 function InstitutionStructure() {
   const { user } = useAuth();
-  const { tenant } = useTenant();
+  const [organizationType, setOrganizationType] = useState('');
   const [faculties, setFaculties] = useState<Faculty[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [name, setName] = useState('');
@@ -34,10 +33,33 @@ function InstitutionStructure() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const isUniversity = tenant?.organizationType === 'university';
+  const isUniversity = organizationType === 'university';
   const schoolQuery = user?.organizationId ? `?school=${encodeURIComponent(user.organizationId)}` : '';
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadOrganizationType = async () => {
+      if (!user?.organizationId) {
+        setOrganizationType('');
+        return;
+      }
+      try {
+        const { data } = await api.get(`/schools/${encodeURIComponent(user.organizationId)}`);
+        const type = data?.data?.organizationType;
+        if (!cancelled) setOrganizationType(type || 'school');
+      } catch (err: any) {
+        if (!cancelled) {
+          setOrganizationType('');
+          setError(err.response?.data?.message || 'Failed to load institution type');
+        }
+      }
+    };
+    loadOrganizationType();
+    return () => { cancelled = true; };
+  }, [user?.organizationId]);
+
   const load = async () => {
+    if (!organizationType) return;
     setLoading(true); setError('');
     try {
       const [departmentResponse, facultyResponse] = await Promise.all([
@@ -51,7 +73,7 @@ function InstitutionStructure() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, [isUniversity, user?.organizationId]);
+  useEffect(() => { load(); }, [organizationType, user?.organizationId]);
 
   const saveFaculty = async () => {
     if (!name.trim()) return setError('Faculty name is required');
