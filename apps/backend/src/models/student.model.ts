@@ -113,7 +113,7 @@ studentSchema.pre<IStudent>('validate', async function (next) {
  * normalizes the returned document; persistence remains the responsibility
  * of enrollment.service.ts, which is the write-side source of truth.
  */
-function normalizeCurrentCourseLinks(student: any): void {
+async function normalizeCurrentCourseLinks(student: any): Promise<void> {
   if (!student) return;
 
   if (student.status !== 'active') {
@@ -129,21 +129,35 @@ function normalizeCurrentCourseLinks(student: any): void {
 
   const courseIds = Array.isArray(activeHistory?.courses) ? activeHistory.courses : [];
   const seen = new Set<string>();
-  student.enrolledCourses = courseIds.filter((courseId: any) => {
+  const uniqueIds = courseIds.filter((courseId: any) => {
     if (!courseId) return false;
     const key = String(courseId);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+
+  // Enrollment history is the write-side source of truth, but a course may
+  // later be deleted/archived while an old ObjectId remains in history.
+  // Remove such dangling links before population so profile/dashboard APIs
+  // never expose null courses or try to calculate progress for a missing
+  // course. This is intentionally read-time cleanup; history is preserved.
+  if (uniqueIds.length > 0) {
+    const CourseModel = mongoose.model('Course');
+    const existingIds = await CourseModel.find({ _id: { $in: uniqueIds } }).distinct('_id');
+    const existingSet = new Set(existingIds.map((id: any) => String(id)));
+    student.enrolledCourses = uniqueIds.filter((courseId: any) => existingSet.has(String(courseId)));
+  } else {
+    student.enrolledCourses = [];
+  }
 }
 
 // `findOne()` is the common read path behind both the student profile and
 // self-service dashboard. Applying the same normalization to lean results
 // also covers getById(), which intentionally returns a lean object.
-studentSchema.post('findOne', function (result: any) {
+studentSchema.post('findOne', async function (result: any) {
   if (this.getOptions()?.skipCourseNormalization) return;
-  normalizeCurrentCourseLinks(result);
+  await normalizeCurrentCourseLinks(result);
 });
 
 /**
