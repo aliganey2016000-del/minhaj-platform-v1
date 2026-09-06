@@ -21,22 +21,27 @@ async function syncEnrollmentHistory(
   newClassId: mongoose.Types.ObjectId | string,
   newCourseIds: string[],
 ): Promise<void> {
-  const newClass = await ClassModel.findById(newClassId).select('_id title academicYear');
+  const newClass: any = await ClassModel.findById(newClassId).select('_id title academicYear studyYear semesterNumber semesterInYear');
   if (!newClass || !newClass.academicYear) return;
 
   const history = Array.isArray(student.enrollmentHistory) ? student.enrollmentHistory : [];
-  const now = new Date();
   const sameCurrent = history.find(
-    (entry: any) => String(entry.class) === String(newClass._id) && entry.academicYear === newClass.academicYear && entry.status === 'active',
+    (entry: any) => String(entry.class) === String(newClass._id)
+      && entry.academicYear === newClass.academicYear
+      && entry.semesterNumber === (newClass.semesterNumber ?? null)
+      && entry.studyYear === (newClass.studyYear ?? null)
+      && entry.status === 'active',
   );
 
   if (sameCurrent) {
     sameCurrent.courses = newCourseIds.map((id) => new mongoose.Types.ObjectId(id));
+    sameCurrent.semesterInYear = newClass.semesterInYear ?? null;
     return;
   }
 
+  const now = new Date();
   for (const entry of history) {
-    if (entry.status === 'active' && String(entry.class) !== String(newClass._id)) {
+    if (entry.status === 'active') {
       entry.status = 'completed';
       entry.endedAt = now;
     }
@@ -46,11 +51,44 @@ async function syncEnrollmentHistory(
     academicYear: newClass.academicYear,
     class: newClass._id,
     grade: newClass.title,
+    studyYear: newClass.studyYear ?? undefined,
+    semesterNumber: newClass.semesterNumber ?? undefined,
+    semesterInYear: newClass.semesterInYear ?? undefined,
     courses: newCourseIds.map((id) => new mongoose.Types.ObjectId(id)),
     status: 'active',
     startedAt: now,
   });
   student.enrollmentHistory = history;
+}
+
+/**
+ * Refreshes a student's course links after the class itself has progressed
+ * in place (for example S1 -> S2). Historical course membership is retained
+ * in enrollmentHistory while the current enrolledCourses set becomes the
+ * published courses attached to the progressed class.
+ */
+export async function refreshStudentCoursesForCurrentClass(
+  studentId: mongoose.Types.ObjectId | string,
+): Promise<void> {
+  const student = await Student.findById(studentId).select('class enrolledCourses enrollmentHistory');
+  if (!student?.class) return;
+
+  const [oldCourses, newCourses] = await Promise.all([
+    Course.find({ class: student.class }).select('_id'),
+    Course.find({ class: student.class, status: 'published' }).select('_id'),
+  ]);
+
+  const previousIds = (student.enrolledCourses || []).map((id) => id.toString());
+  const currentClassCourseIds = new Set(oldCourses.map((course) => course._id.toString()));
+  const retainedIds = previousIds.filter((id) => !currentClassCourseIds.has(id));
+  const newCourseIds = newCourses.map((course) => course._id.toString());
+  const nextIds = Array.from(new Set([...retainedIds, ...newCourseIds]));
+
+  await syncEnrollmentHistory(student, student.class, newCourseIds);
+  student.enrolledCourses = nextIds.map((id) => new mongoose.Types.ObjectId(id));
+  await student.save();
+
+  await recalcEnrolledStudents(new Set([...currentClassCourseIds, ...newCourseIds]));
 }
 
 /** Closes the student's current academic enrollment without deleting it. */
@@ -79,8 +117,6 @@ export async function reassignStudentClassCourses(
 ): Promise<void> {
   if (String(oldClassId || '') === String(newClassId || '')) return;
 
-  // `class` is the source of truth for the student's current placement.
-  // Keep it loaded here because this service is also used by promotion.
   const student = await Student.findById(studentId).select('class enrolledCourses enrollmentHistory');
   if (!student || !newClassId) return;
 
