@@ -17,7 +17,6 @@ function getSchoolId(req: Request): string {
 async function getOrCreateStructure(schoolId: string) {
   const school = await School.findById(schoolId).select('_id organizationType').lean();
   if (!school) throw new NotFoundError('Organization');
-
   const existing = await AcademicStructure.findOne({ school: schoolId });
   if (existing) return existing;
 
@@ -37,16 +36,11 @@ export const getStructure = async (req: Request, res: Response): Promise<Respons
 
 export const updateStructure = async (req: Request, res: Response): Promise<Response> => {
   const schoolId = getSchoolId(req);
-  const school = await School.findById(schoolId).select('_id organizationType');
-  if (!school) throw new NotFoundError('Organization');
-  assertOwnsOrg(req, school, '_id');
+  if (req.user?.role === 'org_admin') assertOwnsOrg(req, { school: schoolId }, 'school');
 
   const academicSystem = String(req.body?.academicSystem || '').trim() as AcademicSystem;
   const semestersPerAcademicYear = Number(req.body?.semestersPerAcademicYear);
-
-  if (!['annual', 'semester'].includes(academicSystem)) {
-    throw new BadRequestError('Academic system must be annual or semester');
-  }
+  if (!['annual', 'semester'].includes(academicSystem)) throw new BadRequestError('Academic system must be annual or semester');
   if (academicSystem === 'semester' && ![2, 3].includes(semestersPerAcademicYear)) {
     throw new BadRequestError('Semester-based institutions must use 2 or 3 semesters per academic year');
   }
@@ -56,7 +50,6 @@ export const updateStructure = async (req: Request, res: Response): Promise<Resp
     { $set: { academicSystem, semestersPerAcademicYear: academicSystem === 'annual' ? 1 : semestersPerAcademicYear } },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
   );
-
   return ApiResponse.success(res, structure, 'Academic structure updated successfully');
 };
 
@@ -72,6 +65,7 @@ function incrementAcademicYear(value: string): string {
 
 export const advanceSemester = async (req: Request, res: Response): Promise<Response> => {
   const schoolId = getSchoolId(req);
+  if (req.user?.role === 'org_admin') assertOwnsOrg(req, { school: schoolId }, 'school');
   const structure = await getOrCreateStructure(schoolId);
   if (structure.academicSystem !== 'semester') {
     throw new BadRequestError('This organization uses annual progression. Change Academic System to Semester first.');
@@ -89,7 +83,6 @@ export const advanceSemester = async (req: Request, res: Response): Promise<Resp
 
   const semestersPerYear = structure.semestersPerAcademicYear;
   const results: Array<Record<string, unknown>> = [];
-
   for (const cls of classes) {
     const currentSemester = cls.semesterNumber && cls.semesterNumber > 0 ? cls.semesterNumber : 1;
     const nextSemester = currentSemester + 1;
