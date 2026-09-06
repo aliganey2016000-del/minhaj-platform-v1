@@ -25,19 +25,41 @@ function InstitutionStructure() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const [facultyId, setFacultyId] = useState('');
   const [editingFaculty, setEditingFaculty] = useState<string | null>(null);
   const [editingDepartment, setEditingDepartment] = useState<string | null>(null);
   const [departmentName, setDepartmentName] = useState('');
   const [departmentCode, setDepartmentCode] = useState('');
   const [departmentFacultyId, setDepartmentFacultyId] = useState('');
+  const [organizationType, setOrganizationType] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const isUniversity = tenant?.organizationType === 'university';
+  const isUniversity = organizationType === 'university';
   const schoolQuery = user?.organizationId ? `?school=${encodeURIComponent(user.organizationId)}` : '';
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.organizationId) {
+      setOrganizationType(tenant?.organizationType || null);
+      return;
+    }
+
+    (async () => {
+      try {
+        const response = await api.get(`/schools/${encodeURIComponent(user.organizationId)}`);
+        if (!cancelled) {
+          setOrganizationType(response.data?.data?.organizationType || tenant?.organizationType || null);
+        }
+      } catch {
+        if (!cancelled) setOrganizationType(tenant?.organizationType || null);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [user?.organizationId, tenant?.organizationType]);
+
   const load = async () => {
+    if (!organizationType) return;
     setLoading(true); setError('');
     try {
       const [departmentResponse, facultyResponse] = await Promise.all([
@@ -51,7 +73,7 @@ function InstitutionStructure() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, [isUniversity, user?.organizationId]);
+  useEffect(() => { load(); }, [organizationType, user?.organizationId]);
 
   const saveFaculty = async () => {
     if (!name.trim()) return setError('Faculty name is required');
@@ -82,6 +104,10 @@ function InstitutionStructure() {
   const editDepartment = (department: Department) => { setEditingDepartment(department._id); setDepartmentName(department.name); setDepartmentCode(department.code || ''); setDepartmentFacultyId(department.facultyId?._id || ''); setError(''); };
   const removeFaculty = async (id: string) => { if (!window.confirm('Delete this faculty? Departments must be reassigned first.')) return; try { await api.delete(`/departments/faculties/${id}`); await load(); } catch (err: any) { setError(err.response?.data?.message || 'Failed to delete faculty'); } };
   const removeDepartment = async (id: string) => { if (!window.confirm('Delete this department? Linked classes must be reassigned first.')) return; try { await api.delete(`/departments/${id}`); await load(); } catch (err: any) { setError(err.response?.data?.message || 'Failed to delete department'); } };
+
+  if (!organizationType) {
+    return <div className="p-4 sm:p-6"><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 text-sm text-[var(--color-text-secondary)]">Loading institution type...</div></div>;
+  }
 
   return <div className="space-y-6 p-4 sm:p-6">
     <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-6 shadow-sm">
