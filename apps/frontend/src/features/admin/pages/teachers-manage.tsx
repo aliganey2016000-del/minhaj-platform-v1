@@ -1,511 +1,130 @@
-/**
- * Teacher Management — Admin CRUD
- * Import / Export + Full CRUD
- */
-
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Presentation, Search, MoreVertical, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MoreVertical, Search, UserPlus, Upload, Download, Trash2, Eye, Pencil, BookOpen, X, Check } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
-import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
-import { Pagination } from '../components/pagination';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+type InstitutionType = 'school' | 'college' | 'university' | 'training_center';
+type TeacherStatus = 'active' | 'inactive' | 'on_leave';
+type CoursePermission = 'COURSE_BUILDER' | 'STUDENT_VIEW';
 
-interface TeacherProfile { _id: string; firstName: string; lastName: string; gender: string; }
-interface TeacherUser { _id: string; email: string; phone?: string; isVerified: boolean; isActive: boolean; }
-interface TeacherCourse { _id: string; title: { en: string }; slug: string; }
-interface TeacherSchool { _id: string; name: string; }
+interface Organization { _id: string; name: string; institutionType?: InstitutionType; organizationType?: string; status?: string; }
+interface Teacher { _id: string; teacherId: string; profile?: { firstName?: string; lastName?: string; gender?: string }; user?: { email?: string; phone?: string; isActive?: boolean }; qualification?: string; specialization?: string[]; experience?: number; bio?: string; status: TeacherStatus; joiningDate?: string; coursePermission?: CoursePermission; school?: { _id: string; name: string }; }
+interface Course { _id: string; title?: { en?: string; so?: string; ar?: string }; status?: string; teacher?: string | { _id?: string }; class?: { _id?: string; title?: string; section?: string }; }
 
-interface Teacher {
-  _id: string; teacherId: string; user: TeacherUser; profile: TeacherProfile;
-  school?: TeacherSchool; qualification: string; specialization: string[];
-  experience: number; bio: string; courses: TeacherCourse[];
-  coursePermission?: 'COURSE_BUILDER' | 'STUDENT_VIEW';
-  status: 'active' | 'inactive' | 'on_leave'; joiningDate: string; createdAt: string;
+const inputClass = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20';
+const emptyForm = { email: '', password: '', firstName: '', lastName: '', gender: 'male', phone: '', qualification: '', specialization: '', experience: 0, bio: '', joiningDate: new Date().toISOString().slice(0, 10) };
+
+function orgType(org?: Organization): InstitutionType {
+  if (org?.institutionType) return org.institutionType;
+  if (org?.organizationType === 'university') return 'university';
+  if (org?.organizationType === 'training_center') return 'training_center';
+  return 'school';
+}
+function typeLabel(type: InstitutionType) { return ({ school: 'School', college: 'College', university: 'University', training_center: 'Training Center' } as const)[type]; }
+function teacherName(t: Teacher) { return `${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`.trim() || 'Unnamed Teacher'; }
+function courseTeacherId(c: Course) { return typeof c.teacher === 'string' ? c.teacher : c.teacher?._id || ''; }
+function dataOf<T>(res: any): T { return (res?.data?.data ?? res?.data ?? []) as T; }
+
+function StatusBadge({ status }: { status: TeacherStatus }) {
+  const cls = status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : status === 'on_leave' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${cls}`}>{status.replace('_', ' ')}</span>;
 }
 
-interface TeacherForm {
-  email: string; password: string; firstName: string; lastName: string;
-  gender: string; phone: string; school: string; qualification: string;
-  specialization: string; experience: number; bio: string; joiningDate: string;
+function Modal({ title, children, onClose, wide = false }: { title: string; children: React.ReactNode; onClose: () => void; wide?: boolean }) {
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm" onMouseDown={onClose}>
+    <div className={`w-full ${wide ? 'max-w-3xl' : 'max-w-xl'} max-h-[92vh] overflow-y-auto rounded-2xl bg-[var(--color-surface-primary)] p-5 shadow-2xl`} onMouseDown={e => e.stopPropagation()}>
+      <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-lg font-bold text-[var(--color-text-primary)]">{title}</h2><button onClick={onClose} className="rounded-lg p-1.5 hover:bg-[var(--color-surface-tertiary)]"><X size={18} /></button></div>
+      {children}
+    </div>
+  </div>;
 }
 
-interface School { _id: string; name: string; status: 'active' | 'inactive'; }
-
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-// Must match the header names getField() in teacher.controller.ts's
-// bulkImport looks for, and the order of the downloaded template's columns.
-const PASTE_COLUMNS = [
-  'First Name', 'Last Name', 'Gender', 'Email', 'Password', 'Phone',
-  'Organization', 'Qualification', 'Specialization', 'Experience (years)',
-  'Joining Date', 'Bio',
-];
-
-const emptyForm: TeacherForm = {
-  email: '', password: '', firstName: '', lastName: '', gender: 'male', phone: '',
-  school: '', qualification: '', specialization: '', experience: 0, bio: '',
-  joiningDate: new Date().toISOString().split('T')[0],
-};
-
-// ---------------------------------------------------------------------------
-// Badges
-// ---------------------------------------------------------------------------
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-    inactive: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-    on_leave: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  };
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-600'}`}>{status.replace('_', ' ')}</span>;
-}
-
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return <div className="flex justify-between items-center py-1.5 border-b border-[var(--color-border-subtle)] last:border-0"><span className="text-sm text-[var(--color-text-tertiary)]">{label}</span><span className="text-sm font-medium text-[var(--color-text-primary)] text-right max-w-[60%]">{value}</span></div>;
-}
-
-// ---------------------------------------------------------------------------
-// Modals
-// ---------------------------------------------------------------------------
-
-function TeacherModal({ teacher, onClose, onSaved }: { teacher?: Teacher; onClose: () => void; onSaved: () => void }) {
-  const isEdit = !!teacher;
-  const [form, setForm] = useState<TeacherForm>(teacher ? {
-    email: teacher.user?.email || '', password: '',
-    firstName: teacher.profile?.firstName || '', lastName: teacher.profile?.lastName || '',
-    gender: teacher.profile?.gender || 'male', phone: teacher.user?.phone || '',
-    school: teacher.school?._id || '', qualification: teacher.qualification || '',
-    specialization: (teacher.specialization || []).join(', '), experience: teacher.experience || 0,
-    bio: teacher.bio || '', joiningDate: teacher.joiningDate ? new Date(teacher.joiningDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-  } : emptyForm);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [schools, setSchools] = useState<School[]>([]);
-  const [schoolsLoading, setSchoolsLoading] = useState(true);
-
-  useEffect(() => { (async () => { try { const { data } = await api.get('/schools', { params: { limit: '100' } }); setSchools(data.data || []); } catch {} finally { setSchoolsLoading(false); } })(); }, []);
-
-  const handleChange = (field: keyof TeacherForm, value: string | number) => { setForm(p => ({ ...p, [field]: value })); };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setLoading(true); setError('');
+function TeacherFormModal({ teacher, organizationId, organization, onClose, onSaved }: { teacher?: Teacher; organizationId: string; organization?: Organization; onClose: () => void; onSaved: () => void }) {
+  const edit = !!teacher;
+  const [form, setForm] = useState(() => teacher ? { ...emptyForm, email: teacher.user?.email || '', firstName: teacher.profile?.firstName || '', lastName: teacher.profile?.lastName || '', gender: teacher.profile?.gender || 'male', phone: teacher.user?.phone || '', qualification: teacher.qualification || '', specialization: (teacher.specialization || []).join(', '), experience: teacher.experience || 0, bio: teacher.bio || '', joiningDate: teacher.joiningDate ? new Date(teacher.joiningDate).toISOString().slice(0, 10) : emptyForm.joiningDate } : emptyForm);
+  const [saving, setSaving] = useState(false); const [error, setError] = useState('');
+  const set = (key: string, value: string | number) => setForm(p => ({ ...p, [key]: value }));
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setSaving(true); setError('');
     try {
-      const payload = { firstName: form.firstName, lastName: form.lastName, gender: form.gender, school: form.school || undefined, qualification: form.qualification, specialization: form.specialization.split(',').map(s => s.trim()).filter(Boolean), experience: Number(form.experience), bio: form.bio, joiningDate: form.joiningDate, ...(isEdit ? { email: form.email, phone: form.phone || undefined, ...(form.password ? { password: form.password } : {}) } : { email: form.email, password: form.password, phone: form.phone || undefined }) };
-      if (isEdit) await api.patch(`/teachers/${teacher._id}`, payload);
-      else { if (!form.email || !form.password) throw new Error('Email and password are required'); await api.post('/teachers', payload); }
+      const payload: any = { firstName: form.firstName, lastName: form.lastName, gender: form.gender, school: organizationId, qualification: form.qualification, specialization: form.specialization.split(',').map(s => s.trim()).filter(Boolean), experience: Number(form.experience), bio: form.bio, joiningDate: form.joiningDate };
+      if (edit) { payload.email = form.email; payload.phone = form.phone || undefined; if (form.password) payload.password = form.password; await api.patch(`/teachers/${teacher!._id}`, payload); }
+      else { payload.email = form.email; payload.password = form.password; payload.phone = form.phone || undefined; await api.post('/teachers', payload); }
       onSaved(); onClose();
-    } catch (err: any) { setError(err.response?.data?.message || err.message || 'Failed to save teacher'); }
-    finally { setLoading(false); }
+    } catch (e: any) { setError(e.response?.data?.message || e.message || 'Failed to save teacher'); } finally { setSaving(false); }
   };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <h2 className="text-xl font-bold mb-4">{isEdit ? '✏️ Edit Teacher' : '➕ Add Teacher'}</h2>
-        {error && <p className="text-red-500 text-sm mb-3 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{error}</p>}
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">First Name *</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.firstName} onChange={e => handleChange('firstName', e.target.value)} required /></div><div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Last Name *</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.lastName} onChange={e => handleChange('lastName', e.target.value)} required /></div></div>
-          <div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Gender *</label><select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.gender} onChange={e => handleChange('gender', e.target.value)}><option value="male">Male</option><option value="female">Female</option></select></div>
-          <div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Organization *</label><select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.school} onChange={e => handleChange('school', e.target.value)} required disabled={schoolsLoading}><option value="">{schoolsLoading ? 'Loading...' : '-- Select Organization --'}</option>{schools.filter(s => s.status === 'active').map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select></div>
-          <div className="rounded-xl border border-[var(--color-border-default)] p-3 space-y-3"><p className="text-xs font-bold uppercase tracking-wide text-primary-600">System Account</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Email *</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="email" value={form.email} onChange={e => handleChange('email', e.target.value)} required /></div><div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Phone</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="tel" value={form.phone} onChange={e => handleChange('phone', e.target.value)} /></div></div><div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">{isEdit ? 'New Password (optional)' : 'Password *'}</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="password" autoComplete="new-password" value={form.password} onChange={e => handleChange('password', e.target.value)} required={!isEdit} minLength={8} placeholder={isEdit ? 'Leave blank to keep current password' : 'Minimum 8 characters'} /></div></div>
-          <div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Qualification</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" placeholder="e.g. Bachelor's in Islamic Studies" value={form.qualification} onChange={e => handleChange('qualification', e.target.value)} /></div>
-          <div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Specialization (comma separated)</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" placeholder="e.g. Tajweed, Fiqh, Hadith" value={form.specialization} onChange={e => handleChange('specialization', e.target.value)} /></div>
-          <div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Experience (years)</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="number" min={0} value={form.experience} onChange={e => handleChange('experience', Number(e.target.value))} /></div><div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Joining Date</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="date" value={form.joiningDate} onChange={e => handleChange('joiningDate', e.target.value)} /></div></div>
-          <div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Bio</label><textarea className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" rows={2} value={form.bio} onChange={e => handleChange('bio', e.target.value)} /></div>
-          <div className="flex gap-2 pt-3"><button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button><button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors">{loading ? 'Saving...' : isEdit ? 'Update' : 'Create'}</button></div>
-        </form>
-      </div>
-    </div>
-  );
+  const label = typeLabel(orgType(organization));
+  return <Modal title={edit ? 'Edit Teacher' : 'Add Teacher'} onClose={onClose}>
+    {error && <div className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30">{error}</div>}
+    <div className="mb-4 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-3 text-sm"><span className="font-semibold">Organization:</span> {organization?.name || label} <span className="ml-2 rounded-full bg-primary-100 px-2 py-0.5 text-xs text-primary-700">{label}</span><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Academic teaching placement is assigned through courses/classes; the teacher is scoped to this organization.</p></div>
+    <form onSubmit={submit} className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">First Name *<input className={inputClass} value={form.firstName} onChange={e => set('firstName', e.target.value)} required /></label><label className="text-xs font-semibold">Last Name *<input className={inputClass} value={form.lastName} onChange={e => set('lastName', e.target.value)} required /></label></div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Gender *<select className={inputClass} value={form.gender} onChange={e => set('gender', e.target.value)}><option value="male">Male</option><option value="female">Female</option></select></label><label className="text-xs font-semibold">Joining Date<input className={inputClass} type="date" value={form.joiningDate} onChange={e => set('joiningDate', e.target.value)} /></label></div>
+      <div className="rounded-xl border border-[var(--color-border-default)] p-3"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-primary-600">System Account</p><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Email *<input className={inputClass} type="email" value={form.email} onChange={e => set('email', e.target.value)} required /></label><label className="text-xs font-semibold">Phone<input className={inputClass} value={form.phone} onChange={e => set('phone', e.target.value)} /></label></div><label className="mt-3 block text-xs font-semibold">{edit ? 'New Password (optional)' : 'Password *'}<input className={inputClass} type="password" autoComplete="new-password" minLength={8} value={form.password} onChange={e => set('password', e.target.value)} required={!edit} /></label></div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Qualification<input className={inputClass} value={form.qualification} onChange={e => set('qualification', e.target.value)} placeholder="e.g. Bachelor's / Master's" /></label><label className="text-xs font-semibold">Experience (years)<input className={inputClass} type="number" min={0} value={form.experience} onChange={e => set('experience', Number(e.target.value))} /></label></div>
+      <label className="text-xs font-semibold">Specialization (comma separated)<input className={inputClass} value={form.specialization} onChange={e => set('specialization', e.target.value)} placeholder="Tajweed, Fiqh, Mathematics" /></label>
+      <label className="text-xs font-semibold">Bio<textarea className={inputClass} rows={3} value={form.bio} onChange={e => set('bio', e.target.value)} /></label>
+      <div className="flex gap-2 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold">Cancel</button><button disabled={saving} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Saving...' : edit ? 'Update Teacher' : 'Create Teacher'}</button></div>
+    </form>
+  </Modal>;
 }
 
-function ViewModal({ teacher, onClose }: { teacher: Teacher; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4"><h2 className="text-xl font-bold">👨‍🏫 Teacher Details</h2><button onClick={onClose} className="text-2xl leading-none text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]">&times;</button></div>
-        <div className="space-y-3">
-          <div className="text-center pb-3 border-b"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-2xl font-bold text-primary-600 mb-2">{teacher.profile?.firstName?.[0]}{teacher.profile?.lastName?.[0]}</div><p className="text-lg font-bold">{teacher.profile?.firstName} {teacher.profile?.lastName}</p><p className="text-sm text-[var(--color-text-tertiary)]">{teacher.teacherId}</p></div>
-          <DetailRow label="Email" value={teacher.user?.email} />
-          <DetailRow label="Organization" value={teacher.school?.name || '—'} />
-          <DetailRow label="Qualification" value={teacher.qualification || '—'} />
-          <DetailRow label="Specialization" value={teacher.specialization?.length ? teacher.specialization.join(', ') : '—'} />
-          <DetailRow label="Experience" value={teacher.experience ? `${teacher.experience} years` : '—'} />
-          <DetailRow label="Status" value={<StatusBadge status={teacher.status} />} />
-          <DetailRow label="Courses" value={teacher.courses?.length ? `${teacher.courses.length} course(s)` : 'None assigned'} />
-          <DetailRow label="Joined" value={teacher.joiningDate ? new Date(teacher.joiningDate).toLocaleDateString() : '—'} />
-          <DetailRow label="Bio" value={teacher.bio || '—'} />
-        </div>
-        <button onClick={onClose} className="mt-5 w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Close</button>
-      </div>
-    </div>
-  );
+function ViewModal({ teacher, assignedCourses, onClose }: { teacher: Teacher; assignedCourses: Course[]; onClose: () => void }) {
+  return <Modal title="Teacher Details" onClose={onClose}>
+    <div className="mb-4 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary-100 text-lg font-bold text-primary-700">{teacher.profile?.firstName?.[0]}{teacher.profile?.lastName?.[0]}</div><h3 className="mt-2 text-lg font-bold">{teacherName(teacher)}</h3><p className="text-xs text-[var(--color-text-tertiary)]">{teacher.teacherId}</p></div>
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><Info label="Email" value={teacher.user?.email || '—'} /><Info label="Phone" value={teacher.user?.phone || '—'} /><Info label="Organization" value={teacher.school?.name || 'Current organization'} /><Info label="Status" value={<StatusBadge status={teacher.status} />} /><Info label="Qualification" value={teacher.qualification || '—'} /><Info label="Experience" value={`${teacher.experience || 0} years`} /><Info label="Specialization" value={teacher.specialization?.join(', ') || '—'} /><Info label="Course Permission" value={teacher.coursePermission === 'STUDENT_VIEW' ? 'Student View' : 'Course Builder'} /></div>
+    <div className="mt-4 rounded-xl border border-[var(--color-border-default)] p-3"><div className="mb-2 flex items-center gap-2 font-semibold"><BookOpen size={16} /> Assigned Courses ({assignedCourses.length})</div>{assignedCourses.length ? <div className="space-y-2">{assignedCourses.map(c => <div key={c._id} className="rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-sm"><div className="font-medium">{c.title?.en || 'Untitled course'}</div>{c.class && <div className="text-xs text-[var(--color-text-tertiary)]">{c.class.title || 'Class'}{c.class.section ? ` • ${c.class.section}` : ''}</div>}</div>)}</div> : <p className="text-sm text-[var(--color-text-tertiary)]">No courses assigned.</p>}</div>
+    {teacher.bio && <p className="mt-4 text-sm text-[var(--color-text-secondary)]">{teacher.bio}</p>}
+  </Modal>;
+}
+function Info({ label, value }: { label: string; value: React.ReactNode }) { return <div className="rounded-xl border border-[var(--color-border-default)] p-3"><p className="text-xs text-[var(--color-text-tertiary)]">{label}</p><div className="mt-1 text-sm font-medium">{value}</div></div>; }
+
+function CourseAssignmentModal({ teacher, courses, onClose, onSaved }: { teacher: Teacher; courses: Course[]; onClose: () => void; onSaved: () => void }) {
+  const assigned = useMemo(() => new Set(courses.filter(c => courseTeacherId(c) === teacher._id).map(c => c._id)), [courses, teacher._id]);
+  const [selected, setSelected] = useState<Set<string>>(assigned); const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const [search, setSearch] = useState('');
+  const visible = courses.filter(c => `${c.title?.en || ''} ${c.class?.title || ''}`.toLowerCase().includes(search.toLowerCase()));
+  const save = async () => { setSaving(true); setError(''); try { const changes = courses.filter(c => selected.has(c._id) !== assigned.has(c._id)); await Promise.all(changes.map(c => api.patch(`/courses/${c._id}`, { teacher: selected.has(c._id) ? teacher._id : null }))); onSaved(); onClose(); } catch (e: any) { setError(e.response?.data?.message || 'Failed to update course assignments'); } finally { setSaving(false); } };
+  const toggle = (id: string) => setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  return <Modal title={`Assign Courses — ${teacherName(teacher)}`} onClose={onClose} wide>
+    {error && <div className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30">{error}</div>}
+    <input className={`${inputClass} mb-3`} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search course or class..." />
+    <div className="max-h-[52vh] overflow-y-auto rounded-xl border border-[var(--color-border-default)]">{visible.length ? visible.map(c => { const checked = selected.has(c._id); return <button key={c._id} type="button" onClick={() => toggle(c._id)} className="flex w-full items-center gap-3 border-b border-[var(--color-border-subtle)] px-3 py-3 text-left last:border-0 hover:bg-[var(--color-surface-secondary)]"><span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{checked && <Check size={13} />}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{c.title?.en || 'Untitled course'}</span><span className="block text-xs text-[var(--color-text-tertiary)]">{c.class?.title || 'No class/cohort'}{c.class?.section ? ` • ${c.class.section}` : ''} • {c.status || 'draft'}</span></span></button>; }) : <p className="p-5 text-center text-sm text-[var(--color-text-tertiary)]">No courses found.</p>}</div>
+    <div className="mt-3 flex items-center justify-between text-xs text-[var(--color-text-tertiary)]"><span>{selected.size} selected</span><button type="button" onClick={() => setSelected(new Set(visible.map(c => c._id)))} className="font-semibold text-primary-600">Select visible</button></div>
+    <div className="mt-4 flex gap-2"><button onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold">Cancel</button><button disabled={saving} onClick={save} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Saving...' : 'Save Assignments'}</button></div>
+  </Modal>;
 }
 
-function PermissionModal({ teacher, onClose, onSaved }: { teacher: Teacher; onClose: () => void; onSaved: () => void }) {
-  const currentPerm = teacher.coursePermission || 'COURSE_BUILDER';
-  const [selected, setSelected] = useState<string>(currentPerm);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const handleSave = async () => { setSaving(true); setError(''); try { await api.patch(`/teachers/${teacher._id}/course-permission`, { coursePermission: selected }); onSaved(); onClose(); } catch (err: any) { setError(err.response?.data?.message || 'Failed to update permission'); } finally { setSaving(false); } };
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
-        <h2 className="text-lg font-bold text-[var(--color-text-primary)] mb-1">Course Content Permission</h2><p className="text-xs text-[var(--color-text-tertiary)] mb-4">{teacher.profile?.firstName} {teacher.profile?.lastName}</p>
-        {error && <p className="text-red-500 text-xs mb-3 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{error}</p>}
-        <div className="space-y-2">
-          <label className={`flex items-start gap-3 rounded-xl border-2 p-4 cursor-pointer transition-all ${selected === 'COURSE_BUILDER' ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30' : 'border-[var(--color-border-default)] hover:border-emerald-300'}`}>
-            <input type="radio" name="cp" value="COURSE_BUILDER" checked={selected === 'COURSE_BUILDER'} onChange={() => setSelected('COURSE_BUILDER')} className="mt-0.5 accent-emerald-600" />
-            <div><span className="text-sm font-semibold text-[var(--color-text-primary)]">Course Builder</span><p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">Full write/edit access to course structure, chapters, and content blocks.</p></div>
-          </label>
-          <label className={`flex items-start gap-3 rounded-xl border-2 p-4 cursor-pointer transition-all ${selected === 'STUDENT_VIEW' ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30' : 'border-[var(--color-border-default)] hover:border-amber-300'}`}>
-            <input type="radio" name="cp" value="STUDENT_VIEW" checked={selected === 'STUDENT_VIEW'} onChange={() => setSelected('STUDENT_VIEW')} className="mt-0.5 accent-amber-600" />
-            <div><span className="text-sm font-semibold text-[var(--color-text-primary)]">Student View</span><p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">Read-only access. Same view as a student — no editing or saving allowed.</p></div>
-          </label>
-        </div>
-        <div className="flex gap-2 mt-5"><button onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-xs font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button><button onClick={handleSave} disabled={saving} className="flex-1 rounded-xl bg-emerald-600 text-white px-4 py-2.5 text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors">{saving ? 'Saving...' : 'Save'}</button></div>
-      </div>
-    </div>
-  );
-}
-
-const TEACHER_STATUS_OPTIONS: { value: Teacher['status']; label: string }[] = [
-  { value: 'active', label: 'Set Active' },
-  { value: 'inactive', label: 'Set Inactive' },
-  { value: 'on_leave', label: 'Set On Leave' },
-];
-
-function ThreeDotsMenu({ teacher, onEdit, onDelete, onSetStatus, onPermission }: {
-  teacher: Teacher; onEdit: () => void; onDelete: () => void; onSetStatus: (status: Teacher['status']) => void; onPermission: () => void;
-}) {
-  const [open, setOpen] = useState(false); const buttonRef = useRef<HTMLButtonElement>(null); const menuRef = useRef<HTMLDivElement>(null); const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
-  useEffect(() => { if (!open) return; const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, [open]);
-  const toggle = (e: React.MouseEvent) => { e.stopPropagation(); if (!open && buttonRef.current) { const r = buttonRef.current.getBoundingClientRect(); setMenuStyle({ position: 'fixed', top: r.bottom + 4, left: r.right - 208, zIndex: 100 }); } setOpen(!open); };
-  const act = (action: () => void) => { setOpen(false); action(); };
-  return (<><button ref={buttonRef} onClick={toggle} className="p-2 rounded-lg hover:bg-[var(--color-surface-tertiary)] transition-colors" title="Actions"><svg className="h-4 w-4 text-[var(--color-text-secondary)]" fill="currentColor" viewBox="0 0 16 16"><circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" /></svg></button>{open && createPortal(<div ref={menuRef} style={menuStyle} className="w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
-    <button onClick={() => act(onEdit)} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2">✏️ Edit Profile</button>
-    <button onClick={() => act(onPermission)} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2">🔑 Course Permission</button>
-    <div className="border-t border-[var(--color-border-subtle)] my-1" />
-    {TEACHER_STATUS_OPTIONS.filter((o) => o.value !== teacher.status).map((o) => (
-      <button key={o.value} onClick={() => act(() => onSetStatus(o.value))} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2">🔄 {o.label}</button>
-    ))}
-    <div className="border-t border-[var(--color-border-subtle)] my-1" />
-    <button onClick={() => act(onDelete)} className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center gap-2">🗑️ Delete Teacher</button>
-  </div>, document.body)}</>);
-}
-
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Three-Dot Actions Dropdown
-// ---------------------------------------------------------------------------
-
-function ActionsDropdown({ onImport, onExport, exporting, label, onBulkDelete, selectedCount }: { onImport: () => void; onExport: () => void; exporting: boolean; label: string; onBulkDelete: () => void; selectedCount: number }) {
-  const [open, setOpen] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { if (!open) return; const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, [open]);
-
-  const toggle = (e: React.MouseEvent) => { e.stopPropagation(); setOpen(!open); };
-
-  return (<>
-    <button ref={btnRef} onClick={toggle} className="rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] px-3 py-2.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors" title="More Actions">
-      <MoreVertical className="h-5 w-5" strokeWidth={1.75} />
-    </button>
-    {open && btnRef.current && createPortal(
-      <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
-        <button onClick={() => { setOpen(false); onImport(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">{'\u2191 Import ' + label + ' via Excel'}</button>
-        <button onClick={() => { setOpen(false); onExport(); }} disabled={exporting} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50 flex items-center gap-2 transition-colors">{exporting ? <div className="h-3 w-3 animate-spin rounded-full border border-[var(--color-border-default)] border-t-primary-600" /> : '\u2193 Export ' + label + ' to Excel'}</button>
-        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-        <button onClick={() => { setOpen(false); onBulkDelete(); }} disabled={selectedCount === 0} className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors">
-          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Bulk Delete{selectedCount > 0 ? ` (${selectedCount})` : ''}
-        </button>
-      </div>,
-      document.body,
-    )}
-  </>);
-}
-
-// ---------------------------------------------------------------------------
-// Bulk Delete Confirm Modal
-// ---------------------------------------------------------------------------
-
-function BulkDeleteModal({ count, loading, onCancel, onConfirm }: { count: number; loading: boolean; onCancel: () => void; onConfirm: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onCancel}>
-      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-3 mb-3">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/30 text-red-600">
-            <Trash2 className="h-5 w-5" strokeWidth={1.75} />
-          </div>
-          <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Bulk Delete Teachers</h2>
-        </div>
-        <p className="text-sm text-[var(--color-text-secondary)] mb-5">
-          You're about to delete <strong>{count}</strong> teacher{count !== 1 ? 's' : ''}. Any of their published/draft courses will be unassigned (and moved to draft) automatically. This can be reversed later from Trash.
-        </p>
-        <div className="flex gap-2">
-          <button type="button" onClick={onCancel} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-          <button type="button" onClick={onConfirm} disabled={loading} className="flex-1 rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">
-            {loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-            Delete {count}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Main Component
-// ---------------------------------------------------------------------------
-
-export function TeachersManage() {
+export default function TeachersManage() {
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'admin';
-  const isOrgAdmin = user?.role === 'org_admin';
+  const organizationId = user?.organizationId || '';
+  const [organization, setOrganization] = useState<Organization>(); const [teachers, setTeachers] = useState<Teacher[]>([]); const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [search, setSearch] = useState(''); const [status, setStatus] = useState('all'); const [selected, setSelected] = useState<string[]>([]); const [page, setPage] = useState(1); const pageSize = 20;
+  const [menuOpen, setMenuOpen] = useState(false); const [modal, setModal] = useState<'add' | 'view' | 'edit' | 'assign' | null>(null); const [active, setActive] = useState<Teacher>(); const [permSaving, setPermSaving] = useState(false); const fileRef = useRef<HTMLInputElement>(null);
 
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [schools, setSchools] = useState<School[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
-  const location = useLocation();
-  const navigate = useNavigate();
-  useEffect(() => {
-    // Lets the Quick Actions header button jump straight into "Invite
-    // Teacher" instead of just landing on the list — see dashboard-header.tsx.
-    if ((location.state as any)?.openCreate) {
-      setShowCreate(true);
-      navigate(location.pathname, { replace: true, state: {} });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const [editingTeacher, setEditingTeacher] = useState<Teacher | undefined>(undefined);
-  const [viewingTeacher, setViewingTeacher] = useState<Teacher | undefined>(undefined);
-  const [permissioningTeacher, setPermissioningTeacher] = useState<Teacher | undefined>(undefined);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [filterSchool, setFilterSchool] = useState('');
-  const [hasFetched, setHasFetched] = useState(false);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [limit, setLimit] = useState(10);
+  const load = useCallback(async () => { if (!organizationId) return; setLoading(true); setError(''); try { const [orgRes, teacherRes, courseRes] = await Promise.all([api.get(`/schools/${organizationId}`), api.get('/teachers', { params: { school: organizationId, limit: 100, page: 1 } }), api.get('/courses/admin', { params: { school: organizationId, limit: 200, page: 1 } })]); setOrganization(dataOf<Organization>(orgRes)); setTeachers(dataOf<Teacher[]>(teacherRes) || []); setCourses(dataOf<Course[]>(courseRes) || []); } catch (e: any) { setError(e.response?.data?.message || 'Failed to load teachers'); } finally { setLoading(false); } }, [organizationId]);
+  useEffect(() => { load(); }, [load]);
 
-  // ── Bulk selection / delete state ──
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const filtered = useMemo(() => { const q = search.trim().toLowerCase(); return teachers.filter(t => (status === 'all' || t.status === status) && (!q || `${teacherName(t)} ${t.user?.email || ''} ${t.teacherId || ''} ${(t.specialization || []).join(' ')}`.toLowerCase().includes(q))); }, [teachers, search, status]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize)); useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]); const rows = filtered.slice((page - 1) * pageSize, page * pageSize); const allVisibleSelected = rows.length > 0 && rows.every(t => selected.includes(t._id));
+  const assignedCourses = (t: Teacher) => courses.filter(c => courseTeacherId(c) === t._id);
 
-  // Import / Export state
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [importMode, setImportMode] = useState<'upload' | 'paste'>('upload');
-  const [dragOver, setDragOver] = useState(false);
-  const [pasteText, setPasteText] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [pasteError, setPasteError] = useState('');
-  const [importing, setImporting] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ totalRows: number; created: number; failed: number; errors: { row: number; message: string }[] } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const removeSelected = async () => { if (!selected.length || !confirm(`Delete ${selected.length} teacher(s)?`)) return; try { await api.delete('/teachers/bulk', { data: { ids: selected } }); setSelected([]); await load(); } catch (e: any) { alert(e.response?.data?.message || 'Failed to delete selected teachers'); } };
+  const exportTeachers = async () => { try { const res = await api.get('/teachers/export', { params: { school: organizationId }, responseType: 'blob' }); const url = URL.createObjectURL(res.data); const a = document.createElement('a'); a.href = url; a.download = 'teachers.xlsx'; a.click(); URL.revokeObjectURL(url); } catch (e: any) { alert(e.response?.data?.message || 'Export failed'); } };
+  const importTeachers = async (file: File) => { const fd = new FormData(); fd.append('file', file); try { await api.post('/teachers/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } }); await load(); } catch (e: any) { alert(e.response?.data?.message || 'Import failed'); } finally { if (fileRef.current) fileRef.current.value = ''; } };
+  const updateStatus = async (t: Teacher, next: TeacherStatus) => { try { await api.patch(`/teachers/${t._id}/status`, { status: next }); await load(); } catch (e: any) { alert(e.response?.data?.message || 'Failed to update status'); } };
 
-  useEffect(() => { (async () => { try { const { data } = await api.get('/schools', { params: { limit: '100' } }); setSchools(data.data || []); } catch {} })(); }, []);
-
-  const fetchTeachers = useCallback(async (pageNum = 1, overrideLimit?: number) => {
-    setLoading(true); setError('');
-    try {
-      const lim = overrideLimit !== undefined ? overrideLimit : limit;
-      const params: any = { page: String(pageNum), limit: String(lim) }; if (search) params.search = search; if (statusFilter) params.status = statusFilter; if (filterSchool) params.school = filterSchool;
-      const { data } = await api.get('/teachers', { params });
-      setTeachers(data.data || []); setTotal(data.meta?.total || 0); setPage(pageNum); setHasFetched(true); setSelected(new Set());
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to load teachers'); }
-    finally { setLoading(false); }
-  }, [search, statusFilter, filterSchool, limit]);
-
-  useEffect(() => { if (isOrgAdmin) fetchTeachers(1); }, [isOrgAdmin]);
-
-  const handleApplyFilters = () => { if (isSuperAdmin && !filterSchool) { setError('Please select an organization to view teachers.'); return; } fetchTeachers(1); };
-  const handlePageChange = (newPage: number) => fetchTeachers(newPage);
-  const handleLimitChange = (newLimit: number) => { setLimit(newLimit); fetchTeachers(1, newLimit); };
-  const handleDelete = async (id: string, name: string) => { if (!window.confirm(`Delete teacher "${name}"?`)) return; try { await api.delete(`/teachers/${id}`); fetchTeachers(page); } catch (err: any) { alert(err.response?.data?.message || 'Failed to delete'); } };
-  const handleSetStatus = async (id: string, ns: Teacher['status']) => { try { await api.patch(`/teachers/${id}/status`, { status: ns }); setTeachers(p => p.map(t => t._id === id ? { ...t, status: ns } : t)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update status'); } };
-  const handleStatusToggle = (id: string, currentStatus: string) => handleSetStatus(id, currentStatus === 'active' ? 'inactive' : 'active');
-
-  // ── Bulk selection / delete ──
-  const handleBulkDelete = async () => {
-    setBulkDeleting(true);
-    try {
-      const { data } = await api.delete('/teachers/bulk', { data: { ids: Array.from(selected) } });
-      setMessage(data?.message || `Deleted ${selected.size} teacher(s)`);
-      setSelected(new Set());
-      setShowBulkDeleteModal(false);
-      fetchTeachers(page);
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to bulk delete teachers');
-    } finally {
-      setBulkDeleting(false);
-    }
-  };
-
-  // Excel-style column header filters/sort — client-side, over whichever page of results is currently loaded.
-  const teacherColumnAccessors: Record<string, (row: Teacher) => string> = {
-    name: (t) => `${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`.trim() || t.user?.email || '—',
-    organization: (t) => t.school?.name || '—',
-    specialization: (t) => (t.specialization || []).join(', ') || '—',
-    courses: (t) => String(t.courses?.length || 0),
-    status: (t) => t.status,
-  };
-  const {
-    columnFilters: teacherColumnFilters, sortCol: teacherSortCol, sortDir: teacherSortDir,
-    applyColumnCommit: applyTeacherColumnCommit, clearColumnFilter: clearTeacherColumnFilter,
-    clearAll: clearAllTeacherColumnFilters, displayedRows: displayedTeachers, columnFiltersActive: teacherColumnFiltersActive,
-  } = useColumnFilters(teachers, teacherColumnAccessors);
-
-  const allOnPageSelected = displayedTeachers.length > 0 && displayedTeachers.every(t => selected.has(t._id));
-  const toggleSelectAll = () => setSelected(allOnPageSelected ? new Set() : new Set(displayedTeachers.map(t => t._id)));
-  const toggleSelectOne = (id: string) => setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-
-  // ───────────────────────────────────────────────────────────────────────
-  // Import Modal Logic
-  // ───────────────────────────────────────────────────────────────────────
-
-  const openImportModal = () => { setShowImportModal(true); setImportMode('upload'); setSelectedFile(null); setPasteText(''); setPasteError(''); setImportResult(null); };
-  const closeImportModal = () => { setShowImportModal(false); setSelectedFile(null); setPasteText(''); setPasteError(''); setImportResult(null); };
-
-  const handleDownloadTemplate = async () => { try { const token = localStorage.getItem('accessToken') || ''; const r = await fetch(`${api.defaults.baseURL}/teachers/template`, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Download failed'); const blob = await r.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'teachers-template.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); } catch { setError('Failed to download template'); } };
-
-  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) setSelectedFile(f); };
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) setSelectedFile(f); };
-
-  const submitFileImport = async () => { if (!selectedFile) return; setImporting(true); setError(''); setImportResult(null); try { const fd = new FormData(); fd.append('file', selectedFile); const { data } = await api.post('/teachers/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } }); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} teachers`); fetchTeachers(); closeImportModal(); } } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); } };
-
-  const parsePastedRows = (): string[][] => { if (!pasteText.trim()) return []; return pasteText.trim().split(/\r?\n/).map(l => l.split('\t').map(c => c.trim())).filter(r => r.length > 0 && r.some(c => c !== '')); };
-
-  const submitPasteImport = async () => {
-    const rows = parsePastedRows();
-    if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; }
-    if (rows[0].length < 6) { setPasteError('Expected 12 columns (First Name, Last Name, Gender, Email, Password, Phone, Organization, Qualification, Specialization, Experience, Joining Date, Bio). Found ' + rows[0].length + '.'); return; }
-    // The backend reads columns by HEADER NAME (getField in
-    // teacher.controller.ts), not by position — without a header row here,
-    // the first pasted teacher's own values get treated as the header row
-    // (so their fields never get filled in) and every later row fails with
-    // "Email is required" etc. since none of its columns match a known
-    // name. Prepending this fixed header, matching PASTE_COLUMNS below and
-    // the downloaded file-upload template's own header row, is what makes
-    // getField() actually find each field.
-    const header = PASTE_COLUMNS.join(',');
-    const csv = [header, ...rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(','))].join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const file = new File([blob], 'pasted-teachers.csv', { type: 'text/csv' });
-    setImporting(true); setError(''); setImportResult(null); setPasteError('');
-    try { const fd = new FormData(); fd.append('file', file); const { data } = await api.post('/teachers/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } }); setImportResult(data.data); if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} teachers`); fetchTeachers(); closeImportModal(); } }
-    catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); }
-  };
-
-  const handleExport = async () => { setExporting(true); setError(''); try { const token = localStorage.getItem('accessToken') || ''; const r = await fetch(`${api.defaults.baseURL}/teachers/export`, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Export failed'); const blob = await r.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `teachers-export-${new Date().toISOString().slice(0, 10)}.xlsx`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); setMessage('Export downloaded successfully'); } catch (err: any) { setError(err.message || 'Export failed'); } finally { setExporting(false); } };
-
-  const activeCount = teachers.filter(t => t.status === 'active').length;
-  const inactiveCount = teachers.filter(t => t.status === 'inactive').length;
-  const onLeaveCount = teachers.filter(t => t.status === 'on_leave').length;
-  const parsedRows = parsePastedRows();
-
-  return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-screen-2xl space-y-6">
-
-        {/* Header + Buttons — stay top-right of the title on every screen size */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0"><h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]"><Presentation className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />Manage Teachers</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{hasFetched ? `${total} total — ${activeCount} active, ${inactiveCount} inactive, ${onLeaveCount} on leave` : 'Apply a filter to view teachers'}</p></div>
-          <div className="flex gap-2 sm:gap-3 flex-shrink-0">
-            <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={e => { const f = e.target.files?.[0]; if (f) { setSelectedFile(f); submitFileImport(); } }} className="hidden" />
-            <ActionsDropdown onImport={openImportModal} onExport={handleExport} exporting={exporting} label="Teachers" onBulkDelete={() => setShowBulkDeleteModal(true)} selectedCount={selected.size} />
-            <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-3 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm whitespace-nowrap">+ Add Teacher</button>
-          </div>
-        </div>
-
-        {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
-
-        {/* ═══════════════════════════════════════════════════════════════
-            Import Modal
-           ═══════════════════════════════════════════════════════════════ */}
-        {showImportModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="w-full max-w-2xl rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl">
-              <div className="border-b border-[var(--color-border-subtle)] px-6 py-5"><div className="flex items-start justify-between"><div><h2 className="text-xl font-bold text-[var(--color-text-primary)]">Import Teachers</h2><p className="text-sm text-[var(--color-text-tertiary)] mt-1">Select your preferred method to import multiple teachers into the system.</p></div><button onClick={closeImportModal} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors" disabled={importing}><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button></div></div>
-              <div className="px-6 py-5 space-y-6">
-                <button onClick={handleDownloadTemplate} className="w-full rounded-xl border-2 border-dashed border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-950/20 px-5 py-4 text-left hover:bg-primary-100 dark:hover:bg-primary-950/40 transition-colors group"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><span className="text-2xl">📥</span><div><p className="text-sm font-bold text-primary-700 dark:text-primary-300 group-hover:text-primary-800 dark:group-hover:text-primary-200">Download Excel Teacher Template</p><p className="text-xs text-primary-600/70 dark:text-primary-400/70 mt-0.5">Pre-formatted .xlsx file with the correct column structure</p></div></div><svg className="h-5 w-5 text-primary-500 group-hover:translate-y-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg></div></button>
-                <div className="grid grid-cols-2 gap-3">
-                  <button onClick={() => { setImportMode('upload'); setPasteError(''); }} className={`rounded-xl border-2 p-4 text-left transition-all ${importMode === 'upload' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm' : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'}`}><span className="text-2xl block mb-1">📁</span><p className={`text-sm font-bold ${importMode === 'upload' ? 'text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-primary)]'}`}>Upload Excel File</p><p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Drag and drop your .xlsx file</p></button>
-                  <button onClick={() => { setImportMode('paste'); setPasteError(''); }} className={`rounded-xl border-2 p-4 text-left transition-all ${importMode === 'paste' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm' : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'}`}><span className="text-2xl block mb-1">📋</span><p className={`text-sm font-bold ${importMode === 'paste' ? 'text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-primary)]'}`}>Manual Copy & Paste</p><p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Paste tabular data from your clipboard</p></button>
-                </div>
-                {importMode === 'upload' && (
-                  <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleFileDrop} className={`rounded-xl border-2 border-dashed p-10 text-center transition-colors ${dragOver ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20' : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]'}`}>
-                    {selectedFile ? (<div className="space-y-3"><span className="text-3xl">✅</span><p className="text-sm font-semibold text-[var(--color-text-primary)]">{selectedFile.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{(selectedFile.size / 1024).toFixed(1)} KB</p><button onClick={() => setSelectedFile(null)} className="text-xs text-red-500 hover:underline">Remove file</button></div>) : (<div className="space-y-3"><span className="text-3xl">📂</span><p className="text-sm font-medium text-[var(--color-text-secondary)]">Drag and drop your Excel file here, or</p><label className="inline-block cursor-pointer rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-700 transition-colors">Browse Files<input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileInputChange} className="hidden" /></label><p className="text-xs text-[var(--color-text-tertiary)]">Supported formats: .xlsx, .xls, .csv (max 10 MB)</p></div>)}
-                  </div>
-                )}
-                {importMode === 'paste' && (
-                  <div className="space-y-3">
-                    <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4"><p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below (tab-separated columns, one row per line — no header row needed, it's added automatically):</p><p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">{PASTE_COLUMNS.join('   ')}</p><p className="text-xs text-[var(--color-text-tertiary)] mb-3">Organization: only required if you manage more than one school — leave blank otherwise.</p><textarea value={pasteText} onChange={e => { setPasteText(e.target.value); setPasteError(''); }} rows={8} placeholder={"Paste data from Excel here...\n\nExample:\nAhmed\tHassan\tmale\tahmed@example.com\tchangeme123\t+252612345678\t\tBachelor of Islamic Studies\tTajweed, Fiqh\t5\t2026-01-15\tExperienced Quran teacher."} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y" /></div>
-                    {pasteError && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{pasteError}</div>}
-                    {parsedRows.length > 0 && (<div className="rounded-xl border border-[var(--color-border-default)] overflow-hidden"><div className="bg-[var(--color-surface-secondary)] px-4 py-2 text-xs font-semibold text-[var(--color-text-tertiary)]">Preview — {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''} parsed</div><div className="max-h-40 overflow-auto"><table className="w-full text-xs"><tbody className="divide-y divide-[var(--color-border-subtle)]">{parsedRows.slice(0, 20).map((row, ri) => (<tr key={ri} className={ri % 2 === 0 ? 'bg-[var(--color-surface-primary)]' : 'bg-[var(--color-surface-secondary)]'}>{row.map((cell, ci) => (<td key={ci} className="px-3 py-1.5 text-[var(--color-text-secondary)] whitespace-nowrap border-r border-[var(--color-border-subtle)] last:border-r-0">{cell}</td>))}</tr>))}</tbody></table></div></div>)}
-                  </div>
-                )}
-                {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-4 py-2.5 text-xs text-red-600 dark:text-red-400">{error}</div>}
-              </div>
-              <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 flex items-center justify-between"><button onClick={closeImportModal} disabled={importing} className="rounded-lg border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button><button onClick={importMode === 'upload' ? submitFileImport : submitPasteImport} disabled={importing || (importMode === 'upload' && !selectedFile) || (importMode === 'paste' && !pasteText.trim())} className="rounded-lg bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors inline-flex items-center gap-2">{importing ? <><div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />Importing...</> : 'Import Teachers'}</button></div>
-              {importResult && (<div className="border-t border-[var(--color-border-subtle)] px-6 py-4 space-y-2"><p className="text-sm font-semibold text-[var(--color-text-primary)]">{importResult.created} of {importResult.totalRows} rows imported successfully{importResult.failed > 0 && ` — ${importResult.failed} failed`}</p>{importResult.errors.length > 0 && (<div className="max-h-36 overflow-auto rounded-lg border border-red-200 dark:border-red-900/40"><table className="w-full text-xs"><thead className="bg-red-50 dark:bg-red-950/30 text-left text-red-700 dark:text-red-300"><tr><th className="px-3 py-1.5">Row</th><th className="px-3 py-1.5">Error</th></tr></thead><tbody className="divide-y divide-red-100 dark:divide-red-900/30">{importResult.errors.map((e, idx) => (<tr key={idx}><td className="px-3 py-1.5 text-[var(--color-text-secondary)]">{e.row}</td><td className="px-3 py-1.5 text-red-600 dark:text-red-400">{e.message}</td></tr>))}</tbody></table></div>)}</div>)}
-            </div>
-          </div>
-        )}
-
-        {/* ═══════════════════════════════════════════════════════════════
-            Filters + Table (existing)
-           ═══════════════════════════════════════════════════════════════ */}
-
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card space-y-3">
-          <div className="flex flex-col sm:flex-row gap-3">
-            {isOrgAdmin ? (<div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">{schools[0]?.name || 'Your Organization'}</div>) : (<select value={filterSchool} onChange={e => { setFilterSchool(e.target.value); setHasFetched(false); }} className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"><option value="">{isSuperAdmin ? 'Select an Organization...' : 'Select Organization...'}</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>)}
-            <input className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" placeholder="Search by name, email, or ID..." value={search} onChange={e => { setSearch(e.target.value); setHasFetched(false); }} onKeyDown={e => { if (e.key === 'Enter') handleApplyFilters(); }} />
-            <select className="flex-1 sm:flex-none sm:w-40 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setHasFetched(false); }}><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On Leave</option></select>
-            <button onClick={handleApplyFilters} className="inline-flex items-center gap-1.5 rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors whitespace-nowrap"><Search className="h-4 w-4" strokeWidth={2} />Apply Filters</button>
-          </div>
-        </div>
-
-        {error && !showImportModal && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-red-600 text-sm mb-2">{error}</p><button onClick={handleApplyFilters} className="text-primary-600 font-medium text-sm hover:underline">Retry</button></div>}
-        {loading && <div className="flex justify-center py-10"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>}
-        {!loading && !hasFetched && <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card"><p className="text-4xl mb-4">🔍</p><p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">Please apply a filter to view records.</p><p className="text-sm text-[var(--color-text-tertiary)]">{isSuperAdmin ? 'Select an organization and click "Apply Filters" to load teachers.' : 'Click "Apply Filters" to load teachers for your organization.'}</p></div>}
-        {!loading && hasFetched && teachers.length === 0 && <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-16 text-center shadow-card"><p className="text-4xl mb-4">👨‍🏫</p><p className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No teachers found</p><p className="text-sm text-[var(--color-text-tertiary)]">Try adjusting your filters or click "+ Add Teacher" to create one.</p></div>}
-
-        {!loading && hasFetched && teachers.length > 0 && (<><div className="grid grid-cols-1 sm:grid-cols-3 gap-4"><div className="rounded-xl border border-green-200 dark:border-green-900/50 bg-green-50 dark:bg-green-950/30 p-4 text-center"><p className="text-2xl font-bold text-green-700 dark:text-green-300">{activeCount}</p><p className="text-xs text-green-600 dark:text-green-400">Active</p></div><div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-4 text-center"><p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{onLeaveCount}</p><p className="text-xs text-amber-600 dark:text-amber-400">On Leave</p></div><div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-2xl font-bold text-red-700 dark:text-red-300">{inactiveCount}</p><p className="text-xs text-red-600 dark:text-red-400">Inactive</p></div></div>
-          {teacherColumnFiltersActive && (<div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><span>Showing {displayedTeachers.length} of {teachers.length} loaded teachers (column filters active)</span><button onClick={clearAllTeacherColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button></div>)}
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]"><tr>
-            <th className="px-4 py-3 w-10"><input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAll} aria-label="Select all teachers" className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></th>
-            <th className="text-left px-4 py-3 font-semibold whitespace-nowrap min-w-[200px]"><ColumnFilterHeader label="Teacher" colKey="name" allValues={teachers.map(teacherColumnAccessors.name)} currentSelected={teacherColumnFilters.name ?? null} currentSort={teacherSortCol === 'name' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} /></th>
-            <th className="text-left px-4 py-3 font-semibold hidden md:table-cell whitespace-nowrap min-w-[140px]"><ColumnFilterHeader label="Organization" colKey="organization" allValues={teachers.map(teacherColumnAccessors.organization)} currentSelected={teacherColumnFilters.organization ?? null} currentSort={teacherSortCol === 'organization' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} /></th>
-            <th className="text-left px-4 py-3 font-semibold hidden lg:table-cell whitespace-nowrap min-w-[180px]"><ColumnFilterHeader label="Specialization" colKey="specialization" allValues={teachers.map(teacherColumnAccessors.specialization)} currentSelected={teacherColumnFilters.specialization ?? null} currentSort={teacherSortCol === 'specialization' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} /></th>
-            <th className="text-center px-4 py-3 font-semibold hidden sm:table-cell whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Courses" colKey="courses" allValues={teachers.map(teacherColumnAccessors.courses)} currentSelected={teacherColumnFilters.courses ?? null} currentSort={teacherSortCol === 'courses' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} align="center" /></th>
-            <th className="text-center px-4 py-3 font-semibold whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Status" colKey="status" allValues={teachers.map(teacherColumnAccessors.status)} currentSelected={teacherColumnFilters.status ?? null} currentSort={teacherSortCol === 'status' ? teacherSortDir : null} onCommit={applyTeacherColumnCommit} onClear={clearTeacherColumnFilter} align="center" /></th>
-            <th className="text-center px-4 py-3 font-semibold whitespace-nowrap min-w-[80px]">Actions</th>
-          </tr></thead><tbody>{displayedTeachers.length === 0 ? (<tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🔍 No teachers match these column filters</p><button onClick={clearAllTeacherColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></td></tr>) : displayedTeachers.map(t => (<tr key={t._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors cursor-pointer" onClick={() => setViewingTeacher(t)}><td className="px-4 py-3" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(t._id)} onChange={() => toggleSelectOne(t._id)} aria-label={`Select ${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></td><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-bold text-primary-600 flex-shrink-0">{t.profile?.firstName?.[0]}{t.profile?.lastName?.[0]}</div><div className="min-w-0"><p className="font-semibold truncate">{t.profile?.firstName} {t.profile?.lastName}</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{t.user?.email}</p></div></div></td><td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-sm text-[var(--color-text-secondary)]">{t.school?.name || '—'}</td><td className="px-4 py-3 hidden lg:table-cell"><div className="flex flex-wrap gap-1">{(t.specialization || []).slice(0, 3).map(s => <span key={s} className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{s}</span>)}{(t.specialization || []).length > 3 && <span className="text-xs text-[var(--color-text-tertiary)]">+{t.specialization.length - 3}</span>}</div></td><td className="px-4 py-3 text-center hidden sm:table-cell whitespace-nowrap"><span className="font-medium">{t.courses?.length || 0}</span></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><button onClick={() => handleStatusToggle(t._id, t.status)} className="cursor-pointer" title="Click to toggle"><StatusBadge status={t.status} /></button></td><td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><ThreeDotsMenu teacher={t} onEdit={() => setEditingTeacher(t)} onDelete={() => handleDelete(t._id, `${t.profile?.firstName} ${t.profile?.lastName}`)} onSetStatus={(status) => handleSetStatus(t._id, status)} onPermission={() => setPermissioningTeacher(t)} /></td></tr>))}</tbody></table></div></div></>)}
-
-        {hasFetched && total > 0 && (
-          <Pagination page={page} limit={limit} total={total} onPageChange={handlePageChange} onLimitChange={handleLimitChange} itemLabel="teachers" />
-        )}
-
-        {showCreate && <TeacherModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchTeachers(); }} />}
-        {editingTeacher && <TeacherModal teacher={editingTeacher} onClose={() => setEditingTeacher(undefined)} onSaved={() => { setEditingTeacher(undefined); fetchTeachers(page); }} />}
-        {viewingTeacher && <ViewModal teacher={viewingTeacher} onClose={() => setViewingTeacher(undefined)} />}
-        {permissioningTeacher && <PermissionModal teacher={permissioningTeacher} onClose={() => setPermissioningTeacher(undefined)} onSaved={() => { setPermissioningTeacher(undefined); fetchTeachers(page); }} />}
-        {showBulkDeleteModal && <BulkDeleteModal count={selected.size} loading={bulkDeleting} onCancel={() => setShowBulkDeleteModal(false)} onConfirm={handleBulkDelete} />}
-      </div>
-    </div>
-  );
+  return <div className="space-y-4 p-3 sm:p-5">
+    <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => e.target.files?.[0] && importTeachers(e.target.files[0])} />
+    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h1 className="text-xl font-bold sm:text-2xl">Manage Teachers</h1><p className="text-sm text-[var(--color-text-tertiary)]">{organization?.name || 'Organization'} • {typeLabel(orgType(organization))} • {filtered.length} teacher{filtered.length === 1 ? '' : 's'}</p></div><div className="relative shrink-0"><button onClick={() => setMenuOpen(v => !v)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-2.5 shadow-sm" aria-label="Teacher actions"><MoreVertical size={20} /></button>{menuOpen && <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-xl"><button onClick={() => { setMenuOpen(false); setActive(undefined); setModal('add'); }} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><UserPlus size={16} /> Add Teacher</button><button onClick={() => { setMenuOpen(false); fileRef.current?.click(); }} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Upload size={16} /> Import</button><button onClick={() => { setMenuOpen(false); exportTeachers(); }} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Download size={16} /> Export</button>{selected.length > 0 && <button onClick={() => { setMenuOpen(false); removeSelected(); }} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 size={16} /> Delete Selected ({selected.length})</button>}</div>}</div></div>
+    {error && <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30">{error}</div>}
+    <div className="flex flex-col gap-2 sm:flex-row"><div className="relative flex-1"><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input className={`${inputClass} pl-9`} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search teachers, email, ID..." /></div><select className={`${inputClass} sm:w-44`} value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option></select></div>
+    <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]"><div className="hidden overflow-x-auto md:block"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)]"><tr><th className="w-10 px-3 py-3"><input type="checkbox" checked={allVisibleSelected} onChange={e => setSelected(e.target.checked ? [...new Set([...selected, ...rows.map(t => t._id)])] : selected.filter(id => !rows.some(t => t._id === id)))} /></th><th className="px-3 py-3 text-left">Teacher</th><th className="px-3 py-3 text-left">ID</th><th className="px-3 py-3 text-left">Qualification</th><th className="px-3 py-3 text-left">Courses</th><th className="px-3 py-3 text-left">Status</th><th className="px-3 py-3 text-right">Actions</th></tr></thead><tbody>{loading ? <tr><td colSpan={7} className="p-8 text-center">Loading...</td></tr> : rows.length ? rows.map(t => <tr key={t._id} className="border-t border-[var(--color-border-subtle)]"><td className="px-3 py-3"><input type="checkbox" checked={selected.includes(t._id)} onChange={e => setSelected(s => e.target.checked ? [...s, t._id] : s.filter(id => id !== t._id))} /></td><td className="px-3 py-3"><div className="font-semibold">{teacherName(t)}</div><div className="text-xs text-[var(--color-text-tertiary)]">{t.user?.email || '—'}</div></td><td className="px-3 py-3 font-mono text-xs">{t.teacherId}</td><td className="px-3 py-3">{t.qualification || '—'}</td><td className="px-3 py-3">{assignedCourses(t).length}</td><td className="px-3 py-3"><StatusBadge status={t.status} /></td><td className="px-3 py-3"><div className="flex justify-end gap-1"><button title="View" onClick={() => { setActive(t); setModal('view'); }} className="rounded-lg border border-[var(--color-border-default)] p-1.5 hover:bg-[var(--color-surface-secondary)]"><Eye size={16} /></button><button title="Edit" onClick={() => { setActive(t); setModal('edit'); }} className="rounded-lg border border-[var(--color-border-default)] p-1.5 hover:bg-[var(--color-surface-secondary)]"><Pencil size={16} /></button><button title="Assign courses" onClick={() => { setActive(t); setModal('assign'); }} className="rounded-lg border border-[var(--color-border-default)] p-1.5 hover:bg-[var(--color-surface-secondary)]"><BookOpen size={16} /></button><select title="Status" value={t.status} onChange={e => updateStatus(t, e.target.value as TeacherStatus)} className="rounded-lg border border-[var(--color-border-default)] bg-transparent px-1 text-xs"><option value="active">Active</option><option value="on_leave">Leave</option><option value="inactive">Inactive</option></select></div></td></tr>) : <tr><td colSpan={7} className="p-8 text-center text-[var(--color-text-tertiary)]">No teachers found.</td></tr>}</tbody></table></div>
+      <div className="md:hidden">{loading ? <div className="p-8 text-center">Loading...</div> : rows.length ? rows.map(t => <div key={t._id} className="border-b border-[var(--color-border-subtle)] p-3 last:border-0"><div className="flex items-start gap-3"><input type="checkbox" checked={selected.includes(t._id)} onChange={e => setSelected(s => e.target.checked ? [...s, t._id] : s.filter(id => id !== t._id))} className="mt-1" /><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><div className="truncate font-semibold">{teacherName(t)}</div><StatusBadge status={t.status} /></div><p className="text-xs text-[var(--color-text-tertiary)]">{t.teacherId} • {t.user?.email || '—'}</p><p className="mt-1 text-xs">{t.qualification || 'Qualification not set'} • {assignedCourses(t).length} course(s)</p><div className="mt-2 flex gap-1"><button onClick={() => { setActive(t); setModal('view'); }} className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border-default)] px-2 py-1.5 text-xs font-medium"><Eye size={14} /> View</button><button onClick={() => { setActive(t); setModal('edit'); }} className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border-default)] px-2 py-1.5 text-xs font-medium"><Pencil size={14} /> Edit</button><button onClick={() => { setActive(t); setModal('assign'); }} className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border-default)] px-2 py-1.5 text-xs font-medium"><BookOpen size={14} /> Courses</button></div></div></div></div>) : <div className="p-8 text-center text-[var(--color-text-tertiary)]">No teachers found.</div>}</div></div>
+    <div className="flex items-center justify-between text-sm"><span className="text-[var(--color-text-tertiary)]">Page {page} of {pageCount}</span><div className="flex gap-2"><button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="rounded-lg border px-3 py-1.5 disabled:opacity-40">Previous</button><button disabled={page >= pageCount} onClick={() => setPage(p => p + 1)} className="rounded-lg border px-3 py-1.5 disabled:opacity-40">Next</button></div></div>
+    {modal === 'add' && <TeacherFormModal organizationId={organizationId} organization={organization} onClose={() => setModal(null)} onSaved={load} />}
+    {modal === 'edit' && active && <TeacherFormModal teacher={active} organizationId={organizationId} organization={organization} onClose={() => setModal(null)} onSaved={load} />}
+    {modal === 'view' && active && <ViewModal teacher={active} assignedCourses={assignedCourses(active)} onClose={() => setModal(null)} />}
+    {modal === 'assign' && active && <CourseAssignmentModal teacher={active} courses={courses} onClose={() => setModal(null)} onSaved={load} />}
+    {active && <div className="fixed bottom-3 right-3 z-40 hidden sm:block"><div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-2 shadow-lg"><label className="flex items-center gap-2 text-xs font-semibold">Permission<select value={active.coursePermission || 'COURSE_BUILDER'} disabled={permSaving} onChange={async e => { const next = e.target.value as CoursePermission; try { setPermSaving(true); await api.patch(`/teachers/${active._id}/course-permission`, { coursePermission: next }); await load(); setActive(t => t ? { ...t, coursePermission: next } : t); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update permission'); } finally { setPermSaving(false); } }} className="rounded-lg border px-2 py-1 text-xs"><option value="COURSE_BUILDER">Course Builder</option><option value="STUDENT_VIEW">Student View</option></select></label></div></div>}
+  </div>;
 }
-
-export default TeachersManage;
