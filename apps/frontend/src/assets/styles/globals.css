@@ -4,7 +4,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ==========================================================================
+/* ===========================================================================
    DESIGN TOKENS — Light & Dark Mode via CSS Variables
    ========================================================================== */
 
@@ -65,7 +65,7 @@
   }
 }
 
-/* ==========================================================================
+/* ===========================================================================
    BASE STYLES
    ========================================================================== */
 
@@ -99,7 +99,7 @@
   :focus-visible { @apply outline-2 outline-offset-2 outline-primary-500; }
 }
 
-/* ==========================================================================
+/* ===========================================================================
    UTILITY CLASSES
    ========================================================================== */
 
@@ -173,7 +173,23 @@
   .hide-scrollbar::-webkit-scrollbar { display: none; }
 }
 
-/* ==========================================================================
+/* ===========================================================================
+   ADMIN SIDEBAR LABELS
+   Keep the payments routes and functionality unchanged; only rename the
+   visible admin section heading to the finance-oriented product wording.
+   ========================================================================== */
+@layer components {
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/payments']) > button > span {
+    font-size: 0;
+  }
+
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/payments']) > button > span::after {
+    content: 'Finance Management';
+    font-size: 11px;
+  }
+}
+
+/* ===========================================================================
    MOBILE GRADEBOOK / ENTER RESULTS
    Full student identity first, ID directly underneath, score fields below.
    The desktop spreadsheet remains unchanged; phones use the full card width.
@@ -204,7 +220,6 @@
     box-sizing: border-box;
   }
 
-  /* Identity row: full name on top, student ID immediately underneath. */
   table.table-fixed tbody tr > td:first-child {
     grid-column: 1 / -1;
     padding: 0.35rem 0.3rem 0.55rem !important;
@@ -243,10 +258,8 @@
     font-size: 0.68rem;
   }
 
-  /* Organization/department is intentionally hidden on mobile. */
   table.table-fixed tbody tr > td:nth-child(2) { display: none !important; }
 
-  /* Four score fields: compact 2×2 grid under the student identity. */
   table.table-fixed tbody tr > td:nth-child(3),
   table.table-fixed tbody tr > td:nth-child(4),
   table.table-fixed tbody tr > td:nth-child(5),
