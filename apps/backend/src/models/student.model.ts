@@ -142,6 +142,7 @@ function normalizeCurrentCourseLinks(student: any): void {
 // self-service dashboard. Applying the same normalization to lean results
 // also covers getById(), which intentionally returns a lean object.
 studentSchema.post('findOne', function (result: any) {
+  if (this.getOptions()?.skipCourseNormalization) return;
   normalizeCurrentCourseLinks(result);
 });
 
@@ -158,7 +159,10 @@ studentSchema.post('updateOne', async function () {
   if (!changedClass && !graduated) return;
 
   const query: any = this.getQuery();
-  const student = await mongoose.model<IStudent>('Student').findOne(query).select('class grade enrolledCourses enrollmentHistory');
+  const student = await mongoose.model<IStudent>('Student')
+    .findOne(query)
+    .setOptions({ skipCourseNormalization: true })
+    .select('class grade enrolledCourses enrollmentHistory');
   if (!student) return;
 
   if (graduated) {
