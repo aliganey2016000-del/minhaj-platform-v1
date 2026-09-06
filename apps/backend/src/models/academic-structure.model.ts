@@ -6,6 +6,8 @@ export interface IAcademicStructure extends Document {
   school: mongoose.Types.ObjectId;
   academicSystem: AcademicSystem;
   semestersPerAcademicYear: 1 | 2 | 3;
+  lastSemesterAdvanceAt?: Date;
+  lastSemesterAdvanceKey?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -15,6 +17,8 @@ const academicStructureSchema = new Schema<IAcademicStructure>(
     school: { type: Schema.Types.ObjectId, ref: 'School', required: true, unique: true, index: true },
     academicSystem: { type: String, enum: ['annual', 'semester'], default: 'annual' },
     semestersPerAcademicYear: { type: Number, enum: [1, 2, 3], default: 1 },
+    lastSemesterAdvanceAt: { type: Date, default: null, index: true },
+    lastSemesterAdvanceKey: { type: String, default: null },
   },
   { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } },
 );
