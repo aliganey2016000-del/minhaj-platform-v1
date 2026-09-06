@@ -133,7 +133,7 @@ function InvoiceModal({ invoice, onClose }: { invoice: InvoiceData; onClose: () 
         <div className="text-center border-b-2 border-emerald-500 dark:border-emerald-600 px-8 pt-8 pb-6">
           <h1 className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">{invoice.schoolName}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Official Payment Receipt</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Masjid Al-Rahma Platform</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Sahal Education Platform</p>
         </div>
 
         {/* ── Metadata ── */}
@@ -242,7 +242,7 @@ function InvoiceModal({ invoice, onClose }: { invoice: InvoiceData; onClose: () 
             This is a computer-generated receipt and does not require a physical signature.
           </p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-            Masjid Al-Rahma Platform &copy; {new Date().getFullYear()}
+            Sahal Education Platform &copy; {new Date().getFullYear()}
           </p>
         </div>
       </div>

@@ -12,8 +12,8 @@ export function SettingsManage() {
   const [error, setError] = useState('');
 
   const defaultSettings = [
-    { key: 'schoolName', value: 'Masjid Al-Rahma', description: 'Organization name' },
-    { key: 'contactEmail', value: 'admin@masjidalrahma.com', description: 'Primary contact email' },
+    { key: 'schoolName', value: '', description: 'Organization name' },
+    { key: 'contactEmail', value: '', description: 'Primary contact email' },
     { key: 'contactPhone', value: '', description: 'Contact phone number' },
     { key: 'address', value: '', description: 'Physical address' },
     { key: 'academicYear', value: '2026-2027', description: 'Current academic year' },

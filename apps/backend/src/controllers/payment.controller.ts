@@ -464,7 +464,7 @@ export const getReceipt = async (req: Request, res: Response): Promise<void> => 
 
   const pdf = await buildReceiptPdf({
     receiptNumber: payment.receiptNumber || formatReceiptNumber(payment._id as mongoose.Types.ObjectId, payment.createdAt),
-    schoolName: (payment.school as any)?.name || 'Masjid Al-Rahma Platform',
+    schoolName: (payment.school as any)?.name || 'Sahal Education Platform',
     studentName: `${student?.profile?.firstName || ''} ${student?.profile?.lastName || ''}`.trim() || student?.studentId || 'Student',
     studentCode: student?.studentId || '',
     invoiceTitle: invoice?.title,
