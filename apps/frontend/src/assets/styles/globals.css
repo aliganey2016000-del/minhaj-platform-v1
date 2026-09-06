@@ -4,10 +4,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===========================================================================
-   DESIGN TOKENS — Light & Dark Mode via CSS Variables
-   ========================================================================== */
-
 @layer base {
   :root {
     --color-surface-primary: #ffffff;
@@ -38,7 +34,6 @@
     --radius-lg: 1rem;
     --radius-xl: 1.5rem;
   }
-
   .dark {
     --color-surface-primary: #0a0f1a;
     --color-surface-secondary: #060a10;
@@ -65,238 +60,61 @@
   }
 }
 
-/* ===========================================================================
-   BASE STYLES
-   ========================================================================== */
-
 @layer base {
   * { @apply border-[var(--color-border-default)]; }
-
-  html {
-    @apply scroll-smooth antialiased;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
+  html { @apply scroll-smooth antialiased; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
   html[dir='rtl'] { direction: rtl; }
-
-  html[lang='ar'] body {
-    font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif;
-  }
-
-  body {
-    @apply bg-[var(--color-page-background)] text-[var(--color-text-primary)] transition-colors duration-300;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  }
-
-  body, .theme-transition {
-    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
-  }
-
+  html[lang='ar'] body { font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif; }
+  body { @apply bg-[var(--color-page-background)] text-[var(--color-text-primary)] transition-colors duration-300; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+  body, .theme-transition { transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease; }
   ::selection { @apply bg-primary-500/20 text-primary-800; }
   .dark ::selection { @apply bg-primary-400/30 text-primary-200; }
   :focus-visible { @apply outline-2 outline-offset-2 outline-primary-500; }
 }
 
-/* ===========================================================================
-   UTILITY CLASSES
-   ========================================================================== */
-
 @layer utilities {
-  .glass {
-    background: var(--glass-bg);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--glass-border);
-  }
-
-  .glass-strong {
-    background: var(--glass-bg-strong);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--glass-border);
-  }
-
-  .text-gradient-gold {
-    background: linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .text-gradient-green {
-    background: linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .bg-geometric {
-    background-image:
-      radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, rgba(245, 158, 11, 0.05) 0%, transparent 50%),
-      radial-gradient(circle at 50% 80%, rgba(16, 185, 129, 0.03) 0%, transparent 50%);
-  }
-
-  .dark .bg-geometric {
-    background-image:
-      radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.08) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, rgba(245, 158, 11, 0.06) 0%, transparent 50%),
-      radial-gradient(circle at 50% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 50%);
-  }
-
-  .bg-grid {
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-    background-size: 60px 60px;
-  }
-
+  .glass { background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); }
+  .glass-strong { background: var(--glass-bg-strong); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); }
+  .text-gradient-gold { background: linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .text-gradient-green { background: linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .bg-geometric { background-image: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(245, 158, 11, 0.05) 0%, transparent 50%), radial-gradient(circle at 50% 80%, rgba(16, 185, 129, 0.03) 0%, transparent 50%); }
+  .dark .bg-geometric { background-image: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.08) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(245, 158, 11, 0.06) 0%, transparent 50%), radial-gradient(circle at 50% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 50%); }
+  .bg-grid { background-image: linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px); background-size: 60px 60px; }
   .link-underline { position: relative; }
-  .link-underline::after {
-    content: '';
-    position: absolute;
-    bottom: -2px;
-    left: 0;
-    width: 0;
-    height: 1.5px;
-    background: currentColor;
-    transition: width 0.3s ease;
-  }
+  .link-underline::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 0; height: 1.5px; background: currentColor; transition: width 0.3s ease; }
   .link-underline:hover::after { width: 100%; }
-
-  .hide-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
+  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   .hide-scrollbar::-webkit-scrollbar { display: none; }
 }
 
-/* ===========================================================================
-   ADMIN SIDEBAR LABELS
-   Keep the payments routes and functionality unchanged; only rename the
-   visible admin section heading to the finance-oriented product wording.
-   ========================================================================== */
 @layer components {
-  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/payments']) > button > span {
-    font-size: 0;
-  }
+  /* Keep routes/functionality unchanged; rename visible admin section labels. */
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/payments']) > button > span,
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/schedules']) > button > span { font-size: 0; }
 
-  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/payments']) > button > span::after {
-    content: 'Finance Management';
-    font-size: 11px;
-  }
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/payments']) > button > span::after { content: 'Finance Management'; font-size: 11px; }
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/schedules']) > button > span::after { content: 'Academic Management'; font-size: 11px; }
 }
 
-/* ===========================================================================
-   MOBILE GRADEBOOK / ENTER RESULTS
-   Full student identity first, ID directly underneath, score fields below.
-   The desktop spreadsheet remains unchanged; phones use the full card width.
-   ========================================================================== */
 @media (max-width: 639px) {
-  table.table-fixed {
-    width: 100% !important;
-    table-layout: auto !important;
-  }
-
+  table.table-fixed { width: 100% !important; table-layout: auto !important; }
   table.table-fixed thead { display: none; }
   table.table-fixed tbody { display: block; width: 100%; }
-
-  table.table-fixed tbody tr {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 0;
-    width: 100%;
-    padding: 0.45rem 0.55rem;
-    border-bottom: 1px solid var(--color-border-subtle);
-    box-sizing: border-box;
-  }
-
-  table.table-fixed tbody tr > td {
-    min-width: 0;
-    width: auto !important;
-    padding: 0.3rem 0.3rem !important;
-    box-sizing: border-box;
-  }
-
-  table.table-fixed tbody tr > td:first-child {
-    grid-column: 1 / -1;
-    padding: 0.35rem 0.3rem 0.55rem !important;
-    vertical-align: top;
-  }
-
-  table.table-fixed tbody tr > td:first-child > div {
-    width: 100%;
-    align-items: flex-start;
-    gap: 0.6rem;
-  }
-
-  table.table-fixed tbody tr > td:first-child > div > div {
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-
-  table.table-fixed tbody tr > td:first-child p {
-    white-space: normal !important;
-    overflow: visible !important;
-    text-overflow: clip !important;
-    overflow-wrap: anywhere;
-    word-break: normal;
-    line-height: 1.25;
-  }
-
-  table.table-fixed tbody tr > td:first-child p:first-child {
-    font-size: 0.92rem;
-    font-weight: 700;
-  }
-
-  table.table-fixed tbody tr > td:first-child code {
-    display: block;
-    margin-top: 0.12rem;
-    line-height: 1.15;
-    font-size: 0.68rem;
-  }
-
+  table.table-fixed tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; width: 100%; padding: 0.45rem 0.55rem; border-bottom: 1px solid var(--color-border-subtle); box-sizing: border-box; }
+  table.table-fixed tbody tr > td { min-width: 0; width: auto !important; padding: 0.3rem 0.3rem !important; box-sizing: border-box; }
+  table.table-fixed tbody tr > td:first-child { grid-column: 1 / -1; padding: 0.35rem 0.3rem 0.55rem !important; vertical-align: top; }
+  table.table-fixed tbody tr > td:first-child > div { width: 100%; align-items: flex-start; gap: 0.6rem; }
+  table.table-fixed tbody tr > td:first-child > div > div { min-width: 0; flex: 1 1 auto; }
+  table.table-fixed tbody tr > td:first-child p { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere; word-break: normal; line-height: 1.25; }
+  table.table-fixed tbody tr > td:first-child p:first-child { font-size: 0.92rem; font-weight: 700; }
+  table.table-fixed tbody tr > td:first-child code { display: block; margin-top: 0.12rem; line-height: 1.15; font-size: 0.68rem; }
   table.table-fixed tbody tr > td:nth-child(2) { display: none !important; }
-
-  table.table-fixed tbody tr > td:nth-child(3),
-  table.table-fixed tbody tr > td:nth-child(4),
-  table.table-fixed tbody tr > td:nth-child(5),
-  table.table-fixed tbody tr > td:nth-child(6) {
-    display: block;
-    min-width: 0;
-  }
-
-  table.table-fixed tbody tr > td:nth-child(3)::before,
-  table.table-fixed tbody tr > td:nth-child(4)::before,
-  table.table-fixed tbody tr > td:nth-child(5)::before,
-  table.table-fixed tbody tr > td:nth-child(6)::before {
-    display: block;
-    margin: 0 0 0.22rem;
-    font-size: 0.64rem;
-    line-height: 1;
-    font-weight: 700;
-    color: var(--color-text-tertiary);
-    white-space: nowrap;
-  }
-
+  table.table-fixed tbody tr > td:nth-child(3), table.table-fixed tbody tr > td:nth-child(4), table.table-fixed tbody tr > td:nth-child(5), table.table-fixed tbody tr > td:nth-child(6) { display: block; min-width: 0; }
+  table.table-fixed tbody tr > td:nth-child(3)::before, table.table-fixed tbody tr > td:nth-child(4)::before, table.table-fixed tbody tr > td:nth-child(5)::before, table.table-fixed tbody tr > td:nth-child(6)::before { display: block; margin: 0 0 0.22rem; font-size: 0.64rem; line-height: 1; font-weight: 700; color: var(--color-text-tertiary); white-space: nowrap; }
   table.table-fixed tbody tr > td:nth-child(3)::before { content: 'Mid Exam'; }
   table.table-fixed tbody tr > td:nth-child(4)::before { content: 'Mid Activity'; }
   table.table-fixed tbody tr > td:nth-child(5)::before { content: 'Final'; }
   table.table-fixed tbody tr > td:nth-child(6)::before { content: 'Final Activity'; }
-
-  table.table-fixed tbody tr > td:nth-child(n+3) input {
-    min-width: 0;
-    width: 100%;
-    min-height: 2.35rem;
-    padding: 0.48rem 0.5rem !important;
-    font-size: 0.82rem !important;
-    text-align: center;
-    box-sizing: border-box;
-  }
-
-  table.table-fixed tbody tr > td:nth-child(n+3) p {
-    margin-top: 0.2rem !important;
-  }
+  table.table-fixed tbody tr > td:nth-child(n+3) input { min-width: 0; width: 100%; min-height: 2.35rem; padding: 0.48rem 0.5rem !important; font-size: 0.82rem !important; text-align: center; box-sizing: border-box; }
+  table.table-fixed tbody tr > td:nth-child(n+3) p { margin-top: 0.2rem !important; }
 }
