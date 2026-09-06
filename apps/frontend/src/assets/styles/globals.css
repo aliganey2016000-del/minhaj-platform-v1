@@ -103,6 +103,25 @@
     content: 'Academic Management';
     font-size: 11px;
   }
+
+  /* Canonical admin section labels: hide the legacy titles even when the
+     section is collapsed. The sidebar renders each section as a direct
+     .mb-1 child of this nav, so these selectors cover the closed and open
+     states consistently on mobile and desktop. */
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div.mb-1:nth-of-type(2) > button > span {
+    font-size: 0 !important;
+  }
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div.mb-1:nth-of-type(2) > button > span::after {
+    content: 'Academic Management';
+    font-size: 11px;
+  }
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div.mb-1:nth-of-type(3) > button > span {
+    font-size: 0 !important;
+  }
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div.mb-1:nth-of-type(3) > button > span::after {
+    content: 'Finance Management';
+    font-size: 11px;
+  }
 }
 
 @media (max-width: 639px) {
