@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { AdminSidebar } from './admin-sidebar';
-import { InstitutionStructureShortcut } from './institution-structure-shortcut';
 import { DashboardHeader } from '../../shared/components/dashboard-header';
 
 const SIDEBAR_COLLAPSED_KEY = 'adminSidebarCollapsed';
@@ -27,7 +26,6 @@ export function AdminLayout() {
   return (
     <div className="min-h-screen bg-[var(--color-surface-secondary)]">
       <AdminSidebar collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
-      <InstitutionStructureShortcut />
 
       <div className={`min-h-screen transition-[margin] duration-200 ${collapsed ? 'lg:ml-[76px]' : 'lg:ml-72'}`}>
         <DashboardHeader showGreeting={isDashboardRoot} />
