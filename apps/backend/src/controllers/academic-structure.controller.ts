@@ -2,10 +2,12 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import AcademicStructure, { AcademicSystem } from '../models/academic-structure.model';
 import ClassModel from '../models/class.model';
+import Student from '../models/student.model';
 import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { refreshStudentCoursesForCurrentClass } from '../services/enrollment.service';
 
 function getSchoolId(req: Request): string {
   const requested = req.method === 'GET' ? req.query.schoolId : req.body?.schoolId;
@@ -83,6 +85,9 @@ export const advanceSemester = async (req: Request, res: Response): Promise<Resp
 
   const semestersPerYear = structure.semestersPerAcademicYear;
   const results: Array<Record<string, unknown>> = [];
+  let studentsSynced = 0;
+  let coursesRefreshed = 0;
+
   for (const cls of classes) {
     const currentSemester = cls.semesterNumber && cls.semesterNumber > 0 ? cls.semesterNumber : 1;
     const nextSemester = currentSemester + 1;
@@ -96,6 +101,13 @@ export const advanceSemester = async (req: Request, res: Response): Promise<Resp
     if (crossedAcademicYear) cls.academicYear = incrementAcademicYear(cls.academicYear || '');
     await cls.save();
 
+    const students = await Student.find({ school: schoolId, class: cls._id, status: 'active' }).select('_id').lean();
+    for (const student of students) {
+      await refreshStudentCoursesForCurrentClass(student._id);
+      studentsSynced += 1;
+      coursesRefreshed += 1;
+    }
+
     results.push({
       classId: cls._id,
       title: cls.title,
@@ -104,7 +116,9 @@ export const advanceSemester = async (req: Request, res: Response): Promise<Resp
       semesterNumber: nextSemester,
       previousStudyYear: currentStudyYear,
       studyYear: nextStudyYear,
+      semesterInYear: cls.semesterInYear,
       academicYear: cls.academicYear,
+      studentsSynced: students.length,
     });
   }
 
@@ -112,6 +126,8 @@ export const advanceSemester = async (req: Request, res: Response): Promise<Resp
     academicSystem: structure.academicSystem,
     semestersPerAcademicYear: semestersPerYear,
     advanced: results.length,
+    studentsSynced,
+    coursesRefreshed,
     results,
-  }, `Advanced ${results.length} class(es) to the next semester`);
+  }, `Advanced ${results.length} class(es) and synced ${studentsSynced} student enrollment(s)`);
 };
