@@ -8,6 +8,12 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// Some admin pages derive hook dependencies from reference-data arrays. Keep
+// an identical departments payload on the same array reference so a harmless
+// re-fetch cannot manufacture a new dependency and restart the fetch effect.
+let cachedDepartmentsKey = '';
+let cachedDepartmentsArray: unknown[] | null = null;
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -36,7 +42,19 @@ function refreshAccessToken(): Promise<string | null> {
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response.config.method?.toLowerCase() === 'get' && response.config.url?.replace(/\/$/, '') === '/departments' && Array.isArray(response.data?.data)) {
+      const departments = response.data.data as unknown[];
+      const key = JSON.stringify(departments);
+      if (key === cachedDepartmentsKey && cachedDepartmentsArray) {
+        response.data.data = cachedDepartmentsArray;
+      } else {
+        cachedDepartmentsKey = key;
+        cachedDepartmentsArray = departments;
+      }
+    }
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
     const isAuthEndpoint = AUTH_ENDPOINTS_EXEMPT_FROM_REFRESH.some((path) => originalRequest?.url?.includes(path));
