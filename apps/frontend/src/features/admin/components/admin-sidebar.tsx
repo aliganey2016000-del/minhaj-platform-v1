@@ -56,6 +56,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/parents',      label: 'Manage Parents',     icon: Users },
       { path: '/admin/teachers',     label: 'Manage Teachers',    icon: Presentation },
       { path: '/admin/courses',      label: 'Manage Courses',     icon: BookOpen },
+      { path: '/admin/hr?tab=structure', label: 'Institution Structure', icon: Building2 },
       { path: '/admin/schools',      label: 'Organization Management',  icon: Building2 },
       { path: '/admin/users',        label: 'User Management',    icon: UserCog },
       { path: '/admin/classes',      label: 'Manage Classes',     icon: School },
@@ -422,7 +423,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
                               <item.icon className="h-[18px] w-[18px] flex-shrink-0" strokeWidth={1.75} />
                               <span className="truncate flex-1 text-left">{item.label}</span>
                               <svg className={`h-4 w-4 flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7' />
                               </svg>
                             </button>
                             <AnimatePresence initial={false}>
