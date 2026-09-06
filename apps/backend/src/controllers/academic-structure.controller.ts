@@ -73,6 +73,28 @@ export const advanceSemester = async (req: Request, res: Response): Promise<Resp
     throw new BadRequestError('This organization uses annual progression. Change Academic System to Semester first.');
   }
 
+  const operationKey = String(req.get('x-idempotency-key') || req.body?.operationKey || '').trim();
+  if (operationKey && structure.lastSemesterAdvanceKey === operationKey) {
+    throw new BadRequestError('This semester advancement request has already been processed');
+  }
+
+  // Protect against rapid duplicate submissions (double-clicks/retries) while
+  // still allowing a legitimate later semester transition.
+  const lockCutoff = new Date(Date.now() - 15_000);
+  const locked = await AcademicStructure.findOneAndUpdate(
+    {
+      _id: structure._id,
+      $or: [
+        { lastSemesterAdvanceAt: null },
+        { lastSemesterAdvanceAt: { $exists: false } },
+        { lastSemesterAdvanceAt: { $lt: lockCutoff } },
+      ],
+    },
+    { $set: { lastSemesterAdvanceAt: new Date(), ...(operationKey ? { lastSemesterAdvanceKey: operationKey } : {}) } },
+    { new: true },
+  );
+  if (!locked) throw new BadRequestError('Semester advancement is already being processed; please wait before retrying');
+
   const ids = Array.isArray(req.body?.classIds) ? req.body.classIds.map(String).filter(Boolean) : [];
   const filter: Record<string, unknown> = { school: schoolId, status: 'active' };
   if (ids.length) {
@@ -83,7 +105,7 @@ export const advanceSemester = async (req: Request, res: Response): Promise<Resp
   const classes = await ClassModel.find(filter).sort({ studyYear: 1, semesterNumber: 1, title: 1, section: 1 });
   if (!classes.length) throw new BadRequestError('No active classes found to advance');
 
-  const semestersPerYear = structure.semestersPerAcademicYear;
+  const semestersPerYear = locked.semestersPerAcademicYear;
   const results: Array<Record<string, unknown>> = [];
   let studentsSynced = 0;
   let coursesRefreshed = 0;
@@ -101,7 +123,27 @@ export const advanceSemester = async (req: Request, res: Response): Promise<Resp
     if (crossedAcademicYear) cls.academicYear = incrementAcademicYear(cls.academicYear || '');
     await cls.save();
 
-    const students = await Student.find({ school: schoolId, class: cls._id, status: 'active' }).select('_id').lean();
+    // Only active students whose enrollment history is current for the class
+    // participate. A stale active enrollment is deliberately left untouched.
+    const students = await Student.find({
+      school: schoolId,
+      class: cls._id,
+      status: 'active',
+      $or: [
+        { enrollmentHistory: { $exists: false } },
+        { enrollmentHistory: { $size: 0 } },
+        {
+          enrollmentHistory: {
+            $elemMatch: {
+              status: 'active',
+              class: cls._id,
+              semesterNumber: currentSemester,
+            },
+          },
+        },
+      ],
+    }).select('_id').lean();
+
     for (const student of students) {
       await refreshStudentCoursesForCurrentClass(student._id);
       studentsSynced += 1;
@@ -123,7 +165,7 @@ export const advanceSemester = async (req: Request, res: Response): Promise<Resp
   }
 
   return ApiResponse.success(res, {
-    academicSystem: structure.academicSystem,
+    academicSystem: locked.academicSystem,
     semestersPerAcademicYear: semestersPerYear,
     advanced: results.length,
     studentsSynced,
