@@ -66,12 +66,16 @@ async function syncEnrollmentHistory(
  * in place (for example S1 -> S2). Historical course membership is retained
  * in enrollmentHistory while the current enrolledCourses set becomes the
  * published courses attached to the progressed class.
+ *
+ * Enrollment synchronization is intentionally active-student-only. This
+ * function is also callable outside semester advancement, so the status
+ * guard belongs here rather than only in the caller.
  */
 export async function refreshStudentCoursesForCurrentClass(
   studentId: mongoose.Types.ObjectId | string,
 ): Promise<void> {
-  const student = await Student.findById(studentId).select('class enrolledCourses enrollmentHistory');
-  if (!student?.class) return;
+  const student = await Student.findById(studentId).select('class status enrolledCourses enrollmentHistory');
+  if (!student?.class || student.status !== 'active') return;
 
   const [oldCourses, newCourses] = await Promise.all([
     Course.find({ class: student.class }).select('_id'),
@@ -117,8 +121,8 @@ export async function reassignStudentClassCourses(
 ): Promise<void> {
   if (String(oldClassId || '') === String(newClassId || '')) return;
 
-  const student = await Student.findById(studentId).select('class enrolledCourses enrollmentHistory');
-  if (!student || !newClassId) return;
+  const student = await Student.findById(studentId).select('class status enrolledCourses enrollmentHistory');
+  if (!student || !newClassId || student.status !== 'active') return;
 
   const [oldCourses, newCourses] = await Promise.all([
     oldClassId ? Course.find({ class: oldClassId }).select('_id') : Promise.resolve([]),
