@@ -170,4 +170,31 @@
     flex: 0 0 auto;
     flex-wrap: nowrap !important;
   }
+
+  /* Manage Classes: keep the three-dot actions in the title row on phones. */
+  div:has(> div > h1 > svg.lucide-school) {
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 0.75rem !important;
+  }
+  div:has(> div > h1 > svg.lucide-school) > div:first-child {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  div:has(> div > h1 > svg.lucide-school) > div:first-child h1 {
+    min-width: 0;
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+  div:has(> div > h1 > svg.lucide-school) > div:first-child h1 > svg.lucide-school {
+    width: 1.75rem;
+    height: 1.75rem;
+    flex: 0 0 auto;
+  }
+  div:has(> div > h1 > svg.lucide-school) > div:last-child {
+    flex: 0 0 auto;
+    flex-wrap: nowrap !important;
+    white-space: nowrap;
+  }
 }
