@@ -4,6 +4,7 @@ export interface IDepartment extends Document {
   name: string;
   code?: string;
   tenantId: mongoose.Types.ObjectId;
+  facultyId?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +29,12 @@ const departmentSchema = new Schema<IDepartment>(
       required: [true, 'Tenant ID is required'],
       index: true,
     },
+    facultyId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Faculty',
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -41,6 +48,7 @@ const departmentSchema = new Schema<IDepartment>(
 );
 
 departmentSchema.index({ tenantId: 1, name: 1 }, { unique: true });
+departmentSchema.index({ tenantId: 1, facultyId: 1, name: 1 });
 
 const Department = mongoose.model<IDepartment>('Department', departmentSchema);
 export default Department;
