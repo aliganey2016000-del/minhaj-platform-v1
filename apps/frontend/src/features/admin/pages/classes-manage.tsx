@@ -1,46 +1,19 @@
-/**
- * Class Management — Admin Full CRUD
- * Fields: School, Batch Number, Grade Level, Academic Year, Department, Class Name, Section, Room, Shift / Learning Mode.
- */
-
-import { useEffect, useState, useCallback, useMemo, useRef, type FormEvent, type ChangeEvent } from 'react';
-import { createPortal } from 'react-dom';
-import { School, Pencil, Trash2, Copy, MoreVertical, Search, ChevronDown, CheckCircle2, PauseCircle, Archive } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { BookOpen, CheckCircle2, Download, FileSpreadsheet, GraduationCap, MoreVertical, Pencil, Plus, RefreshCw, Search, Trash2, Upload, Users, X } from 'lucide-react';
 import api from '../../../lib/axios';
-const ACADEMIC_YEAR_OPTIONS = Array.from({ length: 7 }, (_, index) => {
-  const startYear = new Date().getFullYear() - 3 + index;
-  return `${startYear}-${startYear + 1}`;
-});
-import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
-import { Pagination } from '../components/pagination';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface SchoolBrief { _id: string; name: string; orgId?: string; }
-
-interface DepartmentItem {
-  _id: string;
-  name: string;
-  code?: string;
-}
-
+interface Organization { _id: string; name: string; organizationType?: string; }
+interface Faculty { _id: string; name: string; code?: string; }
+interface Department { _id: string; name: string; code?: string; facultyId?: string | Faculty | null; }
 interface ClassItem {
   _id: string;
   title: string;
-  section: string;
+  section?: string;
   room: string;
   department?: string;
   departmentId?: string;
-  shiftMode: 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
+  shiftMode?: 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
   school?: { _id: string; name: string };
-  course?: { _id: string; title: { en: string }; slug: string; category: string };
-  teacher?: { _id: string; teacherId: string };
-  dayOfWeek?: number;
-  startTime?: string;
-  endTime?: string;
-  meetingLink?: string;
   status: 'active' | 'inactive' | 'completed';
   batch?: string;
   gradeLevel?: number;
@@ -48,16 +21,16 @@ interface ClassItem {
   isGraduatingGrade?: boolean;
   isEntryGrade?: boolean;
   promotedAt?: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 interface ClassForm {
-  school: string;
+  faculty: string;
   department: string;
   title: string;
   section: string;
   room: string;
-  shiftMode: string;
+  shiftMode: 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
   batch: string;
   gradeLevel: string;
   academicYear: string;
@@ -65,542 +38,199 @@ interface ClassForm {
   isEntryGrade: boolean;
 }
 
-// The academic year currently in progress — Aug (month index 7) onward
-// counts as already inside the new one. Used only as an editable default.
-function defaultAcademicYear(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const startY = now.getMonth() >= 7 ? y : y - 1;
-  return `${startY}-${startY + 1}`;
+const academicYears = Array.from({ length: 7 }, (_, i) => {
+  const y = new Date().getFullYear() - 3 + i;
+  return `${y}-${y + 1}`;
+});
+
+function defaultForm(): ClassForm {
+  const y = new Date().getFullYear();
+  return {
+    faculty: '', department: '', title: '', section: '', room: '', shiftMode: 'Morning', batch: '',
+    gradeLevel: '', academicYear: `${y}-${y + 1}`, isGraduatingGrade: false, isEntryGrade: false,
+  };
 }
 
-const emptyForm: ClassForm = { school: '', department: '', title: '', section: '', room: '', shiftMode: 'Morning', batch: '', gradeLevel: '', academicYear: defaultAcademicYear(), isGraduatingGrade: false, isEntryGrade: false };
-
-// ---------------------------------------------------------------------------
-// Badges
-// ---------------------------------------------------------------------------
-
-function ShiftBadge({ mode }: { mode: string }) {
-  const colors: Record<string, string> = {
-    Morning: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-    Afternoon: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-    Evening: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
-    Virtual: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
-  };
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[mode] || 'bg-gray-100 text-gray-600'}`}>{mode}</span>;
+function responseData<T>(response: any): T {
+  return response?.data?.data ?? response?.data ?? response;
 }
 
-const STATUS_PILL_STYLES: Record<string, string> = {
-  active: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
-  inactive: 'bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-400',
-  completed: 'bg-sky-50 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300',
-};
-
-function Toast({ message, type, onClose }: { message: string; type: 'success' | 'error'; onClose: () => void }) {
-  useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
-  return <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 rounded-xl px-5 py-3 text-sm font-medium shadow-lg ${type === 'success' ? 'bg-green-50 text-green-800 border border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800' : 'bg-red-50 text-red-800 border border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800'}`}><span>{type === 'success' ? '✅' : '❌'}</span><span>{message}</span><button onClick={onClose} className="ml-2 text-lg leading-none opacity-60 hover:opacity-100">&times;</button></div>;
+function errorMessage(error: any) {
+  return error?.response?.data?.message || error?.message || 'Something went wrong. Please try again.';
 }
 
-// ---------------------------------------------------------------------------
-// Create / Edit Modal
-// ---------------------------------------------------------------------------
+function facultyIdOf(department: Department) {
+  return typeof department.facultyId === 'string' ? department.facultyId : department.facultyId?._id || '';
+}
 
-function ClassModal({ cls, schools, departments, onClose, onSaved }: { cls?: ClassItem; schools: SchoolBrief[]; departments: DepartmentItem[]; onClose: () => void; onSaved: () => void }) {
-  const isEdit = !!cls;
-  const [form, setForm] = useState<ClassForm>(cls ? {
-    school: cls.school?._id || '', department: cls.departmentId || cls.department || '', title: cls.title || '',
-    section: cls.section || '', room: cls.room || '', shiftMode: cls.shiftMode || 'Morning', batch: cls.batch || '',
-    gradeLevel: cls.gradeLevel !== undefined && cls.gradeLevel !== null ? String(cls.gradeLevel) : '',
-    academicYear: cls.academicYear || defaultAcademicYear(), isGraduatingGrade: !!cls.isGraduatingGrade, isEntryGrade: !!cls.isEntryGrade,
-  } : emptyForm);
-  const [errors, setErrors] = useState<Partial<Record<keyof ClassForm, string>>>({});
-  const [loading, setLoading] = useState(false);
-  const [apiError, setApiError] = useState('');
+function organizationTypeLabel(type?: string) {
+  return type === 'university' ? 'University' : 'School';
+}
 
-  const validate = (): boolean => {
-    const errs: Partial<Record<keyof ClassForm, string>> = {};
-    if (!form.school) errs.school = 'Organization is required';
-    if (!form.department) errs.department = 'Department is required';
-    if (!form.title.trim()) errs.title = 'Class name is required';
-    if (!form.room.trim()) errs.room = 'Room is required';
-    if (!form.batch.trim()) errs.batch = 'Batch number is required';
-    if (!form.gradeLevel.trim()) errs.gradeLevel = 'Grade level is required';
-    if (!form.academicYear.trim()) errs.academicYear = 'Academic year is required';
-    setErrors(errs); return Object.keys(errs).length === 0;
-  };
+function Field({ label, required, children, className = '' }: { label: string; required?: boolean; children: React.ReactNode; className?: string }) {
+  return (
+    <label className={`block min-w-0 ${className}`}>
+      <span className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200">{label}{required ? ' *' : ''}</span>
+      {children}
+    </label>
+  );
+}
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    const checked = type === 'checkbox' ? (e.target as HTMLInputElement).checked : undefined;
-    setForm(p => ({ ...p, [name]: type === 'checkbox' ? checked : value }));
-    if (errors[name as keyof ClassForm]) setErrors(p => { const n = { ...p }; delete n[name as keyof ClassForm]; return n; });
-  };
+const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-slate-500 dark:focus:ring-slate-800';
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault(); if (!validate()) return;
-    setLoading(true); setApiError('');
+function ClassModal({
+  cls, organization, faculties, departments, onClose, onSaved,
+}: {
+  cls?: ClassItem;
+  organization: Organization | null;
+  faculties: Faculty[];
+  departments: Department[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isUniversity = organization?.organizationType === 'university';
+  const [form, setForm] = useState<ClassForm>(() => {
+    const initial = defaultForm();
+    if (cls) {
+      initial.department = cls.departmentId || '';
+      initial.title = cls.title || '';
+      initial.section = cls.section || '';
+      initial.room = cls.room || '';
+      initial.shiftMode = cls.shiftMode || 'Morning';
+      initial.batch = cls.batch || '';
+      initial.gradeLevel = cls.gradeLevel == null ? '' : String(cls.gradeLevel);
+      initial.academicYear = cls.academicYear || initial.academicYear;
+      initial.isGraduatingGrade = !!cls.isGraduatingGrade;
+      initial.isEntryGrade = !!cls.isEntryGrade;
+      const dept = departments.find((d) => d._id === initial.department);
+      initial.faculty = dept ? facultyIdOf(dept) : '';
+    }
+    return initial;
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const availableDepartments = useMemo(() => {
+    if (!isUniversity || !form.faculty) return isUniversity ? [] : departments;
+    return departments.filter((d) => facultyIdOf(d) === form.faculty);
+  }, [departments, form.faculty, isUniversity]);
+
+  useEffect(() => {
+    if (isUniversity && form.department && !availableDepartments.some((d) => d._id === form.department)) {
+      setForm((current) => ({ ...current, department: '' }));
+    }
+  }, [availableDepartments, form.department, isUniversity]);
+
+  const set = <K extends keyof ClassForm>(key: K, value: ClassForm[K]) => setForm((current) => ({ ...current, [key]: value }));
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError('');
+    if (!form.department) return setError('Department is required.');
+    if (!form.title.trim()) return setError(isUniversity ? 'Program / Cohort Name is required.' : 'Class Name is required.');
+    if (!form.room.trim()) return setError('Room is required.');
+    if (!form.academicYear) return setError('Academic Year is required.');
+    if (!isUniversity && (!form.batch.trim() || !form.gradeLevel)) return setError('Batch Number and Grade Level are required for schools.');
+
+    setSaving(true);
     try {
       const payload: Record<string, unknown> = {
-        school: form.school, department: form.department, title: form.title.trim(), section: form.section.trim(),
-        room: form.room.trim(), shiftMode: form.shiftMode, batch: form.batch.trim(),
-        gradeLevel: Number(form.gradeLevel), academicYear: form.academicYear.trim(), isGraduatingGrade: form.isGraduatingGrade, isEntryGrade: form.isEntryGrade,
+        department: form.department,
+        title: form.title.trim(),
+        section: form.section.trim(),
+        room: form.room.trim(),
+        shiftMode: form.shiftMode,
+        academicYear: form.academicYear,
       };
-      if (isEdit) await api.patch(`/classes/${cls._id}`, payload); else await api.post('/classes', payload);
-      onSaved(); onClose();
-    } catch (err: any) { setApiError(err.response?.data?.message || err.message || 'Failed to save class'); } finally { setLoading(false); }
-  };
-
-  const ic = (f: keyof ClassForm) => `w-full rounded-xl border px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors ${errors[f] ? 'border-red-400 focus:ring-red-400' : 'border-[var(--color-border-default)]'}`;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5"><h2 className="text-xl font-bold text-[var(--color-text-primary)]">{isEdit ? '✏️ Edit Class' : '➕ Add Class'}</h2><button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button></div>
-        {apiError && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 px-4 py-2.5 text-sm text-red-600 dark:text-red-400">{apiError}</div>}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div><label htmlFor="school" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Organization <span className="text-red-500">*</span></label><select id="school" name="school" value={form.school} onChange={handleChange} className={ic('school')}><option value="">Select an organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>{errors.school && <p className="mt-1 text-xs text-red-500">{errors.school}</p>}</div>
-          <div>
-            <label htmlFor="batch" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Batch Number <span className="text-red-500">*</span></label>
-            <input id="batch" name="batch" type="text" value={form.batch} onChange={handleChange} placeholder="e.g. 10026" className={ic('batch')} />
-            {errors.batch && <p className="mt-1 text-xs text-red-500">{errors.batch}</p>}
-            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Suggested format: Organization ID + 2-digit graduation year (e.g. 10026).</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="gradeLevel" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Grade Level <span className="text-red-500">*</span></label>
-              <input id="gradeLevel" name="gradeLevel" type="number" min={0} max={30} value={form.gradeLevel} onChange={handleChange} placeholder="e.g. 1" className={ic('gradeLevel')} />
-              {errors.gradeLevel && <p className="mt-1 text-xs text-red-500">{errors.gradeLevel}</p>}
-            </div>
-            <div>
-              <label htmlFor="academicYear" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Academic Year <span className="text-red-500">*</span></label>
-              <select id="academicYear" name="academicYear" value={form.academicYear} onChange={handleChange} className={ic('academicYear')} required>
-                <option value="">Select academic year...</option>
-                {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, form.academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}
-              </select>
-              {errors.academicYear && <p className="mt-1 text-xs text-red-500">{errors.academicYear}</p>}
-            </div>
-          </div>
-          <p className="-mt-2 text-xs text-[var(--color-text-tertiary)]">Grade Level (1, 2, 3...) and Academic Year let "Promote All Classes" automatically find or create next year's class.</p>
-          <label className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 cursor-pointer">
-            <input type="checkbox" name="isGraduatingGrade" checked={form.isGraduatingGrade} onChange={handleChange} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" />
-            <span className="text-sm text-[var(--color-text-secondary)]">This is the final grade — promoting graduates students instead of moving them to a next class</span>
-          </label>
-          <label className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 cursor-pointer">
-            <input type="checkbox" name="isEntryGrade" checked={form.isEntryGrade} onChange={handleChange} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" />
-            <span className="text-sm text-[var(--color-text-secondary)]">This is an entry grade (e.g. Grade 1) — promoting also opens a fresh intake class here for new students, so it doesn't need to be recreated by hand every year</span>
-          </label>
-          <div><label htmlFor="department" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Department <span className="text-red-500">*</span></label><select id="department" name="department" value={form.department} onChange={handleChange} className={ic('department')}><option value="">Select a department...</option>{departments.map((dept) => (<option key={dept._id} value={dept._id}>{dept.name}{dept.code ? ` (${dept.code})` : ''}</option>))}</select>{errors.department && <p className="mt-1 text-xs text-red-500">{errors.department}</p>}</div>
-          <div><label htmlFor="title" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Class Name <span className="text-red-500">*</span></label><input id="title" name="title" type="text" value={form.title} onChange={handleChange} placeholder="e.g. Grade 3" className={ic('title')} />{errors.title && <p className="mt-1 text-xs text-red-500">{errors.title}</p>}</div>
-          <div><label htmlFor="section" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Section</label><input id="section" name="section" type="text" value={form.section} onChange={handleChange} placeholder="e.g. A" className={ic('section')} />{errors.section && <p className="mt-1 text-xs text-red-500">{errors.section}</p>}</div>
-          <div><label htmlFor="room" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Room <span className="text-red-500">*</span></label><input id="room" name="room" type="text" value={form.room} onChange={handleChange} placeholder="e.g. Room 5" className={ic('room')} />{errors.room && <p className="mt-1 text-xs text-red-500">{errors.room}</p>}</div>
-          <div><label htmlFor="shiftMode" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Shift / Learning Mode <span className="text-red-500">*</span></label><select id="shiftMode" name="shiftMode" value={form.shiftMode} onChange={handleChange} className={ic('shiftMode')}><option value="Morning">Morning</option><option value="Afternoon">Afternoon</option><option value="Evening">Evening</option><option value="Virtual">Virtual</option></select></div>
-          <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button><button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}{isEdit ? 'Update' : 'Create'}</button></div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Promote All Classes — year-end wizard: preview which classes will move to
-// the next grade (or graduate), confirm once, and the backend does the rest
-// in a single request.
-// ---------------------------------------------------------------------------
-
-interface PromotionGroup {
-  classId: string;
-  title: string;
-  section: string;
-  batch?: string;
-  gradeLevel?: number;
-  studentCount?: number;
-  action: 'promote-new' | 'promote-existing' | 'graduate' | 'already-promoted' | 'skipped';
-  targetTitle?: string;
-  targetCourseCount?: number;
-  opensNewIntake?: boolean;
-  reason?: string;
-}
-
-interface PromotionResult {
-  classId: string;
-  title: string;
-  action: 'promoted' | 'graduated' | 'skipped';
-  targetTitle?: string;
-  studentsMoved?: number;
-  reason?: string;
-  newIntakeClassId?: string;
-  newIntakeTitle?: string;
-}
-
-function PromoteAllModal({ schools, onClose, onDone }: { schools: SchoolBrief[]; onClose: () => void; onDone: () => void }) {
-  const [schoolId, setSchoolId] = useState(schools.length === 1 ? schools[0]._id : '');
-  const [targetAcademicYear, setTargetAcademicYear] = useState('');
-  const [groups, setGroups] = useState<PromotionGroup[]>([]);
-  const [missingGradeLevel, setMissingGradeLevel] = useState<{ classId: string; title: string; section: string }[]>([]);
-  const [sameYearSkipped, setSameYearSkipped] = useState<{ classId: string; title: string; section: string }[]>([]);
-  const [loadingPreview, setLoadingPreview] = useState(false);
-  const [previewError, setPreviewError] = useState('');
-  const [confirming, setConfirming] = useState(false);
-  const [confirmError, setConfirmError] = useState('');
-  const [result, setResult] = useState<{ results: PromotionResult[]; promoted: number; graduated: number; skipped: number; sameYearSkipped: number; studentsMoved: number; intakesOpened: number } | null>(null);
-  // Testing-only override — normally an already-promoted class is skipped so
-  // a cohort never gets moved twice. Checking this lets QA re-run "Promote
-  // All" repeatedly against the same test classes; leave it OFF in
-  // production so the double-promotion guard stays enforced.
-  const [allowRepromote, setAllowRepromote] = useState(false);
-
-  useEffect(() => {
-    if (!schoolId) { setGroups([]); setMissingGradeLevel([]); setSameYearSkipped([]); return; }
-    let cancelled = false;
-    setLoadingPreview(true); setPreviewError('');
-    api.get('/classes/promotion-preview', { params: { schoolId, allowRepromote: allowRepromote ? 'true' : undefined, targetAcademicYear: targetAcademicYear || undefined } })
-      .then(({ data }) => {
-        if (cancelled) return;
-        setGroups(data.data?.groups || []);
-        setMissingGradeLevel(data.data?.missingGradeLevel || []);
-        setSameYearSkipped(data.data?.sameYearSkipped || []);
-        setTargetAcademicYear(prev => prev || data.data?.suggestedAcademicYear || '');
-      })
-      .catch((err: any) => { if (!cancelled) setPreviewError(err.response?.data?.message || 'Failed to load promotion preview'); })
-      .finally(() => { if (!cancelled) setLoadingPreview(false); });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schoolId, allowRepromote, targetAcademicYear]);
-
-  const promotable = groups.filter(g => g.action === 'promote-new' || g.action === 'promote-existing' || g.action === 'graduate');
-  const alreadyPromoted = groups.filter(g => g.action === 'already-promoted');
-  // Target class missing, or exists with zero courses — execution will skip
-  // these with zero students moved. Must be shown explicitly (not silently
-  // dropped) so the preview never promises something execution won't do.
-  const skippedGroups = groups.filter(g => g.action === 'skipped');
-  const totalStudents = promotable.reduce((sum, g) => sum + (g.studentCount || 0), 0);
-
-  const handleConfirm = async () => {
-    if (!schoolId || !targetAcademicYear.trim()) return;
-    setConfirming(true); setConfirmError('');
-    try {
-      const { data } = await api.post('/classes/promote-all', { schoolId, targetAcademicYear: targetAcademicYear.trim(), allowRepromote });
-      setResult(data.data);
-      onDone();
-    } catch (err: any) { setConfirmError(err.response?.data?.message || err.message || 'Promotion failed'); } finally { setConfirming(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-xl font-bold text-[var(--color-text-primary)]">🎓 Promote All Classes</h2>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
-        </div>
-
-        {result ? (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 dark:text-green-300">
-              ✅ Promoted {result.promoted} classes, graduated {result.graduated}, moved {result.studentsMoved} students{result.skipped > 0 ? `, skipped ${result.skipped}` : ''}{result.sameYearSkipped > 0 ? `, ${result.sameYearSkipped} already in "${targetAcademicYear}" left untouched` : ''}{result.intakesOpened > 0 ? `, opened ${result.intakesOpened} new intake class(es)` : ''}.
-            </div>
-            <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)] max-h-64 overflow-y-auto">
-              {result.results.map(r => (
-                <div key={r.classId} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                  <span className="text-[var(--color-text-primary)] font-medium">{r.title}</span>
-                  <span className="text-right">
-                    {r.action === 'promoted' && <span className="text-[var(--color-text-secondary)]">→ {r.targetTitle} ({r.studentsMoved} students)</span>}
-                    {r.action === 'graduated' && <span className="text-blue-600 dark:text-blue-400">🎓 Graduated ({r.studentsMoved} students)</span>}
-                    {r.action === 'skipped' && <span className="text-amber-600 dark:text-amber-400">Skipped — {r.reason}</span>}
-                    {r.newIntakeTitle && <span className="block text-xs text-primary-600 dark:text-primary-400">🆕 New intake: {r.newIntakeTitle}</span>}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <button onClick={onClose} className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors">Done</button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="promoteSchool" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Organization</label>
-              <select id="promoteSchool" value={schoolId} onChange={e => { setSchoolId(e.target.value); setResult(null); }} className="w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500">
-                <option value="">Select an organization...</option>
-                {schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
-              </select>
-            </div>
-
-            {schoolId && (
-              <div>
-                <label htmlFor="targetAcademicYear" className="block text-sm font-semibold text-[var(--color-text-primary)] mb-1">Target Academic Year</label>
-                <select id="targetAcademicYear" value={targetAcademicYear} onChange={e => setTargetAcademicYear(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)]">
-                  <option value="">Select academic year...</option>
-                  {ACADEMIC_YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}</option>)}
-                </select>
-                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{allowRepromote ? 'Testing mode is on, so this can match the classes\' own academic year.' : 'Must be different from the current classes\' own academic year — otherwise there\'s nothing to promote into.'}</p>
-              </div>
-            )}
-
-            {schoolId && (
-              <label className="flex items-start gap-2 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 cursor-pointer">
-                <input type="checkbox" checked={allowRepromote} onChange={e => setAllowRepromote(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500/30" />
-                <span className="text-xs text-amber-800 dark:text-amber-300">
-                  <span className="font-semibold">Testing only:</span> allow re-promoting classes already promoted this cycle, and allow promoting classes already tagged with the target academic year — lets you re-run "Promote All" repeatedly, including across several academic years in a row, against the same test data. Leave this unchecked in production — it disables both safeguards that stop a cohort from being moved twice or a chain of classes cascading through several grades in one click.
-                </span>
-              </label>
-            )}
-
-            {loadingPreview && <div className="flex justify-center py-8"><div className="h-8 w-8 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>}
-            {previewError && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 px-4 py-2.5 text-sm text-red-600 dark:text-red-400">{previewError}</div>}
-
-            {!loadingPreview && schoolId && groups.length === 0 && missingGradeLevel.length === 0 && (
-              <p className="text-sm text-[var(--color-text-tertiary)] text-center py-6">No active classes found for this organization.</p>
-            )}
-
-            {promotable.length > 0 && (
-              <div>
-                <p className="text-sm font-semibold text-[var(--color-text-primary)] mb-1">Will be promoted ({totalStudents} students total):</p>
-                <p className="text-xs text-[var(--color-text-tertiary)] mb-2">Sections (A, B, C...) aren't matched separately — every section of a grade merges into one shared next-grade class.</p>
-                <div className="rounded-xl border border-[var(--color-border-default)] divide-y divide-[var(--color-border-subtle)] max-h-56 overflow-y-auto">
-                  {promotable.map(g => (
-                    <div key={g.classId} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                      <span className="text-[var(--color-text-primary)]">{g.title} <span className="text-[var(--color-text-tertiary)]">({g.section})</span></span>
-                      <span className="text-right">
-                        <span className="text-[var(--color-text-secondary)]">
-                          {g.action === 'graduate' ? '🎓 Graduate' : `→ ${g.targetTitle}`} <span className="text-xs text-[var(--color-text-tertiary)]">· {g.studentCount} students</span>
-                        </span>
-                        {g.opensNewIntake && <span className="block text-xs text-primary-600 dark:text-primary-400">🆕 + opens a fresh "{g.title}" intake</span>}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {alreadyPromoted.length > 0 && (
-              <p className="text-xs text-[var(--color-text-tertiary)]">{alreadyPromoted.length} class(es) already promoted this cycle — skipped automatically.</p>
-            )}
-
-            {skippedGroups.length > 0 && (
-              <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-3">
-                <p className="text-xs font-semibold text-red-700 dark:text-red-300 mb-1">⚠ {skippedGroups.length} class(es) will be SKIPPED — no target curriculum ready:</p>
-                <div className="space-y-0.5">
-                  {skippedGroups.map(g => (
-                    <p key={g.classId} className="text-xs text-red-600 dark:text-red-400">{g.title} ({g.section}) — {g.reason}</p>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {missingGradeLevel.length > 0 && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-3">
-                <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-1">⚠️ {missingGradeLevel.length} class(es) missing a Grade Level — edit them first, then re-open this dialog:</p>
-                <p className="text-xs text-amber-600 dark:text-amber-400">{missingGradeLevel.map(c => `${c.title} (${c.section})`).join(', ')}</p>
-              </div>
-            )}
-
-            {sameYearSkipped.length > 0 && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-3">
-                <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-1">⚠️ {sameYearSkipped.length} class(es) already tagged "{targetAcademicYear}" — skipped so they aren't promoted again into themselves:</p>
-                <p className="text-xs text-amber-600 dark:text-amber-400">{sameYearSkipped.map(c => `${c.title} (${c.section})`).join(', ')}</p>
-              </div>
-            )}
-
-            {confirmError && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 px-4 py-2.5 text-sm text-red-600 dark:text-red-400">{confirmError}</div>}
-
-            <div className="flex gap-3 pt-2">
-              <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
-              <button
-                type="button" onClick={handleConfirm}
-                disabled={confirming || !schoolId || !targetAcademicYear.trim() || promotable.length === 0}
-                className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-2"
-              >
-                {confirming && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                Confirm & Promote All
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Three-Dot Actions Dropdown
-// ---------------------------------------------------------------------------
-
-function DepartmentModal({ open, departments, onClose, onSaved }: { open: boolean; departments: DepartmentItem[]; onClose: () => void; onSaved: () => void }) {
-  const [name, setName] = useState('');
-  const [code, setCode] = useState('');
-  const [editing, setEditing] = useState<DepartmentItem | null>(null);
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      setName('');
-      setCode('');
-      setEditing(null);
-      setError('');
-    }
-  }, [open]);
-
-  const close = () => {
-    onClose();
-  };
-
-  const handleSave = async () => {
-    if (!name.trim()) { setError('Department name is required'); return; }
-    setSaving(true); setError('');
-    try {
-      if (editing) {
-        await api.patch(`/departments/${editing._id}`, { name: name.trim(), code: code.trim() || undefined });
-      } else {
-        await api.post('/departments', { name: name.trim(), code: code.trim() || undefined });
+      if (!isUniversity) {
+        payload.batch = form.batch.trim();
+        payload.gradeLevel = Number(form.gradeLevel);
+        payload.isGraduatingGrade = form.isGraduatingGrade;
+        payload.isEntryGrade = form.isEntryGrade;
       }
+      if (cls?._id) await api.patch(`/classes/${cls._id}`, payload);
+      else await api.post('/classes', payload);
       onSaved();
-      setName('');
-      setCode('');
-      setEditing(null);
-    } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Failed to save department');
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
   };
-
-  const handleEdit = (dept: DepartmentItem) => {
-    setEditing(dept);
-    setName(dept.name);
-    setCode(dept.code || '');
-    setError('');
-  };
-
-  const handleDelete = async (dept: DepartmentItem) => {
-    if (!window.confirm(`Delete department "${dept.name}"? Classes linked to this department must be reassigned first.`)) return;
-    setSaving(true);
-    setError('');
-    try {
-      await api.delete(`/departments/${dept._id}`);
-      onSaved();
-    } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Failed to delete department');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-6 py-5">
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true">
+      <div className="flex max-h-[94vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl dark:bg-slate-950">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-4 sm:px-6 dark:border-slate-800">
           <div>
-            <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Manage Departments</h2>
-            <p className="text-sm text-[var(--color-text-tertiary)]">Create, rename, or delete your tenant's departments.</p>
+            <h2 className="text-base font-bold text-slate-900 sm:text-lg dark:text-white">{cls ? 'Edit Class' : isUniversity ? 'Add Academic Class' : 'Add Class'}</h2>
+            <p className="mt-0.5 text-xs text-slate-500">{organizationTypeLabel(organization?.organizationType)} structure</p>
           </div>
-          <button onClick={close} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18} /></button>
         </div>
-        <div className="px-6 py-5 space-y-6">
-          <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
-            <div className="grid gap-3">
-              <label className="text-sm font-semibold text-[var(--color-text-primary)]">Department Name</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="e.g. Secondary" />
-            </div>
-            <div className="grid gap-3">
-              <label className="text-sm font-semibold text-[var(--color-text-primary)]">Code (optional)</label>
-              <input value={code} onChange={(e) => setCode(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="e.g. SEC" />
-            </div>
-          </div>
-          {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-3">
-              <button type="button" onClick={handleSave} disabled={saving} className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors disabled:opacity-60">{editing ? 'Update Department' : 'Add Department'}</button>
-              {editing && <button type="button" onClick={() => { setEditing(null); setName(''); setCode(''); setError(''); }} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>}
-            </div>
-            <div className="rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
-              <div className="mb-3 flex items-center justify-between gap-4">
-                <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Existing Departments</h3>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">{departments.length}</span>
+
+        <form onSubmit={submit} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+          {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+
+          {isUniversity ? (
+            <>
+              <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-3.5 dark:border-slate-800 dark:bg-slate-900/60">
+                <div className="mb-3 flex items-center gap-2"><GraduationCap size={17} className="text-slate-600 dark:text-slate-300" /><span className="text-sm font-semibold text-slate-900 dark:text-white">University hierarchy</span></div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Faculty" required>
+                    <select className={inputClass} value={form.faculty} onChange={(e) => setForm((c) => ({ ...c, faculty: e.target.value, department: '' }))}>
+                      <option value="">Select Faculty</option>
+                      {faculties.map((f) => <option key={f._id} value={f._id}>{f.name}{f.code ? ` (${f.code})` : ''}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Department" required>
+                    <select className={inputClass} value={form.department} onChange={(e) => set('department', e.target.value)} disabled={!form.faculty}>
+                      <option value="">{form.faculty ? 'Select Department' : 'Select Faculty first'}</option>
+                      {availableDepartments.map((d) => <option key={d._id} value={d._id}>{d.name}{d.code ? ` (${d.code})` : ''}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500">Faculty iyo Department waxaa laga soo qaadanayaa Institution Structure.</p>
               </div>
-              <div className="space-y-3">
-                {departments.length === 0 && <p className="text-sm text-[var(--color-text-secondary)]">No departments yet. Add one to begin.</p>}
-                {departments.map((dept) => (
-                  <div key={dept._id} className="flex flex-col gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="font-semibold text-[var(--color-text-primary)]">{dept.name}</p>
-                      {dept.code && <p className="text-xs text-[var(--color-text-tertiary)]">Code: {dept.code}</p>}
-                    </div>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => handleEdit(dept)} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">Edit</button>
-                      <button type="button" onClick={() => handleDelete(dept)} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100">Delete</button>
-                    </div>
-                  </div>
-                ))}
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="Program / Cohort Name" required className="sm:col-span-2">
+                  <input className={inputClass} value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. BSc Computer Science - Cohort 2026" />
+                </Field>
+                <Field label="Academic Year" required>
+                  <select className={inputClass} value={form.academicYear} onChange={(e) => set('academicYear', e.target.value)}>{academicYears.map((y) => <option key={y}>{y}</option>)}</select>
+                </Field>
+                <Field label="Section"><input className={inputClass} value={form.section} onChange={(e) => set('section', e.target.value)} placeholder="e.g. A" /></Field>
+                <Field label="Room" required><input className={inputClass} value={form.room} onChange={(e) => set('room', e.target.value)} placeholder="e.g. Hall 204" /></Field>
+                <Field label="Shift / Learning Mode">
+                  <select className={inputClass} value={form.shiftMode} onChange={(e) => set('shiftMode', e.target.value as ClassForm['shiftMode'])}>{['Morning', 'Afternoon', 'Evening', 'Virtual'].map((m) => <option key={m}>{m}</option>)}</select>
+                </Field>
               </div>
+            </>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Batch Number" required><input className={inputClass} value={form.batch} onChange={(e) => set('batch', e.target.value)} placeholder="e.g. SCH26" /></Field>
+              <Field label="Academic Year" required><select className={inputClass} value={form.academicYear} onChange={(e) => set('academicYear', e.target.value)}>{academicYears.map((y) => <option key={y}>{y}</option>)}</select></Field>
+              <Field label="Grade Level" required><input type="number" min="0" max="30" className={inputClass} value={form.gradeLevel} onChange={(e) => set('gradeLevel', e.target.value)} placeholder="e.g. 8" /></Field>
+              <Field label="Department" required><select className={inputClass} value={form.department} onChange={(e) => set('department', e.target.value)}><option value="">Select Department</option>{departments.map((d) => <option key={d._id} value={d._id}>{d.name}{d.code ? ` (${d.code})` : ''}</option>)}</select></Field>
+              <Field label="Class Name" required className="sm:col-span-2"><input className={inputClass} value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Grade 8" /></Field>
+              <Field label="Section"><input className={inputClass} value={form.section} onChange={(e) => set('section', e.target.value)} placeholder="e.g. A" /></Field>
+              <Field label="Room" required><input className={inputClass} value={form.room} onChange={(e) => set('room', e.target.value)} placeholder="e.g. Room 8" /></Field>
+              <Field label="Shift / Learning Mode"><select className={inputClass} value={form.shiftMode} onChange={(e) => set('shiftMode', e.target.value as ClassForm['shiftMode'])}>{['Morning', 'Afternoon', 'Evening', 'Virtual'].map((m) => <option key={m}>{m}</option>)}</select></Field>
+              <div className="flex flex-wrap items-center gap-4 sm:col-span-2">
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200"><input type="checkbox" checked={form.isGraduatingGrade} onChange={(e) => set('isGraduatingGrade', e.target.checked)} /> Final Grade</label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200"><input type="checkbox" checked={form.isEntryGrade} onChange={(e) => set('isEntryGrade', e.target.checked)} /> Entry Grade</label>
+              </div>
+              <p className="text-[11px] leading-5 text-slate-500 sm:col-span-2">Promote All Classes is available for School organizations only. University cohorts do not use school-grade promotion.</p>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+          )}
+        </form>
 
-function ActionsDropdown({ onImport, onExport, exporting, label, onManageDepartments, onAddClass, onPromoteAll, onBulkDelete, selectedCount }: {
-  onImport: () => void; onExport: () => void; exporting: boolean; label: string; onManageDepartments: () => void; onAddClass: () => void; onPromoteAll: () => void; onBulkDelete: () => void; selectedCount: number;
-}) {
-  const [open, setOpen] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { if (!open) return; const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, [open]);
-
-  const toggle = (e: React.MouseEvent) => { e.stopPropagation(); setOpen(!open); };
-
-  return (<>
-    <button ref={btnRef} onClick={toggle} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors" title="More Actions">
-      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 16 16">
-        <circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" />
-      </svg>
-    </button>
-    {open && btnRef.current && createPortal(
-      <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-56 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-elevated py-1">
-        <button onClick={() => { setOpen(false); onAddClass(); }} className="w-full text-left px-4 py-2.5 text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">{'+ Add Class'}</button>
-        <button onClick={() => { setOpen(false); onManageDepartments(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">Manage Departments</button>
-        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-        <button onClick={() => { setOpen(false); onImport(); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">{'\u2191 Import ' + label + ' via Excel'}</button>
-        <button onClick={() => { setOpen(false); onExport(); }} disabled={exporting} className="w-full text-left px-4 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50 flex items-center gap-2 transition-colors">{exporting ? <div className="h-3 w-3 animate-spin rounded-full border border-[var(--color-border-default)] border-t-primary-600" /> : '\u2193 Export ' + label + ' to Excel'}</button>
-        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-        <button onClick={() => { setOpen(false); onPromoteAll(); }} className="w-full text-left px-4 py-2.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-[var(--color-surface-tertiary)] flex items-center gap-2 transition-colors">🎓 Promote All Classes</button>
-        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-        <button onClick={() => { setOpen(false); onBulkDelete(); }} disabled={selectedCount === 0} className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors">
-          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Bulk Delete{selectedCount > 0 ? ` (${selectedCount})` : ''}
-        </button>
-      </div>,
-      document.body,
-    )}
-  </>);
-}
-
-// ---------------------------------------------------------------------------
-// Bulk Delete Confirm Modal
-// ---------------------------------------------------------------------------
-
-function BulkDeleteModal({ count, loading, onCancel, onConfirm }: { count: number; loading: boolean; onCancel: () => void; onConfirm: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onCancel}>
-      <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-3 mb-3">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/30 text-red-600">
-            <Trash2 className="h-5 w-5" strokeWidth={1.75} />
-          </div>
-          <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Bulk Delete Classes</h2>
-        </div>
-        <p className="text-sm text-[var(--color-text-secondary)] mb-5">
-          You're about to delete <strong>{count}</strong> class{count !== 1 ? 'es' : ''}. This can be reversed later from Trash.
-        </p>
-        <div className="flex gap-2">
-          <button type="button" onClick={onCancel} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-          <button type="button" onClick={onConfirm} disabled={loading} className="flex-1 rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">
-            {loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-            Delete {count}
+        <div className="flex shrink-0 gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:justify-end sm:px-6 dark:border-slate-800 dark:bg-slate-950">
+          <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:flex-none dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900">Cancel</button>
+          <button type="submit" form="__class_form_missing" className="hidden" />
+          <button type="button" disabled={saving} onClick={() => document.querySelector<HTMLFormElement>('.class-modal-submit')?.requestSubmit()} className="flex-1 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 sm:flex-none dark:bg-white dark:text-slate-900">
+            {saving ? 'Saving...' : cls ? 'Save Changes' : 'Add Class'}
           </button>
         </div>
       </div>
@@ -608,516 +238,172 @@ function BulkDeleteModal({ count, loading, onCancel, onConfirm }: { count: numbe
   );
 }
 
-// ---------------------------------------------------------------------------
-// Row Actions — single "⋮" dropdown replacing individual Edit/Delete icons.
-// ---------------------------------------------------------------------------
-
-function RowActionsMenu({ onEdit, onDuplicate, onDelete }: { onEdit: () => void; onDuplicate: () => void; onDelete: () => void }) {
-  const [open, setOpen] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [open]);
-
-  return (<>
-    <button
-      ref={btnRef}
-      onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
-      className="rounded-lg border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-1.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors"
-      title="More Actions"
-    >
-      <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
-    </button>
-    {open && btnRef.current && createPortal(
-      <div
-        ref={menuRef}
-        style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }}
-        className="w-40 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-md py-1"
-      >
-        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
-          <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
-        </button>
-        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onDuplicate(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
-          <Copy className="h-3.5 w-3.5" strokeWidth={1.75} /> Duplicate
-        </button>
-        <button onClick={(e) => { e.stopPropagation(); setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
-          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
-        </button>
-      </div>,
-      document.body,
-    )}
-  </>);
-}
-
-// Main Component
-// ---------------------------------------------------------------------------
-
 export function ClassesManage() {
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [faculties, setFaculties] = useState<Faculty[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
-  const [schools, setSchools] = useState<SchoolBrief[]>([]);
-  const [departments, setDepartments] = useState<DepartmentItem[]>([]);
-  const [showDepartments, setShowDepartments] = useState(false);
-  const [showPromoteAll, setShowPromoteAll] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [limit, setLimit] = useState(25);
-
-  // Excel-style column header filters/sort — applied client-side on top of
-  // whatever the server already returned for the search/status filters above.
-  const columnAccessors: Record<string, (row: ClassItem) => string> = {
-    title: (r) => r.title,
-    section: (r) => r.section,
-    organization: (r) => r.school?.name || '—',
-    department: (r) => r.department || 'Primary',
-    room: (r) => r.room,
-    shiftMode: (r) => r.shiftMode || 'Morning',
-    gradeLevel: (r) => (r.gradeLevel !== undefined && r.gradeLevel !== null ? String(r.gradeLevel) : '—'),
-    academicYear: (r) => r.academicYear || '—',
-    batch: (r) => r.batch || '—',
-    status: (r) => r.status,
-  };
-  const {
-    columnFilters, sortCol, sortDir, applyColumnCommit, clearColumnFilter,
-    clearAll: clearAllColumnFilters, displayedRows: displayedClasses, columnFiltersActive,
-  } = useColumnFilters(classes, columnAccessors);
-
-  // The Department column filter checks values against only the CURRENT
-  // page's classes (client-side, like every other column filter here) — so
-  // a department whose classes don't happen to be on the loaded page (e.g.
-  // sorted further down by createdAt) never even appears as a pickable
-  // option, and looks like it "doesn't exist". Department is common enough
-  // (and already supported server-side) that it's worth doing properly:
-  // resolve the checked department name(s) to id(s) and pass them to the
-  // server, so filtering — and pagination — work across the WHOLE dataset,
-  // not just whatever 25 rows happened to load first.
-  const departmentFilterIds = useMemo(() => {
-    const selected = columnFilters.department;
-    if (!selected) return [] as string[];
-    const names = Array.from(selected);
-    return departments.filter((d) => names.includes(d.name)).map((d) => d._id);
-  }, [columnFilters.department, departments]);
-
-  // ── Bulk selection / delete state ──
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
-
-  const allOnPageSelected = displayedClasses.length > 0 && displayedClasses.every(c => selected.has(c._id));
-  const toggleSelectAll = () => setSelected(allOnPageSelected ? new Set() : new Set(displayedClasses.map(c => c._id)));
-  const toggleSelectOne = (id: string) => setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-
-  const [showCreate, setShowCreate] = useState(false);
-  const [editingClass, setEditingClass] = useState<ClassItem | undefined>(undefined);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
-  // Import / Export state
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [importMode, setImportMode] = useState<'upload' | 'paste'>('upload');
-  const [dragOver, setDragOver] = useState(false);
-  const [pasteText, setPasteText] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [pasteError, setPasteError] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | ClassItem['status']>('all');
+  const [modal, setModal] = useState<{ open: boolean; cls?: ClassItem }>({ open: false });
+  const [menuOpen, setMenuOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ totalRows: number; created: number; failed: number; errors: { row: number; message: string }[] } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Each of these three is independent — a hiccup fetching schools or
-  // departments (reference data for the filter dropdowns) must never blank
-  // out the class list itself. Promise.all fails fast on the first
-  // rejection, so a single flaky secondary request could wipe out an
-  // otherwise-successful class fetch (e.g. right after a bulk import,
-  // showing "Imported 12 of 12" but then an empty list). Promise.allSettled
-  // lets each piece of state update independently of the others.
-  const fetchData = useCallback(async () => {
-    setLoading(true); setError('');
-    const params: Record<string, string> = { page: String(page), limit: String(limit) };
-    if (search) params.search = search;
-    if (statusFilter) params.status = statusFilter;
-    if (departmentFilterIds.length) params.department = departmentFilterIds.join(',');
+  const orgId = organization?._id;
+  const isUniversity = organization?.organizationType === 'university';
 
-    const [classesResult, schoolsResult, departmentsResult] = await Promise.allSettled([
-      api.get('/classes', { params }),
-      api.get('/schools', { params: { limit: '100' } }),
-      api.get('/departments'),
+  const loadMeta = useCallback(async () => {
+    const rawUser = JSON.parse(localStorage.getItem('user') || 'null');
+    const id = rawUser?.organizationId?._id || rawUser?.organizationId;
+    if (!id) return;
+    const [orgRes, facultyRes, deptRes] = await Promise.all([
+      api.get(`/schools/${id}`),
+      api.get(`/faculties?school=${id}`),
+      api.get(`/departments?school=${id}`),
     ]);
+    setOrganization(responseData<Organization>(orgRes));
+    setFaculties(responseData<Faculty[]>(facultyRes) || []);
+    setDepartments(responseData<Department[]>(deptRes) || []);
+  }, []);
 
-    if (classesResult.status === 'fulfilled') {
-      setClasses(classesResult.value.data.data || []);
-      setTotal(classesResult.value.data.meta?.total || 0);
-      setSelected(new Set());
-    } else {
-      setError(classesResult.reason?.response?.data?.message || 'Failed to load classes');
-    }
-    if (schoolsResult.status === 'fulfilled') setSchools(schoolsResult.value.data.data || []);
-    if (departmentsResult.status === 'fulfilled') setDepartments(departmentsResult.value.data.data || []);
-
-    setLoading(false);
-  }, [search, statusFilter, page, limit, departmentFilterIds]);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-  // Server-side filtering means the current page's contents change whenever
-  // the department filter changes — same as changing search/status, jump
-  // back to page 1 so the admin doesn't land on a now-invalid page number.
-  // A plain string (not the array itself) so this only re-fires when the
-  // actual selection changes — `departments` gets a fresh array reference
-  // from every fetch, which would otherwise re-trigger this on every fetch
-  // and keep bouncing the admin back to page 1 even while just browsing.
-  const departmentFilterKey = departmentFilterIds.join(',');
-  useEffect(() => { setPage(1); }, [departmentFilterKey]);
-  const handlePageChange = (newPage: number) => setPage(newPage);
-  const handleLimitChange = (newLimit: number) => { setLimit(newLimit); setPage(1); };
-
-  const handleStatusChange = async (id: string, newStatus: string) => {
-    try { await api.patch(`/classes/${id}/status`, { status: newStatus }); setClasses(p => p.map(c => c._id === id ? { ...c, status: newStatus as ClassItem['status'] } : c)); setToast({ message: `Status updated to ${newStatus}`, type: 'success' }); }
-    catch (err: any) { setToast({ message: err.response?.data?.message || 'Failed to update status', type: 'error' }); }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this class?')) return;
-    try { await api.delete(`/classes/${id}`); setClasses(p => p.filter(c => c._id !== id)); setToast({ message: 'Class deleted', type: 'success' }); }
-    catch (err: any) { setToast({ message: err.response?.data?.message || 'Failed to delete', type: 'error' }); }
-  };
-
-  const handleDuplicate = async (cls: ClassItem) => {
+  const loadClasses = useCallback(async (showSpinner = true) => {
+    if (showSpinner) setLoading(true); else setRefreshing(true);
     try {
-      const payload = {
-        school: cls.school?._id,
-        department: cls.departmentId || cls.department,
-        title: `${cls.title} Duplicate`,
-        section: cls.section,
-        room: cls.room,
-        shiftMode: cls.shiftMode,
-        batch: cls.batch,
-        gradeLevel: cls.gradeLevel,
-        academicYear: cls.academicYear,
-        isGraduatingGrade: cls.isGraduatingGrade,
-        isEntryGrade: cls.isEntryGrade,
-      };
-      await api.post('/classes', payload);
-      setToast({ message: 'Class duplicated', type: 'success' });
-      await fetchData();
-    } catch (err: any) { setToast({ message: err.response?.data?.message || 'Failed to duplicate class', type: 'error' }); }
-  };
-
-  const handleBulkDelete = async () => {
-    setBulkDeleting(true);
-    try {
-      const { data } = await api.delete('/classes/bulk', { data: { ids: Array.from(selected) } });
-      setToast({ message: data?.message || `Deleted ${selected.size} class(es)`, type: 'success' });
-      setSelected(new Set());
-      setShowBulkDeleteModal(false);
-      await fetchData();
-    } catch (err: any) {
-      setToast({ message: err.response?.data?.message || 'Failed to bulk delete classes', type: 'error' });
+      const params = new URLSearchParams({ limit: '200' });
+      if (search.trim()) params.set('search', search.trim());
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      const res = await api.get(`/classes?${params.toString()}`);
+      setClasses(responseData<ClassItem[]>(res) || []);
+      setError('');
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
-      setBulkDeleting(false);
+      setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [search, statusFilter]);
 
-  // ───────────────────────────────────────────────────────────────────────
-  // Import Modal Logic
-  // ───────────────────────────────────────────────────────────────────────
+  useEffect(() => { loadMeta().catch((err) => setError(errorMessage(err))); }, [loadMeta]);
+  useEffect(() => { loadClasses().catch(() => undefined); }, [loadClasses]);
 
-  const openImportModal = () => { setShowImportModal(true); setImportMode('upload'); setSelectedFile(null); setPasteText(''); setPasteError(''); setImportResult(null); };
-  const closeImportModal = () => { setShowImportModal(false); setSelectedFile(null); setPasteText(''); setPasteError(''); setImportResult(null); };
+  const departmentMap = useMemo(() => new Map(departments.map((d) => [d._id, d])), [departments]);
+  const filtered = useMemo(() => classes.filter((cls) => {
+    if (statusFilter !== 'all' && cls.status !== statusFilter) return false;
+    const haystack = `${cls.title} ${cls.section || ''} ${cls.room || ''} ${cls.department || ''} ${cls.academicYear || ''}`.toLowerCase();
+    return !search.trim() || haystack.includes(search.trim().toLowerCase());
+  }), [classes, search, statusFilter]);
 
-  const handleDownloadTemplate = async () => {
+  const toggleSelected = (id: string) => setSelectedIds((ids) => ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+
+  const removeClass = async (cls: ClassItem) => {
+    if (!window.confirm(`Delete ${cls.title}${cls.section ? ` - ${cls.section}` : ''}?`)) return;
     try {
-      const token = localStorage.getItem('accessToken') || '';
-      const response = await fetch(`${api.defaults.baseURL}/classes/template`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!response.ok) throw new Error('Download failed');
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a'); link.href = url; link.download = 'classes-template.xlsx';
-      document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
-    } catch { setError('Failed to download template'); }
+      await api.delete(`/classes/${cls._id}`);
+      setSelectedIds((ids) => ids.filter((id) => id !== cls._id));
+      await loadClasses(false);
+    } catch (err) { setError(errorMessage(err)); }
   };
 
-  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) setSelectedFile(f); };
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) setSelectedFile(f); };
-
-  const submitFileImport = async () => {
-    if (!selectedFile) return; setImporting(true); setError(''); setImportResult(null);
+  const deleteSelected = async () => {
+    if (!selectedIds.length || !window.confirm(`Delete ${selectedIds.length} selected class(es)?`)) return;
     try {
-      const fd = new FormData(); fd.append('file', selectedFile);
-      const { data } = await api.post('/classes/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setImportResult(data.data);
-      if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} classes`); await fetchData(); closeImportModal(); }
-    } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); }
+      await api.delete('/classes/bulk', { data: { ids: selectedIds } });
+      setSelectedIds([]);
+      await loadClasses(false);
+    } catch (err) { setError(errorMessage(err)); }
   };
 
-  const parsePastedRows = (): string[][] => {
-    if (!pasteText.trim()) return [];
-    return pasteText.trim().split(/\r?\n/).map(l => l.split('\t').map(c => c.trim())).filter(r => r.length > 0 && r.some(c => c !== ''));
+  const updateStatus = async (cls: ClassItem) => {
+    const next = cls.status === 'active' ? 'inactive' : 'active';
+    try { await api.patch(`/classes/${cls._id}/status`, { status: next }); await loadClasses(false); }
+    catch (err) { setError(errorMessage(err)); }
   };
 
-  const submitPasteImport = async () => {
-    const rows = parsePastedRows();
-    if (rows.length === 0) { setPasteError('Please paste at least one row of data before submitting.'); return; }
-    if (rows.length < 2) { setPasteError('Paste the header row (matching the template columns) plus at least one data row.'); return; }
-    const csvContent = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const file = new File([blob], 'pasted-classes.csv', { type: 'text/csv' });
-    setImporting(true); setError(''); setImportResult(null); setPasteError('');
+  const exportClasses = async () => {
     try {
-      const fd = new FormData(); fd.append('file', file);
-      const { data } = await api.post('/classes/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setImportResult(data.data);
-      if (data.data?.created > 0) { setMessage(`Imported ${data.data.created} of ${data.data.totalRows} classes`); await fetchData(); closeImportModal(); }
-    } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } finally { setImporting(false); }
+      const res = await api.get('/classes/export', { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a'); a.href = url; a.download = `classes-${new Date().toISOString().slice(0, 10)}.xlsx`; a.click(); URL.revokeObjectURL(url);
+    } catch (err) { setError(errorMessage(err)); }
   };
 
-  const handleExport = async () => {
-    setExporting(true); setError('');
+  const importClasses = async (file: File) => {
+    setImporting(true);
     try {
-      const token = localStorage.getItem('accessToken') || '';
-      const response = await fetch(`${api.defaults.baseURL}/classes/export`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!response.ok) throw new Error('Export failed');
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a'); link.href = url; link.download = `classes-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
-      setMessage('Export downloaded successfully');
-    } catch (err: any) { setError(err.message || 'Export failed'); } finally { setExporting(false); }
+      const data = new FormData(); data.append('file', file);
+      await api.post('/classes/import', data, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await loadClasses(false);
+    } catch (err) { setError(errorMessage(err)); }
+    finally { setImporting(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
 
-  const activeCount = classes.filter(c => c.status === 'active').length;
-  const inactiveCount = classes.filter(c => c.status === 'inactive').length;
-  const completedCount = classes.filter(c => c.status === 'completed').length;
-  const parsedRows = parsePastedRows();
-
-  if (loading) return <div className="flex min-h-[400px] items-center justify-center"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>;
+  const promoteAll = async () => {
+    if (isUniversity) return;
+    const targetAcademicYear = window.prompt('Target academic year (e.g. 2027-2028):');
+    if (!targetAcademicYear?.trim()) return;
+    if (!window.confirm(`Promote all eligible classes to ${targetAcademicYear.trim()}?`)) return;
+    try { await api.post('/classes/promote-all', { targetAcademicYear: targetAcademicYear.trim() }); await loadClasses(false); }
+    catch (err) { setError(errorMessage(err)); }
+  };
 
   return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-screen-2xl space-y-6">
-        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-
-        {/* Header + Buttons — stay top-right of the title on every screen size */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0"><h1 className="flex items-center gap-2.5 text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)]"><School className="h-7 w-7 sm:h-8 sm:w-8 text-primary-600" strokeWidth={1.75} />Manage Classes</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} total — {activeCount} active, {inactiveCount} inactive, {completedCount} completed</p></div>
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 flex-shrink-0">
-            <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setSelectedFile(f); submitFileImport(); } }} className="hidden" />
-            <ActionsDropdown
-              onImport={openImportModal}
-              onExport={handleExport}
-              exporting={exporting}
-              label="Classes"
-              onManageDepartments={() => setShowDepartments(true)}
-              onAddClass={() => setShowCreate(true)}
-              onPromoteAll={() => setShowPromoteAll(true)}
-              onBulkDelete={() => setShowBulkDeleteModal(true)}
-              selectedCount={selected.size}
-            />
+    <div className="min-h-full bg-slate-50 p-3 sm:p-5 lg:p-6 dark:bg-slate-950">
+      <div className="mx-auto max-w-[1500px]">
+        <div className="mb-4 flex flex-col gap-3 sm:mb-5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2"><BookOpen size={20} className="text-slate-700 dark:text-slate-200" /><h1 className="text-xl font-bold text-slate-900 sm:text-2xl dark:text-white">Manage Classes</h1></div>
+            <p className="mt-1 text-xs text-slate-500 sm:text-sm">{isUniversity ? 'University academic classes and cohorts' : 'School classes, grades and academic batches'}</p>
+            {organization && <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800"><span>{organization.name}</span><span className="text-slate-400">•</span><span>{organizationTypeLabel(organization.organizationType)}</span></div>}
           </div>
-        </div>
-
-        {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700">{message}</div>}
-
-        {/* ═══════════════════════════════════════════════════════════════
-            Import Modal
-           ═══════════════════════════════════════════════════════════════ */}
-        {showImportModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="w-full max-w-2xl rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl">
-              <div className="border-b border-[var(--color-border-subtle)] px-6 py-5">
-                <div className="flex items-start justify-between">
-                  <div><h2 className="text-xl font-bold text-[var(--color-text-primary)]">Import Classes</h2><p className="text-sm text-[var(--color-text-tertiary)] mt-1">Select your preferred method to import multiple classes into the system.</p></div>
-                  <button onClick={closeImportModal} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors" disabled={importing}><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                </div>
-              </div>
-              <div className="px-6 py-5 space-y-6">
-                <button onClick={handleDownloadTemplate} className="w-full rounded-xl border-2 border-dashed border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-950/20 px-5 py-4 text-left hover:bg-primary-100 dark:hover:bg-primary-950/40 transition-colors group">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3"><span className="text-2xl">📥</span><div><p className="text-sm font-bold text-primary-700 dark:text-primary-300 group-hover:text-primary-800 dark:group-hover:text-primary-200">Download Excel Class Template</p><p className="text-xs text-primary-600/70 dark:text-primary-400/70 mt-0.5">Pre-formatted .xlsx file with the correct column structure</p></div></div>
-                    <svg className="h-5 w-5 text-primary-500 group-hover:translate-y-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                  </div>
-                </button>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <button onClick={() => { setImportMode('upload'); setPasteError(''); }} className={`rounded-xl border-2 p-4 text-left transition-all ${importMode === 'upload' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm' : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'}`}>
-                    <span className="text-2xl block mb-1">📁</span><p className={`text-sm font-bold ${importMode === 'upload' ? 'text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-primary)]'}`}>Upload Excel File</p><p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Drag and drop your .xlsx file</p>
-                  </button>
-                  <button onClick={() => { setImportMode('paste'); setPasteError(''); }} className={`rounded-xl border-2 p-4 text-left transition-all ${importMode === 'paste' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20 shadow-sm' : 'border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] bg-[var(--color-surface-primary)]'}`}>
-                    <span className="text-2xl block mb-1">📋</span><p className={`text-sm font-bold ${importMode === 'paste' ? 'text-primary-700 dark:text-primary-300' : 'text-[var(--color-text-primary)]'}`}>Manual Copy & Paste</p><p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Paste tabular data from your clipboard</p>
-                  </button>
-                </div>
-
-                {importMode === 'upload' && (
-                  <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleFileDrop} className={`rounded-xl border-2 border-dashed p-10 text-center transition-colors ${dragOver ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20' : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)]'}`}>
-                    {selectedFile ? (
-                      <div className="space-y-3"><span className="text-3xl">✅</span><p className="text-sm font-semibold text-[var(--color-text-primary)]">{selectedFile.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{(selectedFile.size / 1024).toFixed(1)} KB</p><button onClick={() => setSelectedFile(null)} className="text-xs text-red-500 hover:underline">Remove file</button></div>
-                    ) : (
-                      <div className="space-y-3"><span className="text-3xl">📂</span><p className="text-sm font-medium text-[var(--color-text-secondary)]">Drag and drop your Excel file here, or</p><label className="inline-block cursor-pointer rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-700 transition-colors">Browse Files<input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileInputChange} className="hidden" /></label><p className="text-xs text-[var(--color-text-tertiary)]">Supported formats: .xlsx, .xls, .csv (max 10 MB)</p></div>
-                    )}
-                  </div>
-                )}
-
-                {importMode === 'paste' && (
-                  <div className="space-y-3">
-                    <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
-                      <p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below, including the header row (tab-separated columns — this is exactly what you get selecting a range in Excel and copying it):</p>
-                      <p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">Organization &nbsp; Batch Number &nbsp; Grade Level &nbsp; Academic Year &nbsp; Final Grade (Yes/No) &nbsp; Entry Grade (Yes/No) &nbsp; Department &nbsp; Class Name &nbsp; Section &nbsp; Room &nbsp; Shift / Learning Mode</p>
-                      <textarea value={pasteText} onChange={e => { setPasteText(e.target.value); setPasteError(''); }} rows={8} placeholder={"Paste data from Excel here, including the header row...\n\nExample:\nOrganization\tBatch Number\tGrade Level\tAcademic Year\tFinal Grade (Yes/No)\tEntry Grade (Yes/No)\tDepartment\tClass Name\tSection\tRoom\tShift / Learning Mode\n\t10026\t3\t2026-2027\tNo\tNo\tPrimary\tGrade 3\tA\tRoom 5\tMorning"} className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 resize-y" />
-                    </div>
-                    {pasteError && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{pasteError}</div>}
-                    {parsedRows.length > 0 && (
-                      <div className="rounded-xl border border-[var(--color-border-default)] overflow-hidden">
-                        <div className="bg-[var(--color-surface-secondary)] px-4 py-2 text-xs font-semibold text-[var(--color-text-tertiary)]">Preview — {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''} parsed</div>
-                        <div className="max-h-40 overflow-auto"><table className="w-full text-xs"><tbody className="divide-y divide-[var(--color-border-subtle)]">{parsedRows.slice(0, 20).map((row, ri) => (<tr key={ri} className={ri % 2 === 0 ? 'bg-[var(--color-surface-primary)]' : 'bg-[var(--color-surface-secondary)]'}>{row.map((cell, ci) => (<td key={ci} className="px-3 py-1.5 text-[var(--color-text-secondary)] whitespace-nowrap border-r border-[var(--color-border-subtle)] last:border-r-0">{cell}</td>))}</tr>))}</tbody></table></div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-4 py-2.5 text-xs text-red-600 dark:text-red-400">{error}</div>}
-              </div>
-
-              <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 flex items-center justify-between">
-                <button onClick={closeImportModal} disabled={importing} className="rounded-lg border border-[var(--color-border-default)] px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-                <button onClick={importMode === 'upload' ? submitFileImport : submitPasteImport} disabled={importing || (importMode === 'upload' && !selectedFile) || (importMode === 'paste' && !pasteText.trim())} className="rounded-lg bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors inline-flex items-center gap-2">{importing ? <><div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />Importing...</> : 'Import Classes'}</button>
-              </div>
-              {importResult && (
-                <div className="border-t border-[var(--color-border-subtle)] px-6 py-4 space-y-2">
-                  <p className="text-sm font-semibold text-[var(--color-text-primary)]">{importResult.created} of {importResult.totalRows} rows imported successfully{importResult.failed > 0 && ` — ${importResult.failed} failed`}</p>
-                  {importResult.errors.length > 0 && (<div className="max-h-36 overflow-y-auto rounded-lg border border-red-200 dark:border-red-900/40"><table className="w-full text-xs"><thead className="bg-red-50 dark:bg-red-950/30 text-left text-red-700 dark:text-red-300"><tr><th className="px-3 py-1.5">Row</th><th className="px-3 py-1.5">Error</th></tr></thead><tbody className="divide-y divide-red-100 dark:divide-red-900/30">{importResult.errors.map((e, idx) => (<tr key={idx}><td className="px-3 py-1.5 text-[var(--color-text-secondary)]">{e.row}</td><td className="px-3 py-1.5 text-red-600 dark:text-red-400">{e.message}</td></tr>))}</tbody></table></div>)}
-                </div>
-              )}
+          <div className="flex w-full gap-2 sm:w-auto">
+            <button type="button" onClick={() => setModal({ open: true })} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-900 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 sm:flex-none dark:bg-white dark:text-slate-900"><Plus size={16} /> {isUniversity ? 'Add Academic Class' : 'Add Class'}</button>
+            <div className="relative">
+              <button type="button" onClick={() => setMenuOpen((v) => !v)} className="rounded-lg border border-slate-200 bg-white p-2.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" aria-label="Class actions"><MoreVertical size={18} /></button>
+              {menuOpen && <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                <button type="button" onClick={() => { setMenuOpen(false); setModal({ open: true }); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"><Plus size={15} /> Add Class</button>
+                <button type="button" onClick={() => { setMenuOpen(false); exportClasses(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"><Download size={15} /> Export Classes to Excel</button>
+                <button type="button" onClick={() => { setMenuOpen(false); fileInputRef.current?.click(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"><Upload size={15} /> Import Classes via Excel</button>
+                {!isUniversity && <button type="button" onClick={() => { setMenuOpen(false); promoteAll(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"><GraduationCap size={15} /> Promote All Classes</button>}
+                {selectedIds.length > 0 && <button type="button" onClick={() => { setMenuOpen(false); deleteSelected(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><Trash2 size={15} /> Bulk Delete ({selectedIds.length})</button>}
+              </div>}
             </div>
-          </div>
-        )}
-
-        {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="flex items-center gap-3 rounded-xl border border-emerald-100 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 p-4">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40"><CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} /></div>
-            <div><p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">{activeCount}</p><p className="text-xs text-emerald-600 dark:text-emerald-400">Active</p></div>
-          </div>
-          <div className="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/30 p-4">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-slate-200/70 dark:bg-slate-700/50"><PauseCircle className="h-5 w-5 text-slate-500 dark:text-slate-400" strokeWidth={1.75} /></div>
-            <div><p className="text-2xl font-bold text-slate-600 dark:text-slate-300">{inactiveCount}</p><p className="text-xs text-slate-500 dark:text-slate-400">Inactive</p></div>
-          </div>
-          <div className="flex items-center gap-3 rounded-xl border border-sky-100 dark:border-sky-900/50 bg-sky-50 dark:bg-sky-950/30 p-4">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-sky-100 dark:bg-sky-900/40"><Archive className="h-5 w-5 text-sky-600 dark:text-sky-400" strokeWidth={1.75} /></div>
-            <div><p className="text-2xl font-bold text-sky-700 dark:text-sky-300">{completedCount}</p><p className="text-xs text-sky-600 dark:text-sky-400">Completed</p></div>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => e.target.files?.[0] && importClasses(e.target.files[0])} />
           </div>
         </div>
 
-        {error && !showImportModal && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center"><p className="text-red-600 text-sm mb-2">{error}</p><button onClick={fetchData} className="text-primary-600 font-medium text-sm hover:underline">Retry</button></div>}
+        {error && <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300"><span>{error}</span><button onClick={() => setError('')}><X size={16} /></button></div>}
 
-        {/* Search & Filter */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--color-text-tertiary)]" strokeWidth={2} />
-            <input type="text" placeholder="Search by class name, section, room, or organization..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] pl-10 pr-4 py-2.5 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-primary-500" />
-          </div>
-          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500"><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select>
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900"><p className="text-[11px] text-slate-500">Total</p><p className="mt-1 text-xl font-bold">{classes.length}</p></div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900"><p className="text-[11px] text-slate-500">Active</p><p className="mt-1 text-xl font-bold">{classes.filter((c) => c.status === 'active').length}</p></div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900"><p className="text-[11px] text-slate-500">Inactive</p><p className="mt-1 text-xl font-bold">{classes.filter((c) => c.status === 'inactive').length}</p></div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900"><p className="text-[11px] text-slate-500">Departments</p><p className="mt-1 text-xl font-bold">{departments.length}</p></div>
         </div>
 
-        {columnFiltersActive && (
-          <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
-            <span>Showing {displayedClasses.length} of {classes.length} classes (column filters active — click a column header's ✕ to clear it)</span>
-            <button onClick={clearAllColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button>
-          </div>
-        )}
-
-        {/* Table */}
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
-                <tr>
-                  <th className="px-4 py-3 w-10"><input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAll} aria-label="Select all classes" className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></th>
-                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[140px]">
-                    <ColumnFilterHeader label="Class" colKey="title" allValues={classes.map(columnAccessors.title)} currentSelected={columnFilters.title ?? null} currentSort={sortCol === 'title' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
-                  </th>
-                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[90px]">
-                    <ColumnFilterHeader label="Section" colKey="section" allValues={classes.map(columnAccessors.section)} currentSelected={columnFilters.section ?? null} currentSort={sortCol === 'section' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
-                  </th>
-                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell whitespace-nowrap min-w-[140px]">
-                    <ColumnFilterHeader label="Organization" colKey="organization" options={schools.map(s => ({ value: s.name, label: s.name }))} currentSelected={columnFilters.organization ?? null} currentSort={sortCol === 'organization' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
-                  </th>
-                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[120px]">
-                    <ColumnFilterHeader label="Department" colKey="department" options={departments.map(d => ({ value: d.name, label: d.name }))} currentSelected={columnFilters.department ?? null} currentSort={sortCol === 'department' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
-                  </th>
-                  <th className="text-center px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[110px]">
-                    <ColumnFilterHeader label="Grade Level" colKey="gradeLevel" allValues={classes.map(columnAccessors.gradeLevel)} currentSelected={columnFilters.gradeLevel ?? null} currentSort={sortCol === 'gradeLevel' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
-                  </th>
-                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[90px]">
-                    <ColumnFilterHeader label="Room" colKey="room" allValues={classes.map(columnAccessors.room)} currentSelected={columnFilters.room ?? null} currentSort={sortCol === 'room' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
-                  </th>
-                  <th className="text-center px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[110px]">
-                    <ColumnFilterHeader label="Shift / Mode" colKey="shiftMode" allValues={classes.map(columnAccessors.shiftMode)} currentSelected={columnFilters.shiftMode ?? null} currentSort={sortCol === 'shiftMode' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
-                  </th>
-                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[130px]">
-                    <ColumnFilterHeader label="Academic Year" colKey="academicYear" allValues={classes.map(columnAccessors.academicYear)} currentSelected={columnFilters.academicYear ?? null} currentSort={sortCol === 'academicYear' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
-                  </th>
-                  <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[110px]">
-                    <ColumnFilterHeader label="Batch" colKey="batch" allValues={classes.map(columnAccessors.batch)} currentSelected={columnFilters.batch ?? null} currentSort={sortCol === 'batch' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} />
-                  </th>
-                  <th className="text-center px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[110px]">
-                    <ColumnFilterHeader label="Status" colKey="status" allValues={classes.map(columnAccessors.status)} currentSelected={columnFilters.status ?? null} currentSort={sortCol === 'status' ? sortDir : null} onCommit={applyColumnCommit} onClear={clearColumnFilter} align="center" />
-                  </th>
-                  <th className="text-center px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[80px]">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayedClasses.length === 0 ? (
-                  <tr><td colSpan={12} className="text-center py-16 text-[var(--color-text-tertiary)]">{classes.length === 0 ? (<><p className="text-lg mb-1">🏫 No classes found</p><p className="text-sm">Click "+ Add Class" to create one.</p></>) : (<><p className="text-lg mb-1">🔍 No classes match these filters</p><button onClick={clearAllColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button></>)}</td></tr>
-                ) : (
-                  displayedClasses.map(c => (
-                    <tr key={c._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
-                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(c._id)} onChange={() => toggleSelectOne(c._id)} aria-label={`Select ${c.title}`} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500 cursor-pointer" /></td>
-                      <td className="px-4 py-3 whitespace-nowrap"><p className="font-semibold text-[var(--color-text-primary)]">{c.title}</p></td>
-                      <td className="px-4 py-3 whitespace-nowrap"><span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">{c.section}</span></td>
-                      <td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.school?.name || '—'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.department || 'Primary'}</td>
-                      <td className="px-4 py-3 text-center whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.gradeLevel !== undefined && c.gradeLevel !== null ? c.gradeLevel : '—'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.room}</td>
-                      <td className="px-4 py-3 text-center whitespace-nowrap"><ShiftBadge mode={c.shiftMode || 'Morning'} /></td>
-                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] text-sm">{c.academicYear || '—'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-[var(--color-text-secondary)] text-sm font-mono">{c.batch || '—'}</td>
-                      <td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        <span className="relative inline-flex items-center">
-                          <select value={c.status} onChange={e => handleStatusChange(c._id, e.target.value)} className={`appearance-none rounded-full border-0 pl-3 pr-7 py-1 text-xs font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${STATUS_PILL_STYLES[c.status] || STATUS_PILL_STYLES.inactive}`}>
-                            <option value="active">Active</option>
-                            <option value="inactive">Inactive</option>
-                            <option value="completed">Completed</option>
-                          </select>
-                          <ChevronDown className="pointer-events-none absolute right-2 h-3 w-3 opacity-60" strokeWidth={2.5} />
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><RowActionsMenu onEdit={() => setEditingClass(c)} onDuplicate={() => handleDuplicate(c)} onDelete={() => handleDelete(c._id)} /></div></td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+        <div className="mb-4 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row dark:border-slate-800 dark:bg-slate-900">
+          <div className="relative min-w-0 flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input className={`${inputClass} pl-9`} value={search} onChange={(e) => setSearch(e.target.value)} placeholder={isUniversity ? 'Search program, cohort, department...' : 'Search class, grade, room, department...'} /></div>
+          <select className={`${inputClass} sm:w-36`} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}><option value="all">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select>
+          <button type="button" onClick={() => loadClasses(false)} className="rounded-lg border border-slate-200 bg-white p-2.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><RefreshCw size={17} className={refreshing ? 'animate-spin' : ''} /></button>
         </div>
 
-        {!loading && total > 0 && (
-          <Pagination page={page} limit={limit} total={total} onPageChange={handlePageChange} onLimitChange={handleLimitChange} itemLabel="classes" />
-        )}
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          {loading ? <div className="flex items-center justify-center py-16 text-sm text-slate-500">Loading classes...</div> : filtered.length === 0 ? <div className="flex flex-col items-center justify-center px-4 py-16 text-center"><Users size={30} className="text-slate-300" /><p className="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">No classes found</p><p className="mt-1 text-xs text-slate-500">Create the first {isUniversity ? 'academic class / cohort' : 'class'} for this organization.</p></div> : (
+            <>
+              <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[800px] text-left text-sm"><thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950"><tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={filtered.length > 0 && filtered.every((c) => selectedIds.includes(c._id))} onChange={(e) => setSelectedIds(e.target.checked ? filtered.map((c) => c._id) : [])} /></th><th className="px-4 py-3">{isUniversity ? 'Program / Cohort' : 'Class'}</th><th className="px-4 py-3">Department</th>{isUniversity ? <th className="px-4 py-3">Academic Year</th> : <><th className="px-4 py-3">Grade</th><th className="px-4 py-3">Batch</th></>}<th className="px-4 py-3">Section</th><th className="px-4 py-3">Room</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Actions</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{filtered.map((cls) => { const dept = departmentMap.get(cls.departmentId || ''); return <tr key={cls._id} className="hover:bg-slate-50/70 dark:hover:bg-slate-950/50"><td className="px-4 py-3"><input type="checkbox" checked={selectedIds.includes(cls._id)} onChange={() => toggleSelected(cls._id)} /></td><td className="px-4 py-3"><div className="font-semibold text-slate-900 dark:text-white">{cls.title}</div><div className="text-xs text-slate-500">{cls.shiftMode || 'Morning'}</div></td><td className="px-4 py-3"><div>{cls.department || dept?.name || '—'}</div>{isUniversity && dept && <div className="text-[11px] text-slate-500">{typeof dept.facultyId === 'object' ? dept.facultyId?.name : ''}</div>}</td>{isUniversity ? <td className="px-4 py-3">{cls.academicYear || '—'}</td> : <><td className="px-4 py-3">{cls.gradeLevel ?? '—'}</td><td className="px-4 py-3">{cls.batch || '—'}</td></>}<td className="px-4 py-3">{cls.section || '—'}</td><td className="px-4 py-3">{cls.room}</td><td className="px-4 py-3"><button onClick={() => updateStatus(cls)} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${cls.status === 'active' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : cls.status === 'completed' ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'}`}><CheckCircle2 size={12} />{cls.status}</button></td><td className="px-4 py-3"><div className="flex items-center gap-1"><button title="Edit" onClick={() => setModal({ open: true, cls })} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><Pencil size={15} /></button><button title="Delete" onClick={() => removeClass(cls)} className="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"><Trash2 size={15} /></button></div></td></tr>; })}</tbody></table></div>
+              <div className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">{filtered.map((cls) => <div key={cls._id} className="p-4"><div className="flex items-start gap-3"><input type="checkbox" checked={selectedIds.includes(cls._id)} onChange={() => toggleSelected(cls._id)} className="mt-1" /><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div><h3 className="truncate font-semibold text-slate-900 dark:text-white">{cls.title}</h3><p className="mt-0.5 text-xs text-slate-500">{cls.department || 'No department'}{cls.section ? ` • Section ${cls.section}` : ''}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${cls.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{cls.status}</span></div><div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-950"><span className="text-slate-500">{isUniversity ? 'Academic Year' : 'Grade'}</span><div className="mt-0.5 font-semibold">{isUniversity ? (cls.academicYear || '—') : (cls.gradeLevel ?? '—')}</div></div><div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-950"><span className="text-slate-500">Room</span><div className="mt-0.5 font-semibold">{cls.room}</div></div></div><div className="mt-3 flex gap-2"><button onClick={() => setModal({ open: true, cls })} className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold dark:border-slate-700"><Pencil size={13} className="mr-1 inline" /> Edit</button><button onClick={() => removeClass(cls)} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 dark:border-red-900/50"><Trash2 size={13} className="mr-1 inline" /> Delete</button></div></div></div>)}</div>
+            </>
+          )}
+        </div>
+
+        {importing && <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-xl"><FileSpreadsheet size={16} /> Importing classes...</div>}
       </div>
 
-      {showCreate && <ClassModal departments={departments} schools={schools} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchData(); }} />}
-      {editingClass && <ClassModal cls={editingClass} departments={departments} schools={schools} onClose={() => setEditingClass(undefined)} onSaved={() => { setEditingClass(undefined); fetchData(); }} />}
-      <DepartmentModal open={showDepartments} departments={departments} onClose={() => setShowDepartments(false)} onSaved={() => { setShowDepartments(false); fetchData(); }} />
-      {showPromoteAll && <PromoteAllModal schools={schools} onClose={() => setShowPromoteAll(false)} onDone={fetchData} />}
-      {showBulkDeleteModal && <BulkDeleteModal count={selected.size} loading={bulkDeleting} onCancel={() => setShowBulkDeleteModal(false)} onConfirm={handleBulkDelete} />}
+      {modal.open && <ClassModal cls={modal.cls} organization={organization} faculties={faculties} departments={departments} onClose={() => setModal({ open: false })} onSaved={async () => { setModal({ open: false }); await loadClasses(false); }} />}
     </div>
   );
 }
-
-export default ClassesManage;
