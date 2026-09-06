@@ -88,12 +88,21 @@
 }
 
 @layer components {
-  /* Keep routes/functionality unchanged; rename visible admin section labels. */
-  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/payments']) > button > span,
-  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/schedules']) > button > span { font-size: 0; }
-
-  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/payments']) > button > span::after { content: 'Finance Management'; font-size: 11px; }
-  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/schedules']) > button > span::after { content: 'Academic Management'; font-size: 11px; }
+  /* Visible admin section labels. Routes and functionality remain unchanged. */
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/payments']) > button > span {
+    font-size: 0;
+  }
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/payments']) > button > span::after {
+    content: 'Finance Management';
+    font-size: 11px;
+  }
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/schedules']) > button > span {
+    font-size: 0;
+  }
+  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div:has(a[href^='/admin/schedules']) > button > span::after {
+    content: 'Academic Management';
+    font-size: 11px;
+  }
 }
 
 @media (max-width: 639px) {
