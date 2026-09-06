@@ -21,11 +21,6 @@ import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-err
 import ApiResponse from '../utils/api-response';
 import { getOwnTeacherRecord } from '../utils/tenant-scope';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Returns the teacher's document and a reusable filter for Course.teacher. */
 async function getTeacherScope(req: Request) {
   const teacher = await getOwnTeacherRecord(req);
   if (!teacher) throw new ForbiddenError('Teacher record not found.');
@@ -34,11 +29,15 @@ async function getTeacherScope(req: Request) {
   return { teacher, teacherId, courseFilter };
 }
 
-/** Verifies a course belongs to this teacher by checking Course.teacher. */
 async function assertTeacherOwnsCourse(courseId: string, teacherId: mongoose.Types.ObjectId) {
   const course = await Course.findOne({ _id: courseId, teacher: teacherId }).select('_id').lean();
   if (!course) throw new ForbiddenError('You can only manage courses assigned to you.');
 }
+
+const activeStudentCourseFilter = (courseIds: unknown[]) => ({
+  enrolledCourses: { $in: courseIds },
+  status: 'active',
+});
 
 // ---------------------------------------------------------------------------
 // Dashboard
@@ -58,10 +57,8 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
       .lean(),
   ]);
 
-  // Collect all course IDs for this teacher (across both statuses)
   const allCourseIds = [...activeCourses, ...draftCourses].map((c: any) => c._id);
 
-  // Pending submissions across all owned courses
   const pendingSubmissions = await AssignmentSubmission.find({
     course: { $in: allCourseIds },
     status: 'submitted',
@@ -73,10 +70,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
     .limit(20)
     .lean();
 
-  // Count unique students enrolled in teacher's courses
-  const enrolledStudents = await Student.countDocuments({
-    enrolledCourses: { $in: allCourseIds },
-  });
+  const enrolledStudents = await Student.countDocuments(activeStudentCourseFilter(allCourseIds));
 
   return ApiResponse.success(res, {
     activeCourses,
@@ -116,18 +110,15 @@ export const getGamificationOverview = async (req: Request, res: Response): Prom
   const teacherCourseIds = await Course.find(courseFilter).select('_id').lean();
   const ids = teacherCourseIds.map((c: any) => c._id);
 
-  const students = await Student.find({ enrolledCourses: { $in: ids } })
+  const students = await Student.find(activeStudentCourseFilter(ids))
     .populate({ path: 'user', select: 'email' })
     .populate({ path: 'profile', select: 'firstName lastName avatar' })
     .lean();
 
-  // Gamification is keyed on Student — query separately to avoid StrictPopulateError
   const studentIds = students.map((s: any) => s._id);
   const gamifications = await Gamification.find({ student: { $in: studentIds } }).lean();
   const gamMap = new Map<string, any>();
-  for (const g of gamifications) {
-    gamMap.set(g.student.toString(), g);
-  }
+  for (const g of gamifications) gamMap.set(g.student.toString(), g);
 
   const topByXP = students
     .map((s: any) => ({
@@ -161,18 +152,13 @@ export const getCourseQuizzes = async (req: Request, res: Response): Promise<Res
   const { teacherId } = await getTeacherScope(req);
   await assertTeacherOwnsCourse(courseId, teacherId);
 
-  const content = await CourseContent.findOne({ course: courseId })
-    .populate('course', 'title')
-    .lean();
-
+  const content = await CourseContent.findOne({ course: courseId }).populate('course', 'title').lean();
   if (!content) return ApiResponse.success(res, []);
 
   const quizzes: any[] = [];
   for (const ch of content.chapters || []) {
     for (const item of ch.items || []) {
-      if (item.type === 'quiz') {
-        quizzes.push({ ...item, chapterId: (ch as any)._id, chapterTitle: (ch as any).title });
-      }
+      if (item.type === 'quiz') quizzes.push({ ...item, chapterId: (ch as any)._id, chapterTitle: (ch as any).title });
     }
   }
   return ApiResponse.success(res, quizzes);
@@ -202,9 +188,7 @@ export const createQuiz = async (req: Request, res: Response): Promise<Response>
   await assertTeacherOwnsCourse(courseId, teacherId);
 
   const { chapterId, title, description, questions, timeLimit, passingScore, shuffleQuestions, showResults, maxAttempts } = req.body;
-  if (!chapterId || !title || !questions || !Array.isArray(questions)) {
-    throw new BadRequestError('chapterId, title, and questions array are required');
-  }
+  if (!chapterId || !title || !questions || !Array.isArray(questions)) throw new BadRequestError('chapterId, title, and questions array are required');
 
   const content = await CourseContent.findOne({ course: courseId });
   if (!content) throw new NotFoundError('Course content not found');
@@ -245,13 +229,8 @@ export const updateQuiz = async (req: Request, res: Response): Promise<Response>
   for (const ch of content.chapters || []) {
     for (const item of ch.items || []) {
       if (item.type === 'quiz' && (item as any)._id?.toString() === quizId) {
-        const UPDATABLE_QUIZ_FIELDS = [
-          'title', 'description', 'questions', 'timeLimit', 'passingScore',
-          'shuffleQuestions', 'showResults', 'maxAttempts',
-        ] as const;
-        for (const key of UPDATABLE_QUIZ_FIELDS) {
-          if (req.body[key] !== undefined) (item as any)[key] = req.body[key];
-        }
+        const UPDATABLE_QUIZ_FIELDS = ['title', 'description', 'questions', 'timeLimit', 'passingScore', 'shuffleQuestions', 'showResults', 'maxAttempts'] as const;
+        for (const key of UPDATABLE_QUIZ_FIELDS) if (req.body[key] !== undefined) (item as any)[key] = req.body[key];
         (item as any).updatedAt = new Date();
         updatedQuiz = item;
         break;
@@ -277,9 +256,7 @@ export const deleteQuiz = async (req: Request, res: Response): Promise<Response>
   let removed = false;
   for (const ch of content.chapters || []) {
     const before = ch.items?.length || 0;
-    ch.items = (ch.items || []).filter(
-      (item: any) => !(item.type === 'quiz' && (item as any)._id?.toString() === quizId)
-    );
+    ch.items = (ch.items || []).filter((item: any) => !(item.type === 'quiz' && (item as any)._id?.toString() === quizId));
     if ((ch.items?.length || 0) < before) removed = true;
   }
   if (!removed) throw new NotFoundError('Quiz not found');
@@ -298,10 +275,7 @@ export const getCourseChapters = async (req: Request, res: Response): Promise<Re
   const { teacherId } = await getTeacherScope(req);
   await assertTeacherOwnsCourse(courseId, teacherId);
 
-  const content = await CourseContent.findOne({ course: courseId })
-    .populate('course', 'title slug thumbnail')
-    .lean();
-
+  const content = await CourseContent.findOne({ course: courseId }).populate('course', 'title slug thumbnail').lean();
   const course = await Course.findById(courseId).select('videoGating').lean();
 
   return ApiResponse.success(res, {
@@ -339,11 +313,9 @@ export const updateVideoGating = async (req: Request, res: Response): Promise<Re
   const { enabled, blockForwardSeeking, checkpoints, minWatchPercentToUnlock, showCheckpointAlerts, description } = req.body;
 
   if (enabled !== undefined) {
-    if (!Array.isArray(checkpoints) || checkpoints.length === 0)
-      throw new BadRequestError('At least one checkpoint percentage is required when enabling gating');
+    if (!Array.isArray(checkpoints) || checkpoints.length === 0) throw new BadRequestError('At least one checkpoint percentage is required when enabling gating');
     const minWatch = Number(minWatchPercentToUnlock);
-    if (!Number.isFinite(minWatch) || minWatch < 1 || minWatch > 100)
-      throw new BadRequestError('minWatchPercentToUnlock must be a number between 1 and 100');
+    if (!Number.isFinite(minWatch) || minWatch < 1 || minWatch > 100) throw new BadRequestError('minWatchPercentToUnlock must be a number between 1 and 100');
 
     course.videoGating = {
       enabled: !!enabled,
@@ -390,9 +362,7 @@ export const getCourseSubmissions = async (req: Request, res: Response): Promise
   const mapped = submissions.map((s: any) => ({
     _id: s._id,
     studentId: s.student?._id,
-    studentName: s.student?.profile
-      ? `${(s.student.profile as any).firstName} ${(s.student.profile as any).lastName}`
-      : 'Unknown',
+    studentName: s.student?.profile ? `${(s.student.profile as any).firstName} ${(s.student.profile as any).lastName}` : 'Unknown',
     studentAvatar: (s.student?.profile as any)?.avatar,
     assignmentTitle: s.assignment?.title || 'Untitled',
     assignmentId: s.assignment?._id,
@@ -482,18 +452,15 @@ export const getCourseAnalytics = async (req: Request, res: Response): Promise<R
 
   const course = await Course.findById(courseId).select('title enrolledStudents maxStudents').lean();
 
-  const students = await Student.find({ enrolledCourses: courseId })
+  const students = await Student.find({ enrolledCourses: courseId, status: 'active' })
     .populate({ path: 'user', select: 'email' })
     .populate({ path: 'profile', select: 'firstName lastName avatar' })
     .lean();
 
-  // Gamification is keyed on Student — query separately to avoid StrictPopulateError
   const studentIdsForAnalytics = students.map((s: any) => s._id);
   const gamificationsForAnalytics = await Gamification.find({ student: { $in: studentIdsForAnalytics } }).lean();
   const gamMapAnalytics = new Map<string, any>();
-  for (const g of gamificationsForAnalytics) {
-    gamMapAnalytics.set(g.student.toString(), g);
-  }
+  for (const g of gamificationsForAnalytics) gamMapAnalytics.set(g.student.toString(), g);
 
   const submissions = await AssignmentSubmission.find({ course: courseId }).lean();
   const gradedSubmissions = submissions.filter((s: any) => s.status === 'graded');
@@ -545,7 +512,6 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
   const { assertCanAccessStudent } = await import('../utils/tenant-scope');
   await assertCanAccessStudent(req, student);
 
-  // Gamification is keyed on Student — query separately to avoid StrictPopulateError
   const gamData = await Gamification.findOne({ student: studentId }).lean();
 
   const submissions = await AssignmentSubmission.find({ student: studentId })
