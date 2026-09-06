@@ -48,7 +48,7 @@ function keyForPath(path: string): string {
 
 const navSections: { title: string; items: NavEntry[] }[] = [
   {
-    title: 'Main',
+    title: 'INSTITUTION MANAGEMENT',
     items: [
       { path: '/admin',              label: 'Dashboard',          icon: LayoutDashboard },
       { path: '/admin/students',     label: 'Manage Students',    icon: GraduationCap },
