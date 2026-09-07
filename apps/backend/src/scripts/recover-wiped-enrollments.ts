@@ -35,33 +35,44 @@
  * recalculates the cached `enrolledStudents` seat count). It never touches
  * enrollmentHistory, grades, attendance, or anything else.
  *
- * Usage (dry run by default — nothing is written):
- *   MONGO_URI="mongodb://..." node src/scripts/recover-wiped-enrollments.js
+ * Uses raw collection access (bypasses Mongoose models/hooks entirely) so
+ * its behavior doesn't depend on whichever version of student.model.ts is
+ * currently deployed.
+ *
+ * Run inside the backend container/host where MONGODB_URI is already set
+ * (dry run by default — nothing is written):
+ *   node dist/scripts/recover-wiped-enrollments.js
  *
  * Apply the fix for real:
- *   MONGO_URI="mongodb://..." node src/scripts/recover-wiped-enrollments.js --commit
+ *   node dist/scripts/recover-wiped-enrollments.js --commit
  *
  * Restrict to one student while verifying (recommended first pass):
- *   MONGO_URI="mongodb://..." STUDENT_EMAIL="someone@example.com" node src/scripts/recover-wiped-enrollments.js
+ *   STUDENT_EMAIL="someone@example.com" node dist/scripts/recover-wiped-enrollments.js
  */
 
-const { MongoClient, ObjectId } = require('mongodb');
+import mongoose from 'mongoose';
+import { ObjectId } from 'mongodb';
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is not set — check .env / .env.production`);
+  return value;
+}
 
 async function main() {
-  const uri = process.env.MONGO_URI;
-  if (!uri) throw new Error('Set MONGO_URI to the target database connection string.');
+  const uri = requireEnv('MONGODB_URI');
   const commit = process.argv.includes('--commit');
   const onlyEmail = process.env.STUDENT_EMAIL ? String(process.env.STUDENT_EMAIL).toLowerCase().trim() : null;
 
-  const client = new MongoClient(uri);
-  await client.connect();
-  const db = client.db();
+  await mongoose.connect(uri);
+  console.log('Connected.');
+  const db = mongoose.connection.db!;
   const students = db.collection('students');
   const users = db.collection('users');
   const progress = db.collection('progress');
   const courses = db.collection('courses');
 
-  let studentFilter = {
+  let studentFilter: Record<string, any> = {
     status: 'active',
     $or: [{ enrolledCourses: { $exists: false } }, { enrolledCourses: { $size: 0 } }],
   };
@@ -70,7 +81,7 @@ async function main() {
     const user = await users.findOne({ email: onlyEmail });
     if (!user) {
       console.log(`No user found with email ${onlyEmail}`);
-      await client.close();
+      await mongoose.disconnect();
       return;
     }
     studentFilter = { user: user._id };
@@ -81,12 +92,12 @@ async function main() {
 
   let restoredCount = 0;
   let untouchedCount = 0;
-  const touchedCourseIds = new Set();
+  const touchedCourseIds = new Set<string>();
 
   for (const s of candidates) {
     const fromProgress = await progress.distinct('course', { student: s._id });
-    const fromHistory = (s.enrollmentHistory || []).flatMap((e) => e.courses || []);
-    const candidateIds = [...new Set([...fromProgress, ...fromHistory].map((id) => String(id)))];
+    const fromHistory = (s.enrollmentHistory || []).flatMap((e: any) => e.courses || []);
+    const candidateIds = [...new Set([...fromProgress, ...fromHistory].map((id: any) => String(id)))];
 
     if (candidateIds.length === 0) {
       console.log(`  [skip] ${s.studentId || s._id} — no progress records or history to recover from.`);
@@ -130,7 +141,7 @@ async function main() {
   console.log(`No recoverable signal (left as-is): ${untouchedCount}`);
   if (!commit) console.log('\nDry run only — nothing was written. Re-run with --commit to apply.');
 
-  await client.close();
+  await mongoose.disconnect();
 }
 
 main().catch((err) => {
