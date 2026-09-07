@@ -77,16 +77,30 @@ export function defaultAcademicConfig(institutionType: InstitutionType): Academi
   return { academicSystem: 'annual', semestersPerAcademicYear: 1, usesFaculty: false };
 }
 
-/** Validates an academicSystem/semestersPerAcademicYear pair. Throws
- * BadRequestError on an impossible combination (annual can't carry semester
- * config; semester must be 2 or 3). Mirrors the invariant already enforced at
- * the schema level (academic-structure.model.ts's pre-validate hook) so
- * callers get a clear 400 before that hook would otherwise reject the save. */
-export function validateAcademicConfig(academicSystem: unknown, semestersPerAcademicYear: unknown): void {
+/** Validates an academicSystem/semestersPerAcademicYear pair, optionally
+ * against a specific institution type. Throws BadRequestError on:
+ *  - an impossible combination (annual can't carry semester config; semester
+ *    must be 2 or 3) — mirrors the invariant already enforced at the schema
+ *    level (academic-structure.model.ts's pre-validate hook) so callers get a
+ *    clear 400 before that hook would otherwise reject the save.
+ *  - a `semester` academicSystem requested for an institution type that
+ *    doesn't support it: School and Training Center have no semester
+ *    workflow anywhere in the product (no semester-aware Class/Student UI,
+ *    no Faculty/Department/Program hierarchy to hang a semester on) — the
+ *    schema itself would happily accept `academicSystem: 'semester'` on a
+ *    School's AcademicStructure document, but the resulting classes/students
+ *    would have no semester UI to progress them through, so it's rejected
+ *    here rather than allowed to be silently stored and then be a dead
+ *    feature. Only University/College may use `semester`. Pass no
+ *    institutionType to skip this check (callers that don't yet know it). */
+export function validateAcademicConfig(academicSystem: unknown, semestersPerAcademicYear: unknown, institutionType?: InstitutionType): void {
   if (academicSystem !== 'annual' && academicSystem !== 'semester') {
     throw new BadRequestError('Academic system must be "annual" or "semester"');
   }
   if (academicSystem === 'semester' && ![2, 3].includes(Number(semestersPerAcademicYear))) {
     throw new BadRequestError('Semester-based institutions must use 2 or 3 semesters per academic year');
+  }
+  if (academicSystem === 'semester' && institutionType && !isHigherEdInstitutionType(institutionType)) {
+    throw new BadRequestError('Semester-based academic system is only supported for University and College organizations. School and Training Center must use "annual".');
   }
 }

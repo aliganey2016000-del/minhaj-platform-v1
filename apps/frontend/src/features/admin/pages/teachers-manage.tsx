@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MoreVertical, Search, UserPlus, Upload, Download, Trash2, Eye, Pencil, BookOpen, X, Check } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { type InstitutionType, resolveInstitutionType, institutionTypeLabel } from '../../../lib/institution-type';
 
-type InstitutionType = 'school' | 'college' | 'university' | 'training_center';
 type TeacherStatus = 'active' | 'inactive' | 'on_leave';
 type CoursePermission = 'COURSE_BUILDER' | 'STUDENT_VIEW';
 
@@ -14,13 +14,8 @@ interface Course { _id: string; title?: { en?: string; so?: string; ar?: string 
 const inputClass = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20';
 const emptyForm = { email: '', password: '', firstName: '', lastName: '', gender: 'male', phone: '', qualification: '', specialization: '', experience: 0, bio: '', joiningDate: new Date().toISOString().slice(0, 10) };
 
-function orgType(org?: Organization): InstitutionType {
-  if (org?.institutionType) return org.institutionType;
-  if (org?.organizationType === 'university') return 'university';
-  if (org?.organizationType === 'training_center') return 'training_center';
-  return 'school';
-}
-function typeLabel(type: InstitutionType) { return ({ school: 'School', college: 'College', university: 'University', training_center: 'Training Center' } as const)[type]; }
+const orgType = resolveInstitutionType;
+const typeLabel = institutionTypeLabel;
 function teacherName(t: Teacher) { return `${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`.trim() || 'Unnamed Teacher'; }
 function courseTeacherId(c: Course) { return typeof c.teacher === 'string' ? c.teacher : c.teacher?._id || ''; }
 function dataOf<T>(res: any): T { return (res?.data?.data ?? res?.data ?? []) as T; }

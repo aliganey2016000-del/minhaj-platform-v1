@@ -3,10 +3,10 @@ import { BookOpen, GraduationCap, Layers3 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { CourseBuilder } from './course-builder';
+import { type InstitutionType, resolveInstitutionType } from '../../../lib/institution-type';
 
-type InstitutionType = 'school' | 'college' | 'university' | 'training_center';
 type Course = { title?: { en?: string }; school?: string | { _id?: string; name?: string } };
-type Org = { _id: string; name: string; organizationType?: InstitutionType; type?: InstitutionType };
+type Org = { _id: string; name: string; institutionType?: InstitutionType; organizationType?: InstitutionType };
 
 const config: Record<InstitutionType, { label: string; hierarchy: string; model: string; description: string }> = {
   school: {
@@ -52,7 +52,7 @@ export function InstitutionCourseBuilder() {
         if (schoolId) {
           const orgRes = await api.get(`/schools/${schoolId}`);
           const rawOrg = orgRes.data.data || orgRes.data;
-          setOrg({ ...rawOrg, organizationType: rawOrg.organizationType || rawOrg.type });
+          setOrg(rawOrg);
         }
       } finally {
         setLoading(false);
@@ -60,7 +60,7 @@ export function InstitutionCourseBuilder() {
     })();
   }, [courseId]);
 
-  const type = (org?.organizationType || org?.type || 'school') as InstitutionType;
+  const type = resolveInstitutionType(org);
   const current = config[type];
 
   if (loading) return <div className="p-6 text-sm text-[var(--color-text-tertiary)]">Loading curriculum...</div>;

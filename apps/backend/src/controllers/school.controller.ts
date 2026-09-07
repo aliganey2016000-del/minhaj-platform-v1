@@ -73,6 +73,10 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     });
   }
 
+  // Normalize institutionType so callers never see an undefined/legacy value
+  // for a pre-migration document (see resolveInstitutionType doc comment).
+  result = result.map((item: any) => ({ ...item, institutionType: resolveInstitutionType(item) }));
+
   return ApiResponse.paginated(res, result, {
     page: pageNum,
     limit: limitNum,
@@ -97,7 +101,9 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
     throw new NotFoundError('School not found');
   }
 
-  return ApiResponse.success(res, school);
+  // Normalize institutionType so callers never see an undefined/legacy value
+  // for a pre-migration document (see resolveInstitutionType doc comment).
+  return ApiResponse.success(res, { ...school, institutionType: resolveInstitutionType(school) });
 };
 
 // ---------------------------------------------------------------------------
@@ -136,7 +142,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const defaults = defaultAcademicConfig(institutionType);
   const resolvedAcademicSystem = academicSystem !== undefined ? academicSystem : defaults.academicSystem;
   const resolvedSemesters = semestersPerAcademicYear !== undefined ? Number(semestersPerAcademicYear) : defaults.semestersPerAcademicYear;
-  validateAcademicConfig(resolvedAcademicSystem, resolvedSemesters);
+  validateAcademicConfig(resolvedAcademicSystem, resolvedSemesters, institutionType);
 
   const payload = {
     ...schoolFields,
@@ -313,7 +319,7 @@ export const completeOnboarding = async (req: Request, res: Response): Promise<R
   if (!structure) {
     throw new BadRequestError('Academic structure has not been configured for this organization yet.');
   }
-  validateAcademicConfig(structure.academicSystem, structure.semestersPerAcademicYear);
+  validateAcademicConfig(structure.academicSystem, structure.semestersPerAcademicYear, resolveInstitutionType(school));
 
   school.onboardingCompleted = true;
   await school.save();

@@ -39,7 +39,7 @@ const AdminDashboard = lazy(() => import('../features/admin/pages/admin-dashboar
 const CoursesManage = lazy(() => import('../features/admin/pages/courses-manage').then((m) => ({ default: m.CoursesManage })));
 const CourseGateReport = lazy(() => import('../features/admin/pages/course-gate-report').then((m) => ({ default: m.CourseGateReport })));
 const CourseGradebook = lazy(() => import('../features/admin/pages/course-gradebook').then((m) => ({ default: m.CourseGradebook })));
-const CourseBuilder = lazy(() => import('../features/admin/pages/course-builder').then((m) => ({ default: m.CourseBuilder })));
+const CourseBuilder = lazy(() => import('../features/admin/pages/institution-course-builder').then((m) => ({ default: m.InstitutionCourseBuilder })));
 const LessonEditPage = lazy(() => import('../features/admin/pages/lesson-edit-page').then((m) => ({ default: m.LessonEditPage })));
 const QuizEditPage = lazy(() => import('../features/admin/pages/quiz-edit-page').then((m) => ({ default: m.QuizEditPage })));
 const ExamPaperEditPage = lazy(() => import('../features/admin/pages/exam-paper-edit-page').then((m) => ({ default: m.ExamPaperEditPage })));

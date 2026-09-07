@@ -10,6 +10,16 @@ import Parent from '../models/parent.model';
 import Course from '../models/course.model';
 import AssignmentSubmission from '../models/assignment-submission.model';
 
+// IMPORTANT: teacher/student/parent are deliberately NOT in this set.
+// applyOrgFilter/assertOwnsOrg/resolveOrgIdForCreate are no-ops for those
+// roles — every controller that lists data for a teacher/student/parent MUST
+// apply its own narrower scope explicitly (e.g. class.controller.ts pins
+// filter.school = teacher.school; course.controller.ts pins
+// filter.teacher = teacher._id; student.controller.ts restricts to the
+// teacher's own enrolledCourses). A new teacher/student/parent-facing list
+// endpoint that forgets this and relies solely on applyOrgFilter will NOT be
+// tenant-scoped — see resolveViewableOrgId() below for the one helper that
+// DOES cover every non-admin role uniformly (reads only, by design).
 const TENANT_SCOPED_ROLES = new Set(['org_admin', 'finance_manager', 'cashier', 'auditor']);
 
 function isTenantScoped(req: Request): boolean {
@@ -46,6 +56,23 @@ export const assertOwnOrg = assertOwnsOrg;
 export function resolveOrgIdForCreate(req: Request, clientProvidedValue?: unknown): unknown {
   if (isTenantScoped(req)) return req.user?.organizationId;
   return clientProvidedValue;
+}
+
+/**
+ * Resolves which organization a read (list/get) request is allowed to see.
+ * Every non-platform role (org_admin, finance_manager, cashier, auditor,
+ * teacher, student, parent, staff) is bound to exactly one organization via
+ * their JWT — their own `organizationId` always wins, regardless of any
+ * `?school=` query param, so one org's teacher/student/parent can never read
+ * another org's data by passing a different id. Only the platform-level
+ * `admin` role (which owns no single organization) may target an arbitrary
+ * org via `orgIdParam`.
+ */
+export function resolveViewableOrgId(req: Request, orgIdParam?: unknown): string | undefined {
+  if (req.user?.role === 'admin') {
+    return orgIdParam ? String(orgIdParam) : undefined;
+  }
+  return req.user?.organizationId;
 }
 
 export async function getOwnTeacherRecord(req: Request) {

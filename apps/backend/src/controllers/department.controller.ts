@@ -5,27 +5,38 @@ import AcademicStructure from '../models/academic-structure.model';
 import ClassModel from '../models/class.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
-import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { assertOwnsOrg, resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
 import School from '../models/school.model';
+import { resolveInstitutionType, defaultAcademicConfig, isHigherEdInstitutionType } from '../utils/academic-config';
 
+// Faculty is a higher-ed-only concept: School and Training Center must NEVER
+// be able to use it, even if their AcademicStructure.usesFaculty field was
+// somehow set true (the structure endpoint itself now rejects that, but this
+// stays a hard AND-gate here too, defense in depth against direct DB edits
+// or legacy data). For University/College, an explicit
+// AcademicStructure.usesFaculty always wins (an org can opt in/out either
+// way), falling back to the institution type's default (university=true,
+// college=false — see defaultAcademicConfig) only when no structure document
+// exists yet at all. NOTE: do NOT collapse the higher-ed branch to "any
+// higher-ed type uses faculty unconditionally" — that would force Faculty on
+// for every college regardless of its own explicit opt-out, which
+// organization-registration.e2e.ts relies on staying false by default for a
+// fresh college.
 async function usesFaculty(tenantId: string): Promise<boolean> {
-  const [structure, school] = await Promise.all([
-    AcademicStructure.findOne({ school: tenantId }).select('usesFaculty').lean(),
-    School.findById(tenantId).select('institutionType organizationType').lean(),
-  ]);
-  return !!structure?.usesFaculty || school?.institutionType === 'university' || school?.organizationType === 'university';
+  const school = await School.findById(tenantId).select('institutionType organizationType').lean();
+  if (!school || !isHigherEdInstitutionType(resolveInstitutionType(school))) return false;
+  const structure = await AcademicStructure.findOne({ school: tenantId }).select('usesFaculty').lean();
+  if (structure) return !!structure.usesFaculty;
+  return defaultAcademicConfig(resolveInstitutionType(school)).usesFaculty;
 }
 
 const DEPARTMENT_LIMIT = 200;
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
   const filter: Record<string, unknown> = {};
-  if (req.user?.role === 'org_admin') {
-    if (!req.user.organizationId) return ApiResponse.success(res, []);
-    filter.tenantId = req.user.organizationId;
-  } else if (req.query.school) {
-    filter.tenantId = req.query.school as string;
-  }
+  const tenantId = resolveViewableOrgId(req, req.query.school);
+  if (!tenantId) return ApiResponse.success(res, []);
+  filter.tenantId = tenantId;
   if (req.query.faculty) filter.facultyId = req.query.faculty as string;
 
   const departments = await Department.find(filter)

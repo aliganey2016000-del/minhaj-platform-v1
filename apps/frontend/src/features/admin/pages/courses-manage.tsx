@@ -2,19 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, Download, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { type InstitutionType, resolveInstitutionType, institutionTypeLabel } from '../../../lib/institution-type';
 
-type InstitutionType = 'school' | 'college' | 'university' | 'training_center';
 type Status = 'draft' | 'published' | 'archived';
 type Ref = { _id: string; name?: string; title?: string; code?: string; slug?: string; section?: string; facultyId?: string; departmentId?: string };
-type Org = { _id: string; name: string; organizationType?: InstitutionType; type?: InstitutionType };
+type Org = { _id: string; name: string; institutionType?: InstitutionType; organizationType?: InstitutionType };
 type Teacher = { _id: string; profile?: { firstName?: string; lastName?: string }; teacherId?: string };
 type Course = { _id: string; title: { en: string; so?: string; ar?: string }; category: string; level: string; duration: number; fee: number; status: Status; maxStudents: number; enrolledStudents: number; teacher?: Teacher | null; school?: { _id: string; name: string } | null; class?: Ref | null; description?: { en?: string; so?: string; ar?: string } };
 
-const labelFor = (type: InstitutionType) => ({ school: 'School', college: 'College', university: 'University', training_center: 'Training Center' }[type]);
+const labelFor = institutionTypeLabel;
 const teacherName = (t?: Teacher | null) => t ? `${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`.trim() || t.teacherId || 'Teacher' : 'Unassigned';
 
 function CourseModal({ course, org, onClose, onSaved }: { course?: Course; org: Org; onClose: () => void; onSaved: () => void }) {
-  const type = (org.organizationType || org.type || 'school') as InstitutionType;
+  const type = resolveInstitutionType(org);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [classes, setClasses] = useState<Ref[]>([]);
   const [categories, setCategories] = useState<Ref[]>([]);
@@ -55,9 +55,9 @@ export default function CoursesManage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [modal, setModal] = useState<Course | 'new' | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
-  const type = (org?.organizationType || org?.type || 'school') as InstitutionType;
+  const type = resolveInstitutionType(org);
 
-  const load = useCallback(async () => { if (!organizationId) return; setLoading(true); try { const [o, c] = await Promise.all([api.get(`/schools/${organizationId}`), api.get('/courses/admin', { params: { school: organizationId, limit: 300 } })]); const raw = o.data.data || o.data; setOrg({ ...raw, organizationType: raw.organizationType || raw.type }); setCourses(c.data.data || []); } catch (err: any) { setError(err.response?.data?.message || 'Unable to load courses'); setCourses([]); } finally { setLoading(false); } }, [organizationId]);
+  const load = useCallback(async () => { if (!organizationId) return; setLoading(true); try { const [o, c] = await Promise.all([api.get(`/schools/${organizationId}`), api.get('/courses/admin', { params: { school: organizationId, limit: 300 } })]); const raw = o.data.data || o.data; setOrg(raw); setCourses(c.data.data || []); } catch (err: any) { setError(err.response?.data?.message || 'Unable to load courses'); setCourses([]); } finally { setLoading(false); } }, [organizationId]);
   useEffect(() => { load(); }, [load]);
 
   const filtered = useMemo(() => courses.filter(c => { const q = search.toLowerCase().trim(); return (!q || c.title?.en?.toLowerCase().includes(q) || c.category?.toLowerCase().includes(q) || teacherName(c.teacher).toLowerCase().includes(q)) && (status === 'all' || c.status === status); }), [courses, search, status]);

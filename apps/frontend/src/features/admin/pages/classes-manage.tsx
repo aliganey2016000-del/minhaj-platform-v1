@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { Download, FileSpreadsheet, GraduationCap, MoreVertical, Pencil, Plus, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { resolveInstitutionType, isHigherEdInstitutionType } from '../../../lib/institution-type';
 
 type Status = 'active' | 'inactive' | 'completed';
 type Shift = 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
 type AcademicSystem = 'annual' | 'semester';
-interface Organization { _id: string; name: string; institutionType?: string; }
+interface Organization { _id: string; name: string; institutionType?: string; organizationType?: string; }
 interface Faculty { _id: string; name: string; code?: string; }
 interface Department { _id: string; name: string; code?: string; facultyId?: string | Faculty | null; }
 interface Program { _id: string; name: string; code?: string; department?: string | { _id: string; name: string } | null; }
@@ -28,8 +29,8 @@ function Field({ label, required, children, className = '' }: { label: string; r
 }
 
 function ClassModal({ cls, organization, structure, faculties, departments, programs, onClose, onSaved }: { cls?: ClassItem; organization: Organization | null; structure: AcademicStructure | null; faculties: Faculty[]; departments: Department[]; programs: Program[]; onClose: () => void; onSaved: () => Promise<void> | void }) {
-  const institutionType = organization?.institutionType || 'school';
-  const higherEd = institutionType === 'university' || institutionType === 'college';
+  const institutionType = resolveInstitutionType(organization);
+  const higherEd = isHigherEdInstitutionType(institutionType);
   const isTrainingCenter = institutionType === 'training_center';
   const usesFaculty = higherEd && !!structure?.usesFaculty;
   const semesterMode = higherEd && structure?.academicSystem === 'semester';
@@ -101,9 +102,9 @@ export function ClassesManage() {
   const { user, isLoading: authLoading } = useAuth();
   const [organization, setOrganization] = useState<Organization | null>(null); const [structure, setStructure] = useState<AcademicStructure | null>(null); const [faculties, setFaculties] = useState<Faculty[]>([]); const [departments, setDepartments] = useState<Department[]>([]); const [programs, setPrograms] = useState<Program[]>([]); const [classes, setClasses] = useState<ClassItem[]>([]); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState(''); const [search, setSearch] = useState(''); const [status, setStatus] = useState<'all'|Status>('all'); const [modal, setModal] = useState<{open:boolean; cls?:ClassItem}>({open:false}); const [menu, setMenu] = useState(false); const [selected, setSelected] = useState<string[]>([]); const [importing, setImporting] = useState(false); const fileRef = useRef<HTMLInputElement>(null);
   const [academicSystem, setAcademicSystem] = useState<AcademicSystem>('annual'); const [semestersPerYear, setSemestersPerYear] = useState<2|3>(2);
-  const orgId = user?.organizationId; const institutionType = organization?.institutionType || 'school'; const higherEd = institutionType === 'university' || institutionType === 'college'; const isTrainingCenter = institutionType === 'training_center'; const semesterMode = higherEd && academicSystem === 'semester';
+  const orgId = user?.organizationId; const institutionType = resolveInstitutionType(organization); const higherEd = isHigherEdInstitutionType(institutionType); const isTrainingCenter = institutionType === 'training_center'; const semesterMode = higherEd && academicSystem === 'semester';
 
-  const loadMeta = useCallback(async () => { if (!orgId) return; const o = await api.get(`/schools/${orgId}`); const org = dataOf<Organization>(o); setOrganization(org); const [f,d,pr,s] = await Promise.all([api.get(`/departments/faculties?school=${orgId}`), api.get(`/departments?school=${orgId}`), api.get(`/programs?school=${orgId}`), api.get('/classes/academic-structure')]); const st = dataOf<AcademicStructure>(s); setFaculties(dataOf<Faculty[]>(f) || []); setDepartments(dataOf<Department[]>(d) || []); setPrograms(dataOf<Program[]>(pr) || []); setStructure(st); setAcademicSystem(st?.academicSystem || (org?.institutionType === 'university' ? 'semester' : 'annual')); setSemestersPerYear(st?.semestersPerAcademicYear === 3 ? 3 : 2); }, [orgId]);
+  const loadMeta = useCallback(async () => { if (!orgId) return; const o = await api.get(`/schools/${orgId}`); const org = dataOf<Organization>(o); setOrganization(org); const [f,d,pr,s] = await Promise.all([api.get(`/departments/faculties?school=${orgId}`), api.get(`/departments?school=${orgId}`), api.get(`/programs?school=${orgId}`), api.get('/classes/academic-structure')]); const st = dataOf<AcademicStructure>(s); setFaculties(dataOf<Faculty[]>(f) || []); setDepartments(dataOf<Department[]>(d) || []); setPrograms(dataOf<Program[]>(pr) || []); setStructure(st); setAcademicSystem(st?.academicSystem || (isHigherEdInstitutionType(resolveInstitutionType(org)) ? 'semester' : 'annual')); setSemestersPerYear(st?.semestersPerAcademicYear === 3 ? 3 : 2); }, [orgId]);
   const loadClasses = useCallback(async (spin = true) => { if (spin) setLoading(true); else setRefreshing(true); try { const p = new URLSearchParams({ limit:'200' }); if (search.trim()) p.set('search', search.trim()); if (status !== 'all') p.set('status', status); const r = await api.get(`/classes?${p}`); setClasses(dataOf<ClassItem[]>(r) || []); setError(''); } catch(e) { setError(errOf(e)); } finally { setLoading(false); setRefreshing(false); } }, [search,status]);
   useEffect(() => { if (!authLoading) loadMeta().catch(e => setError(errOf(e))); }, [authLoading,loadMeta]); useEffect(() => { if (!authLoading) loadClasses().catch(() => undefined); }, [authLoading,loadClasses]);
   const refresh = () => loadClasses(false);

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Building2, Pencil, Plus, Trash2 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { type InstitutionType, resolveInstitutionType, isHigherEdInstitutionType } from '../../../lib/institution-type';
 
-type InstitutionType = 'school' | 'college' | 'university' | 'training_center';
 type Faculty = { _id: string; name: string; code?: string; deanName?: string; phone?: string; email?: string; establishedYear?: number };
 type Department = { _id: string; name: string; code?: string; headOfDepartment?: string; phone?: string; email?: string; establishedYear?: number; facultyId?: { _id: string; name: string } | null };
 type Program = { _id: string; name: string; code?: string; description?: string; department?: { _id: string; name: string } | null };
@@ -44,8 +44,8 @@ export function InstitutionStructureManage() {
     setLoading(true); setError('');
     try {
       const orgRes = await api.get(`/schools/${organizationId}`);
-      const type = (orgRes.data?.data?.institutionType || 'school') as InstitutionType;
-      const academicRes = type === 'university' || type === 'college'
+      const type = resolveInstitutionType(orgRes.data?.data);
+      const academicRes = isHigherEdInstitutionType(type)
         ? await api.get('/classes/academic-structure', { params: { schoolId: organizationId } })
         : null;
       const requests: Promise<any>[] = [

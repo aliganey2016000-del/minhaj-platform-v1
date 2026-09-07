@@ -15,6 +15,7 @@ import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 import { Pagination } from '../components/pagination';
+import { isHigherEdInstitutionType } from '../../../lib/institution-type';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1169,20 +1170,30 @@ export function SchoolsManage() {
               {/* ── Step 2 / Edit: Academic Setup ── */}
               {(editingSchool || step === 2) && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-[var(--color-text-primary)] mb-1">How does your institution organize the academic year?</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium cursor-pointer transition-colors ${form.academicSystem === 'annual' ? 'border-primary-600 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300' : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'}`}>
-                        <input type="radio" name="academicSystem" value="annual" checked={form.academicSystem === 'annual'} onChange={handleChange} className="sr-only" />
-                        One academic year at a time
-                      </label>
-                      <label className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium cursor-pointer transition-colors ${form.academicSystem === 'semester' ? 'border-primary-600 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300' : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'}`}>
-                        <input type="radio" name="academicSystem" value="semester" checked={form.academicSystem === 'semester'} onChange={handleChange} className="sr-only" />
-                        Semesters
-                      </label>
+                  {isHigherEdInstitutionType(form.institutionType) ? (
+                    <div>
+                      <label className="block text-sm font-medium text-[var(--color-text-primary)] mb-1">How does your institution organize the academic year?</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium cursor-pointer transition-colors ${form.academicSystem === 'annual' ? 'border-primary-600 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300' : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'}`}>
+                          <input type="radio" name="academicSystem" value="annual" checked={form.academicSystem === 'annual'} onChange={handleChange} className="sr-only" />
+                          One academic year at a time
+                        </label>
+                        <label className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium cursor-pointer transition-colors ${form.academicSystem === 'semester' ? 'border-primary-600 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300' : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]'}`}>
+                          <input type="radio" name="academicSystem" value="semester" checked={form.academicSystem === 'semester'} onChange={handleChange} className="sr-only" />
+                          Semesters
+                        </label>
+                      </div>
                     </div>
-                  </div>
-                  {form.academicSystem === 'semester' && (
+                  ) : (
+                    // School and Training Center have no semester workflow anywhere in the
+                    // product (no semester-aware Class/Student UI, no Faculty/Department/
+                    // Program hierarchy) — the backend rejects academicSystem: 'semester'
+                    // for these types, so don't offer a choice that would just 400 on submit.
+                    <p className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">
+                      This organization type uses one academic year at a time (annual progression).
+                    </p>
+                  )}
+                  {isHigherEdInstitutionType(form.institutionType) && form.academicSystem === 'semester' && (
                     <FormSelect
                       label="How many semesters are in one academic year?"
                       name="semestersPerAcademicYear"
