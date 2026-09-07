@@ -128,3 +128,5 @@ export default function TeachersManage() {
     {active && <div className="fixed bottom-3 right-3 z-40 hidden sm:block"><div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-2 shadow-lg"><label className="flex items-center gap-2 text-xs font-semibold">Permission<select value={active.coursePermission || 'COURSE_BUILDER'} disabled={permSaving} onChange={async e => { const next = e.target.value as CoursePermission; try { setPermSaving(true); await api.patch(`/teachers/${active._id}/course-permission`, { coursePermission: next }); await load(); setActive(t => t ? { ...t, coursePermission: next } : t); } catch (err: any) { alert(err.response?.data?.message || 'Failed to update permission'); } finally { setPermSaving(false); } }} className="rounded-lg border px-2 py-1 text-xs"><option value="COURSE_BUILDER">Course Builder</option><option value="STUDENT_VIEW">Student View</option></select></label></div></div>}
   </div>;
 }
+
+export { TeachersManage };
