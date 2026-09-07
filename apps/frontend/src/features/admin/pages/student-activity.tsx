@@ -65,12 +65,41 @@ const fmtShortDuration = (seconds = 0) => {
 };
 const dateTime = (value?: string | null) => value ? new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 const timeOnly = (value?: string | null) => value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
-const normalize = (value?: string) => (value || '').trim().toLowerCase();
 const spanSeconds = (start?: string, end?: string) => {
   if (!start) return 0;
   return Math.max(0, Math.floor(((end ? new Date(end).getTime() : Date.now()) - new Date(start).getTime()) / 1000));
 };
 const isQuizEvent = (event: ActivityEvent) => /quiz|assessment|attempt|submission|passed|failed/i.test(event.type) || event.metadata?.score != null || event.metadata?.totalPoints != null;
+
+/** Turns a raw event type into the icon + wording an admin reads in the session detail. */
+const eventLook: Record<string, { icon: string; label: string; tone: string }> = {
+  course_view: { icon: '📘', label: 'Opened course', tone: 'bg-indigo-100 text-indigo-700' },
+  course_enrolled: { icon: '🎓', label: 'Enrolled in course', tone: 'bg-indigo-100 text-indigo-700' },
+  lesson_view: { icon: '📖', label: 'Opened lesson', tone: 'bg-blue-100 text-blue-700' },
+  page_view: { icon: '🧭', label: 'Visited page', tone: 'bg-slate-100 text-slate-600' },
+  video_progress: { icon: '🎬', label: 'Watched video', tone: 'bg-purple-100 text-purple-700' },
+  audio_progress: { icon: '🎧', label: 'Listened to audio', tone: 'bg-purple-100 text-purple-700' },
+  pdf_view: { icon: '📄', label: 'Opened PDF', tone: 'bg-slate-100 text-slate-600' },
+  download: { icon: '⬇️', label: 'Downloaded file', tone: 'bg-slate-100 text-slate-600' },
+  quiz_attempt: { icon: '❓', label: 'Answered question', tone: 'bg-amber-100 text-amber-700' },
+  exam_attempt: { icon: '🎯', label: 'Exam attempt', tone: 'bg-rose-100 text-rose-700' },
+  assignment_submitted: { icon: '📤', label: 'Submitted assignment', tone: 'bg-emerald-100 text-emerald-700' },
+  assignment_graded: { icon: '✅', label: 'Assignment graded', tone: 'bg-emerald-100 text-emerald-700' },
+  certificate_earned: { icon: '🏆', label: 'Earned certificate', tone: 'bg-amber-100 text-amber-700' },
+  note_created: { icon: '📝', label: 'Wrote a note', tone: 'bg-slate-100 text-slate-600' },
+  bookmark_added: { icon: '🔖', label: 'Bookmarked', tone: 'bg-slate-100 text-slate-600' },
+  forum_post: { icon: '💬', label: 'Posted in forum', tone: 'bg-cyan-100 text-cyan-700' },
+  session_end: { icon: '⏹️', label: 'Session ended', tone: 'bg-slate-100 text-slate-600' },
+};
+const describeEvent = (event: ActivityEvent) => {
+  const look = eventLook[event.type] || { icon: '•', label: event.type.replace(/_/g, ' '), tone: 'bg-slate-100 text-slate-600' };
+  // A Stop & Check answer is a quiz_attempt too, but calling it one in the
+  // timeline makes it look like a whole quiz was taken.
+  if (event.type === 'quiz_attempt' && event.metadata?.source === 'interactive_gate') {
+    return { ...look, icon: '🛑', label: 'Stop & Check answer' };
+  }
+  return look;
+};
 const formatPercent = (value: number | null) => value == null ? '—' : `${value}%`;
 const formatLastActivity = (value?: string | null) => {
   if (!value) return 'No activity yet';
@@ -90,16 +119,6 @@ const courseThemes = [
   { card: 'bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-900/50', icon: 'bg-orange-500 text-white', title: 'text-orange-950 dark:text-orange-50', sub: 'text-orange-700/70 dark:text-orange-300/60', track: 'bg-orange-200/70 dark:bg-orange-900/50', bar: 'from-orange-600 to-orange-400', stat: 'bg-white/60 dark:bg-black/20 border-orange-200/70 dark:border-orange-800/50', statLabel: 'text-orange-700/70 dark:text-orange-300/60', statValue: 'text-orange-950 dark:text-orange-50', divider: 'border-orange-200/70 dark:border-orange-800/50' },
 ];
 
-function matchesSession(event: ActivityEvent, session: SessionRow) {
-  if (session.loginSessionId && event.loginSessionId !== session.loginSessionId) return false;
-  if (session.course && event.course?._id && session.course !== event.course._id) return false;
-  if (session.lessonId && event.lessonId && session.lessonId !== event.lessonId) return false;
-  const eventTitle = normalize(event.lessonTitle || event.resourceName);
-  const sessionTitle = normalize(session.lessonTitle || session.resourceName);
-  if (eventTitle && sessionTitle) return eventTitle === sessionTitle;
-  const at = new Date(event.createdAt).getTime();
-  return at >= new Date(session.startedAt).getTime() - 30000 && at <= new Date(session.endedAt || Date.now()).getTime() + 30000;
-}
 
 export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) {
   void basePath;
@@ -263,43 +282,112 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     return map;
   }, [events, sessions]);
 
-  const lessonCards = useMemo(() => {
-    if (!sessions) return [];
-    return [...sessions.sessions]
-      .filter((s) => s.kind === 'lesson' || s.lessonTitle || s.resourceName)
-      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
-      .map((session) => {
-        const related = events.filter((e) => matchesSession(e, session)).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-        const quizzes = related.filter(isQuizEvent);
-        const scores = quizzes.map((e) => {
-          if (typeof e.percent === 'number') return e.percent;
-          const score = Number(e.metadata?.score);
-          const total = Number(e.metadata?.totalPoints);
-          if (Number.isFinite(score) && Number.isFinite(total) && total > 0) return (score / total) * 100;
-          return null;
-        }).filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+  /**
+   * One card per sign-in: everything between a login and its logout, grouped
+   * under the login session the student was in. The flat list this replaces
+   * rendered only login and logout rows plus lesson cards, so opening a
+   * course, reading a lesson and answering Stop & Check questions were all
+   * recorded but never shown — the page looked like the student had done
+   * nothing but sign in and out.
+   */
+  const sessionGroups = useMemo(() => {
+    const groups = new Map<string, {
+      id: string;
+      number: number;
+      loginAt: string | null;
+      logoutAt: string | null;
+      events: ActivityEvent[];
+      lessons: SessionRow[];
+    }>();
 
-        return {
-          session,
-          quizzes,
-          courseTitle: related.find((e) => e.course?.title?.en)?.course?.title?.en || 'Course',
-          averageScore: scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : null,
-          progress: related.reduce((max, e) => Math.max(max, typeof e.percent === 'number' ? e.percent : 0), 0),
-          loginNumber: session.loginSessionId ? loginSequence.get(session.loginSessionId) : undefined,
-        };
+    const groupFor = (id: string) => {
+      let group = groups.get(id);
+      if (!group) {
+        group = { id, number: loginSequence.get(id) || groups.size + 1, loginAt: null, logoutAt: null, events: [], lessons: [] };
+        groups.set(id, group);
+      }
+      return group;
+    };
+
+    for (const event of events) {
+      if (!event.loginSessionId) continue;
+      const group = groupFor(event.loginSessionId);
+      if (event.type === 'login') {
+        if (!group.loginAt || new Date(event.createdAt) < new Date(group.loginAt)) group.loginAt = event.createdAt;
+      } else if (event.type === 'logout') {
+        if (!group.logoutAt || new Date(event.createdAt) > new Date(group.logoutAt)) group.logoutAt = event.createdAt;
+      } else {
+        group.events.push(event);
+      }
+    }
+
+    for (const lesson of sessions?.sessions || []) {
+      if (lesson.loginSessionId) groupFor(lesson.loginSessionId).lessons.push(lesson);
+    }
+
+    const ordered = [...groups.values()].sort((a, b) => {
+      const at = new Date(a.loginAt || a.events[0]?.createdAt || a.lessons[0]?.startedAt || 0).getTime();
+      const bt = new Date(b.loginAt || b.events[0]?.createdAt || b.lessons[0]?.startedAt || 0).getTime();
+      return bt - at;
+    });
+
+    // Anything logged before login sessions were stamped (or by a flow that
+    // does not send the header) still belongs to whichever sign-in was open
+    // at the time — dropping it would hide real work.
+    const orphans = events.filter((e) => !e.loginSessionId && e.type !== 'login' && e.type !== 'logout');
+    for (const orphan of orphans) {
+      const at = new Date(orphan.createdAt).getTime();
+      const host = ordered.find((g) => {
+        const from = g.loginAt ? new Date(g.loginAt).getTime() : null;
+        const to = g.logoutAt ? new Date(g.logoutAt).getTime() : null;
+        return from !== null && at >= from && (to === null || at <= to);
       });
-  }, [sessions, events, loginSequence]);
+      if (host) host.events.push(orphan);
+    }
 
-  const timeline = useMemo(() => {
-    const rows: Array<{ id: string; at: string; type: 'login' | 'logout' | 'lesson'; event?: ActivityEvent; card?: typeof lessonCards[number] }> = [];
-    events.filter((e) => e.type === 'login' || e.type === 'logout').forEach((e) => {
-      rows.push({ id: `event-${e._id}`, at: e.createdAt, type: e.type as 'login' | 'logout', event: e });
+    return ordered.map((group) => {
+      const timeline = [
+        ...group.events.map((event) => ({ kind: 'event' as const, at: event.createdAt, event })),
+        ...group.lessons.map((lesson) => ({ kind: 'lesson' as const, at: lesson.startedAt, lesson })),
+      ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
+      const lastActivityAt = [
+        ...group.events.map((e) => e.createdAt),
+        ...group.lessons.map((l) => l.endedAt || l.startedAt),
+      ].sort().pop() || null;
+
+      // Never measured against "now" just because a logout is missing — that
+      // is exactly what made abandoned sessions read as 14-hour study days.
+      // A sign-in with no logout is closed at its own last recorded activity,
+      // and only the newest one, for a student who is online right now, is
+      // treated as still running.
+      const isNewest = ordered[0]?.id === group.id;
+      const ongoing = !group.logoutAt && isNewest && Boolean(student?.online);
+      const endAt = group.logoutAt || (ongoing ? new Date().toISOString() : lastActivityAt);
+      const durationSeconds = group.loginAt && endAt
+        ? Math.max(0, Math.floor((new Date(endAt).getTime() - new Date(group.loginAt).getTime()) / 1000))
+        : 0;
+
+      const quizzes = group.events.filter(isQuizEvent);
+      const correct = quizzes.filter((e) => e.status === 'passed' || e.percent === 100).length;
+      const courseNames = [...new Set(
+        [...group.events.map((e) => e.course?.title?.en).filter(Boolean) as string[]]
+      )];
+
+      return {
+        ...group,
+        timeline,
+        endAt,
+        endedBy: group.logoutAt ? 'logout' as const : ongoing ? 'ongoing' as const : 'inferred' as const,
+        durationSeconds,
+        quizCount: quizzes.length,
+        correctCount: correct,
+        courseNames,
+        activeSeconds: group.lessons.reduce((sum, l) => sum + (l.activeSeconds || 0), 0),
+        watchSeconds: group.lessons.reduce((sum, l) => sum + (l.watchSeconds || 0), 0),
+      };
     });
-    lessonCards.forEach((card) => {
-      rows.push({ id: `lesson-${card.session._id}`, at: card.session.startedAt, type: 'lesson', card });
-    });
-    return rows.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-  }, [events, lessonCards]);
+  }, [events, sessions, loginSequence, student?.online]);
 
   const exportSessions = () => {
     if (!sessions || !student) return;
@@ -596,57 +684,139 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                       </p>
                     </div>
                     <div className="divide-y divide-[var(--color-border-subtle)]">
-                      {timeline.map((row) => {
-                        if (row.type === 'login' || row.type === 'logout') {
-                          const number = row.event?.loginSessionId ? loginSequence.get(row.event.loginSessionId) : undefined;
-                          return (
-                            <div key={row.id} className="p-4 flex items-center gap-4">
-                              <div className={`h-9 w-9 rounded-full flex items-center justify-center ${row.type === 'login' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{row.type === 'login' ? '↪' : '↩'}</div>
-                              <div>
-                                <b className="text-sm capitalize">{row.type}</b>
-                                <p className="text-xs text-[var(--color-text-tertiary)]">{timeOnly(row.at)} · {dateTime(row.at)}{number ? ` · Login session #${number}` : ''}</p>
-                              </div>
-                            </div>
-                          );
-                        }
-
-                        const card = row.card!;
-                        const session = card.session;
-                        const isOpen = expanded === session._id;
+                      {sessionGroups.map((group) => {
+                        const isOpen = expanded === group.id;
+                        const endLabel = group.endedBy === 'ongoing'
+                          ? 'Still signed in'
+                          : group.endedBy === 'inferred'
+                            ? `${dateTime(group.endAt)} (no logout)`
+                            : dateTime(group.logoutAt);
                         return (
-                          <div key={row.id} className="p-4 sm:p-5 bg-[var(--color-surface-secondary)]/40">
-                            <button type="button" onClick={() => setExpanded(isOpen ? null : session._id)} className="w-full text-left rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 sm:p-5 shadow-sm hover:shadow-md transition-shadow">
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div className="min-w-0">
+                          <div key={group.id} className="p-4 sm:p-5">
+                            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+                              <button
+                                type="button"
+                                onClick={() => setExpanded(isOpen ? null : group.id)}
+                                className="w-full text-left p-4 sm:p-5"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
                                   <div className="flex flex-wrap items-center gap-2">
-                                    <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary-700">Lesson</span>
-                                    {card.loginNumber && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold">Login session #{card.loginNumber}</span>}
+                                    <span className="rounded-full bg-primary-600 px-3 py-1 text-[11px] font-bold text-white">Session {group.number}</span>
+                                    {group.endedBy === 'ongoing' && (
+                                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" /> Active now
+                                      </span>
+                                    )}
                                   </div>
-                                  <h4 className="mt-2 text-base sm:text-lg font-bold break-words">{card.courseTitle} · {session.lessonTitle || session.resourceName || 'Lesson'}</h4>
+                                  <span className="shrink-0 text-xs font-semibold text-[var(--color-text-tertiary)]">{isOpen ? 'Hide details ↑' : 'View details ↓'}</span>
                                 </div>
-                                <span className="shrink-0 text-xs font-semibold text-[var(--color-text-tertiary)]">{isOpen ? 'Hide details ↑' : 'View details ↓'}</span>
-                              </div>
-                              <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                                <div><span className="text-[var(--color-text-tertiary)]">Start</span><br /><b>{timeOnly(session.startedAt)}</b></div>
-                                <div><span className="text-[var(--color-text-tertiary)]">End</span><br /><b>{timeOnly(session.endedAt)}</b></div>
-                                <div><span className="text-[var(--color-text-tertiary)]">Total duration</span><br /><b>{fmt(spanSeconds(session.startedAt, session.endedAt))}</b></div>
-                                <div><span className="text-[var(--color-text-tertiary)]">Average score</span><br /><b>{card.averageScore == null ? '—' : `${Math.round(card.averageScore)}%`}</b></div>
-                              </div>
-                              {isOpen && (
-                                <div className="mt-5 border-t border-[var(--color-border-subtle)] pt-5" onClick={(e) => e.stopPropagation()}>
-                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                                    <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><span>Active study</span><br /><b>{fmt(session.activeSeconds)}</b></div>
-                                    <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><span>Video watched</span><br /><b>{fmt(session.watchSeconds)}</b></div>
-                                    <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><span>Idle</span><br /><b>{fmt(session.idleSeconds)}</b></div>
-                                    <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><span>Progress</span><br /><b>{Math.round(card.progress)}%</b></div>
+
+                                <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                                  <div>
+                                    <span className="text-[var(--color-text-tertiary)]">Login</span><br />
+                                    <b className="text-[13px]">{dateTime(group.loginAt)}</b>
                                   </div>
+                                  <div>
+                                    <span className="text-[var(--color-text-tertiary)]">Logout</span><br />
+                                    <b className="text-[13px]">{endLabel}</b>
+                                  </div>
+                                  <div>
+                                    <span className="text-[var(--color-text-tertiary)]">Total duration</span><br />
+                                    <b className="text-[13px]">{group.durationSeconds ? fmt(group.durationSeconds) : '—'}</b>
+                                  </div>
+                                  <div>
+                                    <span className="text-[var(--color-text-tertiary)]">Active study</span><br />
+                                    <b className="text-[13px]">{group.activeSeconds ? fmt(group.activeSeconds) : '—'}</b>
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+                                  {group.lessons.length > 0 && (
+                                    <span className="rounded-full bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 font-semibold text-blue-700 dark:text-blue-300">📖 {group.lessons.length} lesson{group.lessons.length === 1 ? '' : 's'}</span>
+                                  )}
+                                  {group.quizCount > 0 && (
+                                    <span className="rounded-full bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 font-semibold text-amber-700 dark:text-amber-300">❓ {group.correctCount}/{group.quizCount} correct</span>
+                                  )}
+                                  {group.watchSeconds > 0 && (
+                                    <span className="rounded-full bg-purple-50 dark:bg-purple-950/30 px-2.5 py-1 font-semibold text-purple-700 dark:text-purple-300">🎬 {fmt(group.watchSeconds)}</span>
+                                  )}
+                                  {group.courseNames.slice(0, 2).map((name) => (
+                                    <span key={name} className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 font-semibold text-[var(--color-text-secondary)]">{name}</span>
+                                  ))}
+                                  {!group.timeline.length && (
+                                    <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 font-semibold text-[var(--color-text-tertiary)]">Signed in, no activity recorded</span>
+                                  )}
+                                </div>
+                              </button>
+
+                              {isOpen && (
+                                <div className="border-t border-[var(--color-border-subtle)] p-4 sm:p-5">
+                                  {group.timeline.length ? (
+                                    <ol className="relative space-y-3 border-l-2 border-[var(--color-border-subtle)] pl-4">
+                                      {group.timeline.map((row, idx) => {
+                                        if (row.kind === 'lesson') {
+                                          const l = row.lesson;
+                                          return (
+                                            <li key={`lesson-${l._id}-${idx}`} className="relative">
+                                              <span className="absolute -left-[25px] flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[9px] text-white">📖</span>
+                                              <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                  <b className="text-sm break-words">{l.lessonTitle || l.resourceName || 'Lesson'}</b>
+                                                  <span className="text-[11px] text-[var(--color-text-tertiary)]">{timeOnly(l.startedAt)} → {l.endedAt ? timeOnly(l.endedAt) : '…'}</span>
+                                                </div>
+                                                <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                                                  <div><span className="text-[var(--color-text-tertiary)]">Active</span><br /><b>{fmt(l.activeSeconds)}</b></div>
+                                                  <div><span className="text-[var(--color-text-tertiary)]">Idle</span><br /><b>{fmt(l.idleSeconds)}</b></div>
+                                                  <div><span className="text-[var(--color-text-tertiary)]">Video</span><br /><b>{fmt(l.watchSeconds)}</b></div>
+                                                  <div><span className="text-[var(--color-text-tertiary)]">Status</span><br /><b className="capitalize">{l.status}</b></div>
+                                                </div>
+                                              </div>
+                                            </li>
+                                          );
+                                        }
+
+                                        const e = row.event;
+                                        const look = describeEvent(e);
+                                        const scored = isQuizEvent(e);
+                                        return (
+                                          <li key={`event-${e._id}-${idx}`} className="relative">
+                                            <span className={`absolute -left-[25px] flex h-4 w-4 items-center justify-center rounded-full text-[9px] ${look.tone}`}>{look.icon}</span>
+                                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                              <div className="min-w-0">
+                                                <b className="text-sm">{look.label}</b>
+                                                {(e.resourceName || e.lessonTitle) && (
+                                                  <span className="text-sm text-[var(--color-text-secondary)] break-words"> — {e.resourceName || e.lessonTitle}</span>
+                                                )}
+                                                {e.course?.title?.en && (
+                                                  <span className="text-xs text-[var(--color-text-tertiary)]"> · {e.course.title.en}</span>
+                                                )}
+                                                {scored && e.status && (
+                                                  <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold ${e.status === 'passed' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                    {e.status === 'passed' ? 'Correct' : 'Wrong'}
+                                                  </span>
+                                                )}
+                                                {typeof e.percent === 'number' && !scored && (
+                                                  <span className="ml-2 text-[11px] font-semibold text-[var(--color-text-tertiary)]">{Math.round(e.percent)}%</span>
+                                                )}
+                                              </div>
+                                              <span className="shrink-0 text-[11px] text-[var(--color-text-tertiary)]">{timeOnly(e.createdAt)}</span>
+                                            </div>
+                                          </li>
+                                        );
+                                      })}
+                                    </ol>
+                                  ) : (
+                                    <p className="text-sm text-[var(--color-text-tertiary)]">
+                                      The student signed in but nothing else was recorded before this session ended.
+                                    </p>
+                                  )}
                                 </div>
                               )}
-                            </button>
+                            </div>
                           </div>
                         );
                       })}
-                      {!timeline.length && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No activity events recorded yet.</p>}
+                      {!sessionGroups.length && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No activity events recorded yet.</p>}
                     </div>
                   </section>
                 )}
