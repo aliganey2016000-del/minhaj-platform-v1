@@ -90,6 +90,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Expose only the current authenticated role to the document so global
+  // UI guards can make security-sensitive controls read-only without
+  // duplicating auth state in individual pages. Backend authorization
+  // remains authoritative; this is presentation/interaction protection.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (user?.role) document.documentElement.dataset.userRole = user.role;
+    else delete document.documentElement.dataset.userRole;
+    return () => {
+      delete document.documentElement.dataset.userRole;
+    };
+  }, [user?.role]);
+
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('accessToken');
