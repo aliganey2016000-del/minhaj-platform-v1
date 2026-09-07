@@ -165,7 +165,8 @@ export function StudentCourseLearn() {
   // Track whether quiz is finished (hide mark-complete during active quiz)
   const [quizFinished, setQuizFinished] = useState(false);
   // Result of the just-finished quiz, so "Mark as Completed" can report real XP to gamification
-  const [quizResult, setQuizResult] = useState<{ correctCount: number; total: number } | null>(null);
+  // and record an authoritative QuizAttempt (answers carried through for /quizzes/submit-attempt).
+  const [quizResult, setQuizResult] = useState<{ correctCount: number; total: number; answers: { questionId: string | undefined; answer: unknown }[] } | null>(null);
   // Track which flat-item indices have cleared their Interactive Gate (all Stop & Check blocks passed)
   const [gateCleared, setGateCleared] = useState<Set<number>>(new Set());
   // When the current item was opened, so completion can report real time-on-task
@@ -378,19 +379,29 @@ export function StudentCourseLearn() {
     const timeSpentSeconds = Math.round((Date.now() - itemStartRef.current) / 1000);
     const progressBody = { courseId, itemType: currentItem.item.type, itemId: currentItem.item._id };
 
+    // A quiz item's completion is recorded as a real QuizAttempt (courseId +
+    // full per-question answers) rather than the plain progress bump below —
+    // that's the single write /quizzes/submit-attempt uses to grade
+    // authoritatively, bump Progress.completedQuizzes on first attempt, and
+    // award XP, so the per-course quiz average in student analytics actually
+    // has data to average instead of staying stuck at "—".
+    const quizResultForSubmit = currentItem.item.type === 'quiz' ? quizResult : null;
+
     // Offline: queue everything for replay on reconnect, update local state
     // optimistically (there's no server response to refresh from yet).
     if (!navigator.onLine) {
       try {
-        await queueAction({ type: 'mark-complete', url: '/students/my/progress', body: progressBody });
+        if (quizResultForSubmit) {
+          await queueAction({
+            type: 'quiz-submit-attempt',
+            url: '/quizzes/submit-attempt',
+            body: { courseId, quizId: currentItem.item._id, answers: quizResultForSubmit.answers, durationSeconds: timeSpentSeconds },
+          });
+        } else {
+          await queueAction({ type: 'mark-complete', url: '/students/my/progress', body: progressBody });
+        }
         if (currentItem.item.type === 'lesson') {
           await queueAction({ type: 'gamification-lesson', url: '/gamification/complete-lesson', body: { timeSpentSeconds } });
-        } else if (currentItem.item.type === 'quiz' && quizResult) {
-          await queueAction({
-            type: 'gamification-quiz',
-            url: '/gamification/complete-quiz',
-            body: { score: quizResult.correctCount, totalQuestions: quizResult.total, timeSpentSeconds },
-          });
         }
         await queueAction({ type: 'gamification-streak', url: '/gamification/streak/update', body: {} });
 
@@ -409,19 +420,24 @@ export function StudentCourseLearn() {
     }
 
     try {
-      await api.post('/students/my/progress', progressBody);
+      if (quizResultForSubmit) {
+        await api.post('/quizzes/submit-attempt', {
+          courseId,
+          quizId: currentItem.item._id,
+          answers: quizResultForSubmit.answers,
+          durationSeconds: timeSpentSeconds,
+        });
+      } else {
+        await api.post('/students/my/progress', progressBody);
+      }
 
       // Award real XP/streak/badges — best-effort, must never block completion
-      // if the gamification service has a hiccup.
+      // if the gamification service has a hiccup. Quiz XP is already awarded
+      // inside /quizzes/submit-attempt above (on the student's first attempt),
+      // so it isn't repeated here.
       const awardGamification = async () => {
         if (currentItem.item.type === 'lesson') {
           await api.post('/gamification/complete-lesson', { timeSpentSeconds });
-        } else if (currentItem.item.type === 'quiz' && quizResult) {
-          await api.post('/gamification/complete-quiz', {
-            score: quizResult.correctCount,
-            totalQuestions: quizResult.total,
-            timeSpentSeconds,
-          });
         }
         await api.post('/gamification/streak/update');
       };
@@ -1237,9 +1253,14 @@ function LessonView({ lesson, courseId }: { lesson: LessonItem; courseId: string
 // ===========================================================================
 // Quiz View — gamified single-question step-by-step for children
 // ===========================================================================
-function QuizView({ quiz, courseId, onComplete }: { quiz: QuizItem; courseId: string; onComplete?: (result: { correctCount: number; total: number }) => void }) {
+function QuizView({ quiz, courseId, onComplete }: { quiz: QuizItem; courseId: string; onComplete?: (result: { correctCount: number; total: number; answers: { questionId: string | undefined; answer: unknown }[] }) => void }) {
   const [currentQ, setCurrentQ] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<any>(null);
+  // Every checked question's own answer, carried up via onComplete so the
+  // real submit-attempt call (fired from "Mark as Completed") can record an
+  // authoritative QuizAttempt — /quizzes/check above only grades practice
+  // feedback, it never persists anything.
+  const [submittedAnswers, setSubmittedAnswers] = useState<{ questionId: string | undefined; answer: unknown }[]>([]);
   const [checked, setChecked] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState('');
@@ -1278,6 +1299,7 @@ function QuizView({ quiz, courseId, onComplete }: { quiz: QuizItem; courseId: st
       const correct = !!graded?.correct;
       setCheckResult({ correct, explanation: graded?.explanation });
       setResults((prev) => [...prev, correct]);
+      setSubmittedAnswers((prev) => [...prev, { questionId: q._id, answer: selectedAnswer }]);
       setChecked(true);
 
       if (correct) {
@@ -1305,7 +1327,7 @@ function QuizView({ quiz, courseId, onComplete }: { quiz: QuizItem; courseId: st
       setCheckResult(null);
     } else {
       setFinished(true);
-      onComplete?.({ correctCount: results.filter(Boolean).length, total });
+      onComplete?.({ correctCount: results.filter(Boolean).length, total, answers: submittedAnswers });
     }
   };
 
@@ -1315,6 +1337,7 @@ function QuizView({ quiz, courseId, onComplete }: { quiz: QuizItem; courseId: st
     setChecked(false);
     setCheckResult(null);
     setResults([]);
+    setSubmittedAnswers([]);
     setFinished(false);
   };
 
