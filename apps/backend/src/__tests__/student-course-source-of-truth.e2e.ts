@@ -185,6 +185,15 @@ async function main() {
     const legacyPopulatedIds = (legacyPopulated.enrolledCourses || []).map((c: any) => String(c._id || c));
     assert(legacyPopulatedIds.length === 1, `legacy student's course survives a populated read (got ${JSON.stringify(legacyPopulatedIds)})`);
     assert(legacyPopulatedIds[0] === String(liveCourse._id), 'populated legacy student course is the real course, not lost');
+
+    // A second regression, one layer deeper: the fix for the above wiped
+    // the populated *document* itself when it reassigned enrolledCourses
+    // from the id list it had just computed, instead of the original
+    // populated entries — ids stayed correct, but title/slug/etc were
+    // silently dropped, so real callers (course cards, "continue learning"
+    // links) rendered "Untitled" and navigated to /undefined.
+    const populatedTitle = legacyPopulated.enrolledCourses?.[0]?.title?.en;
+    assert(populatedTitle === 'Current Semester Course', `populated fields (title) survive the fallback, not just the id (got ${JSON.stringify(populatedTitle)})`);
   }
 
   console.log(`\n${'='.repeat(60)}`);

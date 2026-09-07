@@ -141,21 +141,23 @@ async function normalizeCurrentCourseLinks(student: any): Promise<void> {
   const courseIds = activeHistory
     ? (Array.isArray(activeHistory.courses) ? activeHistory.courses : [])
     : (Array.isArray(student.enrolledCourses) ? student.enrolledCourses : []);
+
+  // This hook runs on the result AFTER .populate('enrolledCourses') has
+  // already resolved (population happens inside Query#exec, before post
+  // hooks fire) — the getMyCourses/getMyDashboard read paths always
+  // populate this field. So when falling back to the raw enrolledCourses
+  // above, each entry may already be a populated Course document (with
+  // title/slug/thumbnail/etc.) rather than a bare ObjectId. Keep each
+  // ENTRY as-is (populated doc or raw id) for the final assignment below —
+  // only use its id for deduping/existence-checking. Collapsing everything
+  // to bare ids here would silently strip the populated fields every real
+  // caller needs, even though the ids themselves stay correct.
   const seen = new Set<string>();
-  const uniqueIds = courseIds
-    // This hook runs on the result AFTER .populate('enrolledCourses') has
-    // already resolved (population happens inside Query#exec, before post
-    // hooks fire) — the getMyCourses/getMyDashboard read paths always
-    // populate this field. So when falling back to the raw enrolledCourses
-    // above, each entry may already be a populated Course document rather
-    // than a bare ObjectId. Normalize to a plain id either way; treating a
-    // populated document as an opaque id would dedupe everything into one
-    // "[object Object]" key and fail the existence check below, silently
-    // wiping the very data this fallback exists to preserve.
-    .map((courseId: any) => (courseId && courseId._id ? courseId._id : courseId))
-    .filter((courseId: any) => {
-      if (!courseId) return false;
-      const key = String(courseId);
+  const uniqueEntries = courseIds
+    .map((courseId: any) => ({ entry: courseId, id: courseId && courseId._id ? courseId._id : courseId }))
+    .filter(({ id }: any) => {
+      if (!id) return false;
+      const key = String(id);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -166,11 +168,13 @@ async function normalizeCurrentCourseLinks(student: any): Promise<void> {
   // Remove such dangling links before population so profile/dashboard APIs
   // never expose null courses or try to calculate progress for a missing
   // course. This is intentionally read-time cleanup; history is preserved.
-  if (uniqueIds.length > 0) {
+  if (uniqueEntries.length > 0) {
     const CourseModel = mongoose.model('Course');
-    const existingIds = await CourseModel.find({ _id: { $in: uniqueIds } }).distinct('_id');
+    const existingIds = await CourseModel.find({ _id: { $in: uniqueEntries.map(({ id }: any) => id) } }).distinct('_id');
     const existingSet = new Set(existingIds.map((id: any) => String(id)));
-    student.enrolledCourses = uniqueIds.filter((courseId: any) => existingSet.has(String(courseId)));
+    student.enrolledCourses = uniqueEntries
+      .filter(({ id }: any) => existingSet.has(String(id)))
+      .map(({ entry }: any) => entry);
   } else {
     student.enrolledCourses = [];
   }
