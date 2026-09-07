@@ -421,12 +421,20 @@ export function StudentCourseLearn() {
 
     try {
       if (quizResultForSubmit) {
-        await api.post('/quizzes/submit-attempt', {
-          courseId,
-          quizId: currentItem.item._id,
-          answers: quizResultForSubmit.answers,
-          durationSeconds: timeSpentSeconds,
-        });
+        // If recording the attempt fails (quiz missing from content, grading
+        // error), completion still has to land — falling back to the plain
+        // progress bump keeps the student moving; only the score is lost.
+        try {
+          await api.post('/quizzes/submit-attempt', {
+            courseId,
+            quizId: currentItem.item._id,
+            answers: quizResultForSubmit.answers,
+            durationSeconds: timeSpentSeconds,
+          });
+        } catch (err) {
+          console.error('Failed to record quiz attempt, falling back to progress only:', err);
+          await api.post('/students/my/progress', progressBody);
+        }
       } else {
         await api.post('/students/my/progress', progressBody);
       }

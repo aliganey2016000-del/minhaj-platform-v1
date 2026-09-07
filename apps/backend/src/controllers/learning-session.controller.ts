@@ -177,12 +177,25 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
   });
 };
 
+// Closes out sessions abandoned without an explicit /session/end call (tab
+// closed, app killed, connection lost) — the vast majority of real visits,
+// since a clean navigation-away is the exception. endedAt is set to each
+// session's own lastHeartbeatAt (the last moment it was actually known to
+// be active), not to "now": this runs on a delay after the fact, and admin
+// views like the Activity Events lesson-card duration fall back to
+// Date.now() for a still-active session with no endedAt, so a session left
+// stuck 'active' would otherwise show a duration that keeps growing for as
+// long as this job hasn't caught it yet.
 export const expireStaleSessions = async (): Promise<void> => {
   const cutoff = new Date(Date.now() - IDLE_THRESHOLD_SECONDS * 1000);
-  const stale = await LearningSession.find({ status: 'active', lastHeartbeatAt: { $lt: cutoff } }).select('_id');
+  const stale = await LearningSession.find({ status: 'active', lastHeartbeatAt: { $lt: cutoff } }).select('_id lastHeartbeatAt');
   if (!stale.length) return;
-  await LearningSession.updateMany(
-    { _id: { $in: stale.map((s) => s._id) } },
-    { $set: { status: 'expired', endedAt: new Date() } },
+  await LearningSession.bulkWrite(
+    stale.map((s) => ({
+      updateOne: {
+        filter: { _id: s._id },
+        update: { $set: { status: 'expired', endedAt: s.lastHeartbeatAt } },
+      },
+    })),
   );
 };

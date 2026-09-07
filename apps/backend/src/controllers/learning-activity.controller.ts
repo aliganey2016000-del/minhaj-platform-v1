@@ -11,6 +11,7 @@ import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
 import LearningActivity from '../models/learning-activity.model';
 import Student from '../models/student.model';
+import Profile from '../models/profile.model';
 import Course from '../models/course.model';
 import Progress from '../models/progress.model';
 import QuizAttempt from '../models/quiz-attempt.model';
@@ -163,10 +164,23 @@ export const getRoster = async (req: Request, res: Response): Promise<Response> 
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
 
+  // Name lives on Profile, not Student, so a name search has to resolve
+  // matching profile ids first — the sidebar's placeholder promises "ID or
+  // name" but until now only studentId was ever actually filtered on.
   const searchFilter = search
     ? {
         $or: [
           { studentId: { $regex: escapeRegex(search), $options: 'i' } },
+          {
+            profile: {
+              $in: await Profile.find({
+                $or: [
+                  { firstName: { $regex: escapeRegex(search), $options: 'i' } },
+                  { lastName: { $regex: escapeRegex(search), $options: 'i' } },
+                ],
+              }).distinct('_id'),
+            },
+          },
         ],
       }
     : {};

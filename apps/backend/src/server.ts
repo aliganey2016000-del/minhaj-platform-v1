@@ -89,6 +89,7 @@ async function startServer() {
     const app = appModule.default;
 
     const { initSocket } = await import('./realtime/socket');
+    const { expireStaleSessions } = await import('./controllers/learning-session.controller');
 
     // Connect to MongoDB
     await mongoose.connect(MONGODB_URI);
@@ -105,6 +106,15 @@ async function startServer() {
       console.log(`💚 Health check: http://localhost:${PORT}/api/v1/health`);
       console.log(`🔌 Realtime (Socket.IO) ready`);
     });
+
+    // Closes out learning sessions abandoned without an explicit
+    // /activity/session/end call (closed tab, killed app, lost connection)
+    // — otherwise they stay 'active' forever and admin views showing their
+    // duration keep growing indefinitely. See expireStaleSessions' own
+    // comment for why endedAt isn't just "now".
+    setInterval(() => {
+      void expireStaleSessions().catch((error) => console.error('expireStaleSessions failed:', error));
+    }, 60_000);
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);
