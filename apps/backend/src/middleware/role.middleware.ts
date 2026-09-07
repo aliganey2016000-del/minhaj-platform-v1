@@ -52,7 +52,7 @@ export const roleMiddleware = (allowedRoles: AllowedRole[]) => {
       if (
         userRole === 'org_admin' &&
         ['PATCH', 'PUT'].includes(req.method.toUpperCase()) &&
-        /^\/schools\/[^/]+$/.test(requestPath)
+        /\/schools\/[^/]+$/.test(requestPath)
       ) {
         if (req.body && typeof req.body === 'object') {
           delete req.body.institutionType;
