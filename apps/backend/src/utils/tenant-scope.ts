@@ -10,6 +10,16 @@ import Parent from '../models/parent.model';
 import Course from '../models/course.model';
 import AssignmentSubmission from '../models/assignment-submission.model';
 
+// IMPORTANT: teacher/student/parent are deliberately NOT in this set.
+// applyOrgFilter/assertOwnsOrg/resolveOrgIdForCreate are no-ops for those
+// roles — every controller that lists data for a teacher/student/parent MUST
+// apply its own narrower scope explicitly (e.g. class.controller.ts pins
+// filter.school = teacher.school; course.controller.ts pins
+// filter.teacher = teacher._id; student.controller.ts restricts to the
+// teacher's own enrolledCourses). A new teacher/student/parent-facing list
+// endpoint that forgets this and relies solely on applyOrgFilter will NOT be
+// tenant-scoped — see resolveViewableOrgId() below for the one helper that
+// DOES cover every non-admin role uniformly (reads only, by design).
 const TENANT_SCOPED_ROLES = new Set(['org_admin', 'finance_manager', 'cashier', 'auditor']);
 
 function isTenantScoped(req: Request): boolean {

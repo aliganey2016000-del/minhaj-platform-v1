@@ -80,7 +80,11 @@ function StudentModal({ student, organization, classes, faculties, departments, 
 
   const type = resolveInstitutionType(organization);
   const higherEd = isHigherEdInstitutionType(type);
-  const usesFaculty = higherEd && Boolean(structure?.usesFaculty || type === 'university');
+  // GET /classes/academic-structure always lazily creates the org's
+  // AcademicStructure with the correct per-type default (university=true,
+  // college=false — see defaultAcademicConfig), so trust its usesFaculty
+  // directly rather than re-guessing a type-based fallback here.
+  const usesFaculty = higherEd && Boolean(structure?.usesFaculty);
 
   const selectedClass = classes.find(c => c._id === form.classId);
   const facultyForDepartment = (d?: Department) => !d ? undefined : (typeof d.facultyId === 'object' ? d.facultyId?._id : d.facultyId);

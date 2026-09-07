@@ -8,7 +8,7 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { refreshStudentCoursesForCurrentClass } from '../services/enrollment.service';
-import { resolveInstitutionType, defaultAcademicConfig, validateAcademicConfig } from '../utils/academic-config';
+import { resolveInstitutionType, defaultAcademicConfig, validateAcademicConfig, isHigherEdInstitutionType } from '../utils/academic-config';
 
 function getSchoolId(req: Request): string {
   const requested = req.method === 'GET' ? req.query.schoolId : req.body?.schoolId;
@@ -42,7 +42,8 @@ export const updateStructure = async (req: Request, res: Response): Promise<Resp
   const semestersPerAcademicYear = Number(req.body?.semestersPerAcademicYear);
   const school = await School.findById(schoolId).select('_id institutionType organizationType').lean();
   if (!school) throw new NotFoundError('Organization');
-  validateAcademicConfig(academicSystem, semestersPerAcademicYear, resolveInstitutionType(school));
+  const institutionType = resolveInstitutionType(school);
+  validateAcademicConfig(academicSystem, semestersPerAcademicYear, institutionType);
 
   const set: Record<string, unknown> = {
     academicSystem,
@@ -50,8 +51,17 @@ export const updateStructure = async (req: Request, res: Response): Promise<Resp
   };
   // usesFaculty is optional in the request — omit it to leave the org's
   // current setting untouched (e.g. a plain annual/semester toggle shouldn't
-  // silently reset a college's opt-in Faculty layer).
-  if (typeof req.body?.usesFaculty === 'boolean') set.usesFaculty = req.body.usesFaculty;
+  // silently reset a college's opt-in Faculty layer). Faculty is a
+  // higher-ed-only concept (see faculty/department controllers' usesFaculty
+  // gating) — reject turning it on for School/Training Center rather than
+  // silently storing a flag those controllers would otherwise have to
+  // second-guess against the institution type on every read.
+  if (typeof req.body?.usesFaculty === 'boolean') {
+    if (req.body.usesFaculty && !isHigherEdInstitutionType(institutionType)) {
+      throw new BadRequestError('Faculties are only supported for University and College organizations.');
+    }
+    set.usesFaculty = req.body.usesFaculty;
+  }
 
   const structure = await AcademicStructure.findOneAndUpdate(
     { school: schoolId },
