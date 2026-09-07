@@ -201,13 +201,40 @@ export function StudentsManage() {
   const loadMeta = useCallback(async () => {
     if (!organizationId) return;
     try {
-      const org = dataOf<Organization>(await api.get(`/schools/${organizationId}`)); setOrganization(org);
-      const requests: Promise<any>[] = [api.get(`/classes?schoolId=${organizationId}&status=active&limit=200`), api.get(`/programs?school=${organizationId}`)];
-      if (org.institutionType === 'university' || org.institutionType === 'college') requests.push(api.get(`/departments?school=${organizationId}`), api.get(`/faculties?school=${organizationId}`), api.get('/classes/academic-structure'));
-      const results = await Promise.all(requests); setClasses(dataOf<ClassItem[]>(results[0]) || []); setPrograms(dataOf<Program[]>(results[1]) || []);
-      if (results[2]) { setDepartments(dataOf<Department[]>(results[2]) || []); setFaculties(dataOf<Faculty[]>(results[3]) || []); setStructure(dataOf<AcademicStructure>(results[4]) || null); }
-      else { setDepartments([]); setFaculties([]); setStructure(null); }
-    } catch (err: any) { setError(err?.response?.data?.message || 'Failed to load organization structure.'); }
+      const org = dataOf<Organization>(await api.get(`/schools/${organizationId}`));
+      setOrganization(org);
+
+      const isHigherEd = org.institutionType === 'university' || org.institutionType === 'college';
+      const isTrainingCenter = org.institutionType === 'training_center';
+      const requests: Promise<any>[] = [api.get(`/classes?schoolId=${organizationId}&status=active&limit=200`)];
+
+      // Schools do not have Program/Department/Faculty routes in their academic model.
+      // Only request metadata that belongs to the current institution type.
+      if (isHigherEd || isTrainingCenter) requests.push(api.get(`/programs?school=${organizationId}`));
+      if (isHigherEd) {
+        requests.push(api.get(`/departments?school=${organizationId}`));
+        requests.push(api.get(`/faculties?school=${organizationId}`));
+        requests.push(api.get('/classes/academic-structure'));
+      }
+
+      const results = await Promise.all(requests);
+      setClasses(dataOf<ClassItem[]>(results[0]) || []);
+
+      if (isHigherEd || isTrainingCenter) setPrograms(dataOf<Program[]>(results[1]) || []);
+      else setPrograms([]);
+
+      if (isHigherEd) {
+        setDepartments(dataOf<Department[]>(results[2]) || []);
+        setFaculties(dataOf<Faculty[]>(results[3]) || []);
+        setStructure(dataOf<AcademicStructure>(results[4]) || null);
+      } else {
+        setDepartments([]);
+        setFaculties([]);
+        setStructure(null);
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to load organization structure.');
+    }
   }, [organizationId]);
 
   const loadStudents = useCallback(async () => {
