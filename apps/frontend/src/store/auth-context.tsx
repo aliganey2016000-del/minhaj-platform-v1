@@ -103,6 +103,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [user?.role]);
 
+  // Institution type is immutable for org admins. Keep the control visibly
+  // present for context, but make it genuinely non-interactive (including
+  // keyboard focus) whenever the Organization Management modal renders it.
+  useEffect(() => {
+    if (typeof document === 'undefined' || user?.role !== 'org_admin') return;
+
+    const lockInstitutionType = () => {
+      document.querySelectorAll<HTMLSelectElement>('select[name="institutionType"]').forEach((select) => {
+        select.disabled = true;
+        select.setAttribute('aria-disabled', 'true');
+        select.dataset.orgAdminLocked = 'true';
+        select.tabIndex = -1;
+      });
+    };
+
+    lockInstitutionType();
+    const observer = new MutationObserver(lockInstitutionType);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      observer.disconnect();
+      document.querySelectorAll<HTMLSelectElement>('select[data-org-admin-locked="true"]').forEach((select) => {
+        select.disabled = false;
+        select.removeAttribute('aria-disabled');
+        delete select.dataset.orgAdminLocked;
+        select.removeAttribute('tabindex');
+      });
+    };
+  }, [user?.role]);
+
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('accessToken');
