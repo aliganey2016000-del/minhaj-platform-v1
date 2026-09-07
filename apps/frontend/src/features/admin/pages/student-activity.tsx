@@ -282,29 +282,29 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                  <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Total courses</span>
-                    <p className="mt-2 text-3xl font-extrabold">{courses?.totalCourses || 0}</p>
+                <div className="grid grid-cols-4 gap-2 sm:gap-4">
+                  <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 sm:p-5 shadow-card">
+                    <span className="text-[9px] sm:text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Total courses</span>
+                    <p className="mt-2 text-lg sm:text-3xl font-extrabold">{courses?.totalCourses || 0}</p>
                   </div>
-                  <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Total duration</span>
-                    <p className="mt-2 text-3xl font-extrabold">{fmt(courses?.totalDurationSeconds || 0)}</p>
+                  <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 sm:p-5 shadow-card">
+                    <span className="text-[9px] sm:text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Total duration</span>
+                    <p className="mt-2 text-lg sm:text-3xl font-extrabold">{fmt(courses?.totalDurationSeconds || 0)}</p>
                   </div>
-                  <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Average score</span>
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-3xl font-extrabold">{averageScoreLabel}</p>
-                        <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{courses && courses.totalQuestions > 0 ? `${courses.correctAnswers} correct out of ${courses.totalQuestions} questions` : 'No quiz attempts'}</p>
+                  <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 sm:p-5 shadow-card">
+                    <span className="text-[9px] sm:text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Average score</span>
+                    <div className="mt-2 flex items-center justify-between gap-1 sm:gap-3">
+                      <div className="min-w-0">
+                        <p className="text-lg sm:text-3xl font-extrabold">{averageScoreLabel}</p>
+                        <p className="mt-1 text-[10px] sm:text-xs text-[var(--color-text-tertiary)] truncate">{courses && courses.totalQuestions > 0 ? `${courses.correctAnswers}/${courses.totalQuestions} correct` : 'No quiz attempts'}</p>
                       </div>
-                      <div className="h-14 w-14 rounded-full border-[7px] border-primary-100 flex items-center justify-center text-[11px] font-bold">{courses && courses.totalQuestions > 0 ? `${courses.correctAnswers}/${courses.totalQuestions}` : '—'}</div>
+                      <div className="hidden sm:flex h-14 w-14 shrink-0 rounded-full border-[7px] border-primary-100 items-center justify-center text-[11px] font-bold">{courses && courses.totalQuestions > 0 ? `${courses.correctAnswers}/${courses.totalQuestions}` : '—'}</div>
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Streak (days)</span>
-                    <p className="mt-2 text-3xl font-extrabold">{analytics?.learningStreakDays || 0} <span className="text-base font-bold text-[var(--color-text-tertiary)]">day{(analytics?.learningStreakDays || 0) === 1 ? '' : 's'}</span></p>
-                    <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Consecutive learning days</p>
+                  <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 sm:p-5 shadow-card">
+                    <span className="text-[9px] sm:text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Streak (days)</span>
+                    <p className="mt-2 text-lg sm:text-3xl font-extrabold">{analytics?.learningStreakDays || 0} <span className="text-xs sm:text-base font-bold text-[var(--color-text-tertiary)]">day{(analytics?.learningStreakDays || 0) === 1 ? '' : 's'}</span></p>
+                    <p className="mt-1 text-[10px] sm:text-xs text-[var(--color-text-tertiary)] hidden sm:block">Consecutive learning days</p>
                   </div>
                 </div>
 
