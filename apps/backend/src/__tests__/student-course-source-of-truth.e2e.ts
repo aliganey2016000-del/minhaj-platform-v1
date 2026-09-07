@@ -171,6 +171,20 @@ async function main() {
     assert(legacyCourseIds.length === 1, `legacy student's real course is preserved, not wiped (got ${JSON.stringify(legacyCourseIds)})`);
     assert(legacyCourseIds[0] === String(liveCourse._id), 'legacy student current course falls back to raw enrolledCourses');
     assert(!legacyCourseIds.includes(String(danglingCourseId)), 'dangling course id is still filtered out for legacy students');
+
+    // Same legacy student, but read through .populate('enrolledCourses') —
+    // the real path getMyCourses()/getMyDashboard() use. Population resolves
+    // BEFORE this post('findOne') hook runs, so by the time the fallback
+    // reads student.enrolledCourses, each entry is already a populated
+    // Course document, not a bare ObjectId. A prior fix regressed exactly
+    // this: it treated the populated documents as opaque ids, deduped them
+    // all into one bogus key, failed the existence lookup, and wiped the
+    // list back to [] — passing the unpopulated case above while silently
+    // breaking the one real callers actually use.
+    const legacyPopulated: any = await Student.findOne({ _id: legacyStudentId }).populate('enrolledCourses', 'title');
+    const legacyPopulatedIds = (legacyPopulated.enrolledCourses || []).map((c: any) => String(c._id || c));
+    assert(legacyPopulatedIds.length === 1, `legacy student's course survives a populated read (got ${JSON.stringify(legacyPopulatedIds)})`);
+    assert(legacyPopulatedIds[0] === String(liveCourse._id), 'populated legacy student course is the real course, not lost');
   }
 
   console.log(`\n${'='.repeat(60)}`);

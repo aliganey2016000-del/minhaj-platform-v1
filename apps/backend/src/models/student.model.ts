@@ -142,13 +142,24 @@ async function normalizeCurrentCourseLinks(student: any): Promise<void> {
     ? (Array.isArray(activeHistory.courses) ? activeHistory.courses : [])
     : (Array.isArray(student.enrolledCourses) ? student.enrolledCourses : []);
   const seen = new Set<string>();
-  const uniqueIds = courseIds.filter((courseId: any) => {
-    if (!courseId) return false;
-    const key = String(courseId);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const uniqueIds = courseIds
+    // This hook runs on the result AFTER .populate('enrolledCourses') has
+    // already resolved (population happens inside Query#exec, before post
+    // hooks fire) — the getMyCourses/getMyDashboard read paths always
+    // populate this field. So when falling back to the raw enrolledCourses
+    // above, each entry may already be a populated Course document rather
+    // than a bare ObjectId. Normalize to a plain id either way; treating a
+    // populated document as an opaque id would dedupe everything into one
+    // "[object Object]" key and fail the existence check below, silently
+    // wiping the very data this fallback exists to preserve.
+    .map((courseId: any) => (courseId && courseId._id ? courseId._id : courseId))
+    .filter((courseId: any) => {
+      if (!courseId) return false;
+      const key = String(courseId);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
   // Enrollment history is the write-side source of truth, but a course may
   // later be deleted/archived while an old ObjectId remains in history.
