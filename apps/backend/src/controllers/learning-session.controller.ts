@@ -82,7 +82,16 @@ export const heartbeat = async (req: Request, res: Response): Promise<Response> 
   const elapsed = Math.max(0, Math.floor((now.getTime() - session.lastHeartbeatAt.getTime()) / 1000));
   const bounded = Math.min(elapsed, MAX_HEARTBEAT_SECONDS);
 
-  if (elapsed > IDLE_THRESHOLD_SECONDS) session.idleSeconds += elapsed;
+  // Bounded like every other branch here (and like endSession's identical
+  // check): a gap longer than the idle threshold means the student was gone
+  // — a backgrounded tab on a sleeping phone sends nothing until the browser
+  // wakes it, so `elapsed` can be many hours. Adding it raw booked that whole
+  // absence as time-on-lesson, which is how a 90-second visit ended up
+  // reading "14h 23m, idle 14h 20m" and inflated every study-time total on
+  // the Student Activity page. The stale-session sweep normally expires such
+  // a session before this heartbeat lands; the cap is what makes a late one
+  // harmless.
+  if (elapsed > IDLE_THRESHOLD_SECONDS) session.idleSeconds += bounded;
   else if (active !== false) {
     session.activeSeconds += bounded;
     if (mediaPlaying === true || session.kind === 'video' || session.kind === 'audio') {
