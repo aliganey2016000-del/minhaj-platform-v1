@@ -220,6 +220,9 @@ export const getRoster = async (req: Request, res: Response): Promise<Response> 
     const blended = blendScores(scoreInfo, gateStats.get(s._id.toString()));
     return {
       _id: s._id,
+      // The presence socket identifies students by user id, so the roster has
+      // to carry it for live online/offline patches to find their row.
+      userId: userId || null,
       studentId: s.studentId,
       name: `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim(),
       email: s.user?.email,
