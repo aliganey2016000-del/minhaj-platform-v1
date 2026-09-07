@@ -73,6 +73,10 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     });
   }
 
+  // Normalize institutionType so callers never see an undefined/legacy value
+  // for a pre-migration document (see resolveInstitutionType doc comment).
+  result = result.map((item: any) => ({ ...item, institutionType: resolveInstitutionType(item) }));
+
   return ApiResponse.paginated(res, result, {
     page: pageNum,
     limit: limitNum,
@@ -97,7 +101,9 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
     throw new NotFoundError('School not found');
   }
 
-  return ApiResponse.success(res, school);
+  // Normalize institutionType so callers never see an undefined/legacy value
+  // for a pre-migration document (see resolveInstitutionType doc comment).
+  return ApiResponse.success(res, { ...school, institutionType: resolveInstitutionType(school) });
 };
 
 // ---------------------------------------------------------------------------

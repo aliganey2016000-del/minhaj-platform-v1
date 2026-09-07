@@ -48,6 +48,23 @@ export function resolveOrgIdForCreate(req: Request, clientProvidedValue?: unknow
   return clientProvidedValue;
 }
 
+/**
+ * Resolves which organization a read (list/get) request is allowed to see.
+ * Every non-platform role (org_admin, finance_manager, cashier, auditor,
+ * teacher, student, parent, staff) is bound to exactly one organization via
+ * their JWT — their own `organizationId` always wins, regardless of any
+ * `?school=` query param, so one org's teacher/student/parent can never read
+ * another org's data by passing a different id. Only the platform-level
+ * `admin` role (which owns no single organization) may target an arbitrary
+ * org via `orgIdParam`.
+ */
+export function resolveViewableOrgId(req: Request, orgIdParam?: unknown): string | undefined {
+  if (req.user?.role === 'admin') {
+    return orgIdParam ? String(orgIdParam) : undefined;
+  }
+  return req.user?.organizationId;
+}
+
 export async function getOwnTeacherRecord(req: Request) {
   if (req.user?.role !== 'teacher') return null;
   return Teacher.findOne({ user: req.user.userId });

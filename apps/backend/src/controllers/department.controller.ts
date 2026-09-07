@@ -5,27 +5,25 @@ import AcademicStructure from '../models/academic-structure.model';
 import ClassModel from '../models/class.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
-import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { assertOwnsOrg, resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
 import School from '../models/school.model';
+import { resolveInstitutionType, isHigherEdInstitutionType } from '../utils/academic-config';
 
 async function usesFaculty(tenantId: string): Promise<boolean> {
   const [structure, school] = await Promise.all([
     AcademicStructure.findOne({ school: tenantId }).select('usesFaculty').lean(),
     School.findById(tenantId).select('institutionType organizationType').lean(),
   ]);
-  return !!structure?.usesFaculty || school?.institutionType === 'university' || school?.organizationType === 'university';
+  return !!structure?.usesFaculty || (!!school && isHigherEdInstitutionType(resolveInstitutionType(school)));
 }
 
 const DEPARTMENT_LIMIT = 200;
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
   const filter: Record<string, unknown> = {};
-  if (req.user?.role === 'org_admin') {
-    if (!req.user.organizationId) return ApiResponse.success(res, []);
-    filter.tenantId = req.user.organizationId;
-  } else if (req.query.school) {
-    filter.tenantId = req.query.school as string;
-  }
+  const tenantId = resolveViewableOrgId(req, req.query.school);
+  if (!tenantId) return ApiResponse.success(res, []);
+  filter.tenantId = tenantId;
   if (req.query.faculty) filter.facultyId = req.query.faculty as string;
 
   const departments = await Department.find(filter)

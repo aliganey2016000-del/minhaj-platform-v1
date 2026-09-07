@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { AlertTriangle, Download, GraduationCap, Layers, MoreVertical, Pencil, Plus, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { type InstitutionType, resolveInstitutionType, isHigherEdInstitutionType } from '../../../lib/institution-type';
 
-type InstitutionType = 'school' | 'college' | 'university' | 'training_center';
 type AcademicSystem = 'annual' | 'semester';
 type StudentStatus = 'active' | 'inactive' | 'graduated' | 'suspended';
 type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
-type Organization = { _id: string; name: string; institutionType?: InstitutionType };
+type Organization = { _id: string; name: string; institutionType?: InstitutionType; organizationType?: InstitutionType };
 type AcademicStructure = { academicSystem: AcademicSystem; semestersPerAcademicYear: 1 | 2 | 3; usesFaculty?: boolean };
 type Faculty = { _id: string; name: string; code?: string };
 type Department = { _id: string; name: string; code?: string; facultyId?: string | Faculty | null };
@@ -78,8 +78,8 @@ function StudentModal({ student, organization, classes, faculties, departments, 
   const [programId, setProgramId] = useState('');
   const [error, setError] = useState(''); const [saving, setSaving] = useState(false);
 
-  const type = organization.institutionType || 'school';
-  const higherEd = type === 'university' || type === 'college';
+  const type = resolveInstitutionType(organization);
+  const higherEd = isHigherEdInstitutionType(type);
   const usesFaculty = higherEd && Boolean(structure?.usesFaculty || type === 'university');
 
   const selectedClass = classes.find(c => c._id === form.classId);
@@ -195,8 +195,8 @@ export function StudentsManage() {
   const [modal, setModal] = useState<{ open: boolean; student?: Student }>({ open: false }); const [view, setView] = useState<Student | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const type = organization?.institutionType || 'school';
-  const higherEd = type === 'university' || type === 'college';
+  const type = resolveInstitutionType(organization);
+  const higherEd = isHigherEdInstitutionType(type);
 
   const loadMeta = useCallback(async () => {
     if (!organizationId) return;
@@ -204,8 +204,9 @@ export function StudentsManage() {
       const org = dataOf<Organization>(await api.get(`/schools/${organizationId}`));
       setOrganization(org);
 
-      const isHigherEd = org.institutionType === 'university' || org.institutionType === 'college';
-      const isTrainingCenter = org.institutionType === 'training_center';
+      const orgType = resolveInstitutionType(org);
+      const isHigherEd = isHigherEdInstitutionType(orgType);
+      const isTrainingCenter = orgType === 'training_center';
       const requests: Promise<any>[] = [api.get(`/classes?schoolId=${organizationId}&status=active&limit=200`)];
 
       // Schools do not have Program/Department/Faculty routes in their academic model.

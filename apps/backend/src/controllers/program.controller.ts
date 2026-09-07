@@ -4,18 +4,15 @@ import Department from '../models/department.model';
 import ClassModel from '../models/class.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
-import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { assertOwnsOrg, resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
 
 const PROGRAM_LIMIT = 200;
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
   const filter: Record<string, unknown> = {};
-  if (req.user?.role === 'org_admin') {
-    if (!req.user.organizationId) return ApiResponse.success(res, []);
-    filter.school = req.user.organizationId;
-  } else if (req.query.school) {
-    filter.school = req.query.school as string;
-  }
+  const tenantId = resolveViewableOrgId(req, req.query.school);
+  if (!tenantId) return ApiResponse.success(res, []);
+  filter.school = tenantId;
   if (req.query.department) filter.department = req.query.department as string;
 
   const programs = await Program.find(filter)

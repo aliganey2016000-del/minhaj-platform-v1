@@ -4,22 +4,23 @@ import Department from '../models/department.model';
 import AcademicStructure from '../models/academic-structure.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/api-error';
-import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { assertOwnsOrg, resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
 import School from '../models/school.model';
+import { resolveInstitutionType, isHigherEdInstitutionType } from '../utils/academic-config';
 
 async function assertUsesFaculty(tenantId: string): Promise<void> {
   const [structure, school] = await Promise.all([
     AcademicStructure.findOne({ school: tenantId }).select('usesFaculty').lean(),
     School.findById(tenantId).select('institutionType organizationType').lean(),
   ]);
-  const universityUsesFaculty = school?.institutionType === 'university' || school?.organizationType === 'university';
-  if (!structure?.usesFaculty && !universityUsesFaculty) {
+  const higherEdUsesFaculty = !!school && isHigherEdInstitutionType(resolveInstitutionType(school));
+  if (!structure?.usesFaculty && !higherEdUsesFaculty) {
     throw new BadRequestError('Faculties are not enabled for this organization. Enable "Uses Faculty" in Academic Structure settings first.');
   }
 }
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const tenantId = req.user?.role === 'org_admin' ? req.user.organizationId : (req.query.school as string | undefined);
+  const tenantId = resolveViewableOrgId(req, req.query.school);
   if (!tenantId) return ApiResponse.success(res, []);
   const faculties = await Faculty.find({ tenantId }).sort({ name: 1 }).limit(200).lean();
   return ApiResponse.success(res, faculties);
