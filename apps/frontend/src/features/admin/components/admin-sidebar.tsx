@@ -112,8 +112,9 @@ const navSections: { title: string; items: NavEntry[] }[] = [
   {
     title: 'HR Management',
     items: [
-      { path: '/admin/staff',     label: 'Staff Directory',     icon: UserRound },
-      { path: '/admin/hr/access', label: 'Access & Permissions', icon: ShieldCheck },
+      { path: '/admin/staff',                    label: 'Staff Directory',     icon: UserRound },
+      { path: '/admin/hr?tab=attendance',         label: 'Staff Attendance',    icon: UsersRound },
+      { path: '/admin/hr/access',                 label: 'Access & Permissions', icon: ShieldCheck },
     ],
   },
   {
