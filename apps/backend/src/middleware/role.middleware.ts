@@ -35,6 +35,29 @@ export const roleMiddleware = (allowedRoles: AllowedRole[]) => {
           `Access denied. Required role(s): ${allowedRoles.join(', ')}. Your role: ${userRole}.`
         );
       }
+
+      // Institution type is a tenant-level classification, not an editable
+      // organization profile field. It determines the academic hierarchy,
+      // progression model, onboarding requirements, and the meaning of
+      // existing class/enrollment records. Org admins may edit their own
+      // organization details, but they must never be able to turn a School
+      // into a University (or vice versa) by sending institutionType through
+      // the generic PATCH /schools/:id endpoint.
+      //
+      // The platform admin (`admin`) owns any future institution-type
+      // migration workflow. Stripping both the new and legacy fields here
+      // also protects older clients that still submit organizationType.
+      if (
+        userRole === 'org_admin' &&
+        ['PATCH', 'PUT'].includes(req.method.toUpperCase()) &&
+        /^\/schools\/[^/]+$/.test(req.path)
+      ) {
+        if (req.body && typeof req.body === 'object') {
+          delete req.body.institutionType;
+          delete req.body.organizationType;
+        }
+      }
+
       next();
     } catch (error) {
       next(error);
