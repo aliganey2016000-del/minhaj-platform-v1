@@ -17,6 +17,9 @@ router.get('/export', asyncHandler(teacherController.exportTeachers as any));
 router.get('/template', asyncHandler(teacherController.downloadTemplate as any));
 router.post('/', asyncHandler(teacherController.create));
 router.post('/import', upload.single('file'), asyncHandler(teacherController.bulkImport));
+router.post('/:id/photo', upload.single('photo'), asyncHandler(teacherController.uploadPhoto));
+router.get('/:id/documents', asyncHandler(teacherController.listDocuments));
+router.post('/:id/documents', upload.single('file'), asyncHandler(teacherController.uploadDocument));
 // Registered before /:id so "bulk" is never swallowed as an id param.
 router.delete('/bulk', asyncHandler(teacherController.bulkRemove));
 router.get('/:id', asyncHandler(teacherController.getById));

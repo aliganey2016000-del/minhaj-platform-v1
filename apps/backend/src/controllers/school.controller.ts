@@ -340,6 +340,19 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     if (req.params.id !== req.user.organizationId) {
       throw new ForbiddenError("You do not have permission to update another organization.");
     }
+    // Institution classification is a platform-level governance decision.
+    // Never allow an organization administrator to change it, including via
+    // a forged API request using either the current or legacy field name.
+    const currentSchool = await School.findById(req.params.id).select('institutionType organizationType').lean();
+    const requestedType = updates.institutionType ?? updates.organizationType;
+    if (requestedType !== undefined && currentSchool) {
+      const currentType = resolveInstitutionType(currentSchool);
+      if (requestedType !== currentType) {
+        throw new ForbiddenError('Only a super administrator can change the organization type.');
+      }
+      delete updates.institutionType;
+      delete updates.organizationType;
+    }
     // Activation/suspension is super-admin only, via PATCH /:id/status —
     // strip it here so an org_admin can't reactivate/suspend themselves
     // through the general-purpose update endpoint.

@@ -4,6 +4,10 @@
 @tailwind components;
 @tailwind utilities;
 
+.fixed.inset-0.z-50 > div[class*="max-h-[92vh]"] > div[class*="space-y-4"] > div[class*="gap-4"] > div:first-child > p:first-of-type {
+  display: none;
+}
+
 @layer base {
   :root {
     --color-surface-primary: #ffffff;

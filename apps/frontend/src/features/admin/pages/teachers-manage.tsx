@@ -8,7 +8,8 @@ type TeacherStatus = 'active' | 'inactive' | 'on_leave';
 type CoursePermission = 'COURSE_BUILDER' | 'STUDENT_VIEW';
 
 interface Organization { _id: string; name: string; institutionType?: InstitutionType; organizationType?: string; status?: string; }
-interface Teacher { _id: string; teacherId: string; profile?: { firstName?: string; lastName?: string; gender?: string }; user?: { email?: string; phone?: string; isActive?: boolean }; qualification?: string; specialization?: string[]; experience?: number; bio?: string; status: TeacherStatus; joiningDate?: string; coursePermission?: CoursePermission; school?: { _id: string; name: string }; }
+interface Teacher { _id: string; teacherId: string; profile?: { firstName?: string; lastName?: string; gender?: string; avatar?: string }; user?: { email?: string; phone?: string; isActive?: boolean }; qualification?: string; specialization?: string[]; experience?: number; bio?: string; status: TeacherStatus; joiningDate?: string; coursePermission?: CoursePermission; school?: { _id: string; name: string }; }
+interface TeacherDocument { _id: string; title: string; fileUrl: string; fileName: string; }
 interface Course { _id: string; title?: { en?: string; so?: string; ar?: string }; status?: string; teacher?: string | { _id?: string }; class?: { _id?: string; title?: string; section?: string }; }
 
 const inputClass = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20';
@@ -37,14 +38,17 @@ function Modal({ title, children, onClose, wide = false }: { title: string; chil
 function TeacherFormModal({ teacher, organizationId, organization, onClose, onSaved }: { teacher?: Teacher; organizationId: string; organization?: Organization; onClose: () => void; onSaved: () => void }) {
   const edit = !!teacher;
   const [form, setForm] = useState(() => teacher ? { ...emptyForm, email: teacher.user?.email || '', firstName: teacher.profile?.firstName || '', lastName: teacher.profile?.lastName || '', gender: teacher.profile?.gender || 'male', phone: teacher.user?.phone || '', qualification: teacher.qualification || '', specialization: (teacher.specialization || []).join(', '), experience: teacher.experience || 0, bio: teacher.bio || '', joiningDate: teacher.joiningDate ? new Date(teacher.joiningDate).toISOString().slice(0, 10) : emptyForm.joiningDate } : emptyForm);
-  const [saving, setSaving] = useState(false); const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const [photo, setPhoto] = useState<File | null>(null); const [document, setDocument] = useState<File | null>(null);
   const set = (key: string, value: string | number) => setForm(p => ({ ...p, [key]: value }));
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setError('');
     try {
       const payload: any = { firstName: form.firstName, lastName: form.lastName, gender: form.gender, school: organizationId, qualification: form.qualification, specialization: form.specialization.split(',').map(s => s.trim()).filter(Boolean), experience: Number(form.experience), bio: form.bio, joiningDate: form.joiningDate };
+      let savedId = teacher?._id;
       if (edit) { payload.email = form.email; payload.phone = form.phone || undefined; if (form.password) payload.password = form.password; await api.patch(`/teachers/${teacher!._id}`, payload); }
-      else { payload.email = form.email; payload.password = form.password; payload.phone = form.phone || undefined; await api.post('/teachers', payload); }
+      else { payload.email = form.email; payload.password = form.password; payload.phone = form.phone || undefined; const response = await api.post('/teachers', payload); savedId = response.data?.data?._id; }
+      if (savedId && photo) { const body = new FormData(); body.append('photo', photo); await api.post(`/teachers/${savedId}/photo`, body); }
+      if (savedId && document) { const body = new FormData(); body.append('file', document); body.append('title', document.name); await api.post(`/teachers/${savedId}/documents`, body); }
       onSaved(); onClose();
     } catch (e: any) { setError(e.response?.data?.message || e.message || 'Failed to save teacher'); } finally { setSaving(false); }
   };
@@ -59,16 +63,20 @@ function TeacherFormModal({ teacher, organizationId, organization, onClose, onSa
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Qualification<input className={inputClass} value={form.qualification} onChange={e => set('qualification', e.target.value)} placeholder="e.g. Bachelor's / Master's" /></label><label className="text-xs font-semibold">Experience (years)<input className={inputClass} type="number" min={0} value={form.experience} onChange={e => set('experience', Number(e.target.value))} /></label></div>
       <label className="text-xs font-semibold">Specialization (comma separated)<input className={inputClass} value={form.specialization} onChange={e => set('specialization', e.target.value)} placeholder="Tajweed, Fiqh, Mathematics" /></label>
       <label className="text-xs font-semibold">Bio<textarea className={inputClass} rows={3} value={form.bio} onChange={e => set('bio', e.target.value)} /></label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Profile Photo<input className={inputClass} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={e => setPhoto(e.target.files?.[0] || null)} /></label><label className="text-xs font-semibold">Document Attachment<input className={inputClass} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={e => setDocument(e.target.files?.[0] || null)} /></label></div>
       <div className="flex gap-2 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold">Cancel</button><button disabled={saving} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Saving...' : edit ? 'Update Teacher' : 'Create Teacher'}</button></div>
     </form>
   </Modal>;
 }
 
 function ViewModal({ teacher, assignedCourses, onClose }: { teacher: Teacher; assignedCourses: Course[]; onClose: () => void }) {
-  return <Modal title="Teacher Details" onClose={onClose}>
-    <div className="mb-4 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary-100 text-lg font-bold text-primary-700">{teacher.profile?.firstName?.[0]}{teacher.profile?.lastName?.[0]}</div><h3 className="mt-2 text-lg font-bold">{teacherName(teacher)}</h3><p className="text-xs text-[var(--color-text-tertiary)]">{teacher.teacherId}</p></div>
+  const [documents, setDocuments] = useState<TeacherDocument[]>([]);
+  useEffect(() => { api.get(`/teachers/${teacher._id}/documents`).then(response => setDocuments(dataOf<TeacherDocument[]>(response) || [])).catch(() => setDocuments([])); }, [teacher._id]);
+  return <Modal title="Teacher Profile" onClose={onClose}>
+    <div className="mb-5 rounded-2xl bg-gradient-to-br from-primary-700 to-emerald-600 p-5 text-center text-white"><div className="mx-auto h-24 w-24 overflow-hidden rounded-2xl bg-white/20 text-2xl font-bold leading-[6rem] ring-4 ring-white/25">{teacher.profile?.avatar ? <img src={teacher.profile.avatar} alt={teacherName(teacher)} className="h-full w-full object-cover" /> : `${teacher.profile?.firstName?.[0] || ''}${teacher.profile?.lastName?.[0] || ''}`}</div><h3 className="mt-3 text-xl font-bold">{teacherName(teacher)}</h3><p className="font-mono text-xs text-white/80">{teacher.teacherId}</p><div className="mt-2"><StatusBadge status={teacher.status} /></div></div>
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><Info label="Email" value={teacher.user?.email || '—'} /><Info label="Phone" value={teacher.user?.phone || '—'} /><Info label="Organization" value={teacher.school?.name || 'Current organization'} /><Info label="Status" value={<StatusBadge status={teacher.status} />} /><Info label="Qualification" value={teacher.qualification || '—'} /><Info label="Experience" value={`${teacher.experience || 0} years`} /><Info label="Specialization" value={teacher.specialization?.join(', ') || '—'} /><Info label="Course Permission" value={teacher.coursePermission === 'STUDENT_VIEW' ? 'Student View' : 'Course Builder'} /></div>
     <div className="mt-4 rounded-xl border border-[var(--color-border-default)] p-3"><div className="mb-2 flex items-center gap-2 font-semibold"><BookOpen size={16} /> Assigned Courses ({assignedCourses.length})</div>{assignedCourses.length ? <div className="space-y-2">{assignedCourses.map(c => <div key={c._id} className="rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-sm"><div className="font-medium">{c.title?.en || 'Untitled course'}</div>{c.class && <div className="text-xs text-[var(--color-text-tertiary)]">{c.class.title || 'Class'}{c.class.section ? ` • ${c.class.section}` : ''}</div>}</div>)}</div> : <p className="text-sm text-[var(--color-text-tertiary)]">No courses assigned.</p>}</div>
+    <div className="mt-4 rounded-xl border border-[var(--color-border-default)] p-3"><p className="mb-2 font-semibold">Documents</p>{documents.length ? <div className="space-y-2">{documents.map(document => <a key={document._id} href={document.fileUrl} target="_blank" rel="noreferrer" className="block rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-sm text-primary-700 hover:underline">{document.title || document.fileName}</a>)}</div> : <p className="text-sm text-[var(--color-text-tertiary)]">No documents attached.</p>}</div>
     {teacher.bio && <p className="mt-4 text-sm text-[var(--color-text-secondary)]">{teacher.bio}</p>}
   </Modal>;
 }

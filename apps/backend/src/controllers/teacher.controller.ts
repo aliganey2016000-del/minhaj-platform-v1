@@ -16,6 +16,11 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { persistStudentPhoto } from './student-documents.controller';
+import TeacherDocument from '../models/teacher-document.model';
 
 // ---------------------------------------------------------------------------
 // GET /teachers — List all teachers with optional filters
@@ -42,7 +47,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   let query = Teacher.find(scopedFilter)
     .populate('user', 'email phone isVerified isActive')
-    .populate('profile', 'firstName lastName gender')
+    .populate('profile', 'firstName lastName gender avatar')
     .populate('school', 'name')
     .populate('courses', 'title.en slug')
     .sort({ createdAt: -1 });
@@ -85,6 +90,36 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
   return ApiResponse.success(res, teacher);
 };
 
+export const uploadPhoto = async (req: Request, res: Response): Promise<Response> => {
+  const teacher: any = await Teacher.findById(req.params.id);
+  if (!teacher) throw new NotFoundError('Teacher');
+  assertOwnsOrg(req, teacher, 'school');
+  if (!req.file) throw new BadRequestError('Photo file is required');
+  const avatar = await persistStudentPhoto(teacher.profile, teacher.school, req.file);
+  return ApiResponse.success(res, { avatar }, 'Teacher photo updated');
+};
+
+export const listDocuments = async (req: Request, res: Response): Promise<Response> => {
+  const teacher: any = await Teacher.findById(req.params.id);
+  if (!teacher) throw new NotFoundError('Teacher');
+  assertOwnsOrg(req, teacher, 'school');
+  return ApiResponse.success(res, await TeacherDocument.find({ teacher: teacher._id }).sort({ createdAt: -1 }).lean());
+};
+
+export const uploadDocument = async (req: Request, res: Response): Promise<Response> => {
+  const teacher: any = await Teacher.findById(req.params.id);
+  if (!teacher) throw new NotFoundError('Teacher');
+  assertOwnsOrg(req, teacher, 'school');
+  if (!req.file) throw new BadRequestError('Document file is required');
+  const directory = path.join(process.cwd(), 'uploads', 'teacher-documents', String(teacher.school || 'unassigned'), String(teacher._id));
+  fs.mkdirSync(directory, { recursive: true });
+  const safeName = (req.file.originalname || 'document').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const filename = `${crypto.randomUUID()}-${safeName}`;
+  fs.writeFileSync(path.join(directory, filename), req.file.buffer);
+  const document = await TeacherDocument.create({ teacher: teacher._id, school: teacher.school, title: String(req.body.title || safeName), fileUrl: `/uploads/teacher-documents/${teacher.school || 'unassigned'}/${teacher._id}/${filename}`, fileName: req.file.originalname || filename, mimeType: req.file.mimetype, fileSize: req.file.size });
+  return ApiResponse.created(res, document, 'Teacher document uploaded');
+};
+
 // ---------------------------------------------------------------------------
 // POST /teachers — Create a new teacher (with User + Profile)
 // ---------------------------------------------------------------------------
@@ -119,7 +154,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const populated = await Teacher.findById(teacher._id)
     .populate('user', 'email phone isVerified isActive')
-    .populate('profile', 'firstName lastName gender')
+    .populate('profile', 'firstName lastName gender avatar')
     .populate('school', 'name');
 
   return ApiResponse.created(res, populated, 'Teacher created successfully');
@@ -431,7 +466,7 @@ export const exportTeachers = async (req: Request, res: Response): Promise<void>
 
   const teachers = await Teacher.find(filter)
     .populate('user', 'email')
-    .populate('profile', 'firstName lastName gender')
+    .populate('profile', 'firstName lastName gender avatar')
     .populate('school', 'name')
     .sort({ createdAt: -1 })
     .lean();

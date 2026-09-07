@@ -27,6 +27,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as studentController from '../../controllers/student.controller';
+import * as studentDocumentsController from '../../controllers/student-documents.controller';
+import * as studentRegistrationController from '../../controllers/student-registration.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import {
   roleMiddleware,
@@ -37,6 +39,11 @@ import {
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
+
+const photoUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
@@ -75,6 +82,7 @@ router.get(
 router.post(
   '/',
   adminOnly,
+  photoUpload.single('photo'),
   asyncHandler(studentController.create)
 );
 
@@ -84,6 +92,77 @@ router.post(
   adminOnly,
   upload.single('file'),
   asyncHandler(studentController.bulkImport)
+);
+
+router.get(
+  '/document-types',
+  anyAuthenticatedUser,
+  asyncHandler(studentDocumentsController.getDocumentTypes)
+);
+
+// Student photos and documents are private subresources. Their controllers
+// perform the final student/organization/role authorization checks.
+router.post(
+  '/:studentId/photo',
+  adminOnly,
+  photoUpload.single('photo'),
+  asyncHandler(studentDocumentsController.uploadPhoto)
+);
+
+router.get(
+  '/:studentId/document-types',
+  anyAuthenticatedUser,
+  asyncHandler(studentDocumentsController.getDocumentTypes)
+);
+
+router.get(
+  '/:studentId/documents',
+  anyAuthenticatedUser,
+  asyncHandler(studentDocumentsController.list)
+);
+
+router.post(
+  '/:studentId/documents',
+  adminOnly,
+  upload.single('file'),
+  asyncHandler(studentDocumentsController.upload)
+);
+
+router.get(
+  '/:studentId/documents/:documentId/view',
+  anyAuthenticatedUser,
+  asyncHandler(studentDocumentsController.view)
+);
+
+router.delete(
+  '/:studentId/documents/:documentId',
+  adminOnly,
+  asyncHandler(studentDocumentsController.remove)
+);
+
+router.patch(
+  '/:studentId/documents/:documentId',
+  adminOnly,
+  upload.single('file'),
+  asyncHandler(studentDocumentsController.update)
+);
+
+router.get(
+  '/:studentId/registration',
+  anyAuthenticatedUser,
+  asyncHandler(studentRegistrationController.get)
+);
+
+router.post(
+  '/:studentId/registration',
+  adminOnly,
+  asyncHandler(studentRegistrationController.upsert)
+);
+
+router.patch(
+  '/:studentId/registration',
+  adminOnly,
+  asyncHandler(studentRegistrationController.upsert)
 );
 
 // GET /api/v1/students/export — Export students (admin + org_admin)

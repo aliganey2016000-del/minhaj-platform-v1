@@ -25,6 +25,7 @@ import Course from '../models/course.model';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, assertCanAccessStudent, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import { syncStudentCourseEnrollment, reassignStudentClassCourses } from '../services/enrollment.service';
+import { persistStudentPhoto } from './student-documents.controller';
 
 // Nested-populate the guardian's actual email/phone/name — a shallow
 // `.populate(PARENT_POPULATE)` leaves those as raw ObjectIds, which
@@ -566,6 +567,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   });
 
   const profile = await Profile.create({ user: user._id, firstName, lastName, gender });
+  if (req.file) await persistStudentPhoto(profile._id, resolvedSchool, req.file);
 
   // Cascade Department + Shift/Learning Mode from the selected Class —
   // stamped onto the student record so the directory table and any
@@ -582,9 +584,9 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     const dept = (classDoc as any).department;
     department = typeof dept === 'string' ? dept : dept?.name || undefined;
     shiftMode = classDoc.shiftMode;
-    if ((classDoc as any).gradeLevel !== null && (classDoc as any).gradeLevel !== undefined) {
-      req.body.grade = String((classDoc as any).gradeLevel);
-    }
+    req.body.grade = (classDoc as any).gradeLevel !== null && (classDoc as any).gradeLevel !== undefined
+      ? String((classDoc as any).gradeLevel)
+      : String((classDoc as any).title || '').trim() || undefined;
   }
 
   const student = await Student.create({
@@ -717,9 +719,9 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       const dept = (classDoc as any).department;
       (student as any).department = typeof dept === 'string' ? dept : dept?.name || undefined;
       (student as any).shiftMode = classDoc.shiftMode;
-      if ((classDoc as any).gradeLevel !== null && (classDoc as any).gradeLevel !== undefined) {
-        student.grade = String((classDoc as any).gradeLevel);
-      }
+      student.grade = (classDoc as any).gradeLevel !== null && (classDoc as any).gradeLevel !== undefined
+        ? String((classDoc as any).gradeLevel)
+        : String((classDoc as any).title || '').trim() || undefined;
     } else {
       student.department = undefined;
       student.shiftMode = undefined;

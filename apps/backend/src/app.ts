@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -73,6 +74,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 app.use(securityLogging);
+app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
 
 // ---------------------------------------------------------------------------
 // Rate Limiting
