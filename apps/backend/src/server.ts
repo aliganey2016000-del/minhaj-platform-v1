@@ -89,10 +89,17 @@ async function startServer() {
     const app = appModule.default;
 
     const { initSocket } = await import('./realtime/socket');
+    const { expireStaleSessions } = await import('./controllers/learning-session.controller');
 
     // Connect to MongoDB
     await mongoose.connect(MONGODB_URI);
     console.log('✅ Connected to MongoDB');
+
+    // Learning sessions left open by a closed tab/app never get an `endedAt`
+    // from the client, so sweep idle ones server-side.
+    setInterval(() => {
+      expireStaleSessions().catch((error) => console.error('[expireStaleSessions] failed:', error));
+    }, 60_000);
 
     // Start Express server (wrapped in a raw http.Server so Socket.IO can
     // share the same port instead of needing a separate one)

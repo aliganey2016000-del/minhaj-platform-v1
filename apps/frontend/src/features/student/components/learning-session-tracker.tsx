@@ -62,6 +62,40 @@ export function LearningSessionTracker() {
       }
     };
 
+    // Fired on tab close / app kill, where the async endCurrent() below
+    // would get cancelled mid-flight. sendBeacon can't carry the Bearer
+    // token this API requires, so use a keepalive fetch instead — it
+    // survives page teardown the same way.
+    const endCurrentOnPageHide = () => {
+      const current = sessionRef.current;
+      if (!current) return;
+      sessionRef.current = null;
+      const token = localStorage.getItem('accessToken');
+      if (!token) return;
+      const loginSessionId = localStorage.getItem('loginSessionId');
+      const video = document.querySelector('video') as HTMLVideoElement | null;
+      try {
+        void fetch('/api/v1/activity/session/end', {
+          method: 'POST',
+          keepalive: true,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            ...(loginSessionId ? { 'X-Login-Session-Id': loginSessionId } : {}),
+          },
+          body: JSON.stringify({
+            clientSessionId: current.id,
+            active: document.visibilityState === 'visible' && (!video || !video.paused),
+            mediaPlaying: document.visibilityState === 'visible' && !!video && !video.paused && !video.ended,
+            playbackDeltaSeconds: 0,
+          }),
+        });
+      } catch {
+        // Tracking must never interrupt learning.
+      }
+    };
+    window.addEventListener('pagehide', endCurrentOnPageHide);
+
     const startForLesson = async (lesson: { title: string }) => {
       if (cancelled) return;
       if (sessionRef.current?.title === lesson.title) return;
@@ -148,6 +182,7 @@ export function LearningSessionTracker() {
       window.clearInterval(initialTimer);
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', endCurrentOnPageHide);
       void endCurrent();
     };
   }, [isAuthenticated, user?.id, user?.role, pathname]);
