@@ -73,6 +73,17 @@ const formatLastActivity = (value?: string | null) => {
   return `Last activity: ${date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} · ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 };
 
+const courseThemes = [
+  { card: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50', icon: 'bg-emerald-500 text-white', title: 'text-emerald-950 dark:text-emerald-50', sub: 'text-emerald-700/70 dark:text-emerald-300/60', track: 'bg-emerald-200/70 dark:bg-emerald-900/50', bar: 'from-emerald-600 to-emerald-400', stat: 'bg-white/60 dark:bg-black/20 border-emerald-200/70 dark:border-emerald-800/50', statLabel: 'text-emerald-700/70 dark:text-emerald-300/60', statValue: 'text-emerald-950 dark:text-emerald-50', divider: 'border-emerald-200/70 dark:border-emerald-800/50' },
+  { card: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900/50', icon: 'bg-blue-500 text-white', title: 'text-blue-950 dark:text-blue-50', sub: 'text-blue-700/70 dark:text-blue-300/60', track: 'bg-blue-200/70 dark:bg-blue-900/50', bar: 'from-blue-600 to-blue-400', stat: 'bg-white/60 dark:bg-black/20 border-blue-200/70 dark:border-blue-800/50', statLabel: 'text-blue-700/70 dark:text-blue-300/60', statValue: 'text-blue-950 dark:text-blue-50', divider: 'border-blue-200/70 dark:border-blue-800/50' },
+  { card: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900/50', icon: 'bg-amber-500 text-white', title: 'text-amber-950 dark:text-amber-50', sub: 'text-amber-700/70 dark:text-amber-300/60', track: 'bg-amber-200/70 dark:bg-amber-900/50', bar: 'from-amber-600 to-amber-400', stat: 'bg-white/60 dark:bg-black/20 border-amber-200/70 dark:border-amber-800/50', statLabel: 'text-amber-700/70 dark:text-amber-300/60', statValue: 'text-amber-950 dark:text-amber-50', divider: 'border-amber-200/70 dark:border-amber-800/50' },
+  { card: 'bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-900/50', icon: 'bg-purple-500 text-white', title: 'text-purple-950 dark:text-purple-50', sub: 'text-purple-700/70 dark:text-purple-300/60', track: 'bg-purple-200/70 dark:bg-purple-900/50', bar: 'from-purple-600 to-purple-400', stat: 'bg-white/60 dark:bg-black/20 border-purple-200/70 dark:border-purple-800/50', statLabel: 'text-purple-700/70 dark:text-purple-300/60', statValue: 'text-purple-950 dark:text-purple-50', divider: 'border-purple-200/70 dark:border-purple-800/50' },
+  { card: 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/50', icon: 'bg-rose-500 text-white', title: 'text-rose-950 dark:text-rose-50', sub: 'text-rose-700/70 dark:text-rose-300/60', track: 'bg-rose-200/70 dark:bg-rose-900/50', bar: 'from-rose-600 to-rose-400', stat: 'bg-white/60 dark:bg-black/20 border-rose-200/70 dark:border-rose-800/50', statLabel: 'text-rose-700/70 dark:text-rose-300/60', statValue: 'text-rose-950 dark:text-rose-50', divider: 'border-rose-200/70 dark:border-rose-800/50' },
+  { card: 'bg-cyan-50 dark:bg-cyan-950/30 border-cyan-200 dark:border-cyan-900/50', icon: 'bg-cyan-500 text-white', title: 'text-cyan-950 dark:text-cyan-50', sub: 'text-cyan-700/70 dark:text-cyan-300/60', track: 'bg-cyan-200/70 dark:bg-cyan-900/50', bar: 'from-cyan-600 to-cyan-400', stat: 'bg-white/60 dark:bg-black/20 border-cyan-200/70 dark:border-cyan-800/50', statLabel: 'text-cyan-700/70 dark:text-cyan-300/60', statValue: 'text-cyan-950 dark:text-cyan-50', divider: 'border-cyan-200/70 dark:border-cyan-800/50' },
+  { card: 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-900/50', icon: 'bg-indigo-500 text-white', title: 'text-indigo-950 dark:text-indigo-50', sub: 'text-indigo-700/70 dark:text-indigo-300/60', track: 'bg-indigo-200/70 dark:bg-indigo-900/50', bar: 'from-indigo-600 to-indigo-400', stat: 'bg-white/60 dark:bg-black/20 border-indigo-200/70 dark:border-indigo-800/50', statLabel: 'text-indigo-700/70 dark:text-indigo-300/60', statValue: 'text-indigo-950 dark:text-indigo-50', divider: 'border-indigo-200/70 dark:border-indigo-800/50' },
+  { card: 'bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-900/50', icon: 'bg-orange-500 text-white', title: 'text-orange-950 dark:text-orange-50', sub: 'text-orange-700/70 dark:text-orange-300/60', track: 'bg-orange-200/70 dark:bg-orange-900/50', bar: 'from-orange-600 to-orange-400', stat: 'bg-white/60 dark:bg-black/20 border-orange-200/70 dark:border-orange-800/50', statLabel: 'text-orange-700/70 dark:text-orange-300/60', statValue: 'text-orange-950 dark:text-orange-50', divider: 'border-orange-200/70 dark:border-orange-800/50' },
+];
+
 function matchesSession(event: ActivityEvent, session: SessionRow) {
   if (session.loginSessionId && event.loginSessionId !== session.loginSessionId) return false;
   if (session.course && event.course?._id && session.course !== event.course._id) return false;
@@ -346,11 +357,12 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                       <h3 className="text-xl font-bold">Learning by course</h3>
                       <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Every enrolled course with real duration, progress, quiz performance and latest activity.</p>
                     </div>
-                    <div className="divide-y divide-[var(--color-border-subtle)]">
-                      {courses?.courses.map((course) => {
+                    <div className="p-4 sm:p-5 grid grid-cols-1 gap-4">
+                      {courses?.courses.map((course, index) => {
+                        const theme = courseThemes[index % courseThemes.length];
                         const title = course.title?.en || course.title?.so || course.title?.ar || 'Untitled course';
                         const statusText = course.status === 'completed' ? 'Completed' : course.status === 'in_progress' ? 'In Progress' : 'Not Started';
-                        const statusClasses = course.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : course.status === 'in_progress' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-600 border border-slate-200';
+                        const statusClasses = course.status === 'completed' ? 'bg-emerald-500 text-white' : course.status === 'in_progress' ? 'bg-white/70 dark:bg-black/30 ' + theme.title : 'bg-white/70 dark:bg-black/30 ' + theme.sub;
                         const progressWidth = Math.min(100, Math.max(0, course.progressPercent));
                         const quizValueText = course.totalQuestions > 0 ? formatPercent(course.averageScore) : '—';
                         const detailOpen = expanded === course.id;
@@ -358,49 +370,43 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                         const metricStudy = course.status === 'not_started' ? '0m' : fmtShortDuration(course.activeSeconds);
 
                         return (
-                          <article key={course.id} className="p-5 sm:p-6 transition-colors">
-                            <div className="flex flex-wrap items-start justify-between gap-4">
-                              <div className="flex min-w-0 gap-4">
-                                <div className="h-12 w-12 shrink-0 rounded-2xl bg-primary-50 text-primary-700 grid place-items-center text-xl">📚</div>
+                          <article key={course.id} className={`rounded-2xl border p-4 sm:p-5 transition-colors ${theme.card}`}>
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="flex min-w-0 gap-3">
+                                <div className={`h-10 w-10 shrink-0 rounded-xl grid place-items-center text-lg ${theme.icon}`}>📚</div>
                                 <div className="min-w-0">
                                   <div className="flex flex-wrap items-center gap-2">
-                                    <h4 className="text-lg font-bold break-words">{title}</h4>
-                                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold ${statusClasses}`}>{statusText}</span>
+                                    <h4 className={`text-base font-bold break-words ${theme.title}`}>{title}</h4>
+                                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${statusClasses}`}>{statusText}</span>
                                   </div>
-                                  <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{course.category || 'Course'} · {course.level || 'Beginner'}</p>
+                                  <p className={`mt-0.5 text-xs ${theme.sub}`}>{course.category || 'Course'} · {course.level || 'Beginner'}</p>
                                 </div>
                               </div>
+                              <span className={`shrink-0 text-2xl font-extrabold leading-none ${theme.title}`}>{course.progressPercent}%</span>
                             </div>
 
-                            <div className="mt-5">
-                              <div className="flex items-center justify-between gap-3 text-sm text-[var(--color-text-tertiary)]">
-                                <span className="font-semibold text-[var(--color-text-secondary)]">Course progress</span>
-                                <span className="text-3xl font-extrabold text-[var(--color-text-primary)] leading-none">{course.progressPercent}%</span>
-                              </div>
-                              <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[var(--color-surface-secondary)]">
-                                <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400" style={{ width: `${progressWidth}%` }} />
-                              </div>
+                            <div className={`mt-3 h-2 overflow-hidden rounded-full ${theme.track}`}>
+                              <div className={`h-full rounded-full bg-gradient-to-r ${theme.bar}`} style={{ width: `${progressWidth}%` }} />
                             </div>
 
-                            <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
-                              <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3">
-                                <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">Study time</div>
-                                <div className="mt-2 text-xl font-bold text-[var(--color-text-primary)]">{metricStudy}</div>
+                            <div className="mt-3 grid grid-cols-3 gap-2 text-left">
+                              <div className={`rounded-lg border p-2 ${theme.stat}`}>
+                                <div className={`text-[9px] uppercase tracking-[0.06em] ${theme.statLabel}`}>Study time</div>
+                                <div className={`mt-0.5 text-sm font-bold truncate ${theme.statValue}`}>{metricStudy}</div>
                               </div>
-                              <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3">
-                                <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">Quiz score</div>
-                                <div className="mt-2 text-xl font-bold text-[var(--color-text-primary)]">{quizValueText}</div>
-                                {course.totalQuestions > 0 ? <div className="mt-1 text-xs text-[var(--color-text-tertiary)]">{course.correctAnswers} / {course.totalQuestions} correct</div> : <div className="mt-1 text-xs text-[var(--color-text-tertiary)]">No attempts</div>}
+                              <div className={`rounded-lg border p-2 ${theme.stat}`}>
+                                <div className={`text-[9px] uppercase tracking-[0.06em] ${theme.statLabel}`}>Quiz score</div>
+                                <div className={`mt-0.5 text-sm font-bold truncate ${theme.statValue}`}>{quizValueText}</div>
                               </div>
-                              <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3">
-                                <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">Lessons</div>
-                                <div className="mt-2 text-xl font-bold text-[var(--color-text-primary)]">{metricLessons}</div>
+                              <div className={`rounded-lg border p-2 ${theme.stat}`}>
+                                <div className={`text-[9px] uppercase tracking-[0.06em] ${theme.statLabel}`}>Lessons</div>
+                                <div className={`mt-0.5 text-sm font-bold truncate ${theme.statValue}`}>{metricLessons}</div>
                               </div>
                             </div>
 
-                            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border-subtle)] pt-4">
-                              <div className="text-xs text-[var(--color-text-tertiary)]">{formatLastActivity(course.lastAccessed)}</div>
-                              <button type="button" onClick={() => setExpanded(detailOpen ? null : course.id)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3.5 py-2 text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
+                            <div className={`mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3 ${theme.divider}`}>
+                              <div className={`text-xs ${theme.sub}`}>{formatLastActivity(course.lastAccessed)}</div>
+                              <button type="button" onClick={() => setExpanded(detailOpen ? null : course.id)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold hover:bg-white/50 dark:hover:bg-black/20 ${theme.stat} ${theme.title}`}>
                                 View details <span aria-hidden="true">→</span>
                               </button>
                             </div>
