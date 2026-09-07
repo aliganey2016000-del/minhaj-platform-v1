@@ -9,6 +9,7 @@ import { Router } from 'express';
 import * as ctrl from '../../controllers/school.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
+import { preventOrgAdminInstitutionTypeChange } from '../../middleware/institution-type-lock.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
@@ -21,8 +22,14 @@ router.get('/', adminOrTeacher, asyncHandler(ctrl.getAll));
 router.get('/:id', adminOrTeacher, asyncHandler(ctrl.getById));
 router.get('/:id/onboarding', adminOnly, asyncHandler(ctrl.getOnboardingStatus));
 
-// ── Update own org info (admin, or org_admin for their own organization only) ──
-router.patch('/:id', adminOnly, asyncHandler(ctrl.update));
+// ── Update own org info (admin, or org_admin for their own organization only).
+// Institution type is explicitly locked for org_admin at the route boundary.
+router.patch(
+  '/:id',
+  adminOnly,
+  preventOrgAdminInstitutionTypeChange,
+  asyncHandler(ctrl.update),
+);
 router.patch('/:id/complete-onboarding', adminOnly, asyncHandler(ctrl.completeOnboarding));
 
 // ── Registering new organizations, activation/deactivation, and deletion are
