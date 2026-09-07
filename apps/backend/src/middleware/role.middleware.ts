@@ -41,16 +41,18 @@ export const roleMiddleware = (allowedRoles: AllowedRole[]) => {
       // progression model, onboarding requirements, and the meaning of
       // existing class/enrollment records. Org admins may edit their own
       // organization details, but they must never be able to turn a School
-      // into a University (or vice versa) by sending institutionType through
-      // the generic PATCH /schools/:id endpoint.
+      // into a University (or vice versa) through the generic organization
+      // update endpoint.
       //
       // The platform admin (`admin`) owns any future institution-type
-      // migration workflow. Stripping both the new and legacy fields here
-      // also protects older clients that still submit organizationType.
+      // migration workflow. Strip both the new and legacy classification
+      // fields from org-admin PATCH/PUT requests so older clients cannot
+      // bypass the lock by submitting organizationType instead.
+      const requestPath = `${req.baseUrl}${req.path}`;
       if (
         userRole === 'org_admin' &&
         ['PATCH', 'PUT'].includes(req.method.toUpperCase()) &&
-        /^\/schools\/[^/]+$/.test(req.path)
+        /^\/schools\/[^/]+$/.test(requestPath)
       ) {
         if (req.body && typeof req.body === 'object') {
           delete req.body.institutionType;
