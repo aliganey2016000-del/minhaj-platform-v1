@@ -22,6 +22,8 @@ interface CourseRow {
   correctAnswers: number;
   totalQuestions: number;
   quizAttempts: number;
+  gateQuestions: number;
+  scoredUnits: number;
   quizzesPassed: number;
   lessonsCompleted: number;
   totalLessons: number;
@@ -37,6 +39,8 @@ interface CourseAnalytics {
   correctAnswers: number;
   totalQuestions: number;
   totalQuizAttempts: number;
+  totalGateQuestions: number;
+  totalScoredUnits: number;
   completedCourses: number;
   inProgressCourses: number;
   notStartedCourses: number;
@@ -229,7 +233,10 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     URL.revokeObjectURL(url);
   };
 
-  const averageScoreLabel = courses && courses.totalQuizAttempts > 0 ? `${Math.round(courses.averageScore ?? 0)}%` : '—';
+  // Keyed off the score itself, not off standalone-quiz attempts: the backend
+  // blends in Interactive Gate ("Stop & Check") answers, so a student who has
+  // only ever answered in-lesson questions still has a real score to show.
+  const averageScoreLabel = courses?.averageScore == null ? '—' : `${Math.round(courses.averageScore)}%`;
 
   return (
     <div className="p-4 sm:p-6 lg:p-10 pt-20 lg:pt-10">
@@ -296,7 +303,7 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                     <div className="mt-2 flex items-center justify-between gap-1 sm:gap-3">
                       <div className="min-w-0">
                         <p className="text-lg sm:text-3xl font-extrabold">{averageScoreLabel}</p>
-                        <p className="mt-1 text-[10px] sm:text-xs text-[var(--color-text-tertiary)] truncate">{courses && courses.totalQuestions > 0 ? `${courses.correctAnswers}/${courses.totalQuestions} correct` : 'No quiz attempts'}</p>
+                        <p className="mt-1 text-[10px] sm:text-xs text-[var(--color-text-tertiary)] truncate">{courses && courses.totalQuestions > 0 ? `${courses.correctAnswers}/${courses.totalQuestions} correct` : 'No questions answered yet'}</p>
                       </div>
                       <div className="hidden sm:flex h-14 w-14 shrink-0 rounded-full border-[7px] border-primary-100 items-center justify-center text-[11px] font-bold">{courses && courses.totalQuestions > 0 ? `${courses.correctAnswers}/${courses.totalQuestions}` : '—'}</div>
                     </div>
@@ -365,7 +372,7 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                         const statusText = course.status === 'completed' ? 'Completed' : course.status === 'in_progress' ? 'In Progress' : 'Not Started';
                         const statusClasses = course.status === 'completed' ? 'bg-emerald-500 text-white' : course.status === 'in_progress' ? 'bg-white/70 dark:bg-black/30 ' + theme.title : 'bg-white/70 dark:bg-black/30 ' + theme.sub;
                         const progressWidth = Math.min(100, Math.max(0, course.progressPercent));
-                        const quizValueText = course.quizAttempts > 0 ? formatPercent(course.averageScore) : '—';
+                        const quizValueText = formatPercent(course.averageScore);
                         const detailOpen = expanded === course.id;
                         const metricLessons = course.status === 'not_started' ? `0 / ${course.totalLessons || 0}` : `${course.completedItems || 0} / ${course.totalItems || course.totalLessons || 0}`;
                         const metricStudy = course.status === 'not_started' ? '0m' : fmtShortDuration(course.activeSeconds);
@@ -434,6 +441,10 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                                   <div className="rounded-xl bg-[var(--color-surface-primary)] p-3">
                                     <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">Quiz attempts</div>
                                     <div className="mt-2 font-bold">{course.quizAttempts || '—'}</div>
+                                  </div>
+                                  <div className="rounded-xl bg-[var(--color-surface-primary)] p-3">
+                                    <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">Stop &amp; Check answered</div>
+                                    <div className="mt-2 font-bold">{course.gateQuestions || '—'}</div>
                                   </div>
                                   <div className="rounded-xl bg-[var(--color-surface-primary)] p-3">
                                     <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">Correct answers</div>
