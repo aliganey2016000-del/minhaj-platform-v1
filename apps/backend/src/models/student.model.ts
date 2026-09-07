@@ -130,7 +130,17 @@ async function normalizeCurrentCourseLinks(student: any): Promise<void> {
         .sort((a: any, b: any) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime())[0]
     : undefined;
 
-  const courseIds = Array.isArray(activeHistory?.courses) ? activeHistory.courses : [];
+  // Enrollment history is only trusted as the source of truth once it
+  // actually has an active entry. Records created (or bulk-imported) before
+  // enrollmentHistory tracking existed — or written by any path that sets
+  // enrolledCourses without also pushing a history entry — have no active
+  // entry at all. Treating "no active entry" as "zero courses" silently
+  // wiped real enrollment data (and persisted the wipe on the next
+  // student.save(), e.g. from an unrelated profile edit). Fall back to the
+  // raw stored enrolledCourses in that case instead of discarding it.
+  const courseIds = activeHistory
+    ? (Array.isArray(activeHistory.courses) ? activeHistory.courses : [])
+    : (Array.isArray(student.enrolledCourses) ? student.enrolledCourses : []);
   const seen = new Set<string>();
   const uniqueIds = courseIds.filter((courseId: any) => {
     if (!courseId) return false;

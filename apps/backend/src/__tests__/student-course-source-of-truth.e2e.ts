@@ -146,6 +146,33 @@ async function main() {
     assert((read.enrolledCourses || []).length === 0, `${status} student exposes zero current courses`);
   }
 
+  section('LEGACY STUDENT — no active enrollment-history entry falls back to raw enrolledCourses');
+  {
+    // Reproduces real students enrolled before enrollmentHistory tracking
+    // existed (or via any path that sets enrolledCourses without pushing a
+    // history entry). The read normalization must NOT treat "no active
+    // history entry" as "zero courses" — that previously wiped real
+    // enrollment data on the next unrelated student.save().
+    const legacyStudentId = new mongoose.Types.ObjectId();
+    await Student.create({
+      _id: legacyStudentId,
+      user: new mongoose.Types.ObjectId(),
+      profile: new mongoose.Types.ObjectId(),
+      school: new mongoose.Types.ObjectId(),
+      class: classTwo,
+      studentId: 'STU-LEGACY-001',
+      status: 'active',
+      enrolledCourses: [liveCourse._id, danglingCourseId],
+      enrollmentHistory: [],
+    });
+
+    const legacyRead: any = await Student.findOne({ _id: legacyStudentId });
+    const legacyCourseIds = (legacyRead.enrolledCourses || []).map((id: any) => String(id));
+    assert(legacyCourseIds.length === 1, `legacy student's real course is preserved, not wiped (got ${JSON.stringify(legacyCourseIds)})`);
+    assert(legacyCourseIds[0] === String(liveCourse._id), 'legacy student current course falls back to raw enrolledCourses');
+    assert(!legacyCourseIds.includes(String(danglingCourseId)), 'dangling course id is still filtered out for legacy students');
+  }
+
   console.log(`\n${'='.repeat(60)}`);
   if (failures === 0) console.log('ALL CHECKS PASSED (0 failures)');
   else console.log(`${failures} CHECK(S) FAILED`);
