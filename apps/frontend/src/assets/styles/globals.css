@@ -92,9 +92,6 @@
 }
 
 @layer components {
-  /* Org Admins can see their institution type but cannot interact with the
-     selector. Backend authorization is authoritative; this prevents the UI
-     from presenting a misleading editable control. */
   html[data-user-role='org_admin'] select[name='institutionType'] {
     pointer-events: none;
     cursor: not-allowed;
@@ -117,10 +114,6 @@
     font-size: 11px;
   }
 
-  /* Canonical admin section labels: hide the legacy titles even when the
-     section is collapsed. The sidebar renders each section as a direct
-     .mb-1 child of this nav, so these selectors cover the closed and open
-     states consistently on mobile and desktop. */
   nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div.mb-1:nth-of-type(2) > button > span {
     font-size: 0 !important;
   }
@@ -135,6 +128,40 @@
     content: 'Finance Management';
     font-size: 11px;
   }
+
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div > button.w-full.text-left.rounded-2xl {
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div > button.w-full.text-left.rounded-2xl:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.10);
+  }
+
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 1) > button.w-full.text-left.rounded-2xl { background: #ecfdf5; border-color: #a7f3d0; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 2) > button.w-full.text-left.rounded-2xl { background: #eff6ff; border-color: #bfdbfe; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 3) > button.w-full.text-left.rounded-2xl { background: #fffbeb; border-color: #fde68a; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 4) > button.w-full.text-left.rounded-2xl { background: #faf5ff; border-color: #e9d5ff; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 5) > button.w-full.text-left.rounded-2xl { background: #fff1f2; border-color: #fecdd3; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 6) > button.w-full.text-left.rounded-2xl { background: #ecfeff; border-color: #a5f3fc; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 7) > button.w-full.text-left.rounded-2xl { background: #eef2ff; border-color: #c7d2fe; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 8) > button.w-full.text-left.rounded-2xl { background: #fff7ed; border-color: #fed7aa; }
+
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div > button.w-full.text-left.rounded-2xl > div:nth-child(2) > div {
+    border-radius: 0.75rem;
+    padding: 0.55rem 0.65rem;
+    background: rgba(255, 255, 255, 0.58);
+  }
+  .dark section:has(button.w-full.text-left.rounded-2xl) .divide-y > div > button.w-full.text-left.rounded-2xl > div:nth-child(2) > div { background: rgba(0, 0, 0, 0.18); }
+
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 1) > button span:first-child { background: #d1fae5; color: #047857; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 2) > button span:first-child { background: #dbeafe; color: #1d4ed8; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 3) > button span:first-child { background: #fef3c7; color: #b45309; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 4) > button span:first-child { background: #f3e8ff; color: #7e22ce; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 5) > button span:first-child { background: #ffe4e6; color: #be123c; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 6) > button span:first-child { background: #cffafe; color: #0e7490; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 7) > button span:first-child { background: #e0e7ff; color: #4338ca; }
+  section:has(button.w-full.text-left.rounded-2xl) .divide-y > div:nth-child(8n + 8) > button span:first-child { background: #ffedd5; color: #c2410c; }
 }
 
 @media (max-width: 639px) {
@@ -159,55 +186,15 @@
   table.table-fixed tbody tr > td:nth-child(n+3) input { min-width: 0; width: 100%; min-height: 2.35rem; padding: 0.48rem 0.5rem !important; font-size: 0.82rem !important; text-align: center; box-sizing: border-box; }
   table.table-fixed tbody tr > td:nth-child(n+3) p { margin-top: 0.2rem !important; }
 
-  /* Class Schedules: keep the page actions in the title row on phones. */
-  div:has(> div > h1 > svg.lucide-calendar-days) {
-    flex-direction: row !important;
-    align-items: flex-start !important;
-    justify-content: space-between !important;
-    gap: 0.75rem !important;
-  }
-  div:has(> div > h1 > svg.lucide-calendar-days) > div:first-child {
-    min-width: 0;
-  }
-  div:has(> div > h1 > svg.lucide-calendar-days) > div:first-child h1 {
-    font-size: 1.5rem;
-    line-height: 2rem;
-    min-width: 0;
-  }
-  div:has(> div > h1 > svg.lucide-calendar-days) > div:first-child h1 > svg.lucide-calendar-days {
-    width: 1.75rem;
-    height: 1.75rem;
-    flex: 0 0 auto;
-  }
-  div:has(> div > h1 > svg.lucide-calendar-days) > div:last-child {
-    flex: 0 0 auto;
-    flex-wrap: nowrap !important;
-  }
+  div:has(> div > h1 > svg.lucide-calendar-days) { flex-direction: row !important; align-items: flex-start !important; justify-content: space-between !important; gap: 0.75rem !important; }
+  div:has(> div > h1 > svg.lucide-calendar-days) > div:first-child { min-width: 0; }
+  div:has(> div > h1 > svg.lucide-calendar-days) > div:first-child h1 { font-size: 1.5rem; line-height: 2rem; min-width: 0; }
+  div:has(> div > h1 > svg.lucide-calendar-days) > div:first-child h1 > svg.lucide-calendar-days { width: 1.75rem; height: 1.75rem; flex: 0 0 auto; }
+  div:has(> div > h1 > svg.lucide-calendar-days) > div:last-child { flex: 0 0 auto; flex-wrap: nowrap !important; }
 
-  /* Manage Classes: keep the three-dot actions in the title row on phones. */
-  div:has(> div > h1 > svg.lucide-school) {
-    flex-direction: row !important;
-    align-items: flex-start !important;
-    justify-content: space-between !important;
-    gap: 0.75rem !important;
-  }
-  div:has(> div > h1 > svg.lucide-school) > div:first-child {
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-  div:has(> div > h1 > svg.lucide-school) > div:first-child h1 {
-    min-width: 0;
-    font-size: 1.5rem;
-    line-height: 2rem;
-  }
-  div:has(> div > h1 > svg.lucide-school) > div:first-child h1 > svg.lucide-school {
-    width: 1.75rem;
-    height: 1.75rem;
-    flex: 0 0 auto;
-  }
-  div:has(> div > h1 > svg.lucide-school) > div:last-child {
-    flex: 0 0 auto;
-    flex-wrap: nowrap !important;
-    white-space: nowrap;
-  }
+  div:has(> div > h1 > svg.lucide-school) { flex-direction: row !important; align-items: flex-start !important; justify-content: space-between !important; gap: 0.75rem !important; }
+  div:has(> div > h1 > svg.lucide-school) > div:first-child { min-width: 0; flex: 1 1 auto; }
+  div:has(> div > h1 > svg.lucide-school) > div:first-child h1 { min-width: 0; font-size: 1.5rem; line-height: 2rem; }
+  div:has(> div > h1 > svg.lucide-school) > div:first-child h1 > svg.lucide-school { width: 1.75rem; height: 1.75rem; flex: 0 0 auto; }
+  div:has(> div > h1 > svg.lucide-school) > div:last-child { flex: 0 0 auto; flex-wrap: nowrap !important; white-space: nowrap; }
 }
