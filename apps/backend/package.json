@@ -22,6 +22,7 @@
     "test:exam-duration": "ts-node src/__tests__/exam-attempt-duration.e2e.ts",
     "test:class-department-filter": "ts-node src/__tests__/class-department-filter.e2e.ts",
     "test:institution-structure-tenant-isolation": "ts-node src/__tests__/institution-structure-tenant-isolation.e2e.ts",
+    "test:academic-config-consistency": "ts-node src/__tests__/academic-config-consistency.e2e.ts",
     "test:student-search-phone": "ts-node src/__tests__/student-search-phone.e2e.ts",
     "test:activity-deleted-course": "ts-node src/__tests__/activity-deleted-course-and-regex.e2e.ts",
     "test:student-course-source-of-truth": "ts-node src/__tests__/student-course-source-of-truth.e2e.ts",

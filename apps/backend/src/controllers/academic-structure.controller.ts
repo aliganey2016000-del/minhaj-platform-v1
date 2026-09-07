@@ -40,7 +40,9 @@ export const updateStructure = async (req: Request, res: Response): Promise<Resp
 
   const academicSystem = String(req.body?.academicSystem || '').trim() as AcademicSystem;
   const semestersPerAcademicYear = Number(req.body?.semestersPerAcademicYear);
-  validateAcademicConfig(academicSystem, semestersPerAcademicYear);
+  const school = await School.findById(schoolId).select('_id institutionType organizationType').lean();
+  if (!school) throw new NotFoundError('Organization');
+  validateAcademicConfig(academicSystem, semestersPerAcademicYear, resolveInstitutionType(school));
 
   const set: Record<string, unknown> = {
     academicSystem,

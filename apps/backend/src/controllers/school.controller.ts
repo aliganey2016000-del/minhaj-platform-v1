@@ -142,7 +142,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const defaults = defaultAcademicConfig(institutionType);
   const resolvedAcademicSystem = academicSystem !== undefined ? academicSystem : defaults.academicSystem;
   const resolvedSemesters = semestersPerAcademicYear !== undefined ? Number(semestersPerAcademicYear) : defaults.semestersPerAcademicYear;
-  validateAcademicConfig(resolvedAcademicSystem, resolvedSemesters);
+  validateAcademicConfig(resolvedAcademicSystem, resolvedSemesters, institutionType);
 
   const payload = {
     ...schoolFields,
@@ -319,7 +319,7 @@ export const completeOnboarding = async (req: Request, res: Response): Promise<R
   if (!structure) {
     throw new BadRequestError('Academic structure has not been configured for this organization yet.');
   }
-  validateAcademicConfig(structure.academicSystem, structure.semestersPerAcademicYear);
+  validateAcademicConfig(structure.academicSystem, structure.semestersPerAcademicYear, resolveInstitutionType(school));
 
   school.onboardingCompleted = true;
   await school.save();
