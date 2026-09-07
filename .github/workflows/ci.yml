@@ -2,12 +2,13 @@ name: SAHAL CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, security/hardening-2026-09]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
-# Keep CI attached to every main-branch push so dashboard changes get a fresh run.
+permissions:
+  contents: read
 
 jobs:
   backend:
@@ -29,6 +30,38 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Dependency audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --audit-level=high --json > audit.json
+          audit_status=$?
+          set -e
+          if [ "$audit_status" -gt 1 ]; then
+            echo "npm audit failed to produce a usable result (exit $audit_status)."
+            cat audit.json
+            exit "$audit_status"
+          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('audit.json', 'utf8'));
+          const allowed = new Set(['xlsx']);
+          const blocking = Object.entries(report.vulnerabilities || {})
+            .filter(([name, item]) => ['high', 'critical'].includes(item.severity) && !allowed.has(name));
+          const allowedFindings = Object.entries(report.vulnerabilities || {})
+            .filter(([name, item]) => ['high', 'critical'].includes(item.severity) && allowed.has(name));
+          for (const [name] of allowedFindings) {
+            console.warn(`::warning::Known high/critical vulnerability in ${name}: no npm fix is currently available. Track replacement of this dependency.`);
+          }
+          if (blocking.length) {
+            console.error('Blocking high/critical dependency vulnerabilities:');
+            for (const [name, item] of blocking) {
+              console.error(`- ${name}: ${item.severity}`);
+            }
+            process.exit(1);
+          }
+          NODE
 
       - name: TypeScript build
         run: npx tsc
@@ -62,14 +95,13 @@ jobs:
           cache: npm
           cache-dependency-path: apps/frontend/package-lock.json
 
-      # npm 11.14+ has a regression that can reject valid lockfiles during npm ci.
-      # Pin the known-good npm 11.13.0 client until that regression is resolved.
-      - name: Use known-good npm
-        run: npx --yes npm@11.13.0 --version
-
-      # Keep frontend installation deterministic from package-lock.json.
+      # Pin the npm client used for deterministic lockfile installation.
       - name: Install dependencies
         run: npx --yes npm@11.13.0 ci
+
+      # The deployed frontend is static; Node/Vite/build-time dependencies are dev-only.
+      - name: Production dependency audit
+        run: npx --yes npm@11.13.0 audit --omit=dev --audit-level=high
 
       - name: Build
         run: npm run build
