@@ -36,6 +36,7 @@ interface CourseAnalytics {
   averageScore: number | null;
   correctAnswers: number;
   totalQuestions: number;
+  totalQuizAttempts: number;
   completedCourses: number;
   inProgressCourses: number;
   notStartedCourses: number;
@@ -228,7 +229,7 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     URL.revokeObjectURL(url);
   };
 
-  const averageScoreLabel = courses && courses.totalQuestions > 0 ? `${Math.round(courses.averageScore ?? 0)}%` : '—';
+  const averageScoreLabel = courses && courses.totalQuizAttempts > 0 ? `${Math.round(courses.averageScore ?? 0)}%` : '—';
 
   return (
     <div className="p-4 sm:p-6 lg:p-10 pt-20 lg:pt-10">
@@ -364,7 +365,7 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                         const statusText = course.status === 'completed' ? 'Completed' : course.status === 'in_progress' ? 'In Progress' : 'Not Started';
                         const statusClasses = course.status === 'completed' ? 'bg-emerald-500 text-white' : course.status === 'in_progress' ? 'bg-white/70 dark:bg-black/30 ' + theme.title : 'bg-white/70 dark:bg-black/30 ' + theme.sub;
                         const progressWidth = Math.min(100, Math.max(0, course.progressPercent));
-                        const quizValueText = course.totalQuestions > 0 ? formatPercent(course.averageScore) : '—';
+                        const quizValueText = course.quizAttempts > 0 ? formatPercent(course.averageScore) : '—';
                         const detailOpen = expanded === course.id;
                         const metricLessons = course.status === 'not_started' ? `0 / ${course.totalLessons || 0}` : `${course.completedItems || 0} / ${course.totalItems || course.totalLessons || 0}`;
                         const metricStudy = course.status === 'not_started' ? '0m' : fmtShortDuration(course.activeSeconds);

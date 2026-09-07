@@ -29,7 +29,7 @@ export const getStudentCourseAnalytics = async (req: Request, res: Response): Pr
 
   const courseIds = (student.enrolledCourses || []).map((id) => new mongoose.Types.ObjectId(id));
   if (!courseIds.length) {
-    return ApiResponse.success(res, { totalCourses: 0, totalDurationSeconds: 0, totalActiveSeconds: 0, averageScore: null, correctAnswers: 0, totalQuestions: 0, completedCourses: 0, inProgressCourses: 0, notStartedCourses: 0, courses: [] });
+    return ApiResponse.success(res, { totalCourses: 0, totalDurationSeconds: 0, totalActiveSeconds: 0, averageScore: null, correctAnswers: 0, totalQuestions: 0, totalQuizAttempts: 0, completedCourses: 0, inProgressCourses: 0, notStartedCourses: 0, courses: [] });
   }
 
   const [courses, progressDocs, quizRows, sessionRows] = await Promise.all([
@@ -84,13 +84,17 @@ export const getStudentCourseAnalytics = async (req: Request, res: Response): Pr
     const lastAccessed = [safeDate(progress?.lastAccessed), safeDate(sessions?.lastSessionAt), safeDate(quiz?.lastAttemptAt)].filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0] || null;
     const totalQuestions = quiz?.totalQuestions || 0;
     const correctAnswers = quiz?.correctAnswers || 0;
-    const averageScore = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : null;
+    const quizAttempts = quiz?.attempts || 0;
+    // Average of each quiz block's own percentage (e.g. a 3-question checkpoint scoring
+    // 2/3 = 67%, plus a standalone quiz scoring 100%, plus another scoring 70% -> (67+100+70)/3),
+    // not a weighted average of raw correct/total counts across attempts.
+    const averageScore = quizAttempts > 0 && typeof quiz?.averageScore === 'number' ? Math.round(quiz.averageScore) : null;
 
     return {
       id: course._id, title: course.title, level: course.level, category: course.category, courseStatus: course.status, status,
       progressPercent, totalDurationSeconds, activeSeconds, idleSeconds, watchSeconds: sessions?.watchSeconds || 0,
       sessionCount: sessions?.sessions || 0, averageScore, correctAnswers, totalQuestions,
-      quizAttempts: quiz?.attempts || 0, quizzesPassed: quiz?.passed || 0, lessonsCompleted: progress?.completedLessons || 0,
+      quizAttempts, quizzesPassed: quiz?.passed || 0, lessonsCompleted: progress?.completedLessons || 0,
       totalLessons: Array.isArray(course.syllabus) ? course.syllabus.length : 0, completedItems, totalItems,
       lastAccessed: lastAccessed?.toISOString() || null,
     };
@@ -98,13 +102,15 @@ export const getStudentCourseAnalytics = async (req: Request, res: Response): Pr
 
   const totalCorrectAnswers = rows.reduce((sum, row) => sum + row.correctAnswers, 0);
   const totalQuestions = rows.reduce((sum, row) => sum + row.totalQuestions, 0);
-  const averageScore = totalQuestions > 0 ? Math.round((totalCorrectAnswers / totalQuestions) * 100) : null;
+  const totalQuizAttempts = rows.reduce((sum, row) => sum + row.quizAttempts, 0);
+  const weightedScoreSum = rows.reduce((sum, row) => sum + (row.averageScore ?? 0) * row.quizAttempts, 0);
+  const averageScore = totalQuizAttempts > 0 ? Math.round(weightedScoreSum / totalQuizAttempts) : null;
   const activeRows = rows.filter((row) => row.activeSeconds > 0 || row.watchSeconds > 0 || row.sessionCount > 0);
   const totalDurationSeconds = rows.reduce((sum, row) => sum + row.totalDurationSeconds, 0);
   const totalActiveSeconds = rows.reduce((sum, row) => sum + row.activeSeconds, 0);
 
   return ApiResponse.success(res, {
-    totalCourses: rows.length, totalDurationSeconds, totalActiveSeconds, averageScore, correctAnswers: totalCorrectAnswers, totalQuestions,
+    totalCourses: rows.length, totalDurationSeconds, totalActiveSeconds, averageScore, correctAnswers: totalCorrectAnswers, totalQuestions, totalQuizAttempts,
     completedCourses: rows.filter((row) => row.status === 'completed').length,
     inProgressCourses: rows.filter((row) => row.status === 'in_progress').length,
     notStartedCourses: rows.filter((row) => row.status === 'not_started').length,
