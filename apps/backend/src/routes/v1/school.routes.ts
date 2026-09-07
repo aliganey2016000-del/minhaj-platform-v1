@@ -23,11 +23,13 @@ router.get('/:id', adminOrTeacher, asyncHandler(ctrl.getById));
 router.get('/:id/onboarding', adminOnly, asyncHandler(ctrl.getOnboardingStatus));
 
 // ── Update own org info (admin, or org_admin for their own organization only).
-// Institution type is explicitly locked for org_admin at the route boundary.
+// The institution-type lock must run BEFORE adminOnly because the legacy
+// role middleware strips this field from org-admin requests; we need to reject
+// the attempted mutation explicitly rather than silently accepting it.
 router.patch(
   '/:id',
-  adminOnly,
   preventOrgAdminInstitutionTypeChange,
+  adminOnly,
   asyncHandler(ctrl.update),
 );
 router.patch('/:id/complete-onboarding', adminOnly, asyncHandler(ctrl.completeOnboarding));
