@@ -21,6 +21,7 @@ const inputClass = 'w-full rounded-xl border border-[var(--color-border-default)
 function InstitutionStructure() {
   const { user } = useAuth();
   const { tenant } = useTenant();
+  const organizationId = user?.organizationId ?? '';
   const [faculties, setFaculties] = useState<Faculty[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [name, setName] = useState('');
@@ -35,18 +36,18 @@ function InstitutionStructure() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const isUniversity = organizationType === 'university';
-  const schoolQuery = user?.organizationId ? `?school=${encodeURIComponent(user.organizationId)}` : '';
+  const schoolQuery = organizationId ? `?school=${encodeURIComponent(organizationId)}` : '';
 
   useEffect(() => {
     let cancelled = false;
-    if (!user?.organizationId) {
+    if (!organizationId) {
       setOrganizationType(tenant?.organizationType || null);
       return;
     }
 
     (async () => {
       try {
-        const response = await api.get(`/schools/${encodeURIComponent(user.organizationId)}`);
+        const response = await api.get(`/schools/${encodeURIComponent(organizationId)}`);
         if (!cancelled) {
           setOrganizationType(response.data?.data?.organizationType || tenant?.organizationType || null);
         }
@@ -56,7 +57,7 @@ function InstitutionStructure() {
     })();
 
     return () => { cancelled = true; };
-  }, [user?.organizationId, tenant?.organizationType]);
+  }, [organizationId, tenant?.organizationType]);
 
   const load = async () => {
     if (!organizationType) return;
@@ -73,13 +74,13 @@ function InstitutionStructure() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, [organizationType, user?.organizationId]);
+  useEffect(() => { load(); }, [organizationType, organizationId]);
 
   const saveFaculty = async () => {
     if (!name.trim()) return setError('Faculty name is required');
     setSaving(true); setError('');
     try {
-      const payload = { name: name.trim(), code: code.trim() || undefined, tenantId: user?.organizationId || undefined };
+      const payload = { name: name.trim(), code: code.trim() || undefined, tenantId: organizationId || undefined };
       if (editingFaculty) await api.patch(`/departments/faculties/${editingFaculty}`, payload);
       else await api.post('/departments/faculties', payload);
       setName(''); setCode(''); setEditingFaculty(null); await load();
@@ -92,7 +93,7 @@ function InstitutionStructure() {
     if (isUniversity && !departmentFacultyId) return setError('Select a faculty for university departments');
     setSaving(true); setError('');
     try {
-      const payload = { name: departmentName.trim(), code: departmentCode.trim() || undefined, facultyId: isUniversity ? departmentFacultyId : undefined, tenantId: user?.organizationId || undefined };
+      const payload = { name: departmentName.trim(), code: departmentCode.trim() || undefined, facultyId: isUniversity ? departmentFacultyId : undefined, tenantId: organizationId || undefined };
       if (editingDepartment) await api.patch(`/departments/${editingDepartment}`, payload);
       else await api.post('/departments', payload);
       setDepartmentName(''); setDepartmentCode(''); setDepartmentFacultyId(''); setEditingDepartment(null); await load();
