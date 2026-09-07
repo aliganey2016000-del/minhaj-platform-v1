@@ -20,16 +20,16 @@
  * that fix was deployed — the code fix alone cannot bring those back
  * because their stored enrolledCourses field is genuinely `[]` now.
  *
- * Recovery source, per affected student:
- *   1. The `progress` collection — a (student, course) pair only ever gets
- *      created when that student actually opened/worked a course. This is
- *      durable proof of real enrollment, stored in a separate collection
- *      the bug never touched.
- *   2. Any course id ever recorded anywhere in enrollmentHistory (any
- *      status, not just "active") — supplementary signal.
- * Both are filtered down to courses that still exist. A student with no
- * signal in either place is left untouched (nothing to recover — may be a
- * genuinely new/unenrolled student, not a bug victim).
+ * Recovery source, per affected student — every collection that records a
+ * (student, course) pair only when that student actually did something in
+ * that course, so each is durable proof of real enrollment the bug never
+ * touched: `progress`, `lessonblockprogresses`, `learningactivities`,
+ * `quizattempts`, `assignmentsubmissions`, `learningsessions`. Plus, as a
+ * supplementary signal, any course id ever recorded anywhere in
+ * enrollmentHistory (any status, not just "active").
+ * All of these are filtered down to courses that still exist. A student
+ * with no signal in any of them is left untouched (nothing to recover —
+ * may be a genuinely new/unenrolled student, not a bug victim).
  *
  * This only ever WRITES to `enrolledCourses` (and, for touched courses,
  * recalculates the cached `enrolledStudents` seat count). It never touches
@@ -69,8 +69,19 @@ async function main() {
   const db = mongoose.connection.db!;
   const students = db.collection('students');
   const users = db.collection('users');
-  const progress = db.collection('progress');
   const courses = db.collection('courses');
+
+  // Every collection below records a (student, course) pair only when the
+  // student actually did something in that course — durable, independent
+  // proof of real enrollment untouched by the enrolledCourses wipe bug.
+  const activityCollections = [
+    'progress',
+    'lessonblockprogresses',
+    'learningactivities',
+    'quizattempts',
+    'assignmentsubmissions',
+    'learningsessions',
+  ].map((name) => db.collection(name));
 
   let studentFilter: Record<string, any> = {
     status: 'active',
@@ -95,12 +106,15 @@ async function main() {
   const touchedCourseIds = new Set<string>();
 
   for (const s of candidates) {
-    const fromProgress = await progress.distinct('course', { student: s._id });
+    const fromActivityPerCollection = await Promise.all(
+      activityCollections.map((col) => col.distinct('course', { student: s._id }))
+    );
+    const fromActivity = fromActivityPerCollection.flat().filter(Boolean);
     const fromHistory = (s.enrollmentHistory || []).flatMap((e: any) => e.courses || []);
-    const candidateIds = [...new Set([...fromProgress, ...fromHistory].map((id: any) => String(id)))];
+    const candidateIds = [...new Set([...fromActivity, ...fromHistory].map((id: any) => String(id)))];
 
     if (candidateIds.length === 0) {
-      console.log(`  [skip] ${s.studentId || s._id} — no progress records or history to recover from.`);
+      console.log(`  [skip] ${s.studentId || s._id} — no activity records or history to recover from.`);
       untouchedCount++;
       continue;
     }
@@ -119,7 +133,7 @@ async function main() {
 
     console.log(
       `  [${commit ? 'RESTORE' : 'would restore'}] ${s.studentId || s._id}: ${existingIds.length} course(s) ` +
-      `(${fromProgress.length} from progress, ${fromHistory.length} raw history refs, currently stored: ${(s.enrolledCourses || []).length})`
+      `(${fromActivity.length} from activity records, ${fromHistory.length} raw history refs, currently stored: ${(s.enrolledCourses || []).length})`
     );
 
     if (commit) {
