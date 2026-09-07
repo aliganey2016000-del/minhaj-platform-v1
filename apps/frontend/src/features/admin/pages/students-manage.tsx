@@ -213,7 +213,7 @@ export function StudentsManage() {
       if (isHigherEd || isTrainingCenter) requests.push(api.get(`/programs?school=${organizationId}`));
       if (isHigherEd) {
         requests.push(api.get(`/departments?school=${organizationId}`));
-        requests.push(api.get(`/faculties?school=${organizationId}`));
+        requests.push(api.get(`/departments/faculties?school=${organizationId}`));
         requests.push(api.get('/classes/academic-structure'));
       }
 
