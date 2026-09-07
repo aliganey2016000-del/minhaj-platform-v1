@@ -1,7 +1,8 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../../../lib/axios';
+import { useRealtime } from '../../../store/realtime-context';
 
-interface RosterRow { _id: string; studentId: string; name: string; online: boolean; lastSeenAt: string | null; }
+interface RosterRow { _id: string; userId: string | null; studentId: string; name: string; online: boolean; lastSeenAt: string | null; }
 interface ActivityEvent { _id: string; type: string; loginSessionId?: string; course?: { _id?: string; title?: { en?: string } } | null; lessonId?: string; lessonTitle?: string; resourceName?: string; status?: string; percent?: number; durationSeconds?: number; metadata?: Record<string, any>; createdAt: string; }
 interface SessionRow { _id: string; loginSessionId?: string; kind: string; course?: string; lessonId?: string; lessonTitle?: string; resourceName?: string; startedAt: string; endedAt?: string; activeSeconds: number; idleSeconds: number; watchSeconds: number; status: string; }
 interface SessionAnalytics { totalActiveSeconds: number; totalIdleSeconds: number; totalWatchSeconds: number; sessionCount: number; daily: Array<{ date: string; activeSeconds: number; watchSeconds: number }>; sessions: SessionRow[]; }
@@ -113,6 +114,14 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
   const [range, setRange] = useState('last30');
   const [tab, setTab] = useState<'overview' | 'courses' | 'events'>('courses');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const { socket, connected } = useRealtime();
+  // Set once the server confirms this client joined the selected student's
+  // room — a connected socket alone does not mean the feed is authorized.
+  const [liveStudentId, setLiveStudentId] = useState<string | null>(null);
+  const [lastLiveAt, setLastLiveAt] = useState<string | null>(null);
+  const selectedRef = useRef<string | null>(null);
+  selectedRef.current = selected;
+  const isLive = Boolean(selected && liveStudentId === selected);
 
   const loadRoster = useCallback(async () => {
     try {
@@ -125,8 +134,10 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
 
   useEffect(() => { void loadRoster(); }, [loadRoster]);
 
-  const loadStudent = useCallback(async (studentId: string) => {
-    setLoading(true);
+  // `silent` keeps the background refresh from flashing the whole panel back
+  // to its loading state every time the poll fires.
+  const loadStudent = useCallback(async (studentId: string, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [a, s, c, t] = await Promise.all([
         api.get(`/activity/analytics/${studentId}`),
@@ -138,18 +149,99 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
       setSessions(s.data.data || null);
       setCourses(c.data.data || null);
       setEvents(t.data.data || []);
-      setExpanded(null);
+      // Only on a deliberate load: collapsing an open card underneath the
+      // admin every time the background poll fires would be maddening.
+      if (!silent) setExpanded(null);
     } catch {
-      setAnalytics(null);
-      setSessions(null);
-      setCourses(null);
-      setEvents([]);
+      // A blip during a background poll leaves what is on screen alone —
+      // blanking a working view because one refresh failed is worse than
+      // showing data a few seconds stale.
+      if (!silent) {
+        setAnalytics(null);
+        setSessions(null);
+        setCourses(null);
+        setEvents([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => { if (selected) void loadStudent(selected); }, [selected, loadStudent]);
+
+  // ── Live feed ────────────────────────────────────────────────────────────
+  // Ask the server for this student's activity room, then fold each pushed
+  // event into the state the page already holds. The server re-checks
+  // permission on join, so a room we are not entitled to simply stays silent.
+  useEffect(() => {
+    if (!socket || !selected) return;
+    setLiveStudentId(null);
+    socket.emit('activity:watch', selected);
+
+    const onWatching = ({ studentId }: { studentId: string }) => {
+      if (studentId === selectedRef.current) setLiveStudentId(studentId);
+    };
+
+    const onEvent = (event: ActivityEvent) => {
+      setEvents((prev) => (prev.some((e) => e._id === event._id) ? prev : [event, ...prev]));
+      setLastLiveAt(new Date().toISOString());
+    };
+
+    const onSession = (row: SessionRow) => {
+      setLastLiveAt(new Date().toISOString());
+      setSessions((prev) => {
+        if (!prev) return prev;
+        const existing = prev.sessions.findIndex((s) => s._id === row._id);
+        const sessions = existing >= 0
+          ? prev.sessions.map((s, i) => (i === existing ? row : s))
+          : [row, ...prev.sessions];
+        // Totals are sums over these rows, so recompute rather than letting
+        // the header stats drift away from the list under them.
+        return {
+          ...prev,
+          sessions,
+          sessionCount: sessions.length,
+          totalActiveSeconds: sessions.reduce((sum, s) => sum + (s.activeSeconds || 0), 0),
+          totalIdleSeconds: sessions.reduce((sum, s) => sum + (s.idleSeconds || 0), 0),
+          totalWatchSeconds: sessions.reduce((sum, s) => sum + (s.watchSeconds || 0), 0),
+        };
+      });
+    };
+
+    socket.on('activity:watching', onWatching);
+    socket.on('activity:event', onEvent);
+    socket.on('session:update', onSession);
+
+    return () => {
+      socket.emit('activity:unwatch', selected);
+      socket.off('activity:watching', onWatching);
+      socket.off('activity:event', onEvent);
+      socket.off('session:update', onSession);
+      setLiveStudentId(null);
+    };
+  }, [socket, selected]);
+
+  // Roster presence: the online dots were only ever as fresh as the last full
+  // page load. Admin/teacher clients join the presence room and patch rows in
+  // place as students connect and disconnect.
+  useEffect(() => {
+    if (!socket) return;
+    socket.emit('presence:watch');
+    const onPresence = ({ userId, online, lastSeenAt }: { userId: string; online: boolean; lastSeenAt: string }) => {
+      setRoster((prev) => prev.map((r) => (r.userId === userId ? { ...r, online, lastSeenAt } : r)));
+    };
+    socket.on('presence:update', onPresence);
+    return () => { socket.off('presence:update', onPresence); };
+  }, [socket]);
+
+  // Fallback for when the socket never connects (blocked WebSockets, proxy in
+  // the way): keep the open student's data moving on a timer instead. Skipped
+  // entirely while the live feed is confirmed working.
+  useEffect(() => {
+    if (!selected || isLive) return;
+    const timer = window.setInterval(() => { void loadStudent(selected, true); }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [selected, isLive, loadStudent]);
 
   const student = useMemo(() => roster.find((x) => x._id === selected) || null, [roster, selected]);
   const visibleDaily = useMemo(() => {
@@ -479,8 +571,29 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                 {tab === 'events' && (
                   <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden">
                     <div className="p-4 border-b border-[var(--color-border-subtle)]">
-                      <h3 className="font-bold">Activity Events</h3>
-                      <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Click a lesson to see only what happened during that exact lesson visit.</p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="font-bold">Activity Events</h3>
+                        {isLive ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                            <span className="relative flex h-2 w-2">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+                              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                            </span>
+                            Live
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                            <span className="h-2 w-2 rounded-full bg-slate-400" />
+                            {connected ? 'Connecting…' : 'Refreshing every 30s'}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
+                        {isLive
+                          ? 'Updating as this student works — new events appear on their own.'
+                          : 'Click a lesson to see only what happened during that exact lesson visit.'}
+                        {lastLiveAt && ` · Last update ${timeOnly(lastLiveAt)}`}
+                      </p>
                     </div>
                     <div className="divide-y divide-[var(--color-border-subtle)]">
                       {timeline.map((row) => {

@@ -7,7 +7,9 @@
 import { Request } from 'express';
 import mongoose from 'mongoose';
 import LearningActivity, { LearningActivityType } from '../models/learning-activity.model';
+import Course from '../models/course.model';
 import { parseUserAgent } from './parse-user-agent';
+import { emitToStudentWatchers, hasActivityWatchers } from '../realtime/socket';
 
 export interface LogActivityInput {
   userId: string | mongoose.Types.ObjectId;
@@ -30,7 +32,7 @@ export interface LogActivityInput {
 export async function logLearningActivity(input: LogActivityInput): Promise<void> {
   try {
     const { device, browser, os } = parseUserAgent(input.userAgent || '');
-    await LearningActivity.create({
+    const created = await LearningActivity.create({
       user: input.userId,
       student: input.student,
       school: input.school,
@@ -50,6 +52,32 @@ export async function logLearningActivity(input: LogActivityInput): Promise<void
       browser,
       os,
     });
+
+    // Push it straight to any admin/teacher with this student's Activity
+    // Events view open, so the feed moves as the student works instead of
+    // only on a manual reload. Gated on there actually being a watcher: the
+    // course lookup below is pure display data and would otherwise run on
+    // every logged event for nobody's benefit.
+    const studentId = input.student ? String(input.student) : '';
+    if (studentId && hasActivityWatchers(studentId)) {
+      const course = input.course
+        ? await Course.findById(input.course).select('title').lean().catch(() => null)
+        : null;
+      emitToStudentWatchers(studentId, 'activity:event', {
+        _id: String(created._id),
+        type: created.type,
+        loginSessionId: created.loginSessionId,
+        course: course ? { _id: String((course as any)._id), title: (course as any).title } : null,
+        lessonId: created.lessonId,
+        lessonTitle: created.lessonTitle,
+        resourceName: created.resourceName,
+        status: created.status,
+        percent: created.percent,
+        durationSeconds: created.durationSeconds,
+        metadata: created.metadata,
+        createdAt: created.createdAt,
+      });
+    }
   } catch {
     // Logging must never break the action it's attached to.
   }

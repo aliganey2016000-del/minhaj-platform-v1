@@ -7,9 +7,35 @@ import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-err
 import ApiResponse from '../utils/api-response';
 import { parseUserAgent } from '../utils/parse-user-agent';
 import { getOwnTeacherRecord } from '../utils/tenant-scope';
+import { emitToStudentWatchers, hasActivityWatchers } from '../realtime/socket';
 
 const MAX_HEARTBEAT_SECONDS = 60;
 const IDLE_THRESHOLD_SECONDS = 90;
+
+/**
+ * Mirrors one session row to whoever has this student's Activity Events view
+ * open, in exactly the shape getStudentAnalytics returns so the client can
+ * upsert it into the list it already holds. Silent when nobody is watching.
+ */
+function pushSessionUpdate(session: any): void {
+  const studentId = session.student ? String(session.student) : '';
+  if (!studentId || !hasActivityWatchers(studentId)) return;
+  emitToStudentWatchers(studentId, 'session:update', {
+    _id: String(session._id),
+    loginSessionId: session.loginSessionId,
+    kind: session.kind,
+    course: session.course ? String(session.course) : undefined,
+    lessonId: session.lessonId,
+    lessonTitle: session.lessonTitle,
+    resourceName: session.resourceName,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    activeSeconds: session.activeSeconds,
+    idleSeconds: session.idleSeconds,
+    watchSeconds: session.watchSeconds,
+    status: session.status,
+  });
+}
 
 async function ownStudent(req: Request) {
   const student = await Student.findOne({ user: req.user!.userId }).select('_id school enrolledCourses').lean();
@@ -68,6 +94,7 @@ export const startSession = async (req: Request, res: Response): Promise<Respons
     userAgent: req.headers['user-agent'] || '',
     metadata,
   });
+  pushSessionUpdate(session);
   return ApiResponse.success(res, session, 'Session started');
 };
 
@@ -104,6 +131,7 @@ export const heartbeat = async (req: Request, res: Response): Promise<Response> 
   if (mediaPosition != null) session.lastMediaPositionSeconds = mediaPosition;
   session.lastHeartbeatAt = now;
   await session.save();
+  pushSessionUpdate(session);
   return ApiResponse.success(res, session, 'Heartbeat recorded');
 };
 
@@ -129,6 +157,7 @@ export const endSession = async (req: Request, res: Response): Promise<Response>
   session.lastHeartbeatAt = now;
   session.status = 'ended';
   await session.save();
+  pushSessionUpdate(session);
   return ApiResponse.success(res, session, 'Session ended');
 };
 

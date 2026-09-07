@@ -34,6 +34,14 @@ export interface NotificationItem {
 
 interface RealtimeContextValue {
   connected: boolean;
+  /**
+   * The live connection itself, for views that need their own channels on top
+   * of notifications — the admin Activity Events feed subscribes to one
+   * student's room through this. Null until the socket is created (and
+   * whenever it never connects), so callers must null-check rather than
+   * assume a live link.
+   */
+  socket: Socket | null;
   notifications: NotificationItem[];
   unreadCount: number;
   markAsRead: (id: string) => Promise<void>;
@@ -49,6 +57,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const socketRef = useRef<Socket | null>(null);
+  // Mirrors socketRef into render output — a ref alone never re-renders
+  // consumers, so a view that subscribes on the socket would keep seeing the
+  // null it read on its first render.
+  const [socket, setSocket] = useState<Socket | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -64,6 +76,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated) {
       socketRef.current?.disconnect();
       socketRef.current = null;
+      setSocket(null);
       setConnected(false);
       setNotifications([]);
       setUnreadCount(0);
@@ -82,6 +95,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       reconnectionDelayMax: 10000,
     });
     socketRef.current = socket;
+    setSocket(socket);
 
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
@@ -93,6 +107,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     return () => {
       socket.disconnect();
       socketRef.current = null;
+      setSocket(null);
     };
   }, [isAuthenticated, refresh]);
 
@@ -117,7 +132,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <RealtimeContext.Provider value={{ connected, notifications, unreadCount, markAsRead, markAllRead, refresh }}>
+    <RealtimeContext.Provider value={{ connected, socket, notifications, unreadCount, markAsRead, markAllRead, refresh }}>
       {children}
     </RealtimeContext.Provider>
   );

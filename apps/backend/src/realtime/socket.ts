@@ -18,6 +18,7 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt';
 import User from '../models/user.model';
 import { getAllowedOrigins } from '../utils/cors-origins';
+import { canUserViewStudent } from '../utils/student-visibility';
 
 let io: SocketIOServer | null = null;
 
@@ -28,6 +29,13 @@ const PRESENCE_ROOM = 'presence:watchers';
 
 function userRoom(userId: string): string {
   return `user:${userId}`;
+}
+
+// One room per watched student rather than a single firehose: a teacher may
+// only see their own students, so authorization is checked once at join time
+// and the room membership enforces it from then on.
+function activityRoom(studentId: string): string {
+  return `activity:student:${studentId}`;
 }
 
 export function initSocket(httpServer: HttpServer): SocketIOServer {
@@ -71,6 +79,24 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
       }
     });
 
+    // Live feed for one student's Activity Events view. The client sends the
+    // student it currently has open; the server re-checks that this user is
+    // allowed to see them before joining, so a forged studentId gets nothing.
+    socket.on('activity:watch', async (studentId: unknown) => {
+      if (typeof studentId !== 'string' || !studentId) return;
+      try {
+        if (!(await canUserViewStudent(userId, role, studentId))) return;
+        socket.join(activityRoom(studentId));
+        socket.emit('activity:watching', { studentId });
+      } catch {
+        // A failed lookup simply means no live feed; the page still polls.
+      }
+    });
+
+    socket.on('activity:unwatch', (studentId: unknown) => {
+      if (typeof studentId === 'string' && studentId) socket.leave(activityRoom(studentId));
+    });
+
     socket.on('disconnect', () => {
       const remaining = Math.max(0, (connectionCounts.get(userId) || 1) - 1);
       if (remaining === 0) {
@@ -90,6 +116,21 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 /** Emit an event to every connected socket for a given user. No-op if that user is offline or the server has no socket layer (e.g. tests). */
 export function emitToUser(userId: string, event: string, payload: unknown): void {
   io?.to(userRoom(userId)).emit(event, payload);
+}
+
+/**
+ * Push a live update to the admins/teachers currently watching one student's
+ * Activity Events view. No-op when nobody is watching, which is the normal
+ * case — callers should still gate any extra work behind hasActivityWatchers.
+ */
+export function emitToStudentWatchers(studentId: string, event: string, payload: unknown): void {
+  io?.to(activityRoom(studentId)).emit(event, payload);
+}
+
+/** True when at least one admin/teacher has this student's activity view open. */
+export function hasActivityWatchers(studentId: string): boolean {
+  const room = io?.sockets.adapter.rooms.get(activityRoom(studentId));
+  return Boolean(room && room.size > 0);
 }
 
 /** True if the given user currently has at least one open socket connection. */
