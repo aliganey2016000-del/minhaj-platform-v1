@@ -286,28 +286,38 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     const dayKey = (d: Date) => d.toISOString().slice(0, 10);
     const today = dayKey(new Date());
 
+    // Days the student demonstrably did something, from the event log. A day
+    // with events but no tracked seconds is not an idle day — it is a day the
+    // timer failed to record, and saying "No activity" about it is simply
+    // false. The two cases get different wording below.
+    const daysWithEvents = new Set(events.map((e) => e.createdAt.slice(0, 10)));
+    const decorate = (d: { date: string; activeSeconds: number; watchSeconds: number }) => ({
+      ...d,
+      isToday: d.date === today,
+      hasEvents: daysWithEvents.has(d.date),
+    });
+
     if (range === 'all') {
       return [...sessions.daily]
         .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
-        .map((d) => ({ ...d, isToday: d.date === today }));
+        .map(decorate);
     }
 
     const days = range === 'last7' ? 7 : 30;
-    const series: Array<{ date: string; activeSeconds: number; watchSeconds: number; isToday: boolean }> = [];
+    const series = [];
     for (let back = 0; back < days; back++) {
       const day = new Date();
       day.setUTCDate(day.getUTCDate() - back);
       const date = dayKey(day);
       const found = byDate.get(date);
-      series.push({
+      series.push(decorate({
         date,
         activeSeconds: found?.activeSeconds || 0,
         watchSeconds: found?.watchSeconds || 0,
-        isToday: back === 0,
-      });
+      }));
     }
     return series;
-  }, [sessions, range]);
+  }, [sessions, events, range]);
 
   /** "Today" / "Yesterday" beat a bare date for the two rows anyone actually looks for. */
   const dayLabel = useCallback((date: string, isToday: boolean) => {
@@ -596,8 +606,11 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                                     {dayLabel(item.date, item.isToday)}
                                     <span className="ml-1.5 text-[10px] text-[var(--color-text-tertiary)]">{item.date}</span>
                                   </span>
-                                  <b className={`shrink-0 ${empty ? 'font-normal text-[var(--color-text-tertiary)]' : ''}`}>
-                                    {empty ? 'No activity' : fmt(item.activeSeconds)}
+                                  <b
+                                    className={`shrink-0 ${!empty ? '' : item.hasEvents ? 'font-semibold text-amber-600 dark:text-amber-400' : 'font-normal text-[var(--color-text-tertiary)]'}`}
+                                    title={empty && item.hasEvents ? 'This student was active on this day, but no study time was recorded for it.' : undefined}
+                                  >
+                                    {!empty ? fmt(item.activeSeconds) : item.hasEvents ? 'Time not recorded' : 'No activity'}
                                   </b>
                                 </div>
                                 <div className="h-2 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden">

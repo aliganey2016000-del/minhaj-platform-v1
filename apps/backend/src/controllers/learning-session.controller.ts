@@ -68,6 +68,15 @@ export const startSession = async (req: Request, res: Response): Promise<Respons
   if (!clientSessionId || typeof clientSessionId !== 'string') throw new BadRequestError('clientSessionId is required.');
   if (!['lesson', 'video', 'audio', 'pdf', 'course', 'general'].includes(kind)) throw new BadRequestError('Invalid session kind.');
   if (course && !(student.enrolledCourses || []).some((id: any) => id.toString() === String(course))) {
+    // Loud on purpose. A refusal here means no study time is recorded for a
+    // student who is sitting in the lesson right now, and the client cannot
+    // report it — the tracker has to swallow errors so it never interrupts
+    // learning. Without this line the only symptom is "No activity" on a day
+    // the student plainly worked, with nothing anywhere to say why.
+    console.warn(
+      `[learning-session] refused start: student ${student._id} is not enrolled in course ${course}. ` +
+      `Enrolled: ${(student.enrolledCourses || []).map((id: any) => id.toString()).join(', ') || '(none)'}`
+    );
     throw new ForbiddenError('You are not enrolled in this course.');
   }
 
