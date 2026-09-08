@@ -21,6 +21,11 @@ api.interceptors.request.use((config) => {
   const loginSessionId = localStorage.getItem('loginSessionId');
   if (loginSessionId) config.headers['X-Login-Session-Id'] = loginSessionId;
 
+  if (typeof Intl !== 'undefined') {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timezone) config.headers['X-Timezone'] = timezone;
+  }
+
   if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
     delete config.headers['Content-Type'];
   }
