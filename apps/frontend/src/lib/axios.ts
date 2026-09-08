@@ -21,6 +21,15 @@ api.interceptors.request.use((config) => {
   const loginSessionId = localStorage.getItem('loginSessionId');
   if (loginSessionId) config.headers['X-Login-Session-Id'] = loginSessionId;
 
+  // Daily learning is a calendar-day metric. MongoDB groups dates in UTC by
+  // default, which shifts late-night/early-morning study into the wrong day
+  // for users outside UTC. Send the browser's IANA timezone so analytics can
+  // group the same timestamps in the student's local calendar.
+  if (typeof Intl !== 'undefined') {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timezone) config.headers['X-Timezone'] = timezone;
+  }
+
   if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
     delete config.headers['Content-Type'];
   }
