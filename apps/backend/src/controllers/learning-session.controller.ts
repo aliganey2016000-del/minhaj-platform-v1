@@ -2,11 +2,10 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import LearningSession, { LearningSessionKind } from '../models/learning-session.model';
 import Student from '../models/student.model';
-import Course from '../models/course.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { parseUserAgent } from '../utils/parse-user-agent';
-import { getOwnTeacherRecord } from '../utils/tenant-scope';
+import { assertCanViewStudent } from '../utils/student-visibility';
 import { emitToStudentWatchers, hasActivityWatchers } from '../realtime/socket';
 
 const MAX_HEARTBEAT_SECONDS = 60;
@@ -48,14 +47,7 @@ async function ownStudent(req: Request) {
   return student;
 }
 
-async function canViewStudent(req: Request, studentId: string): Promise<void> {
-  if (req.user?.role === 'admin' || req.user?.role === 'org_admin') return;
-  if (req.user?.role !== 'teacher') throw new ForbiddenError('You do not have access to this student.');
-  const teacher = await getOwnTeacherRecord(req);
-  const courseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
-  const student = await Student.findOne({ _id: studentId, enrolledCourses: { $in: courseIds } }).select('_id').lean();
-  if (!student) throw new ForbiddenError('You do not have access to this student.');
-}
+
 
 function positiveInt(value: unknown): number | undefined {
   const n = Number(value);
@@ -177,7 +169,7 @@ export const endSession = async (req: Request, res: Response): Promise<Response>
 
 export const getStudentAnalytics = async (req: Request, res: Response): Promise<Response> => {
   const { studentId } = req.params;
-  await canViewStudent(req, studentId);
+  await assertCanViewStudent(req, studentId);
   const student = await Student.findById(studentId).select('_id').lean();
   if (!student) throw new NotFoundError('Student');
   const sid = new mongoose.Types.ObjectId(studentId);
