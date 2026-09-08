@@ -263,11 +263,60 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
   }, [selected, isLive, loadStudent]);
 
   const student = useMemo(() => roster.find((x) => x._id === selected) || null, [roster, selected]);
+  /**
+   * Daily learning, newest day first and with the quiet days kept in.
+   *
+   * The old version showed the server's rows in ascending order, so today and
+   * yesterday sat at the very bottom of a month-long list — the days an admin
+   * opens this page to check were the ones they had to scroll past everything
+   * else to reach. It also sliced by row count, not by date, so "Last 7 days"
+   * really meant "the last 7 days that happen to have data" and could show
+   * August in a week view.
+   *
+   * Days with no sessions are filled in at zero rather than omitted: an
+   * absent row cannot be told apart from a day the student did not study,
+   * which is the exact question being asked of this panel.
+   *
+   * Keys are built in UTC to match the server's own $dateToString grouping,
+   * so a day always lines up with the bucket its seconds were counted into.
+   */
   const visibleDaily = useMemo(() => {
     if (!sessions) return [];
-    const cutoff = range === 'last7' ? 7 : range === 'last30' ? 30 : 3650;
-    return sessions.daily.slice(-cutoff);
+    const byDate = new Map(sessions.daily.map((d) => [d.date, d]));
+    const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+    const today = dayKey(new Date());
+
+    if (range === 'all') {
+      return [...sessions.daily]
+        .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+        .map((d) => ({ ...d, isToday: d.date === today }));
+    }
+
+    const days = range === 'last7' ? 7 : 30;
+    const series: Array<{ date: string; activeSeconds: number; watchSeconds: number; isToday: boolean }> = [];
+    for (let back = 0; back < days; back++) {
+      const day = new Date();
+      day.setUTCDate(day.getUTCDate() - back);
+      const date = dayKey(day);
+      const found = byDate.get(date);
+      series.push({
+        date,
+        activeSeconds: found?.activeSeconds || 0,
+        watchSeconds: found?.watchSeconds || 0,
+        isToday: back === 0,
+      });
+    }
+    return series;
   }, [sessions, range]);
+
+  /** "Today" / "Yesterday" beat a bare date for the two rows anyone actually looks for. */
+  const dayLabel = useCallback((date: string, isToday: boolean) => {
+    if (isToday) return 'Today';
+    const yesterday = new Date();
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    if (date === yesterday.toISOString().slice(0, 10)) return 'Yesterday';
+    return new Date(`${date}T00:00:00Z`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+  }, []);
 
   /**
    * One card per sign-in: everything between a login and its logout, grouped
@@ -529,22 +578,38 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                       </div>
                     </section>
                     <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
-                      <h3 className="font-bold">Daily learning</h3>
-                      <div className="mt-4 space-y-3">
-                        {visibleDaily.length ? visibleDaily.map((item) => {
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <h3 className="font-bold">Daily learning</h3>
+                        <span className="text-[11px] text-[var(--color-text-tertiary)]">
+                          {range === 'last7' ? 'Last 7 days' : range === 'last30' ? 'Last 30 days' : 'All available'} · newest first
+                        </span>
+                      </div>
+                      <div className="mt-4 space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                        {(() => {
                           const max = Math.max(1, ...visibleDaily.map((entry) => entry.activeSeconds));
-                          return (
-                            <div key={item.date}>
-                              <div className="flex justify-between text-xs mb-1">
-                                <span>{item.date}</span>
-                                <b>{fmt(item.activeSeconds)}</b>
+                          return visibleDaily.length ? visibleDaily.map((item) => {
+                            const empty = item.activeSeconds === 0;
+                            return (
+                              <div key={item.date} className={item.isToday ? 'rounded-lg bg-primary-50/60 dark:bg-primary-950/20 -mx-2 px-2 py-1.5' : ''}>
+                                <div className="flex items-baseline justify-between gap-2 text-xs mb-1">
+                                  <span className={`truncate ${item.isToday ? 'font-bold text-primary-700 dark:text-primary-300' : empty ? 'text-[var(--color-text-tertiary)]' : ''}`}>
+                                    {dayLabel(item.date, item.isToday)}
+                                    <span className="ml-1.5 text-[10px] text-[var(--color-text-tertiary)]">{item.date}</span>
+                                  </span>
+                                  <b className={`shrink-0 ${empty ? 'font-normal text-[var(--color-text-tertiary)]' : ''}`}>
+                                    {empty ? 'No activity' : fmt(item.activeSeconds)}
+                                  </b>
+                                </div>
+                                <div className="h-2 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${item.isToday ? 'bg-primary-600' : 'bg-primary-500'}`}
+                                    style={{ width: `${Math.round((item.activeSeconds / max) * 100)}%` }}
+                                  />
+                                </div>
                               </div>
-                              <div className="h-2 rounded-full bg-[var(--color-surface-tertiary)] overflow-hidden">
-                                <div className="h-full rounded-full bg-primary-500" style={{ width: `${Math.round((item.activeSeconds / max) * 100)}%` }} />
-                              </div>
-                            </div>
-                          );
-                        }) : <p className="text-sm text-[var(--color-text-tertiary)]">No session data yet.</p>}
+                            );
+                          }) : <p className="text-sm text-[var(--color-text-tertiary)]">No session data yet.</p>;
+                        })()}
                       </div>
                     </section>
                   </div>
