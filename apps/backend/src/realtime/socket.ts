@@ -53,6 +53,8 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
       const decoded = verifyAccessToken(token);
       (socket.data as any).userId = decoded.userId;
       (socket.data as any).role = decoded.role;
+      // Needed to keep an org_admin's live feed inside their own organization.
+      (socket.data as any).organizationId = decoded.organizationId;
       next();
     } catch {
       next(new Error('Unauthorized'));
@@ -62,6 +64,7 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
   io.on('connection', (socket: Socket) => {
     const userId = (socket.data as any).userId as string;
     const role = (socket.data as any).role as string | undefined;
+    const organizationId = (socket.data as any).organizationId as string | undefined;
     socket.join(userRoom(userId));
 
     const wasOffline = (connectionCounts.get(userId) || 0) === 0;
@@ -85,7 +88,7 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
     socket.on('activity:watch', async (studentId: unknown) => {
       if (typeof studentId !== 'string' || !studentId) return;
       try {
-        if (!(await canUserViewStudent(userId, role, studentId))) return;
+        if (!(await canUserViewStudent(userId, role, studentId, organizationId))) return;
         socket.join(activityRoom(studentId));
         socket.emit('activity:watching', { studentId });
       } catch {

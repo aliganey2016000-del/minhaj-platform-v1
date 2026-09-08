@@ -16,11 +16,12 @@ import Course from '../models/course.model';
 import Progress from '../models/progress.model';
 import QuizAttempt from '../models/quiz-attempt.model';
 import LessonBlockProgress from '../models/lesson-block-progress.model';
-import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { logActivityFromRequest } from '../utils/learning-activity-logger';
 import { escapeRegex } from '../utils/escape-regex';
+import { assertCanViewStudent } from '../utils/student-visibility';
 import { isUserOnline } from '../realtime/socket';
 
 // ---------------------------------------------------------------------------
@@ -36,13 +37,7 @@ async function visibleStudentIds(req: Request): Promise<mongoose.Types.ObjectId[
   return students;
 }
 
-async function assertCanViewStudent(req: Request, studentId: string): Promise<void> {
-  if (req.user?.role === 'admin' || req.user?.role === 'org_admin') return;
-  const ids = await visibleStudentIds(req);
-  if (!ids || !ids.some((id) => id.toString() === studentId)) {
-    throw new ForbiddenError('You do not have access to this student.');
-  }
-}
+
 
 // ---------------------------------------------------------------------------
 // Interactive Gate ("Stop & Check") first-attempt accuracy, per student —

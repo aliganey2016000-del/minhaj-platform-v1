@@ -6,24 +6,17 @@ import Progress from '../models/progress.model';
 import QuizAttempt from '../models/quiz-attempt.model';
 import LessonBlockProgress from '../models/lesson-block-progress.model';
 import LearningSession from '../models/learning-session.model';
-import { ForbiddenError, NotFoundError } from '../utils/api-error';
+import { NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
-import { getOwnTeacherRecord } from '../utils/tenant-scope';
+import { assertCanViewStudent } from '../utils/student-visibility';
 
-async function canViewStudent(req: Request, studentId: string): Promise<void> {
-  if (req.user?.role === 'admin' || req.user?.role === 'org_admin') return;
-  if (req.user?.role !== 'teacher') throw new ForbiddenError('You do not have access to this student.');
-  const teacher = await getOwnTeacherRecord(req);
-  const courseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
-  const visible = await Student.findOne({ _id: studentId, enrolledCourses: { $in: courseIds } }).select('_id').lean();
-  if (!visible) throw new ForbiddenError('You do not have access to this student.');
-}
+
 
 const safeDate = (value?: Date | string | null) => value ? new Date(value) : null;
 
 export const getStudentCourseAnalytics = async (req: Request, res: Response): Promise<Response> => {
   const { studentId } = req.params;
-  await canViewStudent(req, studentId);
+  await assertCanViewStudent(req, studentId);
 
   const student = await Student.findById(studentId).select('status enrolledCourses enrollmentHistory').lean();
   if (!student) throw new NotFoundError('Student');
