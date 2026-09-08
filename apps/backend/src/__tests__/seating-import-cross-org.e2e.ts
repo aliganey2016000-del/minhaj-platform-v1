@@ -150,6 +150,33 @@ async function main() {
   assert(roomIds.length === 1 && roomIds[0] === roomA._id.toString(), `org_admin sees exactly their own school's "Room 10" (got ${JSON.stringify(roomsRes.body?.data?.map((r: any) => r.school))})`);
 
   // -------------------------------------------------------------------
+  section('UPDATE — a DIFFERENT org_admin cannot edit School A\'s seating row');
+  // -------------------------------------------------------------------
+  // A fourth instance of the same class of bug as the three above: update()
+  // loaded the row by id with no ownership check before mutating it (only
+  // the replacement room was checked), so a cross-org PATCH could silently
+  // overwrite another organization's seating assignment.
+  const seatingRowId = listRes.body?.data?.[0]?._id;
+  const otherOrgRoom = await ExamRoom.create({ name: 'Room 5', building: 'Main Campus', capacity: 10, school: schoolB._id, createdBy: adminUser._id });
+  const crossOrgUpdateRes = await request(app)
+    .patch(`/api/v1/exams/seating-plan/${seatingRowId}`)
+    .set('Authorization', `Bearer ${otherOrgAdminToken}`)
+    .send({ room: otherOrgRoom.name, seat: '9', academicYear: '2026/27', examType: 'Final Exam' });
+  assert(crossOrgUpdateRes.status === 403, `cross-org update is rejected (got ${crossOrgUpdateRes.status}, body: ${JSON.stringify(crossOrgUpdateRes.body)})`);
+
+  const unchangedListRes = await request(app).get('/api/v1/exams/seating-plan').set('Authorization', `Bearer ${orgAdminToken}`);
+  const unchangedRow = unchangedListRes.body?.data?.find((r: any) => r._id === seatingRowId);
+  assert(unchangedRow?.room?._id === roomA._id.toString(), `School A's row still points at School A's room, not overwritten (got ${JSON.stringify(unchangedRow?.room)})`);
+  assert(unchangedRow?.deskNumber === '1', `School A's desk number is unchanged (got ${unchangedRow?.deskNumber})`);
+
+  const sameOrgUpdateRes = await request(app)
+    .patch(`/api/v1/exams/seating-plan/${seatingRowId}`)
+    .set('Authorization', `Bearer ${orgAdminToken}`)
+    .send({ room: roomA.name, seat: '2', academicYear: '2026/27', examType: 'Final Exam' });
+  assert(sameOrgUpdateRes.status === 200, `same-org update still works (got ${sameOrgUpdateRes.status}, body: ${JSON.stringify(sameOrgUpdateRes.body)})`);
+  assert(sameOrgUpdateRes.body?.data?.deskNumber === '2', `same-org update actually applied (got ${sameOrgUpdateRes.body?.data?.deskNumber})`);
+
+  // -------------------------------------------------------------------
   console.log(`\n${'='.repeat(60)}`);
   if (failures === 0) {
     console.log('ALL CHECKS PASSED (0 failures)');
