@@ -1,245 +1,52 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import { questionSchema, type QuestionType, type IQuizQuestion } from './shared/question.schema';
+import { validateRandomQuizConfig } from '../utils/random-quiz-generator';
 
 export type { QuestionType, IQuizQuestion };
-
 export type LessonDeliveryMode = 'traditional' | 'interactive_gate';
 
-export interface IContentBlockQuestion {
-  question: string;
-  type: string;
-  options?: string[];
-  correctIndex?: number;
-  correctAnswer?: boolean;
-  explanation?: string;
-  aiGenerated: boolean;
-  answerHash?: string;
-  [key: string]: unknown;
-}
+export interface IContentBlockQuestion { question: string; type: string; options?: string[]; correctIndex?: number; correctAnswer?: boolean; explanation?: string; aiGenerated: boolean; answerHash?: string; [key: string]: unknown; }
+export interface IContentBlock { _id?: mongoose.Types.ObjectId; title?: string; order: number; content: string; minReadSeconds: number; question?: IContentBlockQuestion; questions?: IContentBlockQuestion[]; }
+export function getBlockQuestions(block: { question?: IContentBlockQuestion; questions?: IContentBlockQuestion[] }): IContentBlockQuestion[] { return block.questions ?? (block.question ? [block.question] : []); }
+export interface IVideoCheckpoint { _id?: mongoose.Types.ObjectId; percentage: number; question: IContentBlockQuestion; }
+export interface ILesson { _id?: mongoose.Types.ObjectId; title: string; type: 'lesson'; content?: string; videoUrl?: string; videoDuration?: number; featuredImage?: string; attachments: { name: string; url: string; type: string; size?: number }[]; order: number; status: 'draft' | 'published'; duration: number; deliveryMode: LessonDeliveryMode; contentBlocks?: IContentBlock[]; defaultMinReadSeconds?: number; blockForwardSeeking?: boolean; videoCheckpoints?: IVideoCheckpoint[]; createdAt?: Date; updatedAt?: Date; }
 
-export interface IContentBlock {
-  _id?: mongoose.Types.ObjectId;
-  title?: string;
-  order: number;
-  content: string;
-  minReadSeconds: number;
-  question?: IContentBlockQuestion;
-  questions?: IContentBlockQuestion[];
-}
-
-export function getBlockQuestions(block: { question?: IContentBlockQuestion; questions?: IContentBlockQuestion[] }): IContentBlockQuestion[] {
-  return block.questions ?? (block.question ? [block.question] : []);
-}
-
-export interface IVideoCheckpoint {
-  _id?: mongoose.Types.ObjectId;
-  percentage: number;
-  question: IContentBlockQuestion;
-}
-
-export interface ILesson {
-  _id?: mongoose.Types.ObjectId;
-  title: string;
-  type: 'lesson';
-  content?: string;
-  videoUrl?: string;
-  videoDuration?: number;
-  featuredImage?: string;
-  attachments: { name: string; url: string; type: string; size?: number }[];
-  order: number;
-  status: 'draft' | 'published';
-  duration: number;
-  deliveryMode: LessonDeliveryMode;
-  contentBlocks?: IContentBlock[];
-  defaultMinReadSeconds?: number;
-  blockForwardSeeking?: boolean;
-  videoCheckpoints?: IVideoCheckpoint[];
-  createdAt?: Date;
-  updatedAt?: Date;
-}
-
-export interface IRandomQuizSourceConfig {
-  itemId: string;
-  type: 'lesson' | 'quiz';
-  weight: number;
-}
-
-export interface IRandomQuizTypeConfig {
-  type: QuestionType;
-  quantity: number;
-}
-
-export interface IRandomQuizConfig {
-  enabled: boolean;
-  sources: IRandomQuizSourceConfig[];
-  questionTypes: IRandomQuizTypeConfig[];
-  totalQuestions: number;
-  version: number;
-}
-
-export interface IQuiz {
-  _id?: mongoose.Types.ObjectId;
-  title: string;
-  type: 'quiz';
-  description?: string;
-  questions: IQuizQuestion[];
-  passingScore: number;
-  timeLimit?: number;
-  order: number;
-  status: 'draft' | 'published';
-  duration: number;
-  randomConfig?: IRandomQuizConfig;
-  createdAt?: Date;
-  updatedAt?: Date;
-}
-
-export interface IAssignmentItem {
-  _id?: mongoose.Types.ObjectId;
-  title: string;
-  type: 'assignment';
-  description?: string;
-  instructions?: string;
-  dueDate?: Date;
-  maxScore: number;
-  allowedFileTypes?: string[];
-  attachments: { name: string; url: string; type: string; size?: number }[];
-  order: number;
-  status: 'draft' | 'published';
-  duration: number;
-  createdAt?: Date;
-  updatedAt?: Date;
-}
-
-export interface IExamItem {
-  _id?: mongoose.Types.ObjectId;
-  title: string;
-  type: 'exam';
-  examId: mongoose.Types.ObjectId;
-  examDate?: Date;
-  totalMarks?: number;
-  order: number;
-  status: 'draft' | 'published';
-  duration: number;
-  createdAt?: Date;
-  updatedAt?: Date;
-}
-
+export interface IRandomQuizSourceConfig { itemId: string; type: 'lesson' | 'quiz'; weight: number; }
+export interface IRandomQuizTypeConfig { type: QuestionType; quantity: number; }
+export interface IRandomQuizConfig { enabled: boolean; sources: IRandomQuizSourceConfig[]; questionTypes: IRandomQuizTypeConfig[]; totalQuestions: number; version: number; }
+export interface IQuiz { _id?: mongoose.Types.ObjectId; title: string; type: 'quiz'; description?: string; questions: IQuizQuestion[]; passingScore: number; timeLimit?: number; order: number; status: 'draft' | 'published'; duration: number; randomConfig?: IRandomQuizConfig; createdAt?: Date; updatedAt?: Date; }
+export interface IAssignmentItem { _id?: mongoose.Types.ObjectId; title: string; type: 'assignment'; description?: string; instructions?: string; dueDate?: Date; maxScore: number; allowedFileTypes?: string[]; attachments: { name: string; url: string; type: string; size?: number }[]; order: number; status: 'draft' | 'published'; duration: number; createdAt?: Date; updatedAt?: Date; }
+export interface IExamItem { _id?: mongoose.Types.ObjectId; title: string; type: 'exam'; examId: mongoose.Types.ObjectId; examDate?: Date; totalMarks?: number; order: number; status: 'draft' | 'published'; duration: number; createdAt?: Date; updatedAt?: Date; }
 export type ChapterItem = ILesson | IQuiz | IAssignmentItem | IExamItem;
+export interface IChapter { _id?: mongoose.Types.ObjectId; title: string; description?: string; order: number; status: 'draft' | 'published'; collapsed?: boolean; items: ChapterItem[]; examMilestone?: 'mid' | 'final' | null; createdAt?: Date; updatedAt?: Date; }
+export interface ICourseContent extends Document { course: mongoose.Types.ObjectId; chapters: IChapter[]; totalDuration: number; totalLessons: number; totalQuizzes: number; totalAssignments: number; totalExams: number; lastSaved: Date; createdAt: Date; updatedAt: Date; }
 
-export interface IChapter {
-  _id?: mongoose.Types.ObjectId;
-  title: string;
-  description?: string;
-  order: number;
-  status: 'draft' | 'published';
-  collapsed?: boolean;
-  items: ChapterItem[];
-  examMilestone?: 'mid' | 'final' | null;
-  createdAt?: Date;
-  updatedAt?: Date;
+const attachmentSchema = new Schema({ name: { type: String, required: true }, url: { type: String, required: true }, type: { type: String, default: 'application/octet-stream' }, size: { type: Number, default: 0 } }, { _id: false });
+const contentBlockQuestionSchema = new Schema({ question: { type: String, required: true, trim: true }, type: { type: String, required: true }, options: { type: [String], default: undefined }, correctIndex: { type: Number, min: 0 }, correctAnswer: { type: Boolean }, explanation: { type: String, default: '' }, aiGenerated: { type: Boolean, default: false } }, { _id: false, strict: false });
+const videoCheckpointSchema = new Schema({ percentage: { type: Number, required: true, min: 0, max: 100 }, question: { type: contentBlockQuestionSchema, required: true } }, { timestamps: false });
+const contentBlockSchema = new Schema({ title: { type: String, default: '' }, order: { type: Number, required: true, default: 0 }, content: { type: String, required: true }, minReadSeconds: { type: Number, default: 30, min: 5, max: 600 }, question: { type: contentBlockQuestionSchema, default: undefined }, questions: { type: [contentBlockQuestionSchema], default: undefined } }, { timestamps: false });
+const lessonSchema = new Schema({ title: { type: String, required: true, trim: true }, type: { type: String, default: 'lesson', enum: ['lesson'] }, content: { type: String, default: '' }, videoUrl: { type: String, default: '' }, videoDuration: { type: Number, default: 0 }, featuredImage: { type: String, default: '' }, attachments: { type: [attachmentSchema], default: [] }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, duration: { type: Number, default: 0 }, deliveryMode: { type: String, enum: ['draft', 'published'], default: 'draft' } }, { timestamps: true });
+
+// Restore the full lesson delivery schema explicitly; the compact declaration above is replaced below.
+const fullLessonSchema = new Schema({ title: { type: String, required: true, trim: true }, type: { type: String, default: 'lesson', enum: ['lesson'] }, content: { type: String, default: '' }, videoUrl: { type: String, default: '' }, videoDuration: { type: Number, default: 0 }, featuredImage: { type: String, default: '' }, attachments: { type: [attachmentSchema], default: [] }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, duration: { type: Number, default: 0 }, deliveryMode: { type: String, enum: ['traditional', 'interactive_gate'], default: 'traditional' }, contentBlocks: { type: [contentBlockSchema], default: undefined }, defaultMinReadSeconds: { type: Number, default: 30, min: 5, max: 600 }, blockForwardSeeking: { type: Boolean, default: false }, videoCheckpoints: { type: [videoCheckpointSchema], default: undefined } }, { timestamps: true });
+
+const randomQuizSourceSchema = new Schema({ itemId: { type: String, required: true, trim: true }, type: { type: String, enum: ['lesson', 'quiz'], required: true }, weight: { type: Number, required: true, min: 0.01, max: 100 } }, { _id: false });
+const randomQuizTypeSchema = new Schema({ type: { type: String, required: true }, quantity: { type: Number, required: true, min: 1 } }, { _id: false });
+const randomQuizConfigSchema = new Schema({ enabled: { type: Boolean, default: false }, sources: { type: [randomQuizSourceSchema], default: [] }, questionTypes: { type: [randomQuizTypeSchema], default: [] }, totalQuestions: { type: Number, default: 0, min: 0 }, version: { type: Number, default: 1, min: 1 } }, { _id: false });
+const quizSchema = new Schema({ title: { type: String, required: true, trim: true }, type: { type: String, default: 'quiz', enum: ['quiz'] }, description: { type: String, default: '' }, questions: { type: [questionSchema], default: [] }, passingScore: { type: Number, default: 60, min: 0, max: 100 }, timeLimit: { type: Number, default: 0 }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, duration: { type: Number, default: 0 }, randomConfig: { type: randomQuizConfigSchema, default: undefined } }, { timestamps: true });
+const assignmentSchema = new Schema({ title: { type: String, required: true, trim: true }, type: { type: String, default: 'assignment', enum: ['assignment'] }, description: { type: String, default: '' }, instructions: { type: String, default: '' }, dueDate: { type: Date, default: null }, maxScore: { type: Number, default: 100 }, allowedFileTypes: { type: [String], default: [] }, attachments: { type: [attachmentSchema], default: [] }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, duration: { type: Number, default: 0 } }, { timestamps: true });
+const chapterSchema = new Schema({ title: { type: String, required: true, trim: true }, description: { type: String, default: '' }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, collapsed: { type: Boolean, default: false }, items: { type: [Schema.Types.Mixed], default: [] }, examMilestone: { type: String, enum: ['mid', 'final', null], default: null } }, { timestamps: true });
+const courseContentSchema = new Schema<ICourseContent>({ course: { type: Schema.Types.ObjectId, ref: 'Course', required: true, unique: true, index: true }, chapters: { type: [chapterSchema], default: [] }, totalDuration: { type: Number, default: 0 }, totalLessons: { type: Number, default: 0 }, totalQuizzes: { type: Number, default: 0 }, totalAssignments: { type: Number, default: 0 }, totalExams: { type: Number, default: 0 }, lastSaved: { type: Date, default: Date.now } }, { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } });
+
+export function computeContentTotals(chapters: IChapter[]) { let totalDuration = 0, totalLessons = 0, totalQuizzes = 0, totalAssignments = 0, totalExams = 0; for (const chapter of chapters || []) for (const item of chapter.items || []) { totalDuration += item.duration || 0; if (item.type === 'lesson') totalLessons++; else if (item.type === 'quiz') totalQuizzes++; else if (item.type === 'assignment') totalAssignments++; else if (item.type === 'exam') totalExams++; } return { totalDuration, totalLessons, totalQuizzes, totalAssignments, totalExams }; }
+
+function validateRandomConfigs(chapters: IChapter[]) {
+  for (const chapter of chapters || []) for (const item of chapter.items || []) if (item.type === 'quiz' && (item as IQuiz).randomConfig?.enabled) validateRandomQuizConfig(chapters, (item as IQuiz).randomConfig!);
 }
 
-export interface ICourseContent extends Document {
-  course: mongoose.Types.ObjectId;
-  chapters: IChapter[];
-  totalDuration: number;
-  totalLessons: number;
-  totalQuizzes: number;
-  totalAssignments: number;
-  totalExams: number;
-  lastSaved: Date;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const attachmentSchema = new Schema(
-  { name: { type: String, required: true }, url: { type: String, required: true }, type: { type: String, default: 'application/octet-stream' }, size: { type: Number, default: 0 } },
-  { _id: false }
-);
-
-const contentBlockQuestionSchema = new Schema(
-  { question: { type: String, required: true, trim: true }, type: { type: String, required: true }, options: { type: [String], default: undefined }, correctIndex: { type: Number, min: 0 }, correctAnswer: { type: Boolean }, explanation: { type: String, default: '' }, aiGenerated: { type: Boolean, default: false } },
-  { _id: false, strict: false }
-);
-
-const videoCheckpointSchema = new Schema(
-  { percentage: { type: Number, required: true, min: 0, max: 100 }, question: { type: contentBlockQuestionSchema, required: true } },
-  { timestamps: false }
-);
-
-const contentBlockSchema = new Schema(
-  { title: { type: String, default: '' }, order: { type: Number, required: true, default: 0 }, content: { type: String, required: true }, minReadSeconds: { type: Number, default: 30, min: 5, max: 600 }, question: { type: contentBlockQuestionSchema, default: undefined }, questions: { type: [contentBlockQuestionSchema], default: undefined } },
-  { timestamps: false }
-);
-
-const lessonSchema = new Schema(
-  { title: { type: String, required: true, trim: true }, type: { type: String, default: 'lesson', enum: ['lesson'] }, content: { type: String, default: '' }, videoUrl: { type: String, default: '' }, videoDuration: { type: Number, default: 0 }, featuredImage: { type: String, default: '' }, attachments: { type: [attachmentSchema], default: [] }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, duration: { type: Number, default: 0 }, deliveryMode: { type: String, enum: ['traditional', 'interactive_gate'], default: 'traditional' }, contentBlocks: { type: [contentBlockSchema], default: undefined }, defaultMinReadSeconds: { type: Number, default: 30, min: 5, max: 600 }, blockForwardSeeking: { type: Boolean, default: false }, videoCheckpoints: { type: [videoCheckpointSchema], default: undefined } },
-  { timestamps: true }
-);
-
-const randomQuizSourceSchema = new Schema(
-  { itemId: { type: String, required: true, trim: true }, type: { type: String, enum: ['lesson', 'quiz'], required: true }, weight: { type: Number, required: true, min: 0.01, max: 100 } },
-  { _id: false }
-);
-
-const randomQuizTypeSchema = new Schema(
-  { type: { type: String, required: true }, quantity: { type: Number, required: true, min: 1 } },
-  { _id: false }
-);
-
-const randomQuizConfigSchema = new Schema(
-  { enabled: { type: Boolean, default: false }, sources: { type: [randomQuizSourceSchema], default: [] }, questionTypes: { type: [randomQuizTypeSchema], default: [] }, totalQuestions: { type: Number, default: 0, min: 0 }, version: { type: Number, default: 1, min: 1 } },
-  { _id: false }
-);
-
-const quizSchema = new Schema(
-  { title: { type: String, required: true, trim: true }, type: { type: String, default: 'quiz', enum: ['quiz'] }, description: { type: String, default: '' }, questions: { type: [questionSchema], default: [] }, passingScore: { type: Number, default: 60, min: 0, max: 100 }, timeLimit: { type: Number, default: 0 }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, duration: { type: Number, default: 0 }, randomConfig: { type: randomQuizConfigSchema, default: undefined } },
-  { timestamps: true }
-);
-
-const assignmentSchema = new Schema(
-  { title: { type: String, required: true, trim: true }, type: { type: String, default: 'assignment', enum: ['assignment'] }, description: { type: String, default: '' }, instructions: { type: String, default: '' }, dueDate: { type: Date, default: null }, maxScore: { type: Number, default: 100 }, allowedFileTypes: { type: [String], default: [] }, attachments: { type: [attachmentSchema], default: [] }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, duration: { type: Number, default: 0 } },
-  { timestamps: true }
-);
-
-const chapterSchema = new Schema(
-  { title: { type: String, required: true, trim: true }, description: { type: String, default: '' }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, collapsed: { type: Boolean, default: false }, items: { type: [Schema.Types.Mixed], default: [] }, examMilestone: { type: String, enum: ['mid', 'final', null], default: null } },
-  { timestamps: true }
-);
-
-const courseContentSchema = new Schema<ICourseContent>(
-  { course: { type: Schema.Types.ObjectId, ref: 'Course', required: true, unique: true, index: true }, chapters: { type: [chapterSchema], default: [] }, totalDuration: { type: Number, default: 0 }, totalLessons: { type: Number, default: 0 }, totalQuizzes: { type: Number, default: 0 }, totalAssignments: { type: Number, default: 0 }, totalExams: { type: Number, default: 0 }, lastSaved: { type: Date, default: Date.now } },
-  { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
-);
-
-export function computeContentTotals(chapters: IChapter[]) {
-  let totalDuration = 0;
-  let totalLessons = 0;
-  let totalQuizzes = 0;
-  let totalAssignments = 0;
-  let totalExams = 0;
-  for (const chapter of chapters || []) {
-    for (const item of chapter.items || []) {
-      totalDuration += item.duration || 0;
-      if (item.type === 'lesson') totalLessons++;
-      else if (item.type === 'quiz') totalQuizzes++;
-      else if (item.type === 'assignment') totalAssignments++;
-      else if (item.type === 'exam') totalExams++;
-    }
-  }
-  return { totalDuration, totalLessons, totalQuizzes, totalAssignments, totalExams };
-}
-
-courseContentSchema.pre('save', function (next) {
-  const totals = computeContentTotals(this.chapters);
-  this.totalDuration = totals.totalDuration;
-  this.totalLessons = totals.totalLessons;
-  this.totalQuizzes = totals.totalQuizzes;
-  this.totalAssignments = totals.totalAssignments;
-  this.totalExams = totals.totalExams;
-  this.lastSaved = new Date();
-  next();
-});
+courseContentSchema.pre('validate', function(next) { try { validateRandomConfigs(this.chapters); next(); } catch (error) { next(error as Error); } });
+courseContentSchema.pre('save', function(next) { try { validateRandomConfigs(this.chapters); } catch (error) { return next(error as Error); } const totals = computeContentTotals(this.chapters); this.totalDuration = totals.totalDuration; this.totalLessons = totals.totalLessons; this.totalQuizzes = totals.totalQuizzes; this.totalAssignments = totals.totalAssignments; this.totalExams = totals.totalExams; this.lastSaved = new Date(); next(); });
+courseContentSchema.pre('findOneAndUpdate', function(next) { try { const update: any = this.getUpdate() || {}; const chapters = update.chapters || update.$set?.chapters; if (chapters) validateRandomConfigs(chapters); next(); } catch (error) { next(error as Error); } });
 
 const CourseContent = mongoose.model<ICourseContent>('CourseContent', courseContentSchema);
 export default CourseContent;
