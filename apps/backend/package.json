@@ -37,7 +37,9 @@
     "test:set-fees-idempotent": "ts-node src/__tests__/set-fees-idempotent.e2e.ts",
     "test:telegram": "ts-node src/__tests__/telegram.e2e.ts",
     "test:financial-report": "ts-node src/__tests__/financial-report.e2e.ts",
-    "test:finance-reconciliation": "ts-node src/__tests__/finance-reconciliation.e2e.ts"
+    "test:financial-report": "ts-node src/__tests__/financial-report.e2e.ts",
+    "test:finance-reconciliation": "ts-node src/__tests__/finance-reconciliation.e2e.ts",
+    "test:random-quiz-generator": "ts-node src/__tests__/random-quiz-generator.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",
@@ -50,12 +52,12 @@
     "exceljs": "^4.4.0",
     "express": "^4.19.2",
     "express-mongo-sanitize": "^2.2.0",
-    "express-rate-limit": "^7.3.1",
+    "express-rate-limit": "^7.3.0",
     "helmet": "^7.1.0",
     "joi": "^17.13.3",
     "jsonwebtoken": "^9.0.2",
-    "mammoth": "^1.12.0",
     "marked": "^18.0.7",
+    "mammoth": "^1.12.0",
     "mongoose": "^8.5.1",
     "morgan": "^1.10.0",
     "multer": "^2.2.0",
@@ -64,8 +66,7 @@
     "pdfkit": "^0.19.1",
     "socket.io": "^4.8.3",
     "web-push": "^3.6.7",
-    "xlsx": "^0.18.5",
-    "xss-clean": "^0.1.1"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
@@ -74,7 +75,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.6",
-    "@types/morgan": "^1.9.9",
+    "@types/morgan": "^1.9.13",
     "@types/multer": "^2.2.0",
     "@types/node": "^20.14.12",
     "@types/nodemailer": "^6.4.15",
