@@ -21,7 +21,32 @@ function useBrowserPathname() {
   return pathname;
 }
 
-function readCurrentLesson() {
+interface ActiveItem { courseId?: string; lessonId?: string; title: string; kind?: string }
+
+/**
+ * What the learn page says is open. It dispatches `learning:item` whenever the
+ * active item changes and `null` on the way out, so the session recorded here
+ * carries the real course and lesson ids.
+ *
+ * Module scope rather than component state: the listener is registered once
+ * and read from inside the polling/observer callbacks below, which close over
+ * their own render's values.
+ */
+let announcedItem: ActiveItem | null = null;
+if (typeof window !== 'undefined') {
+  window.addEventListener('learning:item', (event) => {
+    announcedItem = (event as CustomEvent<ActiveItem | null>).detail || null;
+  });
+}
+
+/**
+ * Falls back to scraping the lesson heading only when the page has not
+ * announced anything. That scrape was the sole source before, and a heading
+ * it failed to match meant no session was ever started — study time silently
+ * stopped being recorded while every other event kept flowing.
+ */
+function readCurrentLesson(): ActiveItem | null {
+  if (announcedItem?.title) return announcedItem;
   const heading = document.querySelector('h2.text-lg') || document.querySelector('main h2');
   const title = heading?.textContent?.replace(/\s+/g, ' ').trim() || '';
   return title ? { title } : null;
@@ -32,7 +57,7 @@ function readCurrentLesson() {
 export function LearningSessionTracker() {
   const { user, isAuthenticated } = useAuth();
   const pathname = useBrowserPathname();
-  const sessionRef = useRef<{ id: string; title: string } | null>(null);
+  const sessionRef = useRef<{ id: string; key: string } | null>(null);
   const heartbeatInFlight = useRef(false);
   const lastVideoPositionRef = useRef<number | null>(null);
 
@@ -62,9 +87,13 @@ export function LearningSessionTracker() {
       }
     };
 
-    const startForLesson = async (lesson: { title: string }) => {
+    const startForLesson = async (lesson: ActiveItem) => {
       if (cancelled) return;
-      if (sessionRef.current?.title === lesson.title) return;
+      // Identity is the lesson id when the page announced one, since two
+      // lessons can share a title across courses; the title is only a
+      // fallback for the DOM-scraped path.
+      const key = lesson.lessonId || lesson.title;
+      if (sessionRef.current?.key === key) return;
       await endCurrent();
       if (cancelled) return;
 
@@ -73,28 +102,38 @@ export function LearningSessionTracker() {
         await api.post('/activity/session/start', {
           clientSessionId: sessionId,
           kind: 'lesson',
-          course: courseId,
+          course: lesson.courseId || courseId,
+          lessonId: lesson.lessonId,
           lessonTitle: lesson.title,
           resourceName: lesson.title,
-          metadata: { path: pathname, trackingVersion: 3 },
+          metadata: { path: pathname, trackingVersion: 4 },
         });
-        if (!cancelled) sessionRef.current = { id: sessionId, title: lesson.title };
-      } catch {
-        // Tracking must never interrupt learning.
+        if (!cancelled) sessionRef.current = { id: sessionId, key };
+      } catch (err) {
+        // Tracking must never interrupt learning — but it must not fail
+        // invisibly either. A rejected start is why study time can read zero
+        // for a student who plainly worked, and that took a long time to find
+        // because nothing anywhere said so.
+        console.error('Learning session could not be started:', err);
       }
     };
 
-    let observedTitle = '';
+    let observedKey = '';
     const syncLesson = () => {
       const lesson = readCurrentLesson();
-      if (!lesson || lesson.title === observedTitle) return;
-      observedTitle = lesson.title;
+      if (!lesson) return;
+      const key = lesson.lessonId || lesson.title;
+      if (key === observedKey) return;
+      observedKey = key;
       void startForLesson(lesson);
     };
 
-    // The course page changes the active lesson without changing the URL.
-    // Watching the rendered lesson heading makes every transition a separate
-    // server session/card without requiring a logout.
+    // The course page changes the active lesson without changing the URL, so
+    // each switch has to be noticed here to become its own session card. The
+    // learn page announces the change directly; the observer and interval
+    // stay as a safety net for the DOM-scraped fallback path.
+    const onAnnounced = () => syncLesson();
+    window.addEventListener('learning:item', onAnnounced);
     const observer = new MutationObserver(syncLesson);
     observer.observe(document.body, { subtree: true, childList: true, characterData: true });
     const initialTimer = window.setInterval(syncLesson, 500);
@@ -145,6 +184,7 @@ export function LearningSessionTracker() {
     return () => {
       cancelled = true;
       observer.disconnect();
+      window.removeEventListener('learning:item', onAnnounced);
       window.clearInterval(initialTimer);
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
