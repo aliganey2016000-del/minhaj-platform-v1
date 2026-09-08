@@ -38,7 +38,12 @@ function pushSessionUpdate(session: any): void {
 }
 
 async function ownStudent(req: Request) {
-  const student = await Student.findOne({ user: req.user!.userId }).select('_id school enrolledCourses').lean();
+  // status and enrollmentHistory are what normalizeCurrentCourseLinks reads to
+  // resolve the current course list — projecting enrolledCourses without them
+  // hands this back an empty array rather than the student's real enrolment.
+  const student = await Student.findOne({ user: req.user!.userId })
+    .select('_id school status enrolledCourses enrollmentHistory')
+    .lean();
   if (!student) throw new ForbiddenError('Only students can start learning sessions.');
   return student;
 }

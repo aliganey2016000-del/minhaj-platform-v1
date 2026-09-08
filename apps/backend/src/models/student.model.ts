@@ -119,7 +119,16 @@ studentSchema.pre<IStudent>('validate', async function (next) {
 async function normalizeCurrentCourseLinks(student: any): Promise<void> {
   if (!student) return;
 
-  if (student.status !== 'active') {
+  // Only blank the list when this student is KNOWN to be inactive. A caller
+  // that projected enrolledCourses without also projecting status leaves
+  // status undefined here, and `undefined !== 'active'` was quietly wiping a
+  // perfectly good enrolment list for every one of them — several controllers
+  // select enrolledCourses alone (attendance, gradebook, payment, invoice),
+  // and startSession did too, which is why a student sitting in a lesson was
+  // told they were "not enrolled in this course" and no study time was ever
+  // recorded for them. Not knowing the status is not the same as being
+  // inactive, and must not be treated as grounds to discard data.
+  if (student.status !== undefined && student.status !== 'active') {
     student.enrolledCourses = [];
     return;
   }
