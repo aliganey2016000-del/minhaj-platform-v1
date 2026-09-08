@@ -139,17 +139,38 @@ async function normalizeCurrentCourseLinks(student: any): Promise<void> {
         .sort((a: any, b: any) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime())[0]
     : undefined;
 
-  // Enrollment history is only trusted as the source of truth once it
-  // actually has an active entry. Records created (or bulk-imported) before
-  // enrollmentHistory tracking existed — or written by any path that sets
-  // enrolledCourses without also pushing a history entry — have no active
-  // entry at all. Treating "no active entry" as "zero courses" silently
-  // wiped real enrollment data (and persisted the wipe on the next
-  // student.save(), e.g. from an unrelated profile edit). Fall back to the
-  // raw stored enrolledCourses in that case instead of discarding it.
-  const courseIds = activeHistory
-    ? (Array.isArray(activeHistory.courses) ? activeHistory.courses : [])
-    : (Array.isArray(student.enrolledCourses) ? student.enrolledCourses : []);
+  // The active history entry is a floor, not a ceiling: it records what the
+  // CURRENT CLASS enrolment granted, which is not the same question as "what
+  // is this student enrolled in right now".
+  //
+  // enrollment.service.ts, the write-side source of truth, is explicit about
+  // the difference. On every class or semester move it writes:
+  //
+  //     retainedIds = previousIds.filter(id => !currentClassCourseIds.has(id))
+  //     nextIds     = [...retainedIds, ...newCourseIds]
+  //     syncEnrollmentHistory(student, class, newCourseIds)  // class courses only
+  //     student.enrolledCourses = nextIds                    // retained + class
+  //
+  // So a course held outside the current class — assigned individually, or
+  // carried over on purpose — lives in enrolledCourses and never appears in
+  // the history entry. Taking the history entry alone dropped every one of
+  // them from every read: the student's own course list, their analytics, a
+  // teacher's access check, and the enrolment test that decides whether their
+  // study time gets recorded at all.
+  //
+  // Staleness, the reason this normalization exists, is already handled by
+  // that same write: the previous class's courses are filtered out before the
+  // field is stored. Union is therefore safe as well as correct, and it keeps
+  // data that replacing silently threw away. Deleted or archived courses are
+  // still dropped by the existence check below, and an inactive student still
+  // resolves to nothing at all, above.
+  //
+  // Stored entries come first so that when this runs after
+  // .populate('enrolledCourses'), the populated Course document wins the
+  // de-duplication over the bare id the history holds for the same course.
+  const stored = Array.isArray(student.enrolledCourses) ? student.enrolledCourses : [];
+  const fromHistory = activeHistory && Array.isArray(activeHistory.courses) ? activeHistory.courses : [];
+  const courseIds = [...stored, ...fromHistory];
 
   // This hook runs on the result AFTER .populate('enrolledCourses') has
   // already resolved (population happens inside Query#exec, before post
