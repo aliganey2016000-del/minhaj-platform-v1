@@ -11,11 +11,17 @@ import { emitToStudentWatchers, hasActivityWatchers } from '../realtime/socket';
 const MAX_HEARTBEAT_SECONDS = 60;
 const IDLE_THRESHOLD_SECONDS = 90;
 
-/**
- * Mirrors one session row to whoever has this student's Activity Events view
- * open, in exactly the shape getStudentAnalytics returns so the client can
- * upsert it into the list it already holds. Silent when nobody is watching.
- */
+function safeTimezone(value: unknown): string {
+  const candidate = typeof value === 'string' ? value.trim() : '';
+  if (!candidate) return 'UTC';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format();
+    return candidate;
+  } catch {
+    return 'UTC';
+  }
+}
+
 function pushSessionUpdate(session: any): void {
   const studentId = session.student ? String(session.student) : '';
   if (!studentId || !hasActivityWatchers(studentId)) return;
@@ -37,17 +43,12 @@ function pushSessionUpdate(session: any): void {
 }
 
 async function ownStudent(req: Request) {
-  // status and enrollmentHistory are what normalizeCurrentCourseLinks reads to
-  // resolve the current course list — projecting enrolledCourses without them
-  // hands this back an empty array rather than the student's real enrolment.
   const student = await Student.findOne({ user: req.user!.userId })
     .select('_id school status enrolledCourses enrollmentHistory')
     .lean();
   if (!student) throw new ForbiddenError('Only students can start learning sessions.');
   return student;
 }
-
-
 
 function positiveInt(value: unknown): number | undefined {
   const n = Number(value);
@@ -64,25 +65,9 @@ export const startSession = async (req: Request, res: Response): Promise<Respons
   const { clientSessionId, kind, course, lessonId, lessonTitle, resourceName, metadata } = req.body;
   if (!clientSessionId || typeof clientSessionId !== 'string') throw new BadRequestError('clientSessionId is required.');
   if (!['lesson', 'video', 'audio', 'pdf', 'course', 'general'].includes(kind)) throw new BadRequestError('Invalid session kind.');
-  // Asked of the database directly, exactly as quiz.controller asks it before
-  // accepting an attempt. Comparing against the in-memory list instead meant
-  // this went through the Student model's read-time course normalization,
-  // which replaces enrolledCourses with the active enrollment-history entry's
-  // courses — and that entry holds only the current class's courses, while
-  // enrollment.service deliberately writes `retained + new` to the stored
-  // field. Any course a student holds outside their current class was
-  // therefore invisible here and study time for it was refused, even though
-  // the same student may submit graded quiz attempts in it. Recording that
-  // someone studied is strictly less privileged than grading their work, so
-  // it must not be the stricter of the two checks.
   if (course) {
     const enrolled = await Student.exists({ _id: student._id, enrolledCourses: course });
     if (!enrolled) {
-      // Loud on purpose. A refusal means no study time is recorded for a
-      // student sitting in the lesson right now, and the client cannot report
-      // it — the tracker has to swallow errors so it never interrupts
-      // learning. Without this the only symptom is "No activity" on a day the
-      // student plainly worked, with nothing anywhere to say why.
       console.warn(`[learning-session] refused start: student ${student._id} is not enrolled in course ${course}.`);
       throw new ForbiddenError('You are not enrolled in this course.');
     }
@@ -126,15 +111,6 @@ export const heartbeat = async (req: Request, res: Response): Promise<Response> 
   const elapsed = Math.max(0, Math.floor((now.getTime() - session.lastHeartbeatAt.getTime()) / 1000));
   const bounded = Math.min(elapsed, MAX_HEARTBEAT_SECONDS);
 
-  // Bounded like every other branch here (and like endSession's identical
-  // check): a gap longer than the idle threshold means the student was gone
-  // — a backgrounded tab on a sleeping phone sends nothing until the browser
-  // wakes it, so `elapsed` can be many hours. Adding it raw booked that whole
-  // absence as time-on-lesson, which is how a 90-second visit ended up
-  // reading "14h 23m, idle 14h 20m" and inflated every study-time total on
-  // the Student Activity page. The stale-session sweep normally expires such
-  // a session before this heartbeat lands; the cap is what makes a late one
-  // harmless.
   if (elapsed > IDLE_THRESHOLD_SECONDS) session.idleSeconds += bounded;
   else if (active !== false) {
     session.activeSeconds += bounded;
@@ -188,6 +164,7 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
   const to = req.query.to ? new Date(String(req.query.to)) : undefined;
   const match: Record<string, unknown> = { student: sid };
   if (from || to) match.startedAt = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
+  const timezone = safeTimezone(req.headers['x-timezone']);
 
   const [summary, byKind, daily, sessions] = await Promise.all([
     LearningSession.aggregate([
@@ -201,7 +178,7 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
     ]),
     LearningSession.aggregate([
       { $match: { ...match, startedAt: { $gte: new Date(Date.now() - 30 * 86400000) } } },
-      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$startedAt' } }, activeSeconds: { $sum: '$activeSeconds' }, watchSeconds: { $sum: '$watchSeconds' } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$startedAt', timezone } }, activeSeconds: { $sum: '$activeSeconds' }, watchSeconds: { $sum: '$watchSeconds' } } },
       { $sort: { _id: 1 } },
     ]),
     LearningSession.find(match).sort({ startedAt: -1 }).limit(200).lean(),
@@ -232,15 +209,6 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
   });
 };
 
-// Closes out sessions abandoned without an explicit /session/end call (tab
-// closed, app killed, connection lost) — the vast majority of real visits,
-// since a clean navigation-away is the exception. endedAt is set to each
-// session's own lastHeartbeatAt (the last moment it was actually known to
-// be active), not to "now": this runs on a delay after the fact, and admin
-// views like the Activity Events lesson-card duration fall back to
-// Date.now() for a still-active session with no endedAt, so a session left
-// stuck 'active' would otherwise show a duration that keeps growing for as
-// long as this job hasn't caught it yet.
 export const expireStaleSessions = async (): Promise<void> => {
   const cutoff = new Date(Date.now() - IDLE_THRESHOLD_SECONDS * 1000);
   const stale = await LearningSession.find({ status: 'active', lastHeartbeatAt: { $lt: cutoff } }).select('_id lastHeartbeatAt');
