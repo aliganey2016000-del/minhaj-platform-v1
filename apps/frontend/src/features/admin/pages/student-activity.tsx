@@ -269,19 +269,6 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     return sessions.daily.slice(-cutoff);
   }, [sessions, range]);
 
-  const loginSequence = useMemo(() => {
-    const map = new Map<string, number>();
-    [...events].filter((e) => e.type === 'login' && e.loginSessionId)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-      .forEach((e) => {
-        if (e.loginSessionId && !map.has(e.loginSessionId)) map.set(e.loginSessionId, map.size + 1);
-      });
-    [...new Set((sessions?.sessions || []).map((s) => s.loginSessionId).filter(Boolean) as string[])].forEach((id) => {
-      if (!map.has(id)) map.set(id, map.size + 1);
-    });
-    return map;
-  }, [events, sessions]);
-
   /**
    * One card per sign-in: everything between a login and its logout, grouped
    * under the login session the student was in. The flat list this replaces
@@ -303,7 +290,8 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     const groupFor = (id: string) => {
       let group = groups.get(id);
       if (!group) {
-        group = { id, number: loginSequence.get(id) || groups.size + 1, loginAt: null, logoutAt: null, events: [], lessons: [] };
+        // Numbered in one pass below, once every group is known.
+        group = { id, number: 0, loginAt: null, logoutAt: null, events: [], lessons: [] };
         groups.set(id, group);
       }
       return group;
@@ -321,15 +309,38 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
       }
     }
 
+    // Sign-ins recorded before the server started stamping login/logout with
+    // a session id have no key to group on, so they are paired the only way
+    // left: in time order, each login opening a session that the next logout
+    // closes. Without this every historical card reads "Login —".
+    const looseSignIns = events
+      .filter((e) => !e.loginSessionId && (e.type === 'login' || e.type === 'logout'))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    let open: ReturnType<typeof groupFor> | null = null;
+    for (const event of looseSignIns) {
+      if (event.type === 'login') {
+        open = groupFor(`inferred:${event._id}`);
+        open.loginAt = event.createdAt;
+      } else if (open && !open.logoutAt) {
+        open.logoutAt = event.createdAt;
+        open = null;
+      }
+    }
+
     for (const lesson of sessions?.sessions || []) {
       if (lesson.loginSessionId) groupFor(lesson.loginSessionId).lessons.push(lesson);
     }
 
-    const ordered = [...groups.values()].sort((a, b) => {
-      const at = new Date(a.loginAt || a.events[0]?.createdAt || a.lessons[0]?.startedAt || 0).getTime();
-      const bt = new Date(b.loginAt || b.events[0]?.createdAt || b.lessons[0]?.startedAt || 0).getTime();
-      return bt - at;
-    });
+    const startOf = (g: { loginAt: string | null; events: ActivityEvent[]; lessons: SessionRow[] }) =>
+      new Date(g.loginAt || g.events[0]?.createdAt || g.lessons[0]?.startedAt || 0).getTime();
+
+    // Numbered oldest-first so a session's number stays put as newer ones
+    // arrive, then shown newest-first.
+    [...groups.values()]
+      .sort((a, b) => startOf(a) - startOf(b))
+      .forEach((group, index) => { group.number = index + 1; });
+
+    const ordered = [...groups.values()].sort((a, b) => startOf(b) - startOf(a));
 
     // Anything logged before login sessions were stamped (or by a flow that
     // does not send the header) still belongs to whichever sign-in was open
@@ -387,7 +398,7 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
         watchSeconds: group.lessons.reduce((sum, l) => sum + (l.watchSeconds || 0), 0),
       };
     });
-  }, [events, sessions, loginSequence, student?.online]);
+  }, [events, sessions, student?.online]);
 
   const exportSessions = () => {
     if (!sessions || !student) return;
@@ -686,10 +697,14 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                     <div className="divide-y divide-[var(--color-border-subtle)]">
                       {sessionGroups.map((group) => {
                         const isOpen = expanded === group.id;
+                        // "Logout: … (no logout)" contradicted itself. When
+                        // there is no logout event the column is headed for
+                        // what it actually holds instead.
+                        const endHeading = group.endedBy === 'logout' ? 'Logout' : group.endedBy === 'ongoing' ? 'Status' : 'Last activity';
                         const endLabel = group.endedBy === 'ongoing'
                           ? 'Still signed in'
                           : group.endedBy === 'inferred'
-                            ? `${dateTime(group.endAt)} (no logout)`
+                            ? dateTime(group.endAt)
                             : dateTime(group.logoutAt);
                         return (
                           <div key={group.id} className="p-4 sm:p-5">
@@ -717,7 +732,7 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                                     <b className="text-[13px]">{dateTime(group.loginAt)}</b>
                                   </div>
                                   <div>
-                                    <span className="text-[var(--color-text-tertiary)]">Logout</span><br />
+                                    <span className="text-[var(--color-text-tertiary)]">{endHeading}</span><br />
                                     <b className="text-[13px]">{endLabel}</b>
                                   </div>
                                   <div>

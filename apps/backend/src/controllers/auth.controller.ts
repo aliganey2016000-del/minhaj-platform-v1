@@ -28,6 +28,20 @@ function clientIp(req: Request): string {
   return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
 }
 
+/**
+ * The sign-in id the client stamps on every request of one browser session.
+ * Login and logout are logged through logLearningActivity directly rather
+ * than logActivityFromRequest — login has no req.user yet, since the token
+ * is only issued further down — and that raw form does not read the header
+ * for us. Without it these two events carried no loginSessionId, so the
+ * admin Activity Events view could not tie a sign-in to the work that
+ * followed it and every session card showed an empty "Login".
+ */
+function loginSessionIdFrom(req: Request): string | undefined {
+  const value = req.headers['x-login-session-id'];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 interface OrganizationPayload {
   organizationId?: string;
   organizationName?: string;
@@ -328,6 +342,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       student: studentRecord?._id,
       school: studentRecord?.school as any,
       type: 'login',
+      loginSessionId: loginSessionIdFrom(req),
       ip: clientIp(req),
       userAgent: req.headers['user-agent'] || '',
     });
@@ -387,6 +402,7 @@ export const logout = async (req: Request, res: Response): Promise<Response> => 
       student: studentRecord?._id,
       school: studentRecord?.school as any,
       type: 'logout',
+      loginSessionId: loginSessionIdFrom(req),
       ip: clientIp(req),
       userAgent: req.headers['user-agent'] || '',
     });
