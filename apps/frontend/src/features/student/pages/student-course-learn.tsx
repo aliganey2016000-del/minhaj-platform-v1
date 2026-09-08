@@ -336,9 +336,19 @@ export function StudentCourseLearn() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
 
+    // Tell LearningSessionTracker which item is open, so the timed session it
+    // records is keyed off the real course/lesson this page already has.
+    // It used to work that out by reading a heading out of the DOM, which is
+    // how a page that was still logging lesson views perfectly could record
+    // no study time at all.
+    window.dispatchEvent(new CustomEvent('learning:item', {
+      detail: { courseId, lessonId: item._id, title: item.title, kind: item.type },
+    }));
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
+      window.dispatchEvent(new CustomEvent('learning:item', { detail: null }));
       flush(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
