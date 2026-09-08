@@ -1,60 +1,39 @@
-/**
- * Course Content Model
- *
- * Stores the curriculum for a course: chapters containing lessons, quizzes,
- * and assignments. Supports drag-and-drop ordering.
- */
-
 import mongoose, { Schema, Document } from 'mongoose';
 import { questionSchema, type QuestionType, type IQuizQuestion } from './shared/question.schema';
 
 export type { QuestionType, IQuizQuestion };
 
-// ---------------------------------------------------------------------------
-// Sub-document: Lesson
-// ---------------------------------------------------------------------------
 export type LessonDeliveryMode = 'traditional' | 'interactive_gate';
 
-// Loosely typed on purpose: the real payload mirrors the frontend's full
-// 10-type QuizQuestion union (course-builder.types.ts) — options/correctIndex
-// for mcq, pairs for matching, items for ordering, etc. — but chapter.items
-// (which actually holds these, nested under IContentBlock) is stored as
-// Schema.Types.Mixed, so nothing here is schema-enforced at the DB layer;
-// only mcq/true_false are graded/rendered end-to-end today (see
-// lesson-block-progress.controller.ts and interactive-gate-lesson-view.tsx).
 export interface IContentBlockQuestion {
   question: string;
   type: string;
-  options?: string[];       // mcq: 2-4
-  correctIndex?: number;    // mcq / picture_choice — index into options/choices
-  correctAnswer?: boolean;  // true_false
-  explanation?: string;     // shown to the student after an incorrect attempt
+  options?: string[];
+  correctIndex?: number;
+  correctAnswer?: boolean;
+  explanation?: string;
   aiGenerated: boolean;
-  answerHash?: string;      // SHA-256 replacing the answer for student-facing reads (see hashGateAnswer)
-  [key: string]: unknown;   // remaining type-specific fields (pairs, items, choices, cards, etc.)
+  answerHash?: string;
+  [key: string]: unknown;
 }
 
 export interface IContentBlock {
   _id?: mongoose.Types.ObjectId;
-  title?: string;               // optional short heading, e.g. from AI-splitter section headings
+  title?: string;
   order: number;
-  content: string;             // rich text/HTML, same shape as lesson.content
+  content: string;
   minReadSeconds: number;
-  /** @deprecated legacy single-question field — still read as a 1-item fallback when `questions` is absent. */
   question?: IContentBlockQuestion;
-  questions?: IContentBlockQuestion[]; // no cap — a block may carry as many Stop & Check questions as authored
+  questions?: IContentBlockQuestion[];
 }
 
-/** A block's Stop & Check questions, normalizing the legacy singular `question` field into the array shape. */
 export function getBlockQuestions(block: { question?: IContentBlockQuestion; questions?: IContentBlockQuestion[] }): IContentBlockQuestion[] {
   return block.questions ?? (block.question ? [block.question] : []);
 }
 
-// Video Checkpoint — a percentage-of-duration timestamp on the lesson's video
-// where playback pauses and a question must be answered correctly to resume.
 export interface IVideoCheckpoint {
   _id?: mongoose.Types.ObjectId;
-  percentage: number;          // 0-100, position along videoDuration
+  percentage: number;
   question: IContentBlockQuestion;
 }
 
@@ -62,52 +41,58 @@ export interface ILesson {
   _id?: mongoose.Types.ObjectId;
   title: string;
   type: 'lesson';
-  content?: string;           // Rich text / HTML content
+  content?: string;
   videoUrl?: string;
-  videoDuration?: number;     // seconds
+  videoDuration?: number;
   featuredImage?: string;
-  attachments: {
-    name: string;
-    url: string;
-    type: string;             // pdf, docx, zip, etc.
-    size?: number;            // bytes
-  }[];
+  attachments: { name: string; url: string; type: string; size?: number }[];
   order: number;
   status: 'draft' | 'published';
-  duration: number;           // estimated minutes
+  duration: number;
   deliveryMode: LessonDeliveryMode;
-  contentBlocks?: IContentBlock[]; // only meaningful when deliveryMode === 'interactive_gate'
+  contentBlocks?: IContentBlock[];
   defaultMinReadSeconds?: number;
-  // Video checkpoint gating — independent of contentBlocks, applies to this
-  // lesson's own videoUrl. Only meaningful when videoCheckpoints is non-empty.
-  blockForwardSeeking?: boolean;   // prevent scrubbing past the furthest-watched point
+  blockForwardSeeking?: boolean;
   videoCheckpoints?: IVideoCheckpoint[];
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-// ---------------------------------------------------------------------------
-// Sub-document: Quiz — question shape lives in ./shared/question.schema,
-// shared with exam papers (see IExamItem below and exam-paper.model.ts).
-// ---------------------------------------------------------------------------
+export interface IRandomQuizSourceConfig {
+  itemId: string;
+  type: 'lesson' | 'quiz';
+  weight: number;
+}
+
+export interface IRandomQuizTypeConfig {
+  type: QuestionType;
+  quantity: number;
+}
+
+export interface IRandomQuizConfig {
+  enabled: boolean;
+  sources: IRandomQuizSourceConfig[];
+  questionTypes: IRandomQuizTypeConfig[];
+  totalQuestions: number;
+  version: number;
+}
+
 export interface IQuiz {
   _id?: mongoose.Types.ObjectId;
   title: string;
   type: 'quiz';
   description?: string;
   questions: IQuizQuestion[];
-  passingScore: number;       // percentage required to pass
-  timeLimit?: number;         // minutes, 0 = no limit
+  passingScore: number;
+  timeLimit?: number;
   order: number;
   status: 'draft' | 'published';
   duration: number;
+  randomConfig?: IRandomQuizConfig;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-// ---------------------------------------------------------------------------
-// Sub-document: Assignment
-// ---------------------------------------------------------------------------
 export interface IAssignmentItem {
   _id?: mongoose.Types.ObjectId;
   title: string;
@@ -117,12 +102,7 @@ export interface IAssignmentItem {
   dueDate?: Date;
   maxScore: number;
   allowedFileTypes?: string[];
-  attachments: {
-    name: string;
-    url: string;
-    type: string;
-    size?: number;
-  }[];
+  attachments: { name: string; url: string; type: string; size?: number }[];
   order: number;
   status: 'draft' | 'published';
   duration: number;
@@ -130,14 +110,6 @@ export interface IAssignmentItem {
   updatedAt?: Date;
 }
 
-// ---------------------------------------------------------------------------
-// Sub-document: Exam (a link into the full Exam Management system)
-// ---------------------------------------------------------------------------
-// Exams have their own full lifecycle (scheduling, room allocation,
-// attendance, papers, results) on the separate Exam model — this is just a
-// pointer to one, with a display snapshot so the builder can render it
-// without an extra fetch. Editing the exam itself still happens in Manage
-// Exams; this sub-document is not the source of truth.
 export interface IExamItem {
   _id?: mongoose.Types.ObjectId;
   title: string;
@@ -152,9 +124,6 @@ export interface IExamItem {
   updatedAt?: Date;
 }
 
-// ---------------------------------------------------------------------------
-// Sub-document: Chapter (Topic)
-// ---------------------------------------------------------------------------
 export type ChapterItem = ILesson | IQuiz | IAssignmentItem | IExamItem;
 
 export interface IChapter {
@@ -165,24 +134,16 @@ export interface IChapter {
   status: 'draft' | 'published';
   collapsed?: boolean;
   items: ChapterItem[];
-  // Auto-scheduling prerequisite tag: a 'mid'-tagged module must be fully
-  // completed by a student before the course's auto-scheduled Mid Exam
-  // unlocks for them. Final Exam auto-schedule requires the whole course
-  // (every chapter, tagged or not) instead of a specific tag — see
-  // exam-attempt.controller.ts isEligibleForAutoScheduledExam.
   examMilestone?: 'mid' | 'final' | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-// ---------------------------------------------------------------------------
-// Main Document: CourseContent
-// ---------------------------------------------------------------------------
 export interface ICourseContent extends Document {
   course: mongoose.Types.ObjectId;
   chapters: IChapter[];
-  totalDuration: number;       // computed sum in minutes
-  totalLessons: number;        // computed count
+  totalDuration: number;
+  totalLessons: number;
   totalQuizzes: number;
   totalAssignments: number;
   totalExams: number;
@@ -191,162 +152,72 @@ export interface ICourseContent extends Document {
   updatedAt: Date;
 }
 
-// ---------------------------------------------------------------------------
-// Schemas
-// ---------------------------------------------------------------------------
-
 const attachmentSchema = new Schema(
-  {
-    name: { type: String, required: true },
-    url: { type: String, required: true },
-    type: { type: String, default: 'application/octet-stream' },
-    size: { type: Number, default: 0 },
-  },
+  { name: { type: String, required: true }, url: { type: String, required: true }, type: { type: String, default: 'application/octet-stream' }, size: { type: Number, default: 0 } },
   { _id: false }
 );
 
 const contentBlockQuestionSchema = new Schema(
-  {
-    question: { type: String, required: true, trim: true },
-    type: { type: String, required: true },
-    options: { type: [String], default: undefined },
-    correctIndex: { type: Number, min: 0 },
-    correctAnswer: { type: Boolean },
-    explanation: { type: String, default: '' },
-    aiGenerated: { type: Boolean, default: false },
-  },
+  { question: { type: String, required: true, trim: true }, type: { type: String, required: true }, options: { type: [String], default: undefined }, correctIndex: { type: Number, min: 0 }, correctAnswer: { type: Boolean }, explanation: { type: String, default: '' }, aiGenerated: { type: Boolean, default: false } },
   { _id: false, strict: false }
 );
 
 const videoCheckpointSchema = new Schema(
-  {
-    percentage: { type: Number, required: true, min: 0, max: 100 },
-    question: { type: contentBlockQuestionSchema, required: true },
-  },
+  { percentage: { type: Number, required: true, min: 0, max: 100 }, question: { type: contentBlockQuestionSchema, required: true } },
   { timestamps: false }
 );
 
 const contentBlockSchema = new Schema(
-  {
-    title: { type: String, default: '' },
-    order: { type: Number, required: true, default: 0 },
-    content: { type: String, required: true },
-    minReadSeconds: { type: Number, default: 30, min: 5, max: 600 },
-    question: { type: contentBlockQuestionSchema, default: undefined },
-    questions: { type: [contentBlockQuestionSchema], default: undefined },
-  },
+  { title: { type: String, default: '' }, order: { type: Number, required: true, default: 0 }, content: { type: String, required: true }, minReadSeconds: { type: Number, default: 30, min: 5, max: 600 }, question: { type: contentBlockQuestionSchema, default: undefined }, questions: { type: [contentBlockQuestionSchema], default: undefined } },
   { timestamps: false }
 );
 
 const lessonSchema = new Schema(
-  {
-    title: { type: String, required: true, trim: true },
-    type: { type: String, default: 'lesson', enum: ['lesson'] },
-    content: { type: String, default: '' },
-    videoUrl: { type: String, default: '' },
-    videoDuration: { type: Number, default: 0 },
-    featuredImage: { type: String, default: '' },
-    attachments: { type: [attachmentSchema], default: [] },
-    order: { type: Number, required: true, default: 0 },
-    status: { type: String, enum: ['draft', 'published'], default: 'draft' },
-    duration: { type: Number, default: 0 },
-    deliveryMode: { type: String, enum: ['traditional', 'interactive_gate'], default: 'traditional' },
-    contentBlocks: { type: [contentBlockSchema], default: undefined },
-    defaultMinReadSeconds: { type: Number, default: 30, min: 5, max: 600 },
-    blockForwardSeeking: { type: Boolean, default: false },
-    videoCheckpoints: { type: [videoCheckpointSchema], default: undefined },
-  },
+  { title: { type: String, required: true, trim: true }, type: { type: String, default: 'lesson', enum: ['lesson'] }, content: { type: String, default: '' }, videoUrl: { type: String, default: '' }, videoDuration: { type: Number, default: 0 }, featuredImage: { type: String, default: '' }, attachments: { type: [attachmentSchema], default: [] }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, duration: { type: Number, default: 0 }, deliveryMode: { type: String, enum: ['traditional', 'interactive_gate'], default: 'traditional' }, contentBlocks: { type: [contentBlockSchema], default: undefined }, defaultMinReadSeconds: { type: Number, default: 30, min: 5, max: 600 }, blockForwardSeeking: { type: Boolean, default: false }, videoCheckpoints: { type: [videoCheckpointSchema], default: undefined } },
   { timestamps: true }
 );
 
+const randomQuizSourceSchema = new Schema(
+  { itemId: { type: String, required: true, trim: true }, type: { type: String, enum: ['lesson', 'quiz'], required: true }, weight: { type: Number, required: true, min: 0.01, max: 100 } },
+  { _id: false }
+);
+
+const randomQuizTypeSchema = new Schema(
+  { type: { type: String, required: true }, quantity: { type: Number, required: true, min: 1 } },
+  { _id: false }
+);
+
+const randomQuizConfigSchema = new Schema(
+  { enabled: { type: Boolean, default: false }, sources: { type: [randomQuizSourceSchema], default: [] }, questionTypes: { type: [randomQuizTypeSchema], default: [] }, totalQuestions: { type: Number, default: 0, min: 0 }, version: { type: Number, default: 1, min: 1 } },
+  { _id: false }
+);
+
 const quizSchema = new Schema(
-  {
-    title: { type: String, required: true, trim: true },
-    type: { type: String, default: 'quiz', enum: ['quiz'] },
-    description: { type: String, default: '' },
-    questions: { type: [questionSchema], default: [] },
-    passingScore: { type: Number, default: 60, min: 0, max: 100 },
-    timeLimit: { type: Number, default: 0 },
-    order: { type: Number, required: true, default: 0 },
-    status: { type: String, enum: ['draft', 'published'], default: 'draft' },
-    duration: { type: Number, default: 0 },
-  },
+  { title: { type: String, required: true, trim: true }, type: { type: String, default: 'quiz', enum: ['quiz'] }, description: { type: String, default: '' }, questions: { type: [questionSchema], default: [] }, passingScore: { type: Number, default: 60, min: 0, max: 100 }, timeLimit: { type: Number, default: 0 }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, duration: { type: Number, default: 0 }, randomConfig: { type: randomQuizConfigSchema, default: undefined } },
   { timestamps: true }
 );
 
 const assignmentSchema = new Schema(
-  {
-    title: { type: String, required: true, trim: true },
-    type: { type: String, default: 'assignment', enum: ['assignment'] },
-    description: { type: String, default: '' },
-    instructions: { type: String, default: '' },
-    dueDate: { type: Date, default: null },
-    maxScore: { type: Number, default: 100 },
-    allowedFileTypes: { type: [String], default: [] },
-    attachments: { type: [attachmentSchema], default: [] },
-    order: { type: Number, required: true, default: 0 },
-    status: { type: String, enum: ['draft', 'published'], default: 'draft' },
-    duration: { type: Number, default: 0 },
-  },
+  { title: { type: String, required: true, trim: true }, type: { type: String, default: 'assignment', enum: ['assignment'] }, description: { type: String, default: '' }, instructions: { type: String, default: '' }, dueDate: { type: Date, default: null }, maxScore: { type: Number, default: 100 }, allowedFileTypes: { type: [String], default: [] }, attachments: { type: [attachmentSchema], default: [] }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, duration: { type: Number, default: 0 } },
   { timestamps: true }
 );
 
 const chapterSchema = new Schema(
-  {
-    title: { type: String, required: true, trim: true },
-    description: { type: String, default: '' },
-    order: { type: Number, required: true, default: 0 },
-    status: { type: String, enum: ['draft', 'published'], default: 'draft' },
-    collapsed: { type: Boolean, default: false },
-    items: { type: [Schema.Types.Mixed], default: [] },
-    examMilestone: { type: String, enum: ['mid', 'final', null], default: null },
-  },
+  { title: { type: String, required: true, trim: true }, description: { type: String, default: '' }, order: { type: Number, required: true, default: 0 }, status: { type: String, enum: ['draft', 'published'], default: 'draft' }, collapsed: { type: Boolean, default: false }, items: { type: [Schema.Types.Mixed], default: [] }, examMilestone: { type: String, enum: ['mid', 'final', null], default: null } },
   { timestamps: true }
 );
 
 const courseContentSchema = new Schema<ICourseContent>(
-  {
-    course: {
-      type: Schema.Types.ObjectId,
-      ref: 'Course',
-      required: true,
-      unique: true,
-      index: true,
-    },
-    chapters: { type: [chapterSchema], default: [] },
-    totalDuration: { type: Number, default: 0 },
-    totalLessons: { type: Number, default: 0 },
-    totalQuizzes: { type: Number, default: 0 },
-    totalAssignments: { type: Number, default: 0 },
-    totalExams: { type: Number, default: 0 },
-    lastSaved: { type: Date, default: Date.now },
-  },
-  {
-    timestamps: true,
-    toJSON: {
-      transform(_doc: any, ret: any) {
-        delete ret.__v;
-        return ret;
-      },
-    },
-  }
+  { course: { type: Schema.Types.ObjectId, ref: 'Course', required: true, unique: true, index: true }, chapters: { type: [chapterSchema], default: [] }, totalDuration: { type: Number, default: 0 }, totalLessons: { type: Number, default: 0 }, totalQuizzes: { type: Number, default: 0 }, totalAssignments: { type: Number, default: 0 }, totalExams: { type: Number, default: 0 }, lastSaved: { type: Date, default: Date.now } },
+  { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } }
 );
 
-// ---------------------------------------------------------------------------
-// Totals — shared by the pre-save hook below AND saveContent in the
-// controller, which upserts via findOneAndUpdate and therefore never runs
-// this document middleware. Keeping the counting logic in one place means
-// findOneAndUpdate-based writes can't silently leave totalLessons/etc. stale
-// (which previously left "My Courses" showing "0 lessons" and a completed/
-// total ratio like "2/0" for courses saved that way).
-// ---------------------------------------------------------------------------
 export function computeContentTotals(chapters: IChapter[]) {
   let totalDuration = 0;
   let totalLessons = 0;
   let totalQuizzes = 0;
   let totalAssignments = 0;
   let totalExams = 0;
-
   for (const chapter of chapters || []) {
     for (const item of chapter.items || []) {
       totalDuration += item.duration || 0;
@@ -356,7 +227,6 @@ export function computeContentTotals(chapters: IChapter[]) {
       else if (item.type === 'exam') totalExams++;
     }
   }
-
   return { totalDuration, totalLessons, totalQuizzes, totalAssignments, totalExams };
 }
 
@@ -368,12 +238,8 @@ courseContentSchema.pre('save', function (next) {
   this.totalAssignments = totals.totalAssignments;
   this.totalExams = totals.totalExams;
   this.lastSaved = new Date();
-
   next();
 });
 
-// ---------------------------------------------------------------------------
-// Model
-// ---------------------------------------------------------------------------
 const CourseContent = mongoose.model<ICourseContent>('CourseContent', courseContentSchema);
 export default CourseContent;
