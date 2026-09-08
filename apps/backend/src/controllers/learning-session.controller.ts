@@ -64,17 +64,28 @@ export const startSession = async (req: Request, res: Response): Promise<Respons
   const { clientSessionId, kind, course, lessonId, lessonTitle, resourceName, metadata } = req.body;
   if (!clientSessionId || typeof clientSessionId !== 'string') throw new BadRequestError('clientSessionId is required.');
   if (!['lesson', 'video', 'audio', 'pdf', 'course', 'general'].includes(kind)) throw new BadRequestError('Invalid session kind.');
-  if (course && !(student.enrolledCourses || []).some((id: any) => id.toString() === String(course))) {
-    // Loud on purpose. A refusal here means no study time is recorded for a
-    // student who is sitting in the lesson right now, and the client cannot
-    // report it — the tracker has to swallow errors so it never interrupts
-    // learning. Without this line the only symptom is "No activity" on a day
-    // the student plainly worked, with nothing anywhere to say why.
-    console.warn(
-      `[learning-session] refused start: student ${student._id} is not enrolled in course ${course}. ` +
-      `Enrolled: ${(student.enrolledCourses || []).map((id: any) => id.toString()).join(', ') || '(none)'}`
-    );
-    throw new ForbiddenError('You are not enrolled in this course.');
+  // Asked of the database directly, exactly as quiz.controller asks it before
+  // accepting an attempt. Comparing against the in-memory list instead meant
+  // this went through the Student model's read-time course normalization,
+  // which replaces enrolledCourses with the active enrollment-history entry's
+  // courses — and that entry holds only the current class's courses, while
+  // enrollment.service deliberately writes `retained + new` to the stored
+  // field. Any course a student holds outside their current class was
+  // therefore invisible here and study time for it was refused, even though
+  // the same student may submit graded quiz attempts in it. Recording that
+  // someone studied is strictly less privileged than grading their work, so
+  // it must not be the stricter of the two checks.
+  if (course) {
+    const enrolled = await Student.exists({ _id: student._id, enrolledCourses: course });
+    if (!enrolled) {
+      // Loud on purpose. A refusal means no study time is recorded for a
+      // student sitting in the lesson right now, and the client cannot report
+      // it — the tracker has to swallow errors so it never interrupts
+      // learning. Without this the only symptom is "No activity" on a day the
+      // student plainly worked, with nothing anywhere to say why.
+      console.warn(`[learning-session] refused start: student ${student._id} is not enrolled in course ${course}.`);
+      throw new ForbiddenError('You are not enrolled in this course.');
+    }
   }
 
   const existing = await LearningSession.findOne({ clientSessionId, user: req.user!.userId });
