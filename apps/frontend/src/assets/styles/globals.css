@@ -114,21 +114,6 @@
     font-size: 11px;
   }
 
-  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div.mb-1:nth-of-type(2) > button > span {
-    font-size: 0 !important;
-  }
-  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div.mb-1:nth-of-type(2) > button > span::after {
-    content: 'Academic Management';
-    font-size: 11px;
-  }
-  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div.mb-1:nth-of-type(3) > button > span {
-    font-size: 0 !important;
-  }
-  nav.flex-1.overflow-y-auto.py-3.px-3.hide-scrollbar > div.mb-1:nth-of-type(3) > button > span::after {
-    content: 'Finance Management';
-    font-size: 11px;
-  }
-
   section:has(button.w-full.text-left.rounded-2xl) .divide-y > div > button.w-full.text-left.rounded-2xl {
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
     transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;

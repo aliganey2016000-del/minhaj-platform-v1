@@ -78,7 +78,23 @@ export async function applyInvoicePayment(invoiceId: Id, amount: number, discoun
     const remaining = Math.max(0, fresh.amount - (fresh.discount || 0) - (fresh.amountPaid || 0));
     throw new BadRequestError(`Amount exceeds remaining balance of ${remaining}`);
   }
-  return updated;
+  await syncInvoiceInstallments(updated);
+  return Invoice.findById(updated._id) as Promise<IInvoice>;
+}
+
+export async function syncInvoiceInstallments(invoice: IInvoice): Promise<void> {
+  if (!invoice.installments?.length) return;
+  let remaining = Math.max(0, Number(invoice.amountPaid || 0));
+  let changed = false;
+  for (const installment of invoice.installments) {
+    const paidAmount = Math.min(Number(installment.amount || 0), remaining);
+    const status = paidAmount >= installment.amount ? 'paid' : paidAmount > 0 ? 'partial' : 'pending';
+    if (installment.paidAmount !== paidAmount || installment.status !== status) changed = true;
+    installment.paidAmount = paidAmount;
+    installment.status = status;
+    remaining = Math.max(0, remaining - paidAmount);
+  }
+  if (changed) await invoice.save();
 }
 
 // A discount/waiver granted independently of collecting cash — e.g. a

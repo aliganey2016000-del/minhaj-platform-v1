@@ -9,7 +9,7 @@ import User from '../models/user.model';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/tenant-scope';
-import { collectPaymentService, recalcStudentBalance, withComputedInvoiceFields, getActiveDiscountGrants, sumGrantDiscount } from '../services/billing.service';
+import { collectPaymentService, recalcStudentBalance, syncInvoiceInstallments, withComputedInvoiceFields, getActiveDiscountGrants, sumGrantDiscount } from '../services/billing.service';
 import { notifyUsers } from '../utils/notify';
 import ensureStudentRecord from '../utils/ensure-student';
 
@@ -308,11 +308,23 @@ export const generateBulk = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 
 export const collectPayment = async (req: Request, res: Response): Promise<Response> => {
-  const { amount, method, notes, idempotencyKey } = req.body;
+  const { amount, method, reference, paymentDate, notes, idempotencyKey } = req.body;
 
   const invoice = await Invoice.findById(req.params.id);
   if (!invoice) throw new NotFoundError('Invoice');
   assertOwnsOrg(req, invoice, 'school');
+
+  let parsedPaymentDate: Date | undefined;
+  if (paymentDate) {
+    parsedPaymentDate = new Date(`${String(paymentDate).slice(0, 10)}T00:00:00.000`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const oldestAllowed = new Date(today);
+    oldestAllowed.setDate(oldestAllowed.getDate() - 30);
+    if (Number.isNaN(parsedPaymentDate.getTime()) || parsedPaymentDate > today || parsedPaymentDate < oldestAllowed) {
+      throw new BadRequestError('Payment date must be today or within the previous 30 days');
+    }
+  }
 
   const { payment, invoice: updatedInvoice } = await collectPaymentService({
     studentId: invoice.student,
@@ -321,6 +333,8 @@ export const collectPayment = async (req: Request, res: Response): Promise<Respo
     amount,
     method: method || 'cash',
     type: invoice.paymentType,
+    reference: reference ? String(reference).trim() : undefined,
+    paymentDate: parsedPaymentDate,
     notes: notes || `Payment for invoice: ${invoice.title}`,
     recordedBy: req.user!.userId,
     idempotencyKey,
@@ -331,6 +345,30 @@ export const collectPayment = async (req: Request, res: Response): Promise<Respo
     .lean();
 
   return ApiResponse.created(res, { payment: populatedPayment, invoice: updatedInvoice }, 'Payment collected against invoice');
+};
+
+export const createInstallmentPlan = async (req: Request, res: Response): Promise<Response> => {
+  const invoice = await Invoice.findById(req.params.id);
+  if (!invoice) throw new NotFoundError('Invoice');
+  assertOwnsOrg(req, invoice, 'school');
+  if (invoice.status === 'void') throw new BadRequestError('Cannot create a plan for a void invoice');
+  if (invoice.installments?.length) throw new BadRequestError('This invoice already has a payment plan');
+  const items = Array.isArray(req.body?.installments) ? req.body.installments : [];
+  if (items.length < 2 || items.length > 12) throw new BadRequestError('A payment plan must contain between 2 and 12 installments');
+  const installments = items.map((item: any, index: number) => ({
+    number: index + 1,
+    amount: Number(item.amount),
+    paidAmount: 0,
+    dueDate: new Date(item.dueDate),
+    status: 'pending',
+  }));
+  if (installments.some((item: any) => !Number.isFinite(item.amount) || item.amount <= 0 || Number.isNaN(item.dueDate.getTime()))) throw new BadRequestError('Each installment needs a valid amount and due date');
+  const total = installments.reduce((sum: number, item: any) => sum + item.amount, 0);
+  if (Math.abs(total - invoice.amount) > 0.01) throw new BadRequestError(`Installments must total ${invoice.amount}`);
+  invoice.installments = installments as any;
+  await syncInvoiceInstallments(invoice);
+  await invoice.save();
+  return ApiResponse.success(res, invoice, 'Payment plan created');
 };
 
 // ---------------------------------------------------------------------------

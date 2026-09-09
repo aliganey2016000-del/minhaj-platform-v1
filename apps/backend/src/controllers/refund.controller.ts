@@ -71,7 +71,19 @@ export const issueRefund = async (req: Request, res: Response): Promise<Response
   }
 
   const fullyRefunded = reserved.refundedAmount >= effectiveAmount - 0.001;
-  if (fullyRefunded) await Payment.findByIdAndUpdate(payment._id, { status: 'refunded' });
+  if (fullyRefunded) {
+    await Payment.findByIdAndUpdate(payment._id, { status: 'refunded' });
+    // A mistaken walk-in payment creates an ad-hoc holding invoice. Once its
+    // only payment is fully refunded, void that holding invoice so it does
+    // not become a false student balance or overdue fee.
+    if (!invoice.feeStructure && invoice.title === 'Ad-hoc Payment') {
+      invoice.status = 'void';
+      invoice.voidedAt = new Date();
+      invoice.voidedBy = req.user!.userId as any;
+      invoice.voidReason = 'Ad-hoc payment fully refunded';
+      await invoice.save();
+    }
+  }
 
   if (payment.school) {
     try {

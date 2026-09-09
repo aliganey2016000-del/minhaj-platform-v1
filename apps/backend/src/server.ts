@@ -84,6 +84,7 @@ async function startServer() {
     // external outage on either channel never prevents attendance from
     // being saved.
     await import('./services/attendance-notification-automation');
+    const { sendInstallmentReminders } = await import('./services/installment-reminder.service');
 
     const appModule = await import('./app');
     const app = appModule.default;
@@ -115,6 +116,11 @@ async function startServer() {
     setInterval(() => {
       void expireStaleSessions().catch((error) => console.error('expireStaleSessions failed:', error));
     }, 60_000);
+
+    setInterval(() => {
+      void sendInstallmentReminders().catch((error) => console.error('sendInstallmentReminders failed:', error));
+    }, 24 * 60 * 60 * 1000);
+    void sendInstallmentReminders().catch((error) => console.error('initial installment reminders failed:', error));
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);

@@ -20,7 +20,7 @@ import { escapeRegex } from '../utils/escape-regex';
 // ---------------------------------------------------------------------------
 
 export const recordPayment = async (req: Request, res: Response): Promise<Response> => {
-  const { studentId, amount, discount, type, method, notes, reference, paymentDate, idempotencyKey } = req.body;
+  const { studentId, invoiceId, amount, discount, type, method, notes, reference, paymentDate, idempotencyKey } = req.body;
 
   if (!studentId || amount === undefined || amount <= 0) {
     throw new BadRequestError('studentId and a valid amount are required');
@@ -48,6 +48,7 @@ export const recordPayment = async (req: Request, res: Response): Promise<Respon
   const { payment } = await collectPaymentService({
     studentId,
     schoolId: student.school,
+    invoiceId: invoiceId || undefined,
     amount,
     discount: payDiscount,
     type: type || 'tuition',

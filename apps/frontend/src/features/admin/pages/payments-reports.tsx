@@ -60,6 +60,7 @@ function fmt(n?: number): string {
 export function PaymentsReports() {
   const [from, setFrom] = useState(monthStartISO());
   const [to, setTo] = useState(todayISO());
+  const [period, setPeriod] = useState('');
   const [rangePreset, setRangePreset] = useState('month');
 
   const [collection, setCollection] = useState<CollectionReport | null>(null);
@@ -73,7 +74,7 @@ export function PaymentsReports() {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     if (!from || !to || from > to) { setError('Choose a valid date range.'); setLoading(false); return; }
-    const params = { from, to };
+    const params = { from, to, ...(period.trim() ? { period: period.trim() } : {}) };
     const [collectionResult, reconciliationResult, overdueResult] = await Promise.allSettled([
       api.get('/reports/collection', { params }),
       api.get('/reports/reconciliation', { params }),
@@ -84,13 +85,13 @@ export function PaymentsReports() {
     if (reconciliationResult.status === 'fulfilled') setCashiers(reconciliationResult.value.data.data?.cashiers || []);
     if (overdueResult.status === 'fulfilled') setOverdue(overdueResult.value.data.data || []);
     setLoading(false);
-  }, [from, to]);
+  }, [from, to, period]);
 
   useEffect(() => { load(); }, [load]);
 
   const exportXlsx = async (type: 'collection' | 'overdue' | 'reconciliation') => {
     try {
-      const { data } = await api.get('/reports/export', { params: { type, from, to }, responseType: 'blob' });
+      const { data } = await api.get('/reports/export', { params: { type, from, to, ...(period.trim() ? { period: period.trim() } : {}) }, responseType: 'blob' });
       const url = URL.createObjectURL(data as Blob);
       const link = document.createElement('a');
       link.href = url;
@@ -142,6 +143,7 @@ export function PaymentsReports() {
             <CalendarDays className="ml-2 h-4 w-4 text-primary-600" />
             <select value={rangePreset} onChange={(e) => applyPreset(e.target.value)} className="bg-transparent px-1 py-2 text-sm font-semibold text-[var(--color-text-primary)] outline-none"><option value="today">Today</option><option value="week">This week</option><option value="month">This month</option><option value="custom">Custom range</option></select>
             {rangePreset === 'custom' && <><input aria-label="From date" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={ic} /><span className="text-xs text-[var(--color-text-tertiary)]">to</span><input aria-label="To date" type="date" value={to} onChange={(e) => setTo(e.target.value)} className={ic} /></>}
+            <input aria-label="Semester or billing period" type="text" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="Semester 1, 2026-2027" className={`${ic} min-w-48`} />
             <button type="button" onClick={load} disabled={loading} className="inline-flex items-center gap-1.5 rounded-xl bg-primary-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-primary-700 disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
           </div>
         </div>

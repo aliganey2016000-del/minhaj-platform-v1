@@ -17,6 +17,7 @@ interface PaymentRecord {
   method: string;
   status: 'completed' | 'pending' | 'refunded';
   notes: string;
+  reference?: string;
   createdAt: string;
 }
 
@@ -30,6 +31,7 @@ interface InvoiceRecord {
   status: 'pending' | 'partial' | 'paid' | 'void';
   isOverdue: boolean;
   dueDate: string;
+  installments?: { number: number; amount: number; paidAmount: number; dueDate: string; status: string }[];
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -70,10 +72,10 @@ function InvoiceCard({ invoice }: { invoice: InvoiceRecord }) {
     <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-bold text-lg text-red-600">${invoice.amountDue.toLocaleString()}</p>
+          <p className={`font-bold text-lg ${invoice.status === 'paid' ? 'text-green-600' : 'text-red-600'}`}>${invoice.amountDue.toLocaleString()}</p>
           <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">{invoice.title} · {invoice.period}</p>
         </div>
-        {requested ? (
+        {invoice.status === 'paid' ? <StatusBadge status="paid" /> : requested ? (
           <span title="Office notified" className="rounded-lg p-1.5 text-green-600"><Check className="h-4 w-4" strokeWidth={2} /></span>
         ) : (
           <button type="button" onClick={requestPayment} disabled={requesting} title="Notify the office you want to pay this" className="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 dark:border-primary-800 px-3 py-1.5 text-xs font-semibold text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors disabled:opacity-50">
@@ -81,6 +83,8 @@ function InvoiceCard({ invoice }: { invoice: InvoiceRecord }) {
           </button>
         )}
       </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold">${invoice.amount.toLocaleString()}</p><p className="text-[var(--color-text-tertiary)]">Total</p></div><div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-green-600">${invoice.amountPaid.toLocaleString()}</p><p className="text-[var(--color-text-tertiary)]">Paid</p></div><div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-red-600">${invoice.amountDue.toLocaleString()}</p><p className="text-[var(--color-text-tertiary)]">Balance</p></div></div>
+      {invoice.installments?.length ? <div className="mt-3 space-y-1.5"><p className="text-xs font-semibold text-[var(--color-text-secondary)]">Payment plan</p>{invoice.installments.map(item => <div key={item.number} className="flex items-center justify-between rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-xs"><span>Part {item.number} · {new Date(item.dueDate).toLocaleDateString()}</span><span className={item.status === 'paid' ? 'font-semibold text-green-600' : 'font-semibold'}>${item.paidAmount.toLocaleString()} / ${item.amount.toLocaleString()}</span></div>)}</div> : null}
       <p className="text-xs text-[var(--color-text-tertiary)] mt-2">Due {new Date(invoice.dueDate).toLocaleDateString()}{invoice.isOverdue && <span className="ml-1 font-semibold text-red-600">· Overdue</span>}</p>
       {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
       {requested && <p className="text-xs text-green-600 mt-1">The office has been notified and will follow up with you.</p>}
@@ -112,7 +116,7 @@ export function StudentPayments() {
         setError(paymentsResult.reason?.response?.data?.message || 'Failed to load your payments');
       }
       if (invoicesResult.status === 'fulfilled') {
-        setInvoices((invoicesResult.value.data.data || []).filter((inv: InvoiceRecord) => inv.status !== 'paid'));
+        setInvoices(invoicesResult.value.data.data || []);
       }
       setLoading(false);
     })();
@@ -142,7 +146,7 @@ export function StudentPayments() {
 
         {invoices.length > 0 && (
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)] mb-2">Open Invoices</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)] mb-2">Semester Fee Invoices</p>
             <div className="space-y-3">
               {invoices.map((inv) => <InvoiceCard key={inv._id} invoice={inv} />)}
             </div>
@@ -181,6 +185,7 @@ export function StudentPayments() {
                     </div>
                   </div>
                   {p.notes && <p className="text-sm text-[var(--color-text-secondary)] mt-2">{p.notes}</p>}
+                  {p.reference && <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Reference: {p.reference}</p>}
                   <p className="text-xs text-[var(--color-text-tertiary)] mt-2">{new Date(p.createdAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</p>
                 </div>
               ))}

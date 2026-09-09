@@ -27,6 +27,7 @@ interface StudentBrief {
 }
 
 interface SchoolBrief { _id: string; name: string; }
+interface InvoiceBrief { _id: string; title: string; period: string; amount: number; amountPaid: number; amountDue: number; status: string; dueDate: string; }
 
 interface RecentPayment {
   _id: string;
@@ -376,6 +377,8 @@ interface PendingPayment {
   notes: string;
   paymentDate: string;
   balanceDue: number;
+  invoiceId?: string;
+  invoiceTitle?: string;
 }
 
 function ConfirmPaymentModal({ pending, duplicate, submitting, onCancel, onConfirm }: { pending: PendingPayment; duplicate: DuplicatePayment | null; submitting: boolean; onCancel: () => void; onConfirm: () => void }) {
@@ -420,6 +423,8 @@ export function PaymentsRecord() {
   const [loadingRecent, setLoadingRecent] = useState(false);
 
   const [selectedStudent, setSelectedStudent] = useState<StudentBrief | null>(null);
+  const [studentInvoices, setStudentInvoices] = useState<InvoiceBrief[]>([]);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
   const [recordAmount, setRecordAmount] = useState('');
   const [recordType, setRecordType] = useState('tuition');
   const [recordMethod, setRecordMethod] = useState('cash');
@@ -462,6 +467,17 @@ export function PaymentsRecord() {
   }, [selectedStudent?._id, selectedStudent?.studentId]);
 
   useEffect(() => {
+    if (!selectedStudent?._id) { setStudentInvoices([]); setSelectedInvoiceId(''); return; }
+    api.get(`/invoices/student/${selectedStudent._id}`).then(({ data }) => {
+      const open = (data.data || []).filter((invoice: InvoiceBrief) => invoice.status !== 'paid' && invoice.status !== 'void' && invoice.amountDue > 0);
+      setStudentInvoices(open);
+      setSelectedInvoiceId(open[0]?._id || '');
+    }).catch(() => { setStudentInvoices([]); setSelectedInvoiceId(''); });
+  }, [selectedStudent?._id]);
+
+  const selectedInvoice = studentInvoices.find(invoice => invoice._id === selectedInvoiceId);
+
+  useEffect(() => {
     (async () => {
       try {
         const { data } = await api.get('/schools', { params: { limit: '100' } });
@@ -489,6 +505,7 @@ export function PaymentsRecord() {
     if (!selectedStudent || !recordAmount || Number(recordAmount) <= 0) {
       setError('Select a student and enter a valid amount'); return;
     }
+    if (selectedInvoice && Number(recordAmount) > selectedInvoice.amountDue + 0.001) { setError(`Amount exceeds this invoice balance of $${selectedInvoice.amountDue.toLocaleString()}`); return; }
     const selectedDate = new Date(`${paymentDate}T00:00:00`);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -506,7 +523,9 @@ export function PaymentsRecord() {
     setPendingPayment({
       student: selectedStudent, amount: Number(recordAmount), type: recordType,
       method: recordMethod, reference: recordReference.trim(), notes: recordNotes, paymentDate,
-      balanceDue: selectedFeeSummary.totalFeesDue,
+      balanceDue: selectedInvoice?.amountDue ?? selectedFeeSummary.totalFeesDue,
+      invoiceId: selectedInvoice?._id,
+      invoiceTitle: selectedInvoice?.title,
     });
   };
 
@@ -516,6 +535,7 @@ export function PaymentsRecord() {
     try {
       const { data } = await api.post('/payments', {
         studentId: pendingPayment.student._id,
+        invoiceId: pendingPayment.invoiceId,
         amount: pendingPayment.amount,
         discount: 0,
         type: pendingPayment.type,
@@ -573,7 +593,7 @@ export function PaymentsRecord() {
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 dark:border-primary-900/50 dark:bg-primary-950/30 dark:text-primary-300"><CircleDollarSign className="h-3.5 w-3.5" /> Finance desk</div>
             <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl"><CreditCard className="h-7 w-7 text-primary-600" strokeWidth={1.75} /> Record Payment</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--color-text-tertiary)]">Record an ad-hoc payment for a single student, then issue a printable receipt.</p>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--color-text-tertiary)]">Apply a payment to a semester invoice, or record a walk-in payment.</p>
           </div>
           <div className="hidden items-center gap-2 text-xs text-[var(--color-text-tertiary)] sm:flex"><ShieldCheck className="h-4 w-4 text-emerald-600" /> Review required before recording</div>
         </div>
@@ -613,6 +633,8 @@ export function PaymentsRecord() {
                 </div>
               )}
             </div>
+
+            {selectedStudent && <div><label className="mb-2 block text-sm font-semibold text-[var(--color-text-primary)]">Invoice / Semester</label><select value={selectedInvoiceId} onChange={e => { setSelectedInvoiceId(e.target.value); const invoice = studentInvoices.find(item => item._id === e.target.value); if (invoice) setRecordAmount(String(invoice.amountDue)); }} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm"><option value="">Walk-in / Ad-hoc payment</option>{studentInvoices.map(invoice => <option key={invoice._id} value={invoice._id}>{invoice.title} · Due ${invoice.amountDue.toLocaleString()}</option>)}</select>{selectedInvoice && <p className="mt-1 text-[11px] text-primary-600">Payment will reduce this invoice balance.</p>}</div>}
 
             <div>
               <label className="mb-2 block text-sm font-semibold text-[var(--color-text-primary)]">Amount ($) *</label>

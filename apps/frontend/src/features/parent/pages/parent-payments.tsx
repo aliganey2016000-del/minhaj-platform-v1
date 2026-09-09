@@ -25,6 +25,7 @@ interface PaymentRecord {
   type: string;
   method: string;
   status: 'completed' | 'pending' | 'refunded';
+  reference?: string;
   createdAt: string;
 }
 
@@ -38,6 +39,7 @@ interface InvoiceRecord {
   status: 'pending' | 'partial' | 'paid' | 'void';
   isOverdue: boolean;
   dueDate: string;
+  installments?: { number: number; amount: number; paidAmount: number; dueDate: string; status: string }[];
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -74,8 +76,8 @@ function InvoiceRow({ invoice }: { invoice: InvoiceRecord }) {
           <p className="text-[10px] text-[var(--color-text-tertiary)]">{invoice.period} · Due {new Date(invoice.dueDate).toLocaleDateString()}{invoice.isOverdue && <span className="ml-1 font-semibold text-red-600">· Overdue</span>}</p>
         </div>
         <div className="flex items-center gap-2">
-          <p className="font-semibold text-red-600">${invoice.amountDue.toLocaleString()}</p>
-          {requested ? (
+          <p className={`font-semibold ${invoice.status === 'paid' ? 'text-green-600' : 'text-red-600'}`}>${invoice.amountDue.toLocaleString()}</p>
+          {invoice.status === 'paid' ? <StatusBadge status="completed" /> : requested ? (
             <span title="Office notified" className="rounded-lg p-1.5 text-green-600"><Check className="h-3.5 w-3.5" strokeWidth={2} /></span>
           ) : (
             <button type="button" onClick={requestPayment} disabled={requesting} title="Notify the office you want to pay this" className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600 transition-colors disabled:opacity-50">
@@ -84,6 +86,8 @@ function InvoiceRow({ invoice }: { invoice: InvoiceRecord }) {
           )}
         </div>
       </div>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-center text-[10px]"><span className="rounded-lg bg-[var(--color-surface-primary)] px-2 py-1">Total ${invoice.amount.toLocaleString()}</span><span className="rounded-lg bg-[var(--color-surface-primary)] px-2 py-1 text-green-600">Paid ${invoice.amountPaid.toLocaleString()}</span><span className="rounded-lg bg-[var(--color-surface-primary)] px-2 py-1 text-red-600">Balance ${invoice.amountDue.toLocaleString()}</span></div>
+      {invoice.installments?.length ? <div className="mt-2 space-y-1"><p className="text-[10px] font-semibold text-[var(--color-text-secondary)]">Payment plan</p>{invoice.installments.map(item => <div key={item.number} className="flex justify-between rounded-lg bg-[var(--color-surface-primary)] px-2 py-1 text-[10px]"><span>Part {item.number} · {new Date(item.dueDate).toLocaleDateString()}</span><span className={item.status === 'paid' ? 'font-semibold text-green-600' : 'font-semibold'}>${item.paidAmount.toLocaleString()} / ${item.amount.toLocaleString()}</span></div>)}</div> : null}
       {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
       {requested && <p className="text-xs text-green-600 mt-1">The office has been notified and will follow up with you.</p>}
     </div>
@@ -115,7 +119,7 @@ function ChildCard({ child }: { child: Child }) {
         setError(paymentsResult.reason?.response?.data?.message || 'Failed to load payment history');
       }
       if (invoicesResult.status === 'fulfilled') {
-        setInvoices((invoicesResult.value.data.data || []).filter((inv: InvoiceRecord) => inv.status !== 'paid'));
+        setInvoices(invoicesResult.value.data.data || []);
       } else {
         setInvoices([]);
       }
@@ -154,7 +158,7 @@ function ChildCard({ child }: { child: Child }) {
 
           {!loading && invoices && invoices.length > 0 && (
             <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)] mb-2">Open Invoices</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)] mb-2">Semester Fee Invoices</p>
               <div className="space-y-2">
                 {invoices.map((inv) => <InvoiceRow key={inv._id} invoice={inv} />)}
               </div>
@@ -170,7 +174,7 @@ function ChildCard({ child }: { child: Child }) {
                     <div key={p._id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-4 py-2.5">
                       <div>
                         <p className="font-semibold text-green-600">${p.amount.toLocaleString()}</p>
-                        <p className="text-[10px] text-[var(--color-text-tertiary)]">{new Date(p.createdAt).toLocaleDateString()} · {p.method.replace('_', ' ')}</p>
+                        <p className="text-[10px] text-[var(--color-text-tertiary)]">{new Date(p.createdAt).toLocaleDateString()} · {p.method.replace('_', ' ')}{p.reference ? ` · ${p.reference}` : ''}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <StatusBadge status={p.status} />

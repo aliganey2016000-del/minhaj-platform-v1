@@ -22,9 +22,15 @@ function parseRange(req: Request): { from: Date; to: Date } {
 
 function dayKey(d: Date): string { return d.toISOString().slice(0, 10); }
 
+async function invoiceIdsForPeriod(req: Request, period: unknown): Promise<unknown[] | undefined> {
+  if (!period || !String(period).trim()) return undefined;
+  return Invoice.find(applyOrgFilter(req, { period: String(period).trim() }, 'school')).distinct('_id');
+}
+
 export const getCollectionReport = async (req: Request, res: Response): Promise<Response> => {
   const { from, to } = parseRange(req);
-  const paymentFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to } }, 'school');
+  const invoiceIds = await invoiceIdsForPeriod(req, req.query.period);
+  const paymentFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
   const refundFilter = applyOrgFilter(req, { createdAt: { $gte: from, $lte: to }, status: 'completed' }, 'school');
 
   const [payments, refunds] = await Promise.all([
@@ -71,7 +77,8 @@ export const getCollectionReport = async (req: Request, res: Response): Promise<
 
 export const getCashierReconciliation = async (req: Request, res: Response): Promise<Response> => {
   const { from, to } = parseRange(req);
-  const paymentFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to } }, 'school');
+  const invoiceIds = await invoiceIdsForPeriod(req, req.query.period);
+  const paymentFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
   const refundFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to } }, 'school');
 
   const [payments, refunds] = await Promise.all([
@@ -114,7 +121,7 @@ export const getCashierReconciliation = async (req: Request, res: Response): Pro
 };
 
 export const getOverdueInvoices = async (req: Request, res: Response): Promise<Response> => {
-  const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: new Date() } }, 'school');
+  const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: new Date() }, ...(req.query.period ? { period: String(req.query.period).trim() } : {}) }, 'school');
   const invoices = await Invoice.find(filter)
     .populate({ path: 'student', select: 'studentId', populate: { path: 'profile', select: 'firstName lastName' } })
     .populate('school', 'name')
@@ -158,7 +165,8 @@ export const exportReport = async (req: Request, res: Response): Promise<void> =
 
   if (type === 'collection') {
     const { from, to } = parseRange(req);
-    const filter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to } }, 'school');
+    const invoiceIds = await invoiceIdsForPeriod(req, req.query.period);
+    const filter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
     const refundFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to } }, 'school');
     const [payments, refunds] = await Promise.all([
       Payment.find(filter).select('amount discount method type createdAt').sort({ createdAt: 1 }).lean(),
@@ -178,7 +186,7 @@ export const exportReport = async (req: Request, res: Response): Promise<void> =
   }
 
   if (type === 'overdue') {
-    const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: new Date() } }, 'school');
+    const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: new Date() }, ...(req.query.period ? { period: String(req.query.period).trim() } : {}) }, 'school');
     const invoices = await Invoice.find(filter)
       .populate({ path: 'student', select: 'studentId', populate: { path: 'profile', select: 'firstName lastName' } })
       .sort({ dueDate: 1 }).lean({ virtuals: true });
@@ -197,7 +205,8 @@ export const exportReport = async (req: Request, res: Response): Promise<void> =
 
   if (type === 'reconciliation') {
     const { from, to } = parseRange(req);
-    const filter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to } }, 'school');
+    const invoiceIds = await invoiceIdsForPeriod(req, req.query.period);
+    const filter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
     const payments = await Payment.find(filter).select('amount discount method recordedBy createdAt').populate('recordedBy', 'email').sort({ createdAt: 1 }).lean();
     const headers = ['Date', 'Cashier', 'Method', 'Amount', 'Discount', 'Net'];
     const rows = payments.map((p) => [

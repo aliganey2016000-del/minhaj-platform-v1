@@ -24,7 +24,7 @@ import {
   PieChart, CreditCard, History, Zap, Award, MessagesSquare, Megaphone,
   Newspaper, PartyPopper, Image, ShieldCheck, Settings, Compass, TrendingUp,
   ScrollText, User, KeyRound, LogOut, Percent, ClipboardEdit, PanelLeftClose, PanelLeftOpen,
-  Trash2, FileText, Receipt, FileBarChart, BadgePercent, Landmark, UsersRound, UserCog2,
+  Trash2, FileText, Receipt, FileBarChart, BadgePercent, UsersRound, UserCog2,
 } from 'lucide-react';
 
 interface NavLeaf { path: string; label: string; icon: LucideIcon; key?: string; }
@@ -89,7 +89,6 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/payments/discounts',      label: 'Discounts & Scholarships', icon: BadgePercent },
       { path: '/admin/payments/history',        label: 'Payment History', icon: History },
       { path: '/admin/payments/reports',        label: 'Reports',         icon: FileBarChart },
-      { path: '/admin/payments?view=accounting', label: 'Accounting Center', icon: Landmark },
     ],
   },
   {

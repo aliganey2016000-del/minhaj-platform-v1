@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, RefreshCw, WalletCards, Landmark, TrendingUp, ReceiptText, Scale, Search } from 'lucide-react';
+import { AlertCircle, CheckCircle2, RefreshCw, WalletCards, Landmark, TrendingUp, ReceiptText, Scale, Search, ClipboardList } from 'lucide-react';
 import api from '../../../lib/axios';
 
 const money = (value?: number) => `$${(Number(value) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const today = () => new Date().toISOString().slice(0, 10);
 const monthStart = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10); };
 
-type ReportTab = 'overview' | 'pnl' | 'balance' | 'ar' | 'reconciliation';
+type ReportTab = 'overview' | 'pnl' | 'balance' | 'trial-balance' | 'ar' | 'reconciliation';
 interface AccountRow { accountId: string; code: string; name: string; amount: number; type?: string; }
+interface TrialBalanceRow { accountId: string; code: string; name: string; debit: number; credit: number; balance: number; }
 interface ReconciliationAccount { _id: string; code: string; name: string; }
 interface ReconciliationRecord { _id: string; account: ReconciliationAccount; asOf: string; statementBalance: number; ledgerBalance: number; difference: number; status: 'open' | 'reconciled'; }
 
@@ -20,6 +21,7 @@ export function FinanceCenter() {
   const [error, setError] = useState('');
   const [pnl, setPnl] = useState<any>(null);
   const [balance, setBalance] = useState<any>(null);
+  const [trialBalance, setTrialBalance] = useState<any>(null);
   const [ar, setAr] = useState<any>(null);
   const [cash, setCash] = useState<any>(null);
   const [reconAccounts, setReconAccounts] = useState<ReconciliationAccount[]>([]);
@@ -33,13 +35,14 @@ export function FinanceCenter() {
   const loadReports = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [pnlRes, balanceRes, arRes, cashRes] = await Promise.all([
+      const [pnlRes, balanceRes, trialBalanceRes, arRes, cashRes] = await Promise.all([
         api.get('/finance/reports/profit-and-loss', { params: { dateFrom: from, dateTo: to } }),
         api.get('/finance/reports/balance-sheet', { params: { asOf } }),
+        api.get('/accounting/trial-balance', { params: { dateTo: asOf } }),
         api.get('/finance/reports/ar-aging', { params: { asOf } }),
         api.get('/finance/reports/cash-position', { params: { asOf } }),
       ]);
-      setPnl(pnlRes.data?.data); setBalance(balanceRes.data?.data); setAr(arRes.data?.data); setCash(cashRes.data?.data);
+      setPnl(pnlRes.data?.data); setBalance(balanceRes.data?.data); setTrialBalance(trialBalanceRes.data?.data); setAr(arRes.data?.data); setCash(cashRes.data?.data);
     } catch (err: any) { setError(err?.response?.data?.message || 'Unable to load accounting reports.'); }
     finally { setLoading(false); }
   }, [from, to, asOf]);
@@ -77,7 +80,7 @@ export function FinanceCenter() {
   const totalAr = Number(ar?.totalOutstanding) || 0;
   const cashTotal = Number(cash?.totalCashAndEquivalents) || 0;
   const tabs: { id: ReportTab; label: string }[] = [
-    { id: 'overview', label: 'Overview' }, { id: 'pnl', label: 'P&L' }, { id: 'balance', label: 'Balance Sheet' }, { id: 'ar', label: 'AR Aging' }, { id: 'reconciliation', label: 'Reconciliation' },
+    { id: 'overview', label: 'Overview' }, { id: 'pnl', label: 'P&L' }, { id: 'balance', label: 'Balance Sheet' }, { id: 'trial-balance', label: 'Trial Balance' }, { id: 'ar', label: 'AR Aging' }, { id: 'reconciliation', label: 'Reconciliation' },
   ];
 
   return (
@@ -87,6 +90,7 @@ export function FinanceCenter() {
       {error && <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertCircle className="h-4 w-4" />{error}</div>}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Metric icon={TrendingUp} label="Net income" value={money(pnl?.netIncome)} /><Metric icon={Scale} label="Total assets" value={money(balance?.totalAssets)} /><Metric icon={ReceiptText} label="AR outstanding" value={money(totalAr)} /><Metric icon={WalletCards} label="Cash & equivalents" value={money(cashTotal)} /></div>
 
+      {tab === 'trial-balance' && <ReportCard title="Trial Balance" icon={ClipboardList} actions={<DateInput label="To" value={asOf} onChange={setAsOf} />}><div className="mb-5 rounded-xl bg-[var(--color-surface-secondary)] p-4"><p className="text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]">Ledger check</p><p className={`mt-2 text-lg font-bold ${trialBalance?.balanced ? 'text-emerald-600' : 'text-red-600'}`}>{trialBalance?.balanced ? 'Debits and credits balance' : 'Out of balance'}</p><p className="mt-1 text-sm text-[var(--color-text-secondary)]">Debit {money(trialBalance?.totalDebit)} · Credit {money(trialBalance?.totalCredit)}</p></div><TrialBalanceTable rows={trialBalance?.rows || []} /></ReportCard>}
       {(tab === 'overview' || tab === 'pnl') && <ReportCard title="Profit & Loss" icon={TrendingUp} actions={<DateRange from={from} to={to} setFrom={setFrom} setTo={setTo} />}><SummaryRow label="Total revenue" value={money(pnl?.totalRevenue)} positive /><SummaryRow label="Total expenses" value={money(pnl?.totalExpenses)} /><SummaryRow label="Net income" value={money(pnl?.netIncome)} strong /><AccountTable rows={[...(pnl?.revenue || []), ...(pnl?.expenses || [])]} /></ReportCard>}
       {(tab === 'overview' || tab === 'balance') && <ReportCard title="Balance Sheet" icon={Scale} actions={<DateInput label="As of" value={asOf} onChange={setAsOf} />}><div className="grid gap-6 lg:grid-cols-2"><AccountSection title="Assets" rows={balance?.assets || []} /><AccountSection title="Liabilities" rows={balance?.liabilities || []} /><AccountSection title="Equity" rows={balance?.equity || []} /><div className="rounded-xl bg-[var(--color-surface-secondary)] p-4"><p className="text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]">Balance check</p><p className={`mt-2 text-lg font-bold ${balance?.balanced ? 'text-emerald-600' : 'text-red-600'}`}>{balance?.balanced ? 'Balanced' : 'Out of balance'}</p><p className="mt-1 text-sm text-[var(--color-text-secondary)]">Assets {money(balance?.totalAssets)} · L+E {money(balance?.liabilitiesAndEquity)}</p></div></div></ReportCard>}
       {(tab === 'overview' || tab === 'ar') && <ReportCard title="Accounts Receivable Aging" icon={ReceiptText} actions={<DateInput label="As of" value={asOf} onChange={setAsOf} />}><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{Object.entries(ar?.buckets || {}).map(([key, value]) => <div key={key} className="rounded-xl bg-[var(--color-surface-secondary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">{bucketLabel(key)}</p><p className="mt-1 text-lg font-bold">{money(Number(value))}</p></div>)}</div><div className="mt-5 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b border-[var(--color-border-default)] text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]"><th className="px-3 py-3">Invoice</th><th>Due</th><th>Age</th><th className="text-right">Balance</th></tr></thead><tbody>{(ar?.items || []).slice(0, 50).map((item: any) => <tr key={item.invoiceId} className="border-b border-[var(--color-border-subtle)]"><td className="px-3 py-3 font-medium">{item.title || item.invoiceId}</td><td>{item.dueDate ? new Date(item.dueDate).toLocaleDateString() : '—'}</td><td>{item.ageDays}d</td><td className="text-right font-semibold">{money(item.balance)}</td></tr>)}</tbody></table></div></ReportCard>}
@@ -99,6 +103,7 @@ function Metric({ icon: Icon, label, value }: { icon: any; label: string; value:
 function ReportCard({ title, icon: Icon, actions, children }: { title: string; icon: any; actions?: React.ReactNode; children: React.ReactNode }) { return <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card sm:p-6"><div className="mb-5 flex flex-col gap-3 border-b border-[var(--color-border-subtle)] pb-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-2"><Icon className="h-5 w-5 text-primary-600" /><h2 className="text-lg font-bold">{title}</h2></div>{actions}</div>{children}</section>; }
 function SummaryRow({ label, value, strong, positive }: { label: string; value: string; strong?: boolean; positive?: boolean }) { return <div className={`flex justify-between border-b border-[var(--color-border-subtle)] py-3 ${strong ? 'text-base font-bold' : 'text-sm'}`}><span className="text-[var(--color-text-secondary)]">{label}</span><span className={positive ? 'text-emerald-600' : ''}>{value}</span></div>; }
 function AccountTable({ rows }: { rows: AccountRow[] }) { return <div className="mt-5 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b border-[var(--color-border-default)] text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]"><th className="py-3">Code</th><th>Account</th><th>Type</th><th className="text-right">Amount</th></tr></thead><tbody>{rows.map((r) => <tr key={`${r.accountId}-${r.code}`} className="border-b border-[var(--color-border-subtle)]"><td className="py-3 font-mono text-xs">{r.code}</td><td>{r.name}</td><td className="capitalize">{r.type || '—'}</td><td className="text-right font-semibold">{money(r.amount)}</td></tr>)}</tbody></table></div>; }
+function TrialBalanceTable({ rows }: { rows: TrialBalanceRow[] }) { return <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b border-[var(--color-border-default)] text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]"><th className="py-3">Code</th><th>Account</th><th className="text-right">Debit</th><th className="text-right">Credit</th><th className="text-right">Balance</th></tr></thead><tbody>{rows.map((row) => <tr key={row.accountId} className="border-b border-[var(--color-border-subtle)]"><td className="py-3 font-mono text-xs">{row.code}</td><td>{row.name}</td><td className="text-right">{money(row.debit)}</td><td className="text-right">{money(row.credit)}</td><td className="text-right font-semibold">{money(row.balance)}</td></tr>)}</tbody></table>{!rows.length && <p className="py-4 text-sm text-[var(--color-text-tertiary)]">No posted journal entries for this date.</p>}</div>; }
 function AccountSection({ title, rows }: { title: string; rows: AccountRow[] }) { return <div><p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">{title}</p><div className="divide-y divide-[var(--color-border-subtle)]">{rows.map((r) => <div key={r.accountId} className="flex justify-between py-2 text-sm"><span>{r.code} · {r.name}</span><span className="font-semibold">{money(r.amount)}</span></div>)}{!rows.length && <p className="py-3 text-sm text-[var(--color-text-tertiary)]">No posted balances.</p>}</div></div>; }
 function DateInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) { return <label className="text-xs font-semibold text-[var(--color-text-tertiary)]">{label}<input type="date" value={value} onChange={(e) => onChange(e.target.value)} className="ml-2 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-1.5 text-xs font-medium text-[var(--color-text-primary)]" /></label>; }
 function DateRange({ from, to, setFrom, setTo }: { from: string; to: string; setFrom: (v: string) => void; setTo: (v: string) => void }) { return <div className="flex flex-wrap items-center gap-2"><DateInput label="From" value={from} onChange={setFrom} /><DateInput label="To" value={to} onChange={setTo} /></div>; }

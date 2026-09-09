@@ -5,6 +5,14 @@ export interface IInvoiceLineItem {
   amount: number;
 }
 
+export interface IInvoiceInstallment {
+  number: number;
+  amount: number;
+  paidAmount: number;
+  dueDate: Date;
+  status: 'pending' | 'partial' | 'paid';
+}
+
 export interface IInvoice extends Document {
   student: mongoose.Types.ObjectId;
   school?: mongoose.Types.ObjectId;
@@ -12,6 +20,7 @@ export interface IInvoice extends Document {
   title: string;
   period: string;
   lineItems: IInvoiceLineItem[];
+  installments: IInvoiceInstallment[];
   amount: number;
   discount: number;
   appliedDiscountGrants?: mongoose.Types.ObjectId[];
@@ -39,6 +48,17 @@ const lineItemSchema = new Schema<IInvoiceLineItem>(
   { _id: false }
 );
 
+const installmentSchema = new Schema<IInvoiceInstallment>(
+  {
+    number: { type: Number, required: true, min: 1 },
+    amount: { type: Number, required: true, min: 0 },
+    paidAmount: { type: Number, default: 0, min: 0 },
+    dueDate: { type: Date, required: true },
+    status: { type: String, enum: ['pending', 'partial', 'paid'], default: 'pending' },
+  },
+  { _id: true }
+);
+
 const invoiceSchema = new Schema<IInvoice>(
   {
     student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
@@ -50,6 +70,7 @@ const invoiceSchema = new Schema<IInvoice>(
       type: [lineItemSchema],
       validate: { validator: (v: IInvoiceLineItem[]) => Array.isArray(v) && v.length > 0, message: 'At least one line item is required' },
     },
+    installments: { type: [installmentSchema], default: [] },
     amount: { type: Number, required: true, min: 0 },
     // Discounts are deductions from the invoice obligation, not payments.
     // Keeping this separate from amountPaid makes balances and refunds

@@ -10,12 +10,21 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, Download, FileDown, Trash2, ClipboardPenLine, type LucideIcon } from 'lucide-react';
+import { FileText, MoreVertical, Wallet, Eye, Ban, Undo2, Download, FileDown, Trash2, ClipboardPenLine, CalendarRange, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
 const ACADEMIC_YEAR_OPTIONS = Array.from({ length: 7 }, (_, index) => {
   const startYear = new Date().getFullYear() - 3 + index;
   return `${startYear}-${startYear + 1}`;
 });
+const currentAcademicYear = () => {
+  const now = new Date();
+  const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  return `${startYear}-${startYear + 1}`;
+};
+const currentBillingPeriod = () => {
+  const now = new Date();
+  return `${now.getMonth() >= 7 ? 'Semester 1' : 'Semester 2'}, ${currentAcademicYear()}`;
+};
 import { useAuth } from '../../../store/auth-context';
 import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
 
@@ -44,6 +53,7 @@ interface InvoiceItem {
   status: 'pending' | 'partial' | 'paid' | 'void';
   dueDate: string;
   issueDate: string;
+  installments?: { number: number; amount: number; paidAmount: number; dueDate: string; status: 'pending' | 'partial' | 'paid' }[];
   notes?: string;
 }
 
@@ -75,9 +85,9 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
 function GenerateInvoicesModal({ feeStructures, departments, onClose, onDone }: { feeStructures: FeeStructureBrief[]; departments: DepartmentBrief[]; onClose: () => void; onDone: () => void }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [departmentIds, setDepartmentIds] = useState<string[]>([]);
-  const [period, setPeriod] = useState('');
+  const [period, setPeriod] = useState(currentBillingPeriod);
   const [dueDate, setDueDate] = useState('');
-  const [academicYear, setAcademicYear] = useState('');
+  const [academicYear, setAcademicYear] = useState(currentAcademicYear);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ eligible: number; alreadyBilled: number; created: number; failed: number } | null>(null);
@@ -236,9 +246,9 @@ function GenerateInvoicesModal({ feeStructures, departments, onClose, onDone }: 
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Period *</label>
+              <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Billing Period *</label>
               <input className={ic} value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. March 2026, Term 1" />
-              <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">A student is billed at most once per fee structure + period — re-running this is always safe.</p>
+              <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">The suggested semester is editable. Each student is billed at most once per fee structure and period.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Due Date</label><input className={ic} type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} /><p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Defaults from the structure's due-days offset</p></div>
@@ -267,7 +277,11 @@ function CollectPaymentModal({ invoice, onClose, onDone }: { invoice: InvoiceIte
   const remaining = (invoice.amount ?? 0) - (invoice.amountPaid ?? 0);
   const [amount, setAmount] = useState(String(remaining));
   const [method, setMethod] = useState('cash');
+  const [reference, setReference] = useState('');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
+  const [reviewing, setReviewing] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   // Generated once when the modal opens and resent unchanged on retry, so a
@@ -280,9 +294,16 @@ function CollectPaymentModal({ invoice, onClose, onDone }: { invoice: InvoiceIte
     if (amt > remaining + 0.001) { setError(`Amount exceeds remaining balance of $${remaining.toLocaleString()}`); return; }
     setLoading(true); setError('');
     try {
-      await api.post(`/invoices/${invoice._id}/collect-payment`, { amount: amt, method, notes: notes.trim() || undefined, idempotencyKey: idempotencyKeyRef.current });
+      await api.post(`/invoices/${invoice._id}/collect-payment`, { amount: amt, method, reference: reference.trim() || undefined, paymentDate, notes: notes.trim() || undefined, idempotencyKey: idempotencyKeyRef.current });
       onDone();
     } catch (err: any) { setError(err.response?.data?.message || err.message || 'Failed to collect payment'); } finally { setLoading(false); }
+  };
+
+  const reviewPayment = () => {
+    const amt = Number(amount);
+    if (!amt || amt <= 0) { setError('Enter a valid amount'); return; }
+    if (amt > remaining + 0.001) { setError(`Amount exceeds remaining balance of $${remaining.toLocaleString()}`); return; }
+    setError(''); setReviewing(true);
   };
 
   const ic = 'w-full rounded-xl border px-3 py-2 text-sm bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors border-[var(--color-border-default)]';
@@ -296,19 +317,43 @@ function CollectPaymentModal({ invoice, onClose, onDone }: { invoice: InvoiceIte
           <p className="font-semibold text-[var(--color-text-primary)]">{studentName} — {invoice.title}</p>
           <p className="text-[var(--color-text-tertiary)]">Amount: ${(invoice.amount ?? 0).toLocaleString()} · Paid: ${(invoice.amountPaid ?? 0).toLocaleString()} · Due: ${remaining.toLocaleString()}</p>
         </div>
-        <div className="space-y-3">
+        {!reviewing ? <div className="space-y-3">
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Amount ($) *</label><input className={ic} type="number" min={0.01} max={remaining} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></div>
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Method</label><select className={ic} value={method} onChange={e => setMethod(e.target.value)}><option value="cash">Cash</option><option value="bank_transfer">Bank Transfer</option><option value="mobile_money">Mobile Money</option><option value="online">Online</option></select></div>
+          <div className="grid grid-cols-2 gap-3"><div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Payment Date</label><input className={ic} type="date" value={paymentDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setPaymentDate(e.target.value)} /></div><div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Reference</label><input className={ic} value={reference} onChange={e => setReference(e.target.value)} placeholder="Bank/mobile receipt no." maxLength={100} /></div></div>
           <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Notes</label><input className={ic} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" /></div>
           {error && <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">{error}</div>}
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-            <button type="button" onClick={handleSubmit} disabled={loading} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">{loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}Collect</button>
+            <button type="button" onClick={reviewPayment} disabled={loading} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors">Review Payment</button>
           </div>
-        </div>
+        </div> : <div className="space-y-4">
+          <div className="rounded-xl border border-primary-200 bg-primary-50 p-4 text-sm dark:border-primary-900/50 dark:bg-primary-950/20"><p className="font-semibold text-primary-800 dark:text-primary-200">Review before charging</p><div className="mt-3 space-y-2 text-primary-900 dark:text-primary-100"><div className="flex justify-between"><span>Student</span><strong>{studentName}</strong></div><div className="flex justify-between"><span>Invoice</span><strong className="max-w-[210px] text-right">{invoice.title}</strong></div><div className="flex justify-between"><span>Payment</span><strong>${Number(amount).toLocaleString()} · {method.replace('_', ' ')}</strong></div><div className="flex justify-between"><span>Invoice balance after</span><strong>${Math.max(0, remaining - Number(amount)).toLocaleString()}</strong></div><div className="flex justify-between"><span>Date</span><strong>{new Date(`${paymentDate}T12:00:00`).toLocaleDateString()}</strong></div>{reference.trim() && <div className="flex justify-between"><span>Reference</span><strong>{reference.trim()}</strong></div>}</div></div>
+          <label className="flex items-start gap-2 rounded-xl border border-[var(--color-border-default)] p-3 text-xs text-[var(--color-text-secondary)]"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} className="mt-0.5 h-4 w-4 rounded accent-primary-600" /> <span>I reviewed the student, invoice, amount, payment method, and remaining balance. I confirm this payment should be recorded.</span></label>
+          {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">{error}</div>}
+          <div className="flex gap-2"><button type="button" onClick={() => { setReviewing(false); setConfirmed(false); }} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium">Back</button><button type="button" onClick={handleSubmit} disabled={loading || !confirmed} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{loading ? 'Recording...' : 'Confirm & Record Payment'}</button></div>
+        </div>}
       </div>
     </div>
   );
+}
+
+function InstallmentPlanModal({ invoice, onClose, onDone }: { invoice: InvoiceItem; onClose: () => void; onDone: () => void }) {
+  const [count, setCount] = useState(3);
+  const [installments, setInstallments] = useState(() => Array.from({ length: 3 }, (_, index) => ({ amount: (invoice.amount / 3).toFixed(2), dueDate: new Date(Date.now() + (index + 1) * 30 * 86400000).toISOString().slice(0, 10) })));
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const changeCount = (value: number) => { const next = Math.max(2, Math.min(12, value)); setCount(next); setInstallments(Array.from({ length: next }, (_, index) => ({ amount: (invoice.amount / next).toFixed(2), dueDate: new Date(Date.now() + (index + 1) * 30 * 86400000).toISOString().slice(0, 10) }))); };
+  const update = (index: number, field: 'amount' | 'dueDate', value: string) => setInstallments(items => items.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item));
+  const total = installments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const submit = async () => {
+    if (Math.abs(total - invoice.amount) > 0.01) { setError(`Installments must total $${invoice.amount.toLocaleString()}`); return; }
+    setLoading(true); setError('');
+    try { await api.post(`/invoices/${invoice._id}/installments`, { installments: installments.map(item => ({ amount: Number(item.amount), dueDate: item.dueDate })) }); onDone(); }
+    catch (err: any) { setError(err.response?.data?.message || 'Failed to create payment plan'); }
+    finally { setLoading(false); }
+  };
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}><div className="w-full max-w-lg rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl" onClick={e => e.stopPropagation()}><div className="flex items-start justify-between"><div><div className="mb-2 inline-flex rounded-lg bg-primary-50 p-2 text-primary-600"><CalendarRange className="h-5 w-5" /></div><h2 className="text-lg font-bold">Payment Plan</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{invoice.title} · ${invoice.amount.toLocaleString()}</p></div><button onClick={onClose} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)]">×</button></div><div className="mt-5 space-y-3"><label className="block text-xs font-semibold">Number of installments<select value={count} onChange={e => changeCount(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm">{Array.from({ length: 11 }, (_, index) => <option key={index + 2} value={index + 2}>{index + 2} payments</option>)}</select></label>{installments.map((item, index) => <div key={index} className="grid grid-cols-[auto_1fr_1fr] items-end gap-2"><span className="pb-2 text-xs font-semibold">#{index + 1}</span><label className="text-xs">Amount<input type="number" min="0.01" step="0.01" value={item.amount} onChange={e => update(index, 'amount', e.target.value)} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" /></label><label className="text-xs">Due date<input type="date" value={item.dueDate} onChange={e => update(index, 'dueDate', e.target.value)} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" /></label></div>)}<div className={`rounded-xl p-3 text-sm ${Math.abs(total - invoice.amount) <= 0.01 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>Plan total: <strong>${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> / Invoice: <strong>${invoice.amount.toLocaleString()}</strong></div>{error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>}<div className="flex gap-2 pt-2"><button onClick={onClose} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold">Cancel</button><button onClick={submit} disabled={loading} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{loading ? 'Saving...' : 'Save Payment Plan'}</button></div></div></div></div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -491,6 +536,18 @@ function ViewInvoiceModal({ invoiceId, onClose }: { invoiceId: string; onClose: 
               <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-[var(--color-text-primary)]">${(invoice.amountDue ?? 0).toLocaleString()}</p><p className="text-[var(--color-text-tertiary)]">Due</p></div>
               <div className="rounded-lg bg-[var(--color-surface-secondary)] p-2"><p className="font-semibold text-[var(--color-text-primary)] capitalize">{invoice.status}</p><p className="text-[var(--color-text-tertiary)]">Status</p></div>
             </div>
+            {invoice.installments && invoice.installments.length > 0 && <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Payment Plan</p>
+              <div className="space-y-2 rounded-xl border border-[var(--color-border-default)] p-3">
+                {invoice.installments.map((installment) => {
+                  const balance = Math.max(0, installment.amount - installment.paidAmount);
+                  return <div key={installment.number} className="flex items-center justify-between gap-3 rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-xs">
+                    <div><p className="font-semibold text-[var(--color-text-primary)]">Part {installment.number}</p><p className="text-[var(--color-text-tertiary)]">Due {new Date(installment.dueDate).toLocaleDateString()}</p></div>
+                    <div className="text-right"><p className="font-semibold text-[var(--color-text-primary)]">${installment.paidAmount.toLocaleString()} / ${installment.amount.toLocaleString()}</p><p className={installment.status === 'paid' ? 'font-semibold text-emerald-600' : balance > 0 && new Date(installment.dueDate) < new Date() ? 'font-semibold text-red-600' : 'text-amber-600'}>{installment.status === 'paid' ? 'Paid' : balance > 0 && new Date(installment.dueDate) < new Date() ? 'Overdue' : installment.status === 'partial' ? 'Partial' : 'Pending'}</p></div>
+                  </div>;
+                })}
+              </div>
+            </div>}
             <div>
               <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)] mb-2">Payments Collected</p>
               {payments.length === 0 ? <p className="text-sm text-[var(--color-text-tertiary)]">None yet</p> : (
@@ -578,6 +635,7 @@ export function InvoicesManage() {
   const [showGenerate, setShowGenerate] = useState(false);
   const [showBulkVoid, setShowBulkVoid] = useState(false);
   const [collectingInvoice, setCollectingInvoice] = useState<InvoiceItem | undefined>(undefined);
+  const [planningInvoice, setPlanningInvoice] = useState<InvoiceItem | undefined>(undefined);
   const [viewingInvoiceId, setViewingInvoiceId] = useState<string | undefined>(undefined);
   const [correctingInvoice, setCorrectingInvoice] = useState<InvoiceItem | undefined>(undefined);
 
@@ -667,6 +725,7 @@ export function InvoicesManage() {
 
   const buildRowActions = (inv: InvoiceItem): RowAction[] => [
     { label: 'Collect Payment', icon: Wallet, onClick: () => setCollectingInvoice(inv), tone: 'success', disabled: inv.status === 'paid' || inv.status === 'void' },
+    { label: (inv.installments?.length ?? 0) > 0 ? 'View Payment Plan' : 'Payment Plan', icon: CalendarRange, onClick: () => (inv.installments?.length ? setViewingInvoiceId(inv._id) : setPlanningInvoice(inv)), tone: 'default', disabled: !['pending', 'partial'].includes(inv.status), title: !['pending', 'partial'].includes(inv.status) ? 'Only pending or partial invoices can have a plan' : undefined },
     { label: 'View Details', icon: Eye, onClick: () => setViewingInvoiceId(inv._id), tone: 'default' },
     { label: 'Void', icon: Ban, onClick: () => handleVoid(inv), tone: 'danger', disabled: inv.status === 'void' || inv.amountPaid > 0, title: inv.amountPaid > 0 ? 'Cannot void — payments already collected' : undefined },
     { label: 'Correct Invoice', icon: ClipboardPenLine, onClick: () => setCorrectingInvoice(inv), tone: 'default', disabled: inv.status === 'void' || inv.amountPaid > 0, title: inv.amountPaid > 0 ? 'Refund collected payments before correcting' : undefined },
@@ -779,6 +838,7 @@ export function InvoicesManage() {
           onDone={() => { setToast({ message: 'Payment collected', type: 'success' }); setCollectingInvoice(undefined); fetchInvoices(); }}
         />
       )}
+      {planningInvoice && <InstallmentPlanModal invoice={planningInvoice} onClose={() => setPlanningInvoice(undefined)} onDone={() => { setPlanningInvoice(undefined); setToast({ message: 'Payment plan created', type: 'success' }); fetchInvoices(); }} />}
       {viewingInvoiceId && <ViewInvoiceModal invoiceId={viewingInvoiceId} onClose={() => setViewingInvoiceId(undefined)} />}
       {correctingInvoice && <CorrectInvoiceModal invoice={correctingInvoice} onClose={() => setCorrectingInvoice(undefined)} onDone={() => { setCorrectingInvoice(undefined); setToast({ message: 'Invoice corrected successfully', type: 'success' }); fetchInvoices(); }} />}
       {showBulkVoid && (

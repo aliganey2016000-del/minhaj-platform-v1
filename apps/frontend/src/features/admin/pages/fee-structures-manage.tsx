@@ -68,14 +68,14 @@ function defaultAcademicYear(): string {
 
 const emptyForm: FeeStructureForm = {
   school: '', title: '', description: '', feeType: 'tuition', scopeType: 'school', scopeRef: '',
-  amount: '', components: [], billingCycle: 'monthly', academicYear: defaultAcademicYear(), dueDayOffset: '14', isActive: true,
+  amount: '', components: [], billingCycle: 'termly', academicYear: defaultAcademicYear(), dueDayOffset: '14', isActive: true,
 };
 
 const FEE_TYPES = ['tuition', 'registration', 'exam', 'material', 'transport', 'library', 'activity', 'uniform', 'other'];
 const BILLING_CYCLES: { value: string; label: string }[] = [
   { value: 'one_time', label: 'One-time' },
   { value: 'monthly', label: 'Monthly' },
-  { value: 'termly', label: 'Termly' },
+  { value: 'termly', label: 'Term / Semester' },
   { value: 'annual', label: 'Annual' },
 ];
 
@@ -138,6 +138,7 @@ function FeeStructureModal({ structure, schools, onClose, onSaved }: {
     if (!form.school) errs.school = 'Organization is required';
     if (!form.title.trim()) errs.title = 'Title is required';
     if (!form.amount.trim() || !Number.isFinite(Number(form.amount)) || Number(form.amount) < 0) errs.amount = 'A valid amount is required';
+    if (form.components.length > 0 && (componentsTotal <= 0 || form.components.some(c => !c.description.trim() || !Number.isFinite(Number(c.amount)) || Number(c.amount) < 0))) errs.amount = 'Each component needs a name and valid amount';
     if (form.scopeType !== 'school' && !form.scopeRef) errs.scopeRef = `Select a ${form.scopeType}`;
     setErrors(errs); return Object.keys(errs).length === 0;
   };
@@ -163,10 +164,11 @@ function FeeStructureModal({ structure, schools, onClose, onSaved }: {
     e.preventDefault(); if (!validate()) return;
     setLoading(true); setApiError('');
     try {
+      const totalAmount = form.components.length > 0 ? componentsTotal : Number(form.amount);
       const payload: Record<string, unknown> = {
         school: form.school, title: form.title.trim(), description: form.description.trim(), feeType: form.feeType,
         scopeType: form.scopeType, scopeRef: form.scopeType === 'school' ? undefined : form.scopeRef,
-        amount: Number(form.amount), billingCycle: form.billingCycle, academicYear: form.academicYear.trim(),
+        amount: totalAmount, billingCycle: form.billingCycle, academicYear: form.academicYear.trim(),
         dueDayOffset: Number(form.dueDayOffset),
         components: form.components.map(c => ({ description: c.description.trim(), amount: Number(c.amount) })),
       };
@@ -208,7 +210,7 @@ function FeeStructureModal({ structure, schools, onClose, onSaved }: {
           </div>
           <div>
             <label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Amount ($) *</label>
-            <input className={ic('amount')} name="amount" type="number" min={0} step="0.01" value={form.amount} onChange={handleChange} placeholder={form.components.length && componentsTotal > 0 ? `Auto: $${componentsTotal}` : '0.00'} disabled={form.components.length > 0} />
+            <input className={ic('amount')} name="amount" type="number" min={0} step="0.01" value={form.components.length > 0 ? componentsTotal.toFixed(2) : form.amount} onChange={handleChange} placeholder="0.00" disabled={form.components.length > 0} />
             {errors.amount && <p className="mt-1 text-xs text-red-500">{errors.amount}</p>}
             {form.components.length > 0 && <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Total is auto-calculated from the components below.</p>}
           </div>
