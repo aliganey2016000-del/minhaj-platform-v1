@@ -6,6 +6,7 @@ import WhatsAppMessage from '../models/whatsapp-message.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, UnauthorizedError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg } from '../utils/tenant-scope';
+import { handleParentBotMessage } from '../services/whatsapp-parent-self-service.service';
 import {
   connectBaileysAccount,
   disconnectBaileysAccount,
@@ -73,10 +74,19 @@ export const webhook = async (req: Request, res: Response): Promise<Response> =>
   if (payload.event !== 'message.received' || !payload.messageId || !payload.from) return ApiResponse.success(res, { ignored: true });
   if (await WhatsAppMessage.exists({ providerMessageId: payload.messageId })) return ApiResponse.success(res, { duplicate: true });
   const from = normalizePhone(String(payload.from));
-  const parent = await Parent.findOne({ $or: [{ phone: from }, { phone: `+${from}` }] }).lean();
+  const parent = await Parent.findOne({ phone: { $in: [from, `+${from}`] }, school: organizationId }).lean();
   const conversation = await upsertConversation({ organizationId, phone: from, direction: 'inbound', preview: typeof payload.text === 'string' ? payload.text : '[WhatsApp message]', parentId: parent?._id, schoolId: parent?.school, contactName: payload.pushName ? String(payload.pushName) : undefined, unreadIncrement: 1 });
   const providerTimestamp = payload.timestamp ? new Date(Number(payload.timestamp)) : new Date();
   await WhatsAppMessage.create({ organization: mongoose.isValidObjectId(organizationId) ? organizationId : undefined, conversation: conversation?._id, recipient: organizationId, sender: from, parent: parent?._id, direction: 'inbound', kind: payload.kind === 'media' ? 'media' : 'text', body: typeof payload.text === 'string' ? payload.text : undefined, providerMessageId: String(payload.messageId), providerTimestamp, pushName: payload.pushName ? String(payload.pushName) : undefined, raw: payload.raw, status: 'received' });
+
+  if (typeof payload.text === 'string' && conversation) {
+    try {
+      await handleParentBotMessage({ organizationId, from, text: payload.text, parentId: parent?._id?.toString(), conversationId: conversation._id.toString() });
+    } catch (error) {
+      console.error('[WhatsApp parent bot] inbound handling failed:', error);
+    }
+  }
+
   return ApiResponse.created(res, { received: true, conversationId: conversation?._id });
 };
 
