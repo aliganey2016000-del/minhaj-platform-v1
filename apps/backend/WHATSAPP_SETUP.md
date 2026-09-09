@@ -1,10 +1,43 @@
-# WhatsApp Cloud API setup
+# WhatsApp setup
 
-Minhaj Platform uses the official Meta WhatsApp Cloud API. Credentials are runtime-only environment variables and are never exposed to the browser.
+Minhaj Platform now supports two WhatsApp transports:
 
-## Coolify runtime variables
+- `baileys` — free/self-hosted WhatsApp Web transport for organization-linked devices.
+- `meta` — official Meta WhatsApp Cloud API fallback.
+
+The browser never receives provider credentials.
+
+## Recommended: Baileys
+
+Run `apps/whatsapp-baileys` as a separate persistent service and mount `/data/sessions` to durable storage.
+
+Backend variables:
 
 ```env
+WHATSAPP_PROVIDER=baileys
+WHATSAPP_BAILEYS_SERVICE_URL=http://whatsapp-baileys:5050
+WHATSAPP_BAILEYS_SERVICE_TOKEN=<long-random-service-token>
+WHATSAPP_BAILEYS_WEBHOOK_TOKEN=<long-random-webhook-token>
+WHATSAPP_ATTENDANCE_ALERTS_ENABLED=true
+APP_TIMEZONE=Africa/Mogadishu
+```
+
+Baileys service variables:
+
+```env
+PORT=5050
+WHATSAPP_BAILEYS_SESSION_DIR=/data/sessions
+WHATSAPP_BAILEYS_SERVICE_TOKEN=<same-service-token>
+WHATSAPP_BAILEYS_WEBHOOK_URL=http://backend:5000/api/v1/whatsapp/webhook/baileys
+WHATSAPP_BAILEYS_WEBHOOK_TOKEN=<same-webhook-token>
+```
+
+After deployment, open the Admin → WhatsApp page, start the connection, and scan the QR from WhatsApp → Linked devices. The session directory must persist across restarts/deploys.
+
+## Meta Cloud API fallback
+
+```env
+WHATSAPP_PROVIDER=meta
 WHATSAPP_ACCESS_TOKEN=<Meta permanent/system-user access token>
 WHATSAPP_PHONE_NUMBER_ID=<Meta WhatsApp phone number ID>
 WHATSAPP_GRAPH_API_VERSION=v23.0
@@ -16,21 +49,10 @@ APP_TIMEZONE=Africa/Mogadishu
 
 Do not put secrets in Docker `ARG`, source files, or Git history.
 
-## Attendance template
+## Attendance automation
 
-Create and approve a WhatsApp template in Meta Business Manager. The attendance automation sends six body parameters in this order:
+Only `absent` and `late` attendance records generate alerts. The attendance record is saved before the notification dispatch so a WhatsApp outage cannot block attendance taking. Delivery attempts remain audited in `WhatsAppMessage`.
 
-1. Student name
-2. Attendance status (`Absent` or `Late`)
-3. Course name
-4. Date
-5. Start time
-6. End time
+## Operational warning
 
-Only `absent` and `late` attendance records generate alerts. Present and Excused records do not send messages.
-
-The attendance API saves the attendance record first and dispatches WhatsApp alerts asynchronously, so a WhatsApp outage cannot prevent a teacher from completing attendance. Delivery attempts are audited as `queued`, `sent`, or `failed`.
-
-## Admin
-
-The Admin WhatsApp page exposes connection status, attendance automation status, manual template/text sending, and the latest delivery history. Credentials remain backend-only.
+Baileys is an unofficial WhatsApp Web client, not Meta's official API. WhatsApp Web protocol changes, linked-device limits, or account restrictions can affect it. Use it for legitimate school communication; do not use it for spam or unsolicited bulk messaging.

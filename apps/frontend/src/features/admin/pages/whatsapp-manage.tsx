@@ -1,89 +1,237 @@
-import { useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 import api from '../../../lib/axios';
 
-interface WhatsAppMessage { _id: string; recipient: string; kind: 'text' | 'template'; templateName?: string; body?: string; status: 'queued' | 'sent' | 'failed'; error?: string; createdAt: string; parent?: { parentId?: string; phone?: string }; }
-interface WhatsAppStatus { configured: boolean; automation?: { attendanceAlertsEnabled: boolean; attendanceTemplate: string | null; languageCode: string } }
+interface WhatsAppMessage {
+  _id: string;
+  recipient: string;
+  sender?: string;
+  direction: 'inbound' | 'outbound';
+  kind: 'text' | 'template' | 'media' | 'event';
+  body?: string;
+  status: 'queued' | 'sent' | 'failed' | 'received';
+  error?: string;
+  createdAt: string;
+}
+interface Conversation {
+  _id: string;
+  phone: string;
+  contactName?: string;
+  status: 'open' | 'closed' | 'archived';
+  unreadCount: number;
+  lastMessageAt?: string;
+  lastMessagePreview?: string;
+  lastMessageDirection?: 'inbound' | 'outbound';
+  parent?: { parentId?: string; phone?: string };
+}
+interface WhatsAppStatus {
+  configured: boolean;
+  provider?: string;
+  account?: { status?: string; phoneNumber?: string | null; lastError?: string | null };
+  automation?: { attendanceAlertsEnabled: boolean; attendanceTemplate: string | null; languageCode: string };
+}
 
-const statusStyle: Record<string, string> = { sent: 'bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-300', failed: 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-300', queued: 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300' };
+const badge: Record<string, string> = {
+  sent: 'bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-300',
+  received: 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300',
+  failed: 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-300',
+  queued: 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
+};
 
 export function WhatsAppManage() {
   const [status, setStatus] = useState<WhatsAppStatus>({ configured: false });
+  const [qr, setQr] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selected, setSelected] = useState<Conversation | null>(null);
+  const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
+  const [search, setSearch] = useState('');
+  const [reply, setReply] = useState('');
   const [recipient, setRecipient] = useState('');
-  const [text, setText] = useState('');
-  const [templateName, setTemplateName] = useState('');
-  const [languageCode, setLanguageCode] = useState('en_US');
-  const [variables, setVariables] = useState(['', '', '', '', '']);
-  const [mode, setMode] = useState<'text' | 'template'>('template');
+  const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [items, setItems] = useState<WhatsAppMessage[]>([]);
-  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    setLoading(true); setError('');
+    setLoading(true);
     try {
-      const [statusRes, historyRes] = await Promise.all([api.get('/whatsapp/status'), api.get('/whatsapp/history', { params: { limit: 50 } })]);
+      const [statusRes, conversationsRes] = await Promise.all([
+        api.get('/whatsapp/status'),
+        api.get('/whatsapp/conversations', { params: { limit: 50, search: search || undefined } }),
+      ]);
       setStatus(statusRes.data?.data || { configured: false });
-      setItems(historyRes.data?.data || []);
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to load WhatsApp status'); }
-    finally { setLoading(false); }
-  }, []);
+      setConversations(conversationsRes.data?.data || []);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to load WhatsApp inbox');
+    } finally { setLoading(false); }
+  }, [search]);
+
   useEffect(() => { load(); }, [load]);
 
-  const send = async (e: React.FormEvent) => {
-    e.preventDefault(); setSending(true); setError(''); setSuccess('');
+  const openConversation = async (conversation: Conversation) => {
+    setSelected(conversation);
+    setError('');
     try {
-      const payload = mode === 'text' ? { to: recipient, text } : {
-        to: recipient, templateName, languageCode,
-        components: [{ type: 'body', parameters: variables.filter(Boolean).map((value) => ({ type: 'text', text: value })) }],
-      };
-      await api.post('/whatsapp/send', payload);
-      setSuccess('Message sent successfully through WhatsApp.'); setText(''); setVariables(['', '', '', '', '']); await load();
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to send WhatsApp message'); }
+      const response = await api.get(`/whatsapp/conversations/${conversation._id}/messages`, { params: { limit: 100 } });
+      setMessages(response.data?.data || []);
+      if (conversation.unreadCount) {
+        await api.post(`/whatsapp/conversations/${conversation._id}/read`);
+        setConversations(items => items.map(item => item._id === conversation._id ? { ...item, unreadCount: 0 } : item));
+      }
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to load conversation'); }
+  };
+
+  const connect = async () => {
+    setConnecting(true); setError('');
+    try {
+      await api.post('/whatsapp/baileys/connect');
+      await load();
+      await loadQr();
+      setSuccess('WhatsApp connection started. Scan the QR code from Linked Devices.');
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to start WhatsApp connection'); }
+    finally { setConnecting(false); }
+  };
+
+  const loadQr = useCallback(async () => {
+    try {
+      const response = await api.get('/whatsapp/baileys/qr');
+      setQr(response.data?.data?.qrDataUrl || null);
+    } catch { setQr(null); }
+  }, []);
+
+  useEffect(() => {
+    if (status.provider === 'Baileys' && ['qr_required', 'pairing_required', 'connecting'].includes(status.account?.status || '')) {
+      loadQr();
+      const timer = window.setInterval(() => { load(); loadQr(); }, 5000);
+      return () => window.clearInterval(timer);
+    }
+    return undefined;
+  }, [status.provider, status.account?.status, load, loadQr]);
+
+  const disconnect = async () => {
+    if (!window.confirm('Disconnect this organization WhatsApp account?')) return;
+    try { await api.post('/whatsapp/baileys/disconnect'); setQr(null); await load(); }
+    catch (err: any) { setError(err.response?.data?.message || 'Failed to disconnect WhatsApp'); }
+  };
+
+  const sendReply = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selected || !reply.trim()) return;
+    setSending(true); setError('');
+    try {
+      await api.post('/whatsapp/send', { conversationId: selected._id, text: reply.trim() });
+      setReply('');
+      await openConversation(selected);
+      await load();
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to send reply'); }
     finally { setSending(false); }
   };
 
+  const sendNew = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!recipient.trim() || !newMessage.trim()) return;
+    setSending(true); setError('');
+    try {
+      await api.post('/whatsapp/send', { to: recipient.trim(), text: newMessage.trim() });
+      setRecipient(''); setNewMessage('');
+      setSuccess('Message sent successfully.');
+      await load();
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to send message'); }
+    finally { setSending(false); }
+  };
+
+  const updateStatus = async (next: 'open' | 'closed' | 'archived') => {
+    if (!selected) return;
+    try {
+      await api.patch(`/whatsapp/conversations/${selected._id}`, { status: next });
+      const updated = { ...selected, status: next };
+      setSelected(updated);
+      setConversations(items => items.map(item => item._id === selected._id ? updated : item));
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to update conversation'); }
+  };
+
+  const connected = status.account?.status === 'connected';
   const configured = status.configured;
   const automated = Boolean(status.automation?.attendanceAlertsEnabled && status.automation?.attendanceTemplate);
 
   return (
     <div className="min-h-full p-4 pt-16 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
-      <div className="mx-auto max-w-7xl space-y-5 sm:space-y-6">
+      <div className="mx-auto max-w-7xl space-y-5">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div><p className="text-xs font-semibold uppercase tracking-wider text-primary-600">Administration</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">WhatsApp Messaging</h1><p className="mt-1 max-w-2xl text-sm text-[var(--color-text-tertiary)]">Manage school WhatsApp communication and review automated delivery activity.</p></div>
-          <button type="button" onClick={load} disabled={loading} className="inline-flex w-full items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold shadow-sm hover:bg-[var(--color-surface-secondary)] disabled:opacity-50 sm:w-auto">{loading ? 'Refreshing…' : 'Refresh'}</button>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-primary-600">Communication</p>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">WhatsApp Inbox</h1>
+            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Two-way organization-isolated WhatsApp communication powered by Baileys.</p>
+          </div>
+          <button type="button" onClick={load} disabled={loading} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold disabled:opacity-50">{loading ? 'Refreshing…' : 'Refresh'}</button>
         </header>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className={`rounded-2xl border p-4 ${configured ? 'border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/20' : 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20'}`}><div className="flex items-center gap-3"><span className={`h-2.5 w-2.5 rounded-full ${configured ? 'bg-green-500' : 'bg-amber-500'}`} /><div><p className="text-sm font-bold">{configured ? 'WhatsApp connected' : 'WhatsApp not configured'}</p><p className="text-xs opacity-75">Meta Cloud API</p></div></div></div>
-          <div className={`rounded-2xl border p-4 ${automated ? 'border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/20' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)]'}`}><p className="text-xs font-semibold uppercase tracking-wide opacity-70">Attendance automation</p><p className="mt-1 text-sm font-bold">{automated ? 'Enabled' : 'Not active'}</p><p className="mt-0.5 text-xs opacity-70">{status.automation?.attendanceTemplate || 'Set an approved template in Coolify'}</p></div>
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><p className="text-xs font-semibold uppercase tracking-wide opacity-70">Delivery history</p><p className="mt-1 text-sm font-bold">{items.length} recent records</p><p className="mt-0.5 text-xs opacity-70">Successful and failed attempts are audited.</p></div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className={`rounded-2xl border p-4 ${connected ? 'border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/20' : 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20'}`}>
+            <p className="text-xs font-semibold uppercase tracking-wide opacity-65">Connection</p>
+            <p className="mt-1 text-sm font-bold">{connected ? 'Connected' : configured ? status.account?.status || 'Not connected' : 'Not configured'}</p>
+            <p className="mt-0.5 text-xs opacity-70">{status.account?.phoneNumber || status.provider || '—'}</p>
+          </div>
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide opacity-65">Inbox</p>
+            <p className="mt-1 text-sm font-bold">{conversations.reduce((sum, item) => sum + item.unreadCount, 0)} unread</p>
+            <p className="mt-0.5 text-xs opacity-70">{conversations.length} recent conversations</p>
+          </div>
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide opacity-65">Attendance automation</p>
+            <p className="mt-1 text-sm font-bold">{automated ? 'Enabled' : 'Not active'}</p>
+            <p className="mt-0.5 text-xs opacity-70">{status.automation?.attendanceTemplate || '—'}</p>
+          </div>
         </div>
 
-        {!configured && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200"><p className="font-bold">Finish WhatsApp setup</p><p className="mt-1">Add <code>WHATSAPP_ACCESS_TOKEN</code> and <code>WHATSAPP_PHONE_NUMBER_ID</code> as runtime environment variables in Coolify, then redeploy the backend.</p></div>}
+        {status.provider === 'Baileys' && configured && <section className="rounded-2xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900 dark:bg-primary-950/20">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div><h2 className="text-base font-bold">WhatsApp device</h2><p className="text-xs opacity-70">{status.account?.lastError || 'Link the organization number using WhatsApp → Linked devices.'}</p></div>
+            <div className="flex gap-2"><button type="button" onClick={connect} disabled={connecting || connected} className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{connecting ? 'Starting…' : connected ? 'Connected' : 'Connect'}</button>{connected && <button type="button" onClick={disconnect} className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-bold text-red-600">Disconnect</button>}</div>
+          </div>
+          {qr && !connected && <div className="mt-4 flex flex-col items-center rounded-xl bg-white p-4"><img src={qr} alt="WhatsApp QR code" className="h-56 w-56" /><p className="mt-2 text-xs text-gray-500">WhatsApp → Settings → Linked devices → Link a device</p></div>}
+        </section>}
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)]">
-          <form onSubmit={send} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card sm:p-5">
-            <div className="mb-5"><h2 className="text-lg font-bold">Send a message</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Use an approved template for proactive school notifications.</p></div>
-            <div className="space-y-4">
-              <label className="block"><span className="mb-1.5 block text-xs font-semibold">Recipient phone number</span><input value={recipient} onChange={e => setRecipient(e.target.value)} inputMode="tel" placeholder="2526XXXXXXXX" className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-primary-500" required /><span className="mt-1 block text-[11px] text-[var(--color-text-tertiary)]">International format, digits only.</span></label>
-              <div className="grid grid-cols-2 gap-1 rounded-xl border border-[var(--color-border-default)] p-1"><button type="button" onClick={() => setMode('template')} className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === 'template' ? 'bg-primary-600 text-white' : ''}`}>Template</button><button type="button" onClick={() => setMode('text')} className={`rounded-lg px-3 py-2 text-sm font-semibold ${mode === 'text' ? 'bg-primary-600 text-white' : ''}`}>Text</button></div>
-              {mode === 'text' ? <label className="block"><span className="mb-1.5 block text-xs font-semibold">Message</span><textarea value={text} onChange={e => setText(e.target.value)} rows={6} className="w-full resize-y rounded-xl border border-[var(--color-border-default)] bg-transparent px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-primary-500" placeholder="Write your message…" required /></label> : <div className="space-y-3"><label className="block"><span className="mb-1.5 block text-xs font-semibold">Approved template name</span><input value={templateName} onChange={e => setTemplateName(e.target.value)} placeholder={status.automation?.attendanceTemplate || 'attendance_notice'} className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-primary-500" required /></label><label className="block"><span className="mb-1.5 block text-xs font-semibold">Language</span><input value={languageCode} onChange={e => setLanguageCode(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-primary-500" /></label><div><p className="mb-2 text-xs font-semibold">Template body variables <span className="font-normal opacity-60">(optional)</span></p><div className="grid gap-2 sm:grid-cols-2">{variables.map((value, index) => <input key={index} value={value} onChange={e => setVariables(v => v.map((x, i) => i === index ? e.target.value : x))} placeholder={`Variable ${index + 1}`} className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500" />)}</div></div></div>}
-              {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
-              {success && <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/20 dark:text-green-300">{success}</div>}
-              <button disabled={sending || !configured} className="w-full rounded-xl bg-primary-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50">{sending ? 'Sending…' : 'Send via WhatsApp'}</button>
+        {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
+        {success && <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/20 dark:text-green-300">{success}</div>}
+
+        <section className="grid min-h-[600px] overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] lg:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="border-b border-[var(--color-border-default)] lg:border-b-0 lg:border-r">
+            <div className="border-b border-[var(--color-border-default)] p-3">
+              <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search phone or contact…" className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500" />
             </div>
-          </form>
+            <div className="max-h-[560px] overflow-auto">
+              {conversations.length === 0 ? <div className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No conversations yet.</div> : conversations.map(conversation => <button key={conversation._id} type="button" onClick={() => openConversation(conversation)} className={`w-full border-b border-[var(--color-border-default)] p-3 text-left transition hover:bg-[var(--color-surface-secondary)] ${selected?._id === conversation._id ? 'bg-primary-50 dark:bg-primary-950/20' : ''}`}>
+                <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-bold">{conversation.contactName || conversation.phone}</p><p className="truncate text-xs opacity-60">{conversation.parent?.parentId ? `Parent ${conversation.parent.parentId}` : conversation.phone}</p></div>{conversation.unreadCount > 0 && <span className="rounded-full bg-primary-600 px-2 py-0.5 text-[10px] font-bold text-white">{conversation.unreadCount}</span>}</div>
+                <p className="mt-2 truncate text-xs opacity-65">{conversation.lastMessagePreview || 'No message preview'}</p>
+              </button>)}
+            </div>
+          </aside>
 
-          <section className="min-w-0 overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
-            <div className="border-b border-[var(--color-border-default)] p-4 sm:p-5"><h2 className="text-lg font-bold">Message history</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Latest 50 send attempts, including automated attendance alerts.</p></div>
-            {loading ? <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">Loading history…</div> : items.length === 0 ? <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">No WhatsApp messages yet.</div> : <div className="max-h-[620px] overflow-auto divide-y divide-[var(--color-border-default)]">{items.map(item => <article key={item._id} className="p-4 transition hover:bg-[var(--color-surface-secondary)]"><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><p className="truncate text-sm font-bold">{item.recipient}</p><p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">{new Date(item.createdAt).toLocaleString()}</p></div><span className={`w-fit rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${statusStyle[item.status] || ''}`}>{item.status}</span></div><div className="mt-3 rounded-xl bg-[var(--color-surface-secondary)] p-3 text-xs"><p className="font-semibold">{item.kind === 'template' ? `Template: ${item.templateName}` : 'Text message'}</p>{item.body && item.kind === 'text' && <p className="mt-1 break-words opacity-75">{item.body}</p>}{item.error && <p className="mt-1 break-words text-red-600 dark:text-red-400">{item.error}</p>}</div></article>)}</div>}
-          </section>
-        </div>
+          <div className="flex min-h-[600px] flex-col">
+            {!selected ? <div className="flex flex-1 items-center justify-center p-8 text-center"><div><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-2xl dark:bg-primary-950/30">💬</div><h2 className="mt-3 text-lg font-bold">Select a conversation</h2><p className="mt-1 max-w-sm text-sm text-[var(--color-text-tertiary)]">Incoming WhatsApp messages will appear here. Select a contact to reply and manage the conversation.</p></div></div> : <>
+              <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border-default)] p-4"><div className="min-w-0"><h2 className="truncate text-base font-bold">{selected.contactName || selected.phone}</h2><p className="text-xs opacity-60">{selected.phone}{selected.parent?.parentId ? ` • Parent ${selected.parent.parentId}` : ''}</p></div><select value={selected.status} onChange={event => updateStatus(event.target.value as 'open' | 'closed' | 'archived')} className="rounded-lg border border-[var(--color-border-default)] bg-transparent px-2 py-1.5 text-xs font-semibold"><option value="open">Open</option><option value="closed">Closed</option><option value="archived">Archived</option></select></div>
+              <div className="flex-1 space-y-2 overflow-auto bg-[var(--color-surface-secondary)] p-4">
+                {messages.length === 0 ? <p className="py-10 text-center text-sm opacity-60">No messages in this conversation.</p> : messages.map(message => <div key={message._id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[82%] rounded-2xl px-3.5 py-2.5 shadow-sm ${message.direction === 'outbound' ? 'rounded-br-md bg-primary-600 text-white' : 'rounded-bl-md border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]'}`}><p className="whitespace-pre-wrap break-words text-sm">{message.body || `[${message.kind}]`}</p><div className={`mt-1 flex items-center gap-2 text-[10px] ${message.direction === 'outbound' ? 'text-white/70' : 'opacity-50'}`}><span>{new Date(message.createdAt).toLocaleString()}</span><span>{message.status}</span></div></div></div>)}
+              </div>
+              <form onSubmit={sendReply} className="border-t border-[var(--color-border-default)] p-3"><div className="flex gap-2"><textarea value={reply} onChange={event => setReply(event.target.value)} rows={2} placeholder="Write a reply…" className="min-w-0 flex-1 resize-none rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500" /><button type="submit" disabled={sending || !connected || !reply.trim()} className="self-end rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{sending ? '…' : 'Send'}</button></div></form>
+            </>}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 sm:p-5">
+          <h2 className="text-base font-bold">Start a new conversation</h2>
+          <p className="mt-1 text-xs opacity-65">Send a direct text message to a WhatsApp number.</p>
+          <form onSubmit={sendNew} className="mt-4 grid gap-3 md:grid-cols-[220px_1fr_auto]"><input value={recipient} onChange={event => setRecipient(event.target.value)} inputMode="tel" placeholder="2526XXXXXXXX" className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm outline-none" /><input value={newMessage} onChange={event => setNewMessage(event.target.value)} placeholder="Message…" className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm outline-none" /><button type="submit" disabled={sending || !connected} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">Send</button></form>
+        </section>
+
+        <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 sm:p-5">
+          <h2 className="text-base font-bold">Delivery audit</h2>
+          <p className="mt-1 text-xs opacity-65">Use the existing message history API for delivery-level auditing; the inbox above is conversation-oriented.</p>
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-semibold"><span className={`rounded-full px-2.5 py-1 ${badge.sent}`}>Sent</span><span className={`rounded-full px-2.5 py-1 ${badge.received}`}>Received</span><span className={`rounded-full px-2.5 py-1 ${badge.queued}`}>Queued</span><span className={`rounded-full px-2.5 py-1 ${badge.failed}`}>Failed</span></div>
+        </section>
       </div>
     </div>
   );
 }
-
-export default WhatsAppManage;
