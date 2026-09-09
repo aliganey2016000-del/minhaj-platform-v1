@@ -15,6 +15,7 @@ const router = Router();
 router.use(authMiddleware);
 router.use(roleMiddleware(['student']));
 
+router.post('/start-attempt', asyncHandler(quizController.startQuizAttempt));
 router.post('/check', asyncHandler(quizController.checkQuiz));
 router.post('/submit-attempt', asyncHandler(quizController.submitAttempt));
 
