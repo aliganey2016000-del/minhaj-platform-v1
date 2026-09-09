@@ -52,6 +52,8 @@ function renderText(payload: Record<string, unknown>) {
 }
 
 export async function processWhatsAppNotificationJob(jobId: string) {
+  if (mongoose.connection.readyState !== 1) return null;
+
   const job = await WhatsAppNotificationJob.findOneAndUpdate(
     { _id: jobId, status: 'queued', nextAttemptAt: { $lte: new Date() } },
     { $set: { status: 'processing' }, $inc: { attempts: 1 } },
@@ -73,6 +75,11 @@ export async function processWhatsAppNotificationJob(jobId: string) {
 }
 
 export async function processDueWhatsAppNotifications(limit = 25) {
+  // E2E tests and graceful shutdown can close MongoDB while an interval tick
+  // is still queued. Never let that timer issue a Mongoose query against a
+  // disconnected connection; Mongoose otherwise rejects the query asynchronously.
+  if (mongoose.connection.readyState !== 1) return [];
+
   const jobs = await WhatsAppNotificationJob.find({ status: 'queued', nextAttemptAt: { $lte: new Date() } }).sort({ nextAttemptAt: 1 }).limit(limit).select('_id').lean();
   const results = [];
   for (const job of jobs) results.push(await processWhatsAppNotificationJob(job._id.toString()));
