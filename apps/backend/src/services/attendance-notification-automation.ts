@@ -142,6 +142,8 @@ async function sendForAttendance(ops: AttendanceOp[]) {
       const endTime = schedule?.endTime || '-';
       const statusText = formatStatus(event.status);
       const body = `Attendance alert: ${studentName} was marked ${statusText} for ${courseName} on ${dateText}${schedule ? ` (${startTime}-${endTime})` : ''}.`;
+      const organizationId = String(parent.school || '').trim();
+      if (whatsappOn && whatsappTemplate && !mongoose.isValidObjectId(organizationId)) return;
 
       const startOfDay = new Date(event.date);
       startOfDay.setHours(0, 0, 0, 0);
@@ -151,11 +153,11 @@ async function sendForAttendance(ops: AttendanceOp[]) {
       const recipient = String(parent.phone || '').trim();
       if (whatsappOn && whatsappTemplate && recipient) {
         const duplicate = await WhatsAppMessage.exists({
-          recipient, kind: 'template', templateName: whatsappTemplate, body, createdAt: { $gte: startOfDay, $lte: endOfDay },
+          organization: organizationId, recipient, kind: 'template', templateName: whatsappTemplate, body, createdAt: { $gte: startOfDay, $lte: endOfDay },
         });
         if (!duplicate) {
           const message = await WhatsAppMessage.create({
-            school: parent.school, recipient, parent: parent._id, kind: 'template',
+            organization: organizationId, school: parent.school, recipient, parent: parent._id, direction: 'outbound', kind: 'template',
             templateName: whatsappTemplate, languageCode, body, status: 'queued',
           });
           try {
@@ -174,6 +176,7 @@ async function sendForAttendance(ops: AttendanceOp[]) {
                   { type: 'text', text: endTime },
                 ],
               }],
+              organizationId,
             });
             message.status = 'sent';
             message.providerMessageId = result.providerMessageId;
