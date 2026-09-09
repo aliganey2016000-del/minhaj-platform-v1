@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export type WhatsAppConversationStatus = 'open' | 'closed' | 'archived';
+export type WhatsAppBotLanguage = 'so' | 'en' | 'ar';
 
 export interface IWhatsAppConversation extends Document {
   organization: mongoose.Types.ObjectId;
@@ -16,6 +17,7 @@ export interface IWhatsAppConversation extends Document {
   assignedTo?: mongoose.Types.ObjectId;
   botSelectedStudent?: mongoose.Types.ObjectId;
   botAwaitingChildSelection: boolean;
+  botLanguage: WhatsAppBotLanguage;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,12 +31,13 @@ const schema = new Schema<IWhatsAppConversation>(
     contactName: { type: String, trim: true, default: undefined },
     status: { type: String, enum: ['open', 'closed', 'archived'], default: 'open', index: true },
     unreadCount: { type: Number, default: 0, min: 0 },
-    lastMessageAt: { type: Date, default: undefined, index: true },
+    lastMessageAt: { type: Date, default: undefined },
     lastMessagePreview: { type: String, default: undefined },
     lastMessageDirection: { type: String, enum: ['inbound', 'outbound'], default: undefined },
     assignedTo: { type: Schema.Types.ObjectId, ref: 'User', default: undefined },
     botSelectedStudent: { type: Schema.Types.ObjectId, ref: 'Student', default: undefined },
     botAwaitingChildSelection: { type: Boolean, default: false },
+    botLanguage: { type: String, enum: ['so', 'en', 'ar'], default: 'en', index: true },
   },
   { timestamps: true },
 );
