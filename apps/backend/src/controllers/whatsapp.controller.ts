@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Parent from '../models/parent.model';
 import WhatsAppConversation from '../models/whatsapp-conversation.model';
 import WhatsAppMessage from '../models/whatsapp-message.model';
+import WhatsAppTemplate from '../models/whatsapp-template.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, UnauthorizedError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg } from '../utils/tenant-scope';
@@ -27,6 +28,13 @@ function componentsFromBody(value: unknown): WhatsAppTemplateComponent[] | undef
 }
 function requestOrganizationId(req: Request) { return String((req.user as any)?.organizationId || '').trim(); }
 function normalizePhone(value: string) { return value.replace(/\D/g, ''); }
+function templateParameters(components?: WhatsAppTemplateComponent[]) {
+  const body = components?.find((component: any) => component.type === 'body') as any;
+  return Array.isArray(body?.parameters) ? body.parameters.map((parameter: any) => String(parameter?.text ?? '').trim()) : [];
+}
+function renderLocalTemplate(body: string, parameters: string[]) {
+  return body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_match, index) => parameters[Number(index) - 1] ?? '');
+}
 
 async function upsertConversation(input: { organizationId: string; phone: string; direction: 'inbound' | 'outbound'; preview?: string; parentId?: mongoose.Types.ObjectId; schoolId?: mongoose.Types.ObjectId; contactName?: string; unreadIncrement?: number }) {
   const phone = normalizePhone(input.phone);
@@ -61,7 +69,6 @@ export const webhook = async (req: Request, res: Response): Promise<Response> =>
   const payload = req.body || {};
   const organizationId = String(payload.accountId || '').trim();
   if (!organizationId || !mongoose.isValidObjectId(organizationId)) return ApiResponse.success(res, { ignored: true });
-
   if (payload.event === 'message.status' && payload.messageId) {
     const allowed = ['sent', 'delivered', 'read', 'failed'];
     const status = allowed.includes(String(payload.status)) ? String(payload.status) : null;
@@ -69,7 +76,6 @@ export const webhook = async (req: Request, res: Response): Promise<Response> =>
     const message = await WhatsAppMessage.findOneAndUpdate({ organization: organizationId, providerMessageId: String(payload.messageId) }, { $set: { status } }, { new: true }).lean();
     return ApiResponse.success(res, { updated: Boolean(message), messageId: payload.messageId, status });
   }
-
   if (payload.event !== 'message.received' || !payload.messageId || !payload.from) return ApiResponse.success(res, { ignored: true });
   if (await WhatsAppMessage.exists({ organization: organizationId, providerMessageId: payload.messageId })) return ApiResponse.success(res, { duplicate: true });
   const from = normalizePhone(String(payload.from));
@@ -94,12 +100,25 @@ export const send = async (req: Request, res: Response): Promise<Response> => {
   if (!recipient) throw new BadRequestError('The selected parent does not have a phone number');
   const scopedSchool = school ? applyOrgFilter(req, { school }, 'school').school : (parent?.school || conversation?.school || undefined);
   if (scopedSchool && !mongoose.isValidObjectId(scopedSchool as string)) throw new BadRequestError('Invalid school');
-  if (!conversation) conversation = await upsertConversation({ organizationId, phone: recipient, direction: 'outbound', preview: text || templateName, parentId: parent?._id, schoolId: scopedSchool as mongoose.Types.ObjectId | undefined, contactName: parent?.name || undefined });
-  const message = await WhatsAppMessage.create({ school: parent?.school || (scopedSchool as string | undefined), organization: organizationId, conversation: conversation?._id, recipient: normalizePhone(recipient), parent: parent?._id, direction: 'outbound', kind: templateName ? 'template' : 'text', templateName: templateName || undefined, languageCode: languageCode || undefined, body: text || undefined, status: 'queued', createdBy: req.user?.userId });
+
+  const templateComponents = componentsFromBody(components);
+  let providerText = text ? String(text).trim() : undefined;
+  let providerTemplateName = templateName ? String(templateName).trim() : undefined;
+  if (getWhatsAppProvider() === 'Baileys' && providerTemplateName) {
+    const template = await WhatsAppTemplate.findOne({ organization: organizationId, name: providerTemplateName, active: true }).lean();
+    if (!template) throw new NotFoundError('Active WhatsApp template');
+    providerText = renderLocalTemplate(template.body, templateParameters(templateComponents));
+    if (!providerText.trim()) throw new BadRequestError('The WhatsApp template rendered an empty message');
+    providerTemplateName = undefined;
+  }
+
+  const preview = providerText || templateName;
+  if (!conversation) conversation = await upsertConversation({ organizationId, phone: recipient, direction: 'outbound', preview, parentId: parent?._id, schoolId: scopedSchool as mongoose.Types.ObjectId | undefined, contactName: parent?.name || undefined });
+  const message = await WhatsAppMessage.create({ school: parent?.school || (scopedSchool as string | undefined), organization: organizationId, conversation: conversation?._id, recipient: normalizePhone(recipient), parent: parent?._id, direction: 'outbound', kind: templateName ? 'template' : 'text', templateName: templateName || undefined, languageCode: languageCode || undefined, body: providerText || undefined, status: 'queued', createdBy: req.user?.userId });
   try {
-    const result = await sendWhatsAppMessage({ to: recipient, text, templateName, languageCode, components: componentsFromBody(components), organizationId });
+    const result = await sendWhatsAppMessage({ to: recipient, text: providerText, templateName: providerTemplateName, languageCode, components: templateComponents, organizationId });
     message.status = 'sent'; message.providerMessageId = result.providerMessageId; await message.save();
-    await upsertConversation({ organizationId, phone: recipient, direction: 'outbound', preview: text || templateName, parentId: parent?._id, schoolId: scopedSchool as mongoose.Types.ObjectId | undefined });
+    await upsertConversation({ organizationId, phone: recipient, direction: 'outbound', preview, parentId: parent?._id, schoolId: scopedSchool as mongoose.Types.ObjectId | undefined });
     return ApiResponse.created(res, message, 'WhatsApp message sent successfully');
   } catch (error: any) { message.status = 'failed'; message.error = error?.response?.data?.message || error?.response?.data?.error?.message || error?.message || 'WhatsApp send failed'; await message.save(); throw new BadRequestError(message.error); }
 };
