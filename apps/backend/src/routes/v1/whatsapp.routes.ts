@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import * as ctrl from '../../controllers/whatsapp.controller';
+import * as mediaCtrl from '../../controllers/whatsapp-media.controller';
 import * as notificationCtrl from '../../controllers/whatsapp-notification.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { adminOnly, requireModulePermission } from '../../middleware/role.middleware';
+import { adminOnly } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { startWhatsAppNotificationWorker } from '../../jobs/whatsapp-notification-worker';
 
@@ -15,6 +16,7 @@ router.use(authMiddleware, adminOnly);
 router.get('/status', asyncHandler(ctrl.status));
 router.get('/history', asyncHandler(ctrl.history));
 router.post('/send', asyncHandler(ctrl.send));
+router.post('/send-media', asyncHandler(mediaCtrl.sendMedia));
 router.get('/conversations', asyncHandler(ctrl.conversations));
 router.get('/conversations/:conversationId/messages', asyncHandler(ctrl.conversationMessages));
 router.post('/conversations/:conversationId/read', asyncHandler(ctrl.markConversationRead));
