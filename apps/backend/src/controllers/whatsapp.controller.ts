@@ -57,10 +57,10 @@ export const disconnect = async (req: Request, res: Response): Promise<Response>
 
 export const webhook = async (req: Request, res: Response): Promise<Response> => {
   const expected = process.env.WHATSAPP_BAILEYS_WEBHOOK_TOKEN?.trim();
-  if (expected && req.header('x-whatsapp-webhook-token') !== expected) throw new UnauthorizedError('Invalid WhatsApp webhook token');
+  if (!expected || req.header('x-whatsapp-webhook-token') !== expected) throw new UnauthorizedError('Invalid WhatsApp webhook token');
   const payload = req.body || {};
-  const organizationId = String(payload.accountId || '');
-  if (!organizationId) return ApiResponse.success(res, { ignored: true });
+  const organizationId = String(payload.accountId || '').trim();
+  if (!organizationId || !mongoose.isValidObjectId(organizationId)) return ApiResponse.success(res, { ignored: true });
 
   if (payload.event === 'message.status' && payload.messageId) {
     const allowed = ['sent', 'delivered', 'read', 'failed'];
@@ -71,12 +71,13 @@ export const webhook = async (req: Request, res: Response): Promise<Response> =>
   }
 
   if (payload.event !== 'message.received' || !payload.messageId || !payload.from) return ApiResponse.success(res, { ignored: true });
-  if (await WhatsAppMessage.exists({ providerMessageId: payload.messageId })) return ApiResponse.success(res, { duplicate: true });
+  if (await WhatsAppMessage.exists({ organization: organizationId, providerMessageId: payload.messageId })) return ApiResponse.success(res, { duplicate: true });
   const from = normalizePhone(String(payload.from));
-  const parent = await Parent.findOne({ $or: [{ phone: from }, { phone: `+${from}` }] }).lean();
+  if (!from) return ApiResponse.success(res, { ignored: true });
+  const parent = await Parent.findOne({ school: organizationId, $or: [{ phone: from }, { phone: `+${from}` }] }).lean();
   const conversation = await upsertConversation({ organizationId, phone: from, direction: 'inbound', preview: typeof payload.text === 'string' ? payload.text : '[WhatsApp message]', parentId: parent?._id, schoolId: parent?.school, contactName: payload.pushName ? String(payload.pushName) : undefined, unreadIncrement: 1 });
   const providerTimestamp = payload.timestamp ? new Date(Number(payload.timestamp)) : new Date();
-  await WhatsAppMessage.create({ organization: mongoose.isValidObjectId(organizationId) ? organizationId : undefined, conversation: conversation?._id, recipient: organizationId, sender: from, parent: parent?._id, direction: 'inbound', kind: payload.kind === 'media' ? 'media' : 'text', body: typeof payload.text === 'string' ? payload.text : undefined, providerMessageId: String(payload.messageId), providerTimestamp, pushName: payload.pushName ? String(payload.pushName) : undefined, raw: payload.raw, status: 'received' });
+  await WhatsAppMessage.create({ organization: organizationId, conversation: conversation?._id, recipient: organizationId, sender: from, parent: parent?._id, direction: 'inbound', kind: payload.kind === 'media' ? 'media' : 'text', body: typeof payload.text === 'string' ? payload.text : undefined, providerMessageId: String(payload.messageId), providerTimestamp, pushName: payload.pushName ? String(payload.pushName) : undefined, raw: payload.raw, status: 'received' });
   return ApiResponse.created(res, { received: true, conversationId: conversation?._id });
 };
 
