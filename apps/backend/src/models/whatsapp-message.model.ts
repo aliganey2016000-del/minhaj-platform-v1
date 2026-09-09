@@ -1,6 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
-export type WhatsAppMessageStatus = 'queued' | 'sent' | 'failed' | 'received';
+export type WhatsAppMessageStatus = 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'received';
 export type WhatsAppMessageKind = 'text' | 'template' | 'media' | 'event';
 export type WhatsAppMessageDirection = 'inbound' | 'outbound';
 
@@ -44,7 +44,7 @@ const schema = new Schema<IWhatsAppMessage>(
     providerTimestamp: { type: Date, default: undefined },
     pushName: { type: String, default: undefined },
     raw: { type: Schema.Types.Mixed, default: undefined },
-    status: { type: String, enum: ['queued', 'sent', 'failed', 'received'], required: true, index: true },
+    status: { type: String, enum: ['queued', 'sent', 'delivered', 'read', 'failed', 'received'], required: true, index: true },
     error: { type: String, default: undefined },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: undefined },
   },
