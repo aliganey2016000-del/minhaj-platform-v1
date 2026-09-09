@@ -121,3 +121,5 @@ router.use('/gradebook-courses', gradebookCoursesRoutes);
 router.use('/gradebook/:courseId', gradebookRoutes);
 router.use('/', teacherAssignmentGradingRoutes);
 router.get('/health', (_req, res) => { res.status(200).json({ success: true, statusCode: 200, message: 'API v1 is operational', data: { uptime: process.uptime(), timestamp: new Date().toISOString(), version: '1.0.0' }, errors: null }); });
+
+export default router;
