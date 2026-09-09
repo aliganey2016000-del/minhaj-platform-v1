@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import ApiResponse from '../utils/api-response';
 import WhatsAppConversation from '../models/whatsapp-conversation.model';
 import WhatsAppMessage from '../models/whatsapp-message.model';
-import WhatsAppNotificationJob from '../models/whatsapp-notification-job.model';
+import { WhatsAppNotificationJob } from '../models/whatsapp-notification-job.model';
 import { BadRequestError } from '../utils/api-error';
 
 function organizationId(req: Request) {
