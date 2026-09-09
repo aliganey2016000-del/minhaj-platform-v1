@@ -14,6 +14,8 @@ export interface IWhatsAppConversation extends Document {
   lastMessagePreview?: string;
   lastMessageDirection?: 'inbound' | 'outbound';
   assignedTo?: mongoose.Types.ObjectId;
+  botSelectedStudent?: mongoose.Types.ObjectId;
+  botAwaitingChildSelection: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,6 +33,8 @@ const schema = new Schema<IWhatsAppConversation>(
     lastMessagePreview: { type: String, default: undefined },
     lastMessageDirection: { type: String, enum: ['inbound', 'outbound'], default: undefined },
     assignedTo: { type: Schema.Types.ObjectId, ref: 'User', default: undefined },
+    botSelectedStudent: { type: Schema.Types.ObjectId, ref: 'Student', default: undefined },
+    botAwaitingChildSelection: { type: Boolean, default: false },
   },
   { timestamps: true },
 );
