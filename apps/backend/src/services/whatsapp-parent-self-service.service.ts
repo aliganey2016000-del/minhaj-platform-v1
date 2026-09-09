@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Parent from '../models/parent.model';
 import Student from '../models/student.model';
 import Attendance from '../models/attendance.model';
@@ -7,7 +8,8 @@ import Exam from '../models/exam.model';
 import Assignment from '../models/assignment.model';
 import AssignmentSubmission from '../models/assignment-submission.model';
 import WhatsAppConversation from '../models/whatsapp-conversation.model';
-import { sendWhatsAppMessage } from '../utils/whatsapp';
+import WhatsAppMessage from '../models/whatsapp-message.model';
+import { sendWhatsAppMessage as sendWhatsAppProviderMessage } from '../utils/whatsapp';
 
 const MENU = [
   'Minhaj Platform — Parent Services',
@@ -34,6 +36,36 @@ function money(value: number) {
 function date(value?: Date | string | null) {
   if (!value) return 'Not scheduled';
   return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: process.env.APP_TIMEZONE || 'Africa/Mogadishu' }).format(new Date(value));
+}
+
+async function sendWhatsAppMessage(input: { to: string; text: string; organizationId: string }) {
+  const recipient = normalizePhone(input.to);
+  const conversation = await WhatsAppConversation.findOne({ organization: input.organizationId, phone: recipient });
+  const message = await WhatsAppMessage.create({
+    organization: input.organizationId,
+    school: conversation?.school,
+    conversation: conversation?._id,
+    recipient,
+    parent: conversation?.parent,
+    direction: 'outbound',
+    kind: 'text',
+    body: input.text,
+    status: 'queued',
+  });
+
+  try {
+    const result = await sendWhatsAppProviderMessage({ to: recipient, text: input.text, organizationId: input.organizationId });
+    await WhatsAppMessage.updateOne({ _id: message._id }, { $set: { status: 'sent', providerMessageId: result.providerMessageId } });
+    await WhatsAppConversation.updateOne(
+      { _id: conversation?._id, organization: input.organizationId },
+      { $set: { lastMessageAt: new Date(), lastMessagePreview: input.text.slice(0, 500), lastMessageDirection: 'outbound' } },
+    );
+    return result;
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : String(error);
+    await WhatsAppMessage.updateOne({ _id: message._id }, { $set: { status: 'failed', error: messageText } });
+    throw error;
+  }
 }
 
 async function childrenForParent(parent: any) {
