@@ -30,7 +30,7 @@ export interface IWhatsAppMessage extends Document {
 const schema = new Schema<IWhatsAppMessage>(
   {
     school: { type: Schema.Types.ObjectId, ref: 'School', default: undefined, index: true },
-    organization: { type: Schema.Types.ObjectId, ref: 'Organization', default: undefined, index: true },
+    organization: { type: Schema.Types.ObjectId, ref: 'School', default: undefined, index: true },
     conversation: { type: Schema.Types.ObjectId, ref: 'WhatsAppConversation', default: undefined, index: true },
     recipient: { type: String, required: true, trim: true },
     sender: { type: String, trim: true, default: undefined },
