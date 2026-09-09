@@ -7,6 +7,7 @@ export type WhatsAppMessageDirection = 'inbound' | 'outbound';
 export interface IWhatsAppMessage extends Document {
   school?: mongoose.Types.ObjectId;
   organization?: mongoose.Types.ObjectId;
+  conversation?: mongoose.Types.ObjectId;
   recipient: string;
   sender?: string;
   parent?: mongoose.Types.ObjectId;
@@ -30,6 +31,7 @@ const schema = new Schema<IWhatsAppMessage>(
   {
     school: { type: Schema.Types.ObjectId, ref: 'School', default: undefined, index: true },
     organization: { type: Schema.Types.ObjectId, ref: 'Organization', default: undefined, index: true },
+    conversation: { type: Schema.Types.ObjectId, ref: 'WhatsAppConversation', default: undefined, index: true },
     recipient: { type: String, required: true, trim: true },
     sender: { type: String, trim: true, default: undefined },
     parent: { type: Schema.Types.ObjectId, ref: 'Parent', default: undefined, index: true },
@@ -46,10 +48,11 @@ const schema = new Schema<IWhatsAppMessage>(
     error: { type: String, default: undefined },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: undefined },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 schema.index({ organization: 1, createdAt: -1 });
+schema.index({ organization: 1, conversation: 1, createdAt: -1 });
 schema.index({ school: 1, createdAt: -1 });
 schema.index({ providerMessageId: 1 }, { sparse: true });
 
