@@ -13,7 +13,7 @@ export interface IWhatsAppTemplate extends Document {
 }
 
 const schema = new Schema<IWhatsAppTemplate>({
-  organization: { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
+  organization: { type: Schema.Types.ObjectId, ref: 'School', required: true, index: true },
   name: { type: String, required: true, trim: true },
   languageCode: { type: String, required: true, trim: true, default: 'en_US' },
   body: { type: String, required: true, trim: true },
