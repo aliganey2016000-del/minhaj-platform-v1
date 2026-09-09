@@ -1,7 +1,5 @@
-import mongoose from 'mongoose';
 import Parent from '../models/parent.model';
 import Student from '../models/student.model';
-import Profile from '../models/profile.model';
 import Attendance from '../models/attendance.model';
 import Invoice from '../models/invoice.model';
 import Result from '../models/result.model';
@@ -44,7 +42,7 @@ async function childrenForParent(parent: any) {
   return Student.find({ _id: { $in: ids }, parent: parent._id, status: 'active' })
     .populate('profile', 'firstName lastName')
     .populate('class', 'title name')
-    .select('studentId profile class grade')
+    .select('studentId profile class grade enrolledCourses')
     .lean();
 }
 
@@ -85,7 +83,7 @@ async function sendChildren(parent: any, conversation: any) {
   return ['Select a child:', ...children.map((student, index) => `${index + 1}. ${childName(student)}${student.grade ? ` — ${student.grade}` : ''}`), '', 'Reply with the number, e.g. 1.'].join('\n');
 }
 
-async function attendance(student: any, organizationId: string) {
+async function attendance(student: any) {
   const rows = await Attendance.find({ student: student._id }).sort({ date: -1 }).limit(30).populate('course', 'title').lean();
   if (!rows.length) return `${childName(student)} has no attendance records yet.`;
   const counts = rows.reduce((acc: any, row: any) => { acc[row.status] = (acc[row.status] || 0) + 1; return acc; }, {});
@@ -97,7 +95,7 @@ async function fees(student: any) {
   const invoices = await Invoice.find({ student: student._id, status: { $ne: 'void' } }).sort({ dueDate: 1, createdAt: -1 }).limit(12).lean();
   if (!invoices.length) return `${childName(student)} has no outstanding invoices.`;
   const outstanding = invoices.filter((invoice: any) => invoice.status !== 'paid');
-  const balance = outstanding.reduce((sum, invoice: any) => sum + Math.max(0, Number(invoice.amount || 0) - Number(invoice.discount || 0) - Number(invoice.amountPaid || 0)), 0);
+  const balance = outstanding.reduce((sum, invoice) => sum + Math.max(0, Number(invoice.amount || 0) - Number(invoice.discount || 0) - Number(invoice.amountPaid || 0)), 0);
   const lines = outstanding.slice(0, 6).map((invoice: any) => {
     const due = Math.max(0, Number(invoice.amount || 0) - Number(invoice.discount || 0) - Number(invoice.amountPaid || 0));
     return `${invoice.title} — ${money(due)} due ${date(invoice.dueDate)}`;
@@ -119,8 +117,7 @@ async function results(student: any) {
 async function assignments(student: any) {
   const courseIds = Array.isArray(student.enrolledCourses) ? student.enrolledCourses : [];
   if (!courseIds.length) return `${childName(student)} has no active course assignments.`;
-  const now = new Date();
-  const rows = await Assignment.find({ course: { $in: courseIds }, status: 'active', dueDate: { $gte: now } })
+  const rows = await Assignment.find({ course: { $in: courseIds }, status: 'active', dueDate: { $gte: new Date() } })
     .sort({ dueDate: 1 }).limit(12).populate('course', 'title').lean();
   if (!rows.length) return `${childName(student)} has no upcoming assignments.`;
   const submitted = await AssignmentSubmission.find({ student: student._id, assignment: { $in: rows.map((row: any) => row._id) } }).select('assignment').lean();
@@ -142,7 +139,7 @@ async function exams(student: any) {
 export async function handleParentBotMessage(input: { organizationId: string; from: string; text: string; parentId?: string; conversationId?: string }) {
   const from = normalizePhone(input.from);
   const parent = input.parentId
-    ? await Parent.findOne({ _id: input.parentId, phone: { $in: [from, `+${from}`] } }).lean()
+    ? await Parent.findOne({ _id: input.parentId, phone: { $in: [from, `+${from}`] }, school: input.organizationId }).lean()
     : await Parent.findOne({ phone: { $in: [from, `+${from}`] }, school: input.organizationId }).lean();
   if (!parent) {
     await sendWhatsAppMessage({ to: from, text: 'This WhatsApp number is not linked to a parent account in this institution. Please contact your institution administrator.', organizationId: input.organizationId });
@@ -190,7 +187,7 @@ export async function handleParentBotMessage(input: { organizationId: string; fr
 
   let reply: string;
   switch (normalized) {
-    case '1': reply = await attendance(student, input.organizationId); break;
+    case '1': reply = await attendance(student); break;
     case '2': reply = await fees(student); break;
     case '3': reply = await results(student); break;
     case '4': reply = await assignments(student); break;
