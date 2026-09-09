@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import * as ctrl from '../../controllers/whatsapp.controller';
+import * as notificationCtrl from '../../controllers/whatsapp-notification.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { adminOnly } from '../../middleware/role.middleware';
+import { adminOnly, requireModulePermission } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
+import { startWhatsAppNotificationWorker } from '../../jobs/whatsapp-notification-worker';
 
 const router = Router();
 
@@ -20,5 +22,11 @@ router.patch('/conversations/:conversationId', asyncHandler(ctrl.updateConversat
 router.post('/baileys/connect', asyncHandler(ctrl.connect));
 router.get('/baileys/qr', asyncHandler(ctrl.qr));
 router.post('/baileys/disconnect', asyncHandler(ctrl.disconnect));
+router.get('/preferences', asyncHandler(notificationCtrl.listPreferences));
+router.put('/preferences/:parentId', asyncHandler(notificationCtrl.upsertPreference));
+
+// Process queued WhatsApp notifications in the API process. Deployment can move this worker
+// to a dedicated process later without changing the queue contract.
+startWhatsAppNotificationWorker();
 
 export default router;
