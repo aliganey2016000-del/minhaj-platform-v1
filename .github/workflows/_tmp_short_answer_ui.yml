@@ -1,0 +1,58 @@
+name: _tmp_short_answer_ui_patch
+on:
+  push:
+    branches: [feat/random-quiz-generator]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/random-quiz-generator
+          fetch-depth: 0
+      - name: Finish Short Answer UI wiring
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def patch(path, fn):
+              p = Path(path); s = p.read_text(); n = fn(s); p.write_text(n)
+
+          p = Path('apps/frontend/src/features/admin/pages/components/quiz-question-editor.tsx')
+          s = p.read_text()
+          if "ShortAnswerQuestion" not in s:
+              s = s.replace("  SentenceBuildQuestion,\n} from '../course-builder.types';", "  SentenceBuildQuestion,\n  ShortAnswerQuestion,\n} from '../course-builder.types';")
+          if "<ShortAnswerEditor" not in s:
+              marker = "      {question.type === 'sentence_build' && <SentenceBuildEditor question={question} onChange={onChange} />}"
+              s = s.replace(marker, marker + "\n      {question.type === 'short_answer' && <ShortAnswerEditor question={question} onChange={onChange} />}", 1)
+          if "function ShortAnswerEditor" not in s:
+              component = r'''\n\n// ===========================================================================\n// Short Answer — one or more accepted answers\n// ===========================================================================\nfunction ShortAnswerEditor({ question, onChange }: { question: ShortAnswerQuestion; onChange: (q: QuizQuestion) => void }) {\n  const updateAnswer = (idx: number, value: string) => {\n    const correctAnswers = [...question.correctAnswers];\n    correctAnswers[idx] = value;\n    onChange({ ...question, correctAnswers });\n  };\n  const addAnswer = () => onChange({ ...question, correctAnswers: [...question.correctAnswers, ''] });\n  const removeAnswer = (idx: number) => {\n    if (question.correctAnswers.length <= 1) return;\n    onChange({ ...question, correctAnswers: question.correctAnswers.filter((_, i) => i !== idx) });\n  };\n  return (\n    <div className="space-y-2 mb-2">\n      <p className="text-[10px] text-[var(--color-text-tertiary)]">Add every accepted answer. Grading ignores case and surrounding whitespace.</p>\n      {question.correctAnswers.map((answer, idx) => (\n        <div key={idx} className="flex items-center gap-2">\n          <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300 text-[10px] font-bold">{idx + 1}</span>\n          <input className={`flex-1 ${inputClass}`} placeholder={idx === 0 ? 'Primary accepted answer' : 'Alternative accepted answer'} value={answer} onChange={(e) => updateAnswer(idx, e.target.value)} />\n          {question.correctAnswers.length > 1 && <button type="button" onClick={() => removeAnswer(idx)} className="text-xs text-red-400 hover:text-red-600">✕</button>}\n        </div>\n      ))}\n      <button type="button" onClick={addAnswer} className="text-xs text-primary-600 hover:text-primary-700 font-medium">+ Add Accepted Answer</button>\n    </div>\n  );\n}\n'''
+              s = s.replace('\nexport default QuestionEditor;', component + '\nexport default QuestionEditor;')
+          p.write_text(s)
+
+          p = Path('apps/frontend/src/features/student/pages/student-quiz-take.tsx')
+          s = p.read_text()
+          s = s.replace("type QuestionType = 'mcq' | 'true_false' | 'matching' | 'ordering' | 'fill_blank' | 'word_scramble' | 'sentence_build' | 'picture_choice' | 'swipe_sort' | 'listen_write';", "type QuestionType = 'mcq' | 'true_false' | 'matching' | 'ordering' | 'fill_blank' | 'word_scramble' | 'sentence_build' | 'picture_choice' | 'swipe_sort' | 'listen_write' | 'short_answer';")
+          s = s.replace("  listen_write: { en: 'Listen & Write', so: 'Maqal oo Qor', ar: 'استمع واكتب' },\n};", "  listen_write: { en: 'Listen & Write', so: 'Maqal oo Qor', ar: 'استمع واكتب' },\n  short_answer: { en: 'Short Answer', so: 'Jawaab Gaaban', ar: 'إجابة قصيرة' },\n};")
+          if "<ShortAnswerAnswer" not in s:
+              marker = "            {q.type === 'listen_write' && (\n              <ListenWriteAnswer\n                audioUrl={q.audioUrl || ''}\n                hint={q.hint}\n                value={answers[currentQuestion] || ''}\n                onChange={(val) => setAnswer(currentQuestion, val)}\n                lang={lang}\n              />\n            )}"
+              if marker not in s:
+                  raise SystemExit('student dispatch marker not found')
+              addition = marker + "\n\n            {q.type === 'short_answer' && (\n              <ShortAnswerAnswer\n                value={answers[currentQuestion] || ''}\n                onChange={(val) => setAnswer(currentQuestion, val)}\n                lang={lang}\n              />\n            )}"
+              s = s.replace(marker, addition, 1)
+          if 'function ShortAnswerAnswer' not in s:
+              component = r'''\n\nfunction ShortAnswerAnswer({ value, onChange, lang }: { value: string; onChange: (val: string) => void; lang: 'en' | 'so' | 'ar' }) {\n  return (\n    <div className="space-y-3">\n      <label className="block text-sm font-semibold text-[var(--color-text-secondary)]">\n        {lang === 'so' ? 'Geli jawaabtaada' : lang === 'ar' ? 'اكتب إجابتك' : 'Enter your answer'}\n      </label>\n      <textarea rows={4} value={value} onChange={(e) => onChange(e.target.value)} placeholder={lang === 'so' ? 'Ku qor jawaabta gaaban...' : lang === 'ar' ? 'اكتب إجابة قصيرة...' : 'Type your short answer...'} className="w-full rounded-2xl border-2 border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-5 py-4 text-sm font-medium text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors resize-y" />\n      <p className="text-xs text-[var(--color-text-tertiary)]">{lang === 'so' ? 'Jawaabta waxaa lagu qiimeyn doonaa markaad gudbiso.' : lang === 'ar' ? 'سيتم تقييم الإجابة عند الإرسال.' : 'Your answer will be graded when you submit.'}</p>\n    </div>\n  );\n}\n'''
+              s = s.replace('\nexport default StudentQuizTake;', component + '\nexport default StudentQuizTake;')
+          p.write_text(s)
+          PY
+          rm -f .github/workflows/_tmp_short_answer_ui.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/frontend/src/features/admin/pages/components/quiz-question-editor.tsx apps/frontend/src/features/student/pages/student-quiz-take.tsx .github/workflows/_tmp_short_answer_ui.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(quiz): wire Short Answer authoring and student UI"
+          git push origin HEAD:feat/random-quiz-generator
