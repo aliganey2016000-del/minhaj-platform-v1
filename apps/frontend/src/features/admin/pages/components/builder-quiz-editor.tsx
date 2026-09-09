@@ -99,6 +99,8 @@ export function createQuestion(type: QuestionType): QuizQuestion {
       return { ...base, type, answer: '', hint: '' };
     case 'sentence_build':
       return { ...base, type, words: ['', ''], distractors: [] };
+    case 'short_answer':
+      return { ...base, type, correctAnswers: [''] };
     case 'mcq':
     default:
       return { ...base, type: 'mcq', options: ['', ''], correctIndex: 0 };
@@ -128,6 +130,8 @@ export function isQuestionValid(q: QuizQuestion): boolean {
       return !!q.answer.trim();
     case 'sentence_build':
       return q.words.length >= 2 && q.words.every((w) => w.trim());
+    case 'short_answer':
+      return q.correctAnswers.length > 0 && q.correctAnswers.some((a) => a.trim());
     default:
       return false;
   }

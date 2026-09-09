@@ -1,0 +1,41 @@
+name: tmp-fix-quiz-ci
+on:
+  push:
+    branches:
+      - feat/random-quiz-generator
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: ${{ !contains(github.event.head_commit.message, 'fix(quiz): resolve CI type errors') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/random-quiz-generator
+      - name: Patch quiz CI errors
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('apps/backend/src/models/quiz-attempt-session.model.ts')
+          s=p.read_text()
+          s=s.replace("questions: { type: [Schema.Types.Mixed], required: true },", "questions: { type: Array, required: true },")
+          p.write_text(s)
+          for f in [
+            'apps/frontend/src/features/admin/pages/components/ai-quiz-generator-modal.tsx',
+            'apps/frontend/src/features/admin/pages/components/bulk-stop-check-ai-generator-modal.tsx',
+            'apps/frontend/src/features/admin/pages/components/stop-check-ai-generator-modal.tsx',
+          ]:
+            p=Path(f); s=p.read_text()
+            s=s.replace('const totalQuestions = Object.values(counts).reduce((sum, c) => sum + (c || 0), 0);','const totalQuestions = Object.values(counts).reduce<number>((sum, c) => sum + (c ?? 0), 0);')
+            p.write_text(s)
+          PY
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/backend/src/models/quiz-attempt-session.model.ts apps/frontend/src/features/admin/pages/components/ai-quiz-generator-modal.tsx apps/frontend/src/features/admin/pages/components/bulk-stop-check-ai-generator-modal.tsx apps/frontend/src/features/admin/pages/components/stop-check-ai-generator-modal.tsx
+          git commit -m "fix(quiz): resolve CI type errors"
+          git push origin HEAD:feat/random-quiz-generator

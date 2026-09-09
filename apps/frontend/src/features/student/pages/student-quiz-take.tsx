@@ -41,7 +41,7 @@ import {
 // stripQuizSecrets leaves in place; anything answer-revealing is absent.
 // ---------------------------------------------------------------------------
 
-type QuestionType = 'mcq' | 'true_false' | 'matching' | 'ordering' | 'fill_blank' | 'word_scramble' | 'sentence_build' | 'picture_choice' | 'swipe_sort' | 'listen_write';
+type QuestionType = 'mcq' | 'true_false' | 'matching' | 'ordering' | 'fill_blank' | 'word_scramble' | 'sentence_build' | 'picture_choice' | 'swipe_sort' | 'listen_write' | 'short_answer';
 
 interface QuizQuestion {
   _id: string;
@@ -62,7 +62,7 @@ interface QuizQuestion {
   leftLabel?: string;
   rightLabel?: string;
   cards?: { text: string }[];
-  // listen_write
+  // listen_write / short_answer
   audioUrl?: string;
   hint?: string;
   // fill_blank
@@ -112,6 +112,7 @@ const questionTypeLabels: Record<string, { en: string; so: string; ar: string }>
   picture_choice: { en: 'Picture Choice', so: 'Doorasho Sawir', ar: 'اختيار الصورة' },
   swipe_sort: { en: 'Swipe Sort', so: 'Kala Sooc', ar: 'فرز منزلق' },
   listen_write: { en: 'Listen & Write', so: 'Maqal oo Qor', ar: 'استمع واكتب' },
+  short_answer: { en: 'Short Answer', so: 'Jawaab Gaaban', ar: 'إجابة قصيرة' },
 };
 
 /** Fisher-Yates — used only for the offline fallback path (the primary
@@ -668,6 +669,14 @@ export function StudentQuizTake() {
               <ListenWriteAnswer
                 audioUrl={q.audioUrl || ''}
                 hint={q.hint}
+                value={answers[currentQuestion] || ''}
+                onChange={(val) => setAnswer(currentQuestion, val)}
+                lang={lang}
+              />
+            )}
+
+            {q.type === 'short_answer' && (
+              <ShortAnswerAnswer
                 value={answers[currentQuestion] || ''}
                 onChange={(val) => setAnswer(currentQuestion, val)}
                 lang={lang}
@@ -1526,6 +1535,26 @@ function ListenWriteAnswer({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function ShortAnswerAnswer({ value, onChange, lang }: { value: string; onChange: (val: string) => void; lang: 'en' | 'so' | 'ar' }) {
+  return (
+    <div className="space-y-3">
+      <label className="block text-sm font-semibold text-[var(--color-text-secondary)]">
+        {lang === 'so' ? 'Geli jawaabtaada' : lang === 'ar' ? 'اكتب إجابتك' : 'Enter your answer'}
+      </label>
+      <textarea
+        rows={4}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={lang === 'so' ? 'Ku qor jawaabta gaaban...' : lang === 'ar' ? 'اكتب إجابة قصيرة...' : 'Type your short answer...'}
+        className="w-full rounded-2xl border-2 border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-5 py-4 text-sm font-medium text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-colors resize-y"
+      />
+      <p className="text-xs text-[var(--color-text-tertiary)]">
+        {lang === 'so' ? 'Jawaabta waxaa lagu qiimeyn doonaa markaad gudbiso.' : lang === 'ar' ? 'سيتم تقييم الإجابة عند الإرسال.' : 'Your answer will be graded when you submit.'}
+      </p>
     </div>
   );
 }

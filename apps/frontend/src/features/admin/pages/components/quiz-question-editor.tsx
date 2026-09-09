@@ -16,6 +16,7 @@ import type {
   FillBlankQuestion,
   WordScrambleQuestion,
   SentenceBuildQuestion,
+  ShortAnswerQuestion,
 } from '../course-builder.types';
 import { QUESTION_TYPE_META as TYPE_META } from '../quiz-question-meta';
 
@@ -72,6 +73,7 @@ export function QuestionEditor({ question, index, onChange, onRemove, isInvalid 
       {question.type === 'fill_blank' && <FillBlankEditor question={question} onChange={onChange} />}
       {question.type === 'word_scramble' && <WordScrambleEditor question={question} onChange={onChange} />}
       {question.type === 'sentence_build' && <SentenceBuildEditor question={question} onChange={onChange} />}
+      {question.type === 'short_answer' && <ShortAnswerEditor question={question} onChange={onChange} />}
 
       <input
         className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs mt-2"
@@ -539,6 +541,38 @@ function SentenceBuildEditor({ question, onChange }: { question: SentenceBuildQu
         </div>
         <button type="button" onClick={addDistractor} className="text-xs text-primary-600 hover:text-primary-700 font-medium mt-1">+ Add Decoy Word</button>
       </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Short Answer — one or more accepted answers, normalized server-side
+// ===========================================================================
+function ShortAnswerEditor({ question, onChange }: { question: ShortAnswerQuestion; onChange: (q: QuizQuestion) => void }) {
+  const updateAnswer = (idx: number, value: string) => {
+    const correctAnswers = [...question.correctAnswers];
+    correctAnswers[idx] = value;
+    onChange({ ...question, correctAnswers });
+  };
+  const addAnswer = () => onChange({ ...question, correctAnswers: [...question.correctAnswers, ''] });
+  const removeAnswer = (idx: number) => {
+    if (question.correctAnswers.length <= 1) return;
+    onChange({ ...question, correctAnswers: question.correctAnswers.filter((_, i) => i !== idx) });
+  };
+
+  return (
+    <div className="space-y-2 mb-2">
+      <p className="text-[10px] text-[var(--color-text-tertiary)]">Add every accepted answer. Grading ignores surrounding whitespace and letter case.</p>
+      {question.correctAnswers.map((answer, idx) => (
+        <div key={idx} className="flex items-center gap-2">
+          <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300 text-[10px] font-bold">{idx + 1}</span>
+          <input className={`flex-1 ${inputClass}`} placeholder={idx === 0 ? 'Primary accepted answer' : 'Alternative accepted answer'} value={answer} onChange={(e) => updateAnswer(idx, e.target.value)} />
+          {question.correctAnswers.length > 1 && (
+            <button type="button" onClick={() => removeAnswer(idx)} className="text-xs text-red-400 hover:text-red-600">✕</button>
+          )}
+        </div>
+      ))}
+      <button type="button" onClick={addAnswer} className="text-xs text-primary-600 hover:text-primary-700 font-medium">+ Add Accepted Answer</button>
     </div>
   );
 }
