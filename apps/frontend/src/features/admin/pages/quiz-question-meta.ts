@@ -1,16 +1,8 @@
-/**
- * Single source of truth for quiz question type metadata (icon, label,
- * color, canonical display order). Used by the type selector menu, the
- * per-type authoring editors, the read-only preview, the grouped-by-type
- * display in the Quiz Editor, and the AI Quiz Generator modal.
- */
-
 import type { QuestionType } from './course-builder.types';
 
 export interface QuestionTypeMeta {
   icon: string;
   label: string;
-  /** Tailwind classes for a light "badge" background + text color. */
   color: string;
 }
 
@@ -25,18 +17,10 @@ export const QUESTION_TYPE_META: Record<QuestionType, QuestionTypeMeta> = {
   fill_blank: { icon: '🕳️', label: 'Fill in the Blank', color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300' },
   word_scramble: { icon: '🔀', label: 'Word Scramble', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' },
   sentence_build: { icon: '🧩', label: 'Sentence Build', color: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-300' },
+  short_answer: { icon: '✍️', label: 'Short Answer', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' },
 };
 
-/** Canonical, stable display order — used anywhere types are grouped or listed. */
 export const QUESTION_TYPE_ORDER: QuestionType[] = [
-  'mcq',
-  'true_false',
-  'matching',
-  'ordering',
-  'picture_choice',
-  'swipe_sort',
-  'listen_write',
-  'fill_blank',
-  'word_scramble',
-  'sentence_build',
+  'mcq', 'true_false', 'matching', 'ordering', 'picture_choice', 'swipe_sort',
+  'listen_write', 'fill_blank', 'word_scramble', 'sentence_build', 'short_answer',
 ];
