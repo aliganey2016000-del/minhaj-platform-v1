@@ -58,6 +58,22 @@ export const get = async (req: Request, res: Response): Promise<Response> => {
 export const upsert = async (req: Request, res: Response): Promise<Response> => {
   const student = await loadStudent(req);
   if (!student.school) throw new BadRequestError('Student is not assigned to an organization');
+
+  // Add Student sends a draft registration request even when all optional
+  // admission fields are empty. Avoid the expensive organization/type and
+  // reference validation work in that case. If a registration already exists,
+  // continue through the normal upsert so an edit that intentionally clears
+  // fields still persists the cleared values.
+  const body = req.body ?? {};
+  const hasRegistrationData = [
+    'previousInstitution', 'previousQualification', 'graduationYear', 'notes',
+    'applicationDate', 'program', 'department', 'faculty', 'class',
+  ].some((key) => body[key] !== undefined && body[key] !== null && String(body[key]).trim() !== '');
+  if (body.applicationStatus === 'draft' && !hasRegistrationData) {
+    const existing = await StudentRegistration.findOne({ student: student._id, school: student.school }).lean();
+    if (!existing) return ApiResponse.success(res, null, 'Student registration saved');
+  }
+
   const school = await School.findById(student.school).select('_id institutionType organizationType').lean();
   if (!school) throw new NotFoundError('Organization');
   const organizationType = resolveInstitutionType(school);
