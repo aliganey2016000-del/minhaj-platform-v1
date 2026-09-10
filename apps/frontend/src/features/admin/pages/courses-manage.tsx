@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { BookOpen, Download, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import api from '../../../lib/axios';
+import BulkEntityImportModal from './components/bulk-entity-import-modal';
 import { useAuth } from '../../../store/auth-context';
 import { type InstitutionType, resolveInstitutionType, institutionTypeLabel } from '../../../lib/institution-type';
 
@@ -256,6 +257,7 @@ export default function CoursesManage() {
   const [accessModeCourse, setAccessModeCourse] = useState<Course | undefined>(undefined);
   const [permCourse, setPermCourse] = useState<Course | undefined>(undefined);
   const [selected, setSelected] = useState<string[]>([]);
+  const [showImportModal, setShowImportModal] = useState(false);
   const type = resolveInstitutionType(org);
 
   const load = useCallback(async () => { if (!organizationId) return; setLoading(true); try { const [o, c] = await Promise.all([api.get(`/schools/${organizationId}`), api.get('/courses/admin', { params: { school: organizationId, limit: 300 } })]); const raw = o.data.data || o.data; setOrg(raw); setCourses(c.data.data || []); } catch (err: any) { setError(err.response?.data?.message || 'Unable to load courses'); setCourses([]); } finally { setLoading(false); } }, [organizationId]);
@@ -267,7 +269,6 @@ export default function CoursesManage() {
   const remove = async (id: string) => { try { await api.delete(`/courses/${id}`); await load(); } catch (err: any) { setError(err.response?.data?.message || 'Failed to delete course'); } };
   const bulkDelete = async () => { if (!selected.length || !window.confirm(`Delete ${selected.length} selected course(s)?`)) return; try { await Promise.all(selected.map(id => api.delete(`/courses/${id}`))); setSelected([]); await load(); } catch (err: any) { setError(err.response?.data?.message || 'Bulk delete failed'); } };
   const exportCourses = async () => { try { const res = await api.get('/courses/export', { params: { school: organizationId }, responseType: 'blob' }); const url = URL.createObjectURL(res.data); const a = document.createElement('a'); a.href = url; a.download = 'courses.xlsx'; a.click(); URL.revokeObjectURL(url); } catch (err: any) { setError(err.response?.data?.message || 'Export failed'); } };
-  const importCourses = async (file: File) => { const fd = new FormData(); fd.append('file', file); try { await api.post('/courses/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } }); await load(); } catch (err: any) { setError(err.response?.data?.message || 'Import failed'); } };
 
   // ── Per-card actions restored from the original Course Content Builder
   // era menu (before the institution-aware rewrite dropped it down to just
@@ -297,7 +298,7 @@ export default function CoursesManage() {
   const handleTeacherPermission = (course: Course) => { if (!course.teacher?._id) { window.alert('This course has no teacher assigned. Please assign a teacher first.'); return; } setPermCourse(course); };
 
   return <div className="space-y-4 p-4 sm:p-6">
-    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h1 className="truncate text-xl font-bold">Manage Courses</h1><p className="text-sm text-[var(--color-text-secondary)]">{courses.length} courses · {labelFor(type)} curriculum</p></div><div className="relative shrink-0"><button aria-label="Course actions" onClick={() => setMenuOpen(v => !v)} className="rounded-xl border border-[var(--color-border-default)] p-2.5 hover:bg-[var(--color-surface-tertiary)]"><MoreVertical className="h-5 w-5" /></button>{menuOpen && <div className="absolute right-0 top-11 z-30 w-56 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl"><button onClick={() => { setModal('new'); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Plus className="h-4 w-4" /> Add Course</button><button onClick={() => { exportCourses(); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Download className="h-4 w-4" /> Export Courses</button><label className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Upload className="h-4 w-4" /> Import Courses<input type="file" accept=".csv,.xlsx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) importCourses(f); e.currentTarget.value = ''; }} /></label>{selected.length > 0 && <button onClick={() => { bulkDelete(); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /> Delete Selected ({selected.length})</button>}</div>}</div></div>
+    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h1 className="truncate text-xl font-bold">Manage Courses</h1><p className="text-sm text-[var(--color-text-secondary)]">{courses.length} courses · {labelFor(type)} curriculum</p></div><div className="relative shrink-0"><button aria-label="Course actions" onClick={() => setMenuOpen(v => !v)} className="rounded-xl border border-[var(--color-border-default)] p-2.5 hover:bg-[var(--color-surface-tertiary)]"><MoreVertical className="h-5 w-5" /></button>{menuOpen && <div className="absolute right-0 top-11 z-30 w-56 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl"><button onClick={() => { setModal('new'); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Plus className="h-4 w-4" /> Add Course</button><button onClick={() => { exportCourses(); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Download className="h-4 w-4" /> Export Courses</button><button onClick={() => { setShowImportModal(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Upload className="h-4 w-4" /> Import Courses</button>{selected.length > 0 && <button onClick={() => { bulkDelete(); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /> Delete Selected ({selected.length})</button>}</div>}</div></div>
     <div className="flex flex-col gap-2 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search courses, categories, teachers..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2.5 pl-9 pr-3 text-sm" /></div><select value={status} onChange={e => setStatus(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value="all">All statuses</option><option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option></select></div>
     {error && <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
     <label className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? [] : filtered.map(c => c._id))} /> Select all visible</label>
@@ -321,6 +322,17 @@ export default function CoursesManage() {
         type={type}
       />
     ))}</div>}
+
+    {showImportModal && <BulkEntityImportModal
+      title="Import Courses"
+      description="Download the official course template, upload a completed spreadsheet, or paste rows directly from Excel/Google Sheets."
+      templateUrl="/courses/template"
+      importUrl="/courses/import"
+      templateName="courses-template.xlsx"
+      headers={["Course Title (English)", "Category", "Level", "Organization Name", "Class Title", "Teacher Email", "Duration (weeks)", "Price ($)", "Capacity", "Thumbnail URL"]}
+      onClose={() => setShowImportModal(false)}
+      onImported={load}
+    />}
     {modal && org && <CourseModal course={modal === 'new' ? undefined : modal} org={org} onClose={() => setModal(null)} onSaved={load} />}
     {accessModeCourse && <AccessModeModal course={accessModeCourse} onClose={() => setAccessModeCourse(undefined)} onSave={handleSaveAccessMode} />}
     {permCourse?.teacher && <TeacherPermissionModal teacherId={permCourse.teacher._id} teacherName={teacherName(permCourse.teacher)} courseTitle={permCourse.title.en} onClose={() => setPermCourse(undefined)} onSaved={() => setPermCourse(undefined)} />}
