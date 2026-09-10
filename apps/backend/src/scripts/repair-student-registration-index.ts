@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import mongoose from 'mongoose';
+import Student from '../models/student.model';
+import ClassModel from '../models/class.model';
 
 export async function repairStudentRegistrationIndex(): Promise<void> {
   if (mongoose.connection.readyState !== 1) {
@@ -41,7 +43,23 @@ export async function repairStudentRegistrationIndex(): Promise<void> {
     );
   }
 
-  console.log('StudentRegistration index repaired: null/absent registration numbers are no longer blocked per school.');
+  // Older student records may have a class assigned but a null denormalized
+  // grade. Backfill it from Class.gradeLevel so the Manage Students screen
+  // shows the same grade level that was selected for the class.
+  const students = await Student.find({ class: { $ne: null } })
+    .select('_id class grade')
+    .lean();
+  let gradeBackfilled = 0;
+  for (const student of students) {
+    const cls = await ClassModel.findById(student.class).select('_id gradeLevel').lean();
+    if (cls?.gradeLevel === null || cls?.gradeLevel === undefined) continue;
+    const grade = String(cls.gradeLevel);
+    if (student.grade === grade) continue;
+    await Student.updateOne({ _id: student._id }, { $set: { grade } });
+    gradeBackfilled += 1;
+  }
+
+  console.log(`StudentRegistration index repaired; backfilled grade level for ${gradeBackfilled} student(s).`);
 }
 
 async function main(): Promise<void> {
