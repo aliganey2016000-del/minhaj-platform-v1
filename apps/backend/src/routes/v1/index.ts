@@ -27,6 +27,8 @@ import assignmentRoutes from './assignment.routes';
 import resourceRoutes from './resource.routes';
 import notificationRoutes from './notification.routes';
 import whatsappRoutes from './whatsapp.routes';
+import whatsappTemplateRoutes from './whatsapp-template.routes';
+import * as whatsappController from '../../controllers/whatsapp.controller';
 import telegramRoutes from './telegram.routes';
 import contentRoutes from './content.routes';
 import systemRoutes from './system.routes';
@@ -57,6 +59,7 @@ import accountingRoutes from './accounting.routes';
 import financeReconciliationRoutes from './finance-reconciliation.routes';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { requireModulePermission } from '../../middleware/role.middleware';
+import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
 router.use('/auth', authRoutes);
@@ -88,7 +91,9 @@ router.use('/certificates', authMiddleware, requireModulePermission('exams'), ce
 router.use('/assignments', authMiddleware, requireModulePermission('academic'), assignmentRoutes);
 router.use('/resources', resourceRoutes);
 router.use('/notifications', notificationRoutes);
+router.post('/whatsapp/webhook/baileys', asyncHandler(whatsappController.webhook));
 router.use('/whatsapp', authMiddleware, requireModulePermission('communication'), whatsappRoutes);
+router.use('/whatsapp/templates', authMiddleware, requireModulePermission('communication'), whatsappTemplateRoutes);
 router.use('/telegram', telegramRoutes);
 router.use('/announcements', authMiddleware, requireModulePermission('content'), contentRoutes('Announcement'));
 router.use('/news', authMiddleware, requireModulePermission('content'), contentRoutes('News'));
@@ -118,5 +123,5 @@ router.use('/gradebook-courses', gradebookCoursesRoutes);
 router.use('/gradebook/:courseId', gradebookRoutes);
 router.use('/', teacherAssignmentGradingRoutes);
 router.get('/health', (_req, res) => { res.status(200).json({ success: true, statusCode: 200, message: 'API v1 is operational', data: { uptime: process.uptime(), timestamp: new Date().toISOString(), version: '1.0.0' }, errors: null }); });
-router.get('/health/ready', (_req, res) => { const databaseReady = mongoose.connection.readyState === 1; const statusCode = databaseReady ? 200 : 503; res.status(statusCode).json({ success: databaseReady, statusCode, message: databaseReady ? 'API v1 is ready' : 'Database is not ready', data: { database: databaseReady ? 'connected' : 'disconnected', timestamp: new Date().toISOString(), version: '1.0.0' }, errors: null }); });
+
 export default router;
