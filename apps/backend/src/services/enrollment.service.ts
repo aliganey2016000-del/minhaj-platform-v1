@@ -21,8 +21,15 @@ async function syncEnrollmentHistory(
   newClassId: mongoose.Types.ObjectId | string,
   newCourseIds: string[],
 ): Promise<void> {
-  const newClass: any = await ClassModel.findById(newClassId).select('_id title academicYear studyYear semesterNumber semesterInYear');
+  const newClass: any = await ClassModel.findById(newClassId).select('_id title gradeLevel academicYear studyYear semesterNumber semesterInYear');
   if (!newClass || !newClass.academicYear) return;
+
+  // Keep the denormalized student grade synchronized with the selected class.
+  // The Manage Students list reads Student.grade directly, while the source
+  // of truth for school grade level is Class.gradeLevel.
+  if (newClass.gradeLevel !== null && newClass.gradeLevel !== undefined) {
+    student.grade = String(newClass.gradeLevel);
+  }
 
   const history = Array.isArray(student.enrollmentHistory) ? student.enrollmentHistory : [];
   const sameCurrent = history.find(
@@ -121,7 +128,7 @@ export async function reassignStudentClassCourses(
 ): Promise<void> {
   if (String(oldClassId || '') === String(newClassId || '')) return;
 
-  const student = await Student.findById(studentId).select('class status enrolledCourses enrollmentHistory');
+  const student = await Student.findById(studentId).select('class status enrolledCourses enrollmentHistory grade');
   if (!student || !newClassId || student.status !== 'active') return;
 
   const [oldCourses, newCourses] = await Promise.all([
