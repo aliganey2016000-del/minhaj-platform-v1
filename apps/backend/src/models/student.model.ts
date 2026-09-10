@@ -100,11 +100,43 @@ studentSchema.index({ school: 1, department: 1 });
 studentSchema.index({ school: 1, shiftMode: 1 });
 studentSchema.index({ school: 1, studentId: 1 }, { unique: true });
 
+/**
+ * Allocate the next automatic ID from the highest existing sequence rather
+ * than `count + 1`. Count-based generation breaks as soon as a student is
+ * deleted or a custom ID creates a gap: with 18 rows, for example, the next
+ * generated ID may already belong to an existing student. The unique index
+ * is still the final database guard; this lookup simply chooses a free,
+ * monotonic-looking candidate in the normal case.
+ */
+async function generateAutomaticStudentId(school?: unknown): Promise<string> {
+  const currentYear = new Date().getFullYear();
+  const StudentModel = mongoose.model<IStudent>('Student');
+  const schoolFilter = school ? { school } : {};
+  const pattern = new RegExp(`^STU-${currentYear}-\\d+$`);
+
+  const highest = await StudentModel.findOne({
+    ...schoolFilter,
+    studentId: { $regex: pattern },
+  })
+    .sort({ studentId: -1 })
+    .select('studentId')
+    .lean();
+
+  const match = String(highest?.studentId || '').match(new RegExp(`^STU-${currentYear}-(\\d+)$`));
+  let sequence = match ? Number(match[1]) + 1 : 1;
+
+  let candidate = `STU-${currentYear}-${String(sequence).padStart(4, '0')}`;
+  while (await StudentModel.exists({ ...schoolFilter, studentId: candidate })) {
+    sequence += 1;
+    candidate = `STU-${currentYear}-${String(sequence).padStart(4, '0')}`;
+  }
+
+  return candidate;
+}
+
 studentSchema.pre<IStudent>('validate', async function (next) {
   if (this.isNew && !this.studentId) {
-    const currentYear = new Date().getFullYear();
-    const count = await mongoose.model('Student').countDocuments(this.school ? { school: this.school } : {});
-    this.studentId = `STU-${currentYear}-${String(count + 1).padStart(4, '0')}`;
+    this.studentId = await generateAutomaticStudentId(this.school);
   }
   next();
 });
