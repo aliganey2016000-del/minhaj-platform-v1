@@ -26,7 +26,7 @@ interface Conversation {
 interface WhatsAppStatus {
   configured: boolean;
   provider?: string;
-  account?: { status?: string; phoneNumber?: string | null; lastError?: string | null };
+  account?: { status?: string; phoneNumber?: string | null; pairingCode?: string | null; lastError?: string | null };
   automation?: { attendanceAlertsEnabled: boolean; attendanceTemplate: string | null; languageCode: string };
 }
 
@@ -40,6 +40,9 @@ const badge: Record<string, string> = {
 export function WhatsAppManage() {
   const [status, setStatus] = useState<WhatsAppStatus>({ configured: false });
   const [qr, setQr] = useState<string | null>(null);
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairingPhone, setPairingPhone] = useState('');
+  const [connectionMethod, setConnectionMethod] = useState<'qr' | 'pairing'>('qr');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
@@ -49,6 +52,7 @@ export function WhatsAppManage() {
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [pairingConnecting, setPairingConnecting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -60,7 +64,9 @@ export function WhatsAppManage() {
         api.get('/whatsapp/status'),
         api.get('/whatsapp/conversations', { params: { limit: 50, search: search || undefined } }),
       ]);
-      setStatus(statusRes.data?.data || { configured: false });
+      const nextStatus = statusRes.data?.data || { configured: false };
+      setStatus(nextStatus);
+      setPairingCode(nextStatus.account?.pairingCode || null);
       setConversations(conversationsRes.data?.data || []);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load WhatsApp inbox');
@@ -82,23 +88,42 @@ export function WhatsAppManage() {
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to load conversation'); }
   };
 
+  const loadQr = useCallback(async () => {
+    try {
+      const response = await api.get('/whatsapp/baileys/qr');
+      setQr(response.data?.data?.qrDataUrl || null);
+      setPairingCode(response.data?.data?.pairingCode || null);
+    } catch { setQr(null); setPairingCode(null); }
+  }, []);
+
   const connect = async () => {
-    setConnecting(true); setError('');
+    setConnecting(true); setError(''); setSuccess('');
     try {
       await api.post('/whatsapp/baileys/connect');
       await load();
       await loadQr();
+      setConnectionMethod('qr');
       setSuccess('WhatsApp connection started. Scan the QR code from Linked Devices.');
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to start WhatsApp connection'); }
     finally { setConnecting(false); }
   };
 
-  const loadQr = useCallback(async () => {
+  const connectWithPairingCode = async (event: FormEvent) => {
+    event.preventDefault();
+    const phone = pairingPhone.replace(/\D/g, '');
+    if (phone.length < 7 || phone.length > 15) {
+      setError('Enter the full WhatsApp phone number with country code, digits only.');
+      return;
+    }
+    setPairingConnecting(true); setError(''); setSuccess(''); setPairingCode(null); setQr(null);
     try {
-      const response = await api.get('/whatsapp/baileys/qr');
-      setQr(response.data?.data?.qrDataUrl || null);
-    } catch { setQr(null); }
-  }, []);
+      await api.post('/whatsapp/baileys/connect', { phoneNumber: phone });
+      await load();
+      await loadQr();
+      setSuccess('Pairing code generated. Enter it in WhatsApp → Linked devices → Link with phone number instead.');
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to generate WhatsApp pairing code'); }
+    finally { setPairingConnecting(false); }
+  };
 
   useEffect(() => {
     if (status.provider === 'Baileys' && ['qr_required', 'pairing_required', 'connecting'].includes(status.account?.status || '')) {
@@ -111,7 +136,7 @@ export function WhatsAppManage() {
 
   const disconnect = async () => {
     if (!window.confirm('Disconnect this organization WhatsApp account?')) return;
-    try { await api.post('/whatsapp/baileys/disconnect'); setQr(null); await load(); }
+    try { await api.post('/whatsapp/baileys/disconnect'); setQr(null); setPairingCode(null); await load(); }
     catch (err: any) { setError(err.response?.data?.message || 'Failed to disconnect WhatsApp'); }
   };
 
@@ -187,10 +212,27 @@ export function WhatsAppManage() {
 
         {status.provider === 'Baileys' && configured && <section className="rounded-2xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900 dark:bg-primary-950/20">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div><h2 className="text-base font-bold">WhatsApp device</h2><p className="text-xs opacity-70">{status.account?.lastError || 'Link the organization number using WhatsApp → Linked devices.'}</p></div>
-            <div className="flex gap-2"><button type="button" onClick={connect} disabled={connecting || connected} className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{connecting ? 'Starting…' : connected ? 'Connected' : 'Connect'}</button>{connected && <button type="button" onClick={disconnect} className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-bold text-red-600">Disconnect</button>}</div>
+            <div><h2 className="text-base font-bold">WhatsApp device</h2><p className="text-xs opacity-70">{status.account?.lastError || 'Choose QR scan or phone-number pairing.'}</p></div>
+            <div className="flex gap-2">
+              <button type="button" onClick={connect} disabled={connecting || pairingConnecting || connected} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${connectionMethod === 'qr' ? 'bg-primary-600 text-white' : 'border border-[var(--color-border-default)]'}`}>{connecting ? 'Starting…' : '1. QR code'}</button>
+              {!connected && <button type="button" onClick={() => { setConnectionMethod('pairing'); setQr(null); setError(''); }} disabled={connecting || pairingConnecting} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${connectionMethod === 'pairing' ? 'bg-primary-600 text-white' : 'border border-[var(--color-border-default)]'}`}>2. Pairing code</button>}
+              {connected && <button type="button" onClick={disconnect} className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-bold text-red-600">Disconnect</button>}
+            </div>
           </div>
-          {qr && !connected && <div className="mt-4 flex flex-col items-center rounded-xl bg-white p-4"><img src={qr} alt="WhatsApp QR code" className="h-56 w-56" /><p className="mt-2 text-xs text-gray-500">WhatsApp → Settings → Linked devices → Link a device</p></div>}
+
+          {connectionMethod === 'qr' && !connected && <div className="mt-4 flex flex-col items-center rounded-xl bg-white p-4">
+            {qr ? <img src={qr} alt="WhatsApp QR code" className="h-56 w-56" /> : <p className="py-10 text-sm text-gray-500">Press “1. QR code” to start a QR connection.</p>}
+            <p className="mt-2 text-xs text-gray-500">WhatsApp → Settings → Linked devices → Link a device</p>
+          </div>}
+
+          {connectionMethod === 'pairing' && !connected && <div className="mt-4 rounded-xl bg-white p-4 dark:bg-[var(--color-surface-primary)]">
+            <form onSubmit={connectWithPairingCode} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="min-w-0 flex-1"><span className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">WhatsApp phone number</span><input value={pairingPhone} onChange={event => setPairingPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="2526XXXXXXXX" className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500" /></label>
+              <button type="submit" disabled={pairingConnecting || connecting || !pairingPhone.trim()} className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{pairingConnecting ? 'Generating…' : 'Get pairing code'}</button>
+            </form>
+            {pairingCode && <div className="mt-4 rounded-xl border border-primary-200 bg-primary-50 p-5 text-center dark:border-primary-900 dark:bg-primary-950/20"><p className="text-xs font-semibold uppercase tracking-wide opacity-70">Your pairing code</p><p className="mt-2 select-all font-mono text-3xl font-black tracking-[0.3em]">{pairingCode}</p><p className="mt-3 text-sm opacity-75">On the WhatsApp phone: <strong>Settings → Linked devices → Link a device → Link with phone number instead</strong>, then enter this code.</p></div>}
+            {!pairingCode && <p className="mt-3 text-xs text-gray-500">Use the full international number with country code. Do not include +, spaces, or dashes.</p>}
+          </div>}
         </section>}
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
