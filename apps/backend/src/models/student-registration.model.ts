@@ -33,7 +33,11 @@ const studentRegistrationSchema = new Schema<IStudentRegistration>({
   student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, unique: true, index: true },
   school: { type: Schema.Types.ObjectId, ref: 'School', required: true, index: true },
   organizationType: { type: String, enum: ['university', 'college', 'school', 'training_center'], required: true },
-  registrationNumber: { type: String, trim: true, maxlength: 100, default: null },
+  // Registration numbers are optional for the normal Add Student flow.
+  // `null` is intentionally NOT used here: a sparse unique index still
+  // indexes an explicitly-null field, which meant the first student with no
+  // registration number blocked every later student in the same school.
+  registrationNumber: { type: String, trim: true, maxlength: 100, default: undefined },
   applicationDate: { type: Date, default: Date.now },
   admissionDate: { type: Date, default: null },
   academicYear: { type: String, trim: true, maxlength: 30, default: null },
@@ -53,6 +57,16 @@ const studentRegistrationSchema = new Schema<IStudentRegistration>({
   updatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
 }, { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } });
 
-studentRegistrationSchema.index({ school: 1, registrationNumber: 1 }, { unique: true, sparse: true });
+// Only actual registration-number strings participate in uniqueness. Empty
+// Add Student submissions therefore may create one registration document per
+// student without colliding on a shared null value.
+studentRegistrationSchema.index(
+  { school: 1, registrationNumber: 1 },
+  {
+    unique: true,
+    name: 'school_registrationNumber_unique',
+    partialFilterExpression: { registrationNumber: { $type: 'string' } },
+  },
+);
 
 export default mongoose.model<IStudentRegistration>('StudentRegistration', studentRegistrationSchema);
