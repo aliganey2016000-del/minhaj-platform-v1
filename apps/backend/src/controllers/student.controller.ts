@@ -1207,10 +1207,20 @@ export const downloadTemplate = async (_req: Request, res: Response): Promise<vo
   // blank auto-generates (STU-YYYY-NNNN); Guardian Password left blank
   // defaults to "guardian123"; Class Name + Section are required (a row
   // without a matching Class is rejected, same as the form).
+  //
+  // Every REPLACE_* placeholder below is deliberate, not a real example: a
+  // real-looking sample email (e.g. "ahmed.ali@example.com") is a *shared*
+  // template every organization on this platform downloads, and Email is
+  // globally unique (login is by email, not scoped per-org) — the first
+  // admin anywhere to test-import the unedited row claims it, and every
+  // admin after that gets a confusing "already registered" error with no
+  // hint that the row itself was just a format sample. An unresolvable
+  // organization/class name fails instead with "not found", which actually
+  // points at what needs to be replaced.
   const rows = [[
-    '', 'Ahmed', 'Ali', 'male', 'ahmed.ali@example.com', '',
-    'Madrasa Al-Noor', 'Grade 3', 'A', '', '2026-01-15', '',
-    'Mohamed Ali', 'parent@example.com', '', '+252612345678', 'Father',
+    '', 'REPLACE_FIRST_NAME', 'REPLACE_LAST_NAME', 'male', 'replace-with-real-email@example.com', '',
+    'REPLACE_WITH_YOUR_ORGANIZATION_NAME', 'REPLACE_WITH_EXISTING_CLASS_NAME', 'REPLACE_WITH_SECTION', '', '2026-01-15', '',
+    'REPLACE_GUARDIAN_NAME', 'replace-with-guardian-email@example.com', '', '+252600000000', 'Father',
   ]];
   const buffer = buildXlsxBuffer(headers, rows, 'Student Template');
 
