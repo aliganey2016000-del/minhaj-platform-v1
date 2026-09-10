@@ -329,7 +329,7 @@ export default function CoursesManage() {
       templateUrl="/courses/template"
       importUrl="/courses/import"
       templateName="courses-template.xlsx"
-      headers=["Course Title (English)", "Category", "Level", "Organization Name", "Class Title", "Teacher Email", "Duration (weeks)", "Price ($)", "Capacity", "Thumbnail URL"]
+      headers={["Course Title (English)", "Category", "Level", "Organization Name", "Class Title", "Teacher Email", "Duration (weeks)", "Price ($)", "Capacity", "Thumbnail URL"]}
       onClose={() => setShowImportModal(false)}
       onImported={load}
     />}

@@ -141,7 +141,7 @@ export function ClassesManage() {
       templateUrl="/classes/template"
       importUrl="/classes/import"
       templateName="classes-template.xlsx"
-      headers=["Organization", "Faculty", "Department", "Program", "Batch Number", "Grade Level", "Academic Year", "Study Year", "Semester Number", "Semester In Year", "Final Grade (Yes/No)", "Entry Grade (Yes/No)", "Class Name", "Section", "Room", "Capacity", "Shift / Learning Mode", "Status"]
+      headers={["Organization", "Faculty", "Department", "Program", "Batch Number", "Grade Level", "Academic Year", "Study Year", "Semester Number", "Semester In Year", "Final Grade (Yes/No)", "Entry Grade (Yes/No)", "Class Name", "Section", "Room", "Capacity", "Shift / Learning Mode", "Status"]}
       onClose={() => setShowImportModal(false)}
       onImported={refresh}
     />}
