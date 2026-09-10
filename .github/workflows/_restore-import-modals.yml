@@ -46,10 +46,9 @@ jobs:
               t = t.replace("const [permSaving, setPermSaving] = useState(false); const fileRef = useRef<HTMLInputElement>(null);", "const [permSaving, setPermSaving] = useState(false); const [showImportModal, setShowImportModal] = useState(false);")
               t = re.sub(r"\n  const importTeachers = async \(file: File\) => \{.*?\};", "", t, count=1)
               t = re.sub(r"\n    <input ref=\{fileRef\} type=\"file\" accept=\"\.xlsx,\.xls,\.csv\" className=\"hidden\" onChange=.*? />", "", t, count=1)
-              button = "<button onClick={() => { setMenuOpen(false); setShowImportModal(true); }} className=\"flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]\"><Upload size={16} /> Import</button>"
-              pattern = r'<button[^>]*fileRef\.current\?\.click\(\)[^>]*>.*?</button>'
-              t, count = re.subn(pattern, button, t, count=1, flags=re.S)
-              if count != 1: raise RuntimeError('Teacher import button anchor missing')
+              old_handler = "fileRef.current?.click()"
+              if old_handler not in t: raise RuntimeError('Teacher import handler anchor missing')
+              t = t.replace(old_handler, 'setShowImportModal(true)', 1)
               jsx = '[' + ', '.join('"' + h.replace('"', '\\"') + '"' for h in teacher_headers) + ']'
               modal = f'''\n    {{showImportModal && <BulkEntityImportModal\n      title="Import Teachers"\n      description="Download the official template, upload an Excel/CSV file, or paste spreadsheet rows. Review the results and row-level errors before closing."\n      templateUrl="/teachers/template"\n      importUrl="/teachers/import"\n      templateName="teachers-template.xlsx"\n      headers={{jsx}}\n      onClose={{() => setShowImportModal(false)}}\n      onImported={{load}}\n    />}}\n'''
               anchor = "    {active && <div className=\"fixed bottom-3 right-3 z-40 hidden sm:block\">"
@@ -61,10 +60,8 @@ jobs:
               t = t.replace("import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';", "import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';")
               t = t.replace("const [menu, setMenu] = useState(false); const [selected, setSelected] = useState<string[]>([]); const [importing, setImporting] = useState(false); const fileRef = useRef<HTMLInputElement>(null);", "const [menu, setMenu] = useState(false); const [selected, setSelected] = useState<string[]>([]); const [showImportModal, setShowImportModal] = useState(false);")
               t = re.sub(r"\n  const importXlsx = async \(file:File\) => \{.*?\};", "", t, count=1)
-              button = "<button onClick={()=>{setMenu(false);setShowImportModal(true)}} className=\"flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800\"><Upload size={16}/> Import Classes</button>"
-              pattern = r'<button[^>]*fileRef\.current\?\.click\(\)[^>]*>.*?</button>'
-              t, count = re.subn(pattern, button, t, count=1, flags=re.S)
-              if count != 1: raise RuntimeError('Class import button anchor missing')
+              if "fileRef.current?.click()" not in t: raise RuntimeError('Class import handler anchor missing')
+              t = t.replace("fileRef.current?.click()", "setShowImportModal(true)", 1)
               t = re.sub(r'<input ref=\{fileRef\} hidden type="file" accept="\.xlsx,\.xls" onChange=.*?/>', '', t, count=1)
               t = re.sub(r'\n\s*\{importing && <div className="fixed bottom-4 right-4 rounded-xl bg-slate-900.*?</div>\}', '', t, count=1, flags=re.S)
               jsx = '[' + ', '.join('"' + h.replace('"', '\\"') + '"' for h in class_headers) + ']'
@@ -76,10 +73,10 @@ jobs:
           def patch_course(t):
               t = add_component(t)
               t = re.sub(r"\n  const importCourses = async \(file: File\) => \{.*?\};", "", t, count=1)
-              button = '<button onClick={() => { setShowImportModal(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Upload className="h-4 w-4" /> Import Courses</button>'
-              pattern = r'<label[^>]*>\s*<Upload className="h-4 w-4" /> Import Courses<input[^>]*>\s*</label>'
-              t, count = re.subn(pattern, button, t, count=1, flags=re.S)
-              if count != 1: raise RuntimeError('Course import button anchor missing')
+              pattern = r'<label[^>]*>.*?Import Courses<input.*?</label>'
+              replacement = '<button onClick={() => { setShowImportModal(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Upload className="h-4 w-4" /> Import Courses</button>'
+              t, count = re.subn(pattern, replacement, t, count=1, flags=re.S)
+              if count != 1: raise RuntimeError('Course import menu anchor missing')
               state = "  const [selected, setSelected] = useState<string[]>([]);\n  const type = resolveInstitutionType(org);"
               if state not in t: raise RuntimeError('Course state anchor missing')
               t = t.replace(state, "  const [selected, setSelected] = useState<string[]>([]);\n  const [showImportModal, setShowImportModal] = useState(false);\n  const type = resolveInstitutionType(org);", 1)
