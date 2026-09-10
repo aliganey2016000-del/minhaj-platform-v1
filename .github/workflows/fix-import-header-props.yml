@@ -1,0 +1,43 @@
+name: Fix import header props
+
+on:
+  push:
+    branches: [fix/restore-import-modals-teacher-class-course]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/restore-import-modals-teacher-class-course
+      - name: Fix header props and cleanup
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('.')
+          headers = {
+            'apps/frontend/src/features/admin/pages/teachers-manage.tsx': ['First Name','Last Name','Gender','Email','Password','Phone','Organization','Qualification','Specialization','Experience (years)','Joining Date','Bio'],
+            'apps/frontend/src/features/admin/pages/classes-manage.tsx': ['Organization','Faculty','Department','Program','Batch Number','Grade Level','Academic Year','Study Year','Semester Number','Semester In Year','Final Grade (Yes/No)','Entry Grade (Yes/No)','Class Name','Section','Room','Capacity','Shift / Learning Mode','Status'],
+            'apps/frontend/src/features/admin/pages/courses-manage.tsx': ['Course Title (English)','Category','Level','Organization Name','Class Title','Teacher Email','Duration (weeks)','Price ($)','Capacity','Thumbnail URL'],
+          }
+          for path, values in headers.items():
+              p = root / path
+              text = p.read_text()
+              jsx = '[' + ', '.join('"' + v.replace('"','\\"') + '"' for v in values) + ']'
+              text = text.replace('headers={jsx_headers}', 'headers=' + jsx)
+              p.write_text(text)
+          component = root / 'apps/frontend/src/features/admin/pages/components/bulk-entity-import-modal.tsx'
+          text = component.read_text().replace("  const rowCount = mode === 'paste' ? preview.length : file ? 1 : 0;\n", '')
+          component.write_text(text)
+          PY
+          rm -f .github/workflows/fix-import-header-props.yml .github/trigger-import-header-props.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(admin): use concrete import template headers"
+          git push origin fix/restore-import-modals-teacher-class-course
