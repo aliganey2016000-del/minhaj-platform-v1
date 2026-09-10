@@ -4,8 +4,9 @@ dotenv.config();
 
 import mongoose from 'mongoose';
 
-const mongoUri = process.env.MONGODB_URI;
-if (!mongoUri) throw new Error('MONGODB_URI is not set');
+const mongoUri = process.env.MONGODB_URI ?? (() => {
+  throw new Error('MONGODB_URI is not set');
+})();
 
 async function main() {
   await mongoose.connect(mongoUri);
