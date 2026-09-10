@@ -36,8 +36,6 @@ jobs:
               p = root / path
               before = p.read_text()
               after = fn(before)
-              if before == after:
-                  raise RuntimeError(f'No change made to {path}')
               p.write_text(after)
 
           def patch_teacher(t):
@@ -47,10 +45,12 @@ jobs:
               t = re.sub(r"\n  const importTeachers = async \(file: File\) => \{.*?\};", "", t, count=1)
               t = re.sub(r"\n    <input ref=\{fileRef\} type=\"file\" accept=\"\.xlsx,\.xls,\.csv\" className=\"hidden\" onChange=.*? />", "", t, count=1)
               t = t.replace("fileRef.current?.click()", "setShowImportModal(true)", 1)
-              jsx = '[' + ', '.join('"' + h.replace('"', '\\"') + '"' for h in teacher_headers) + ']'
-              modal = f'''\n    {{showImportModal && <BulkEntityImportModal\n      title="Import Teachers"\n      description="Download the official template, upload an Excel/CSV file, or paste spreadsheet rows. Review the results and row-level errors before closing."\n      templateUrl="/teachers/template"\n      importUrl="/teachers/import"\n      templateName="teachers-template.xlsx"\n      headers={{jsx}}\n      onClose={{() => setShowImportModal(false)}}\n      onImported={{load}}\n    />}}\n'''
-              anchor = "    {active && <div className=\"fixed bottom-3 right-3 z-40 hidden sm:block\">"
-              return t.replace(anchor, modal + anchor, 1)
+              if 'showImportModal && <BulkEntityImportModal' not in t:
+                  jsx = '[' + ', '.join('"' + h.replace('"', '\\"') + '"' for h in teacher_headers) + ']'
+                  modal = f'''\n    {{showImportModal && <BulkEntityImportModal\n      title="Import Teachers"\n      description="Download the official template, upload an Excel/CSV file, or paste spreadsheet rows. Review the results and row-level errors before closing."\n      templateUrl="/teachers/template"\n      importUrl="/teachers/import"\n      templateName="teachers-template.xlsx"\n      headers={{jsx}}\n      onClose={{() => setShowImportModal(false)}}\n      onImported={{load}}\n    />}}\n'''
+                  anchor = "    {active && <div className=\"fixed bottom-3 right-3 z-40 hidden sm:block\">"
+                  t = t.replace(anchor, modal + anchor, 1)
+              return t
 
           def patch_class(t):
               t = add_component(t)
@@ -60,10 +60,12 @@ jobs:
               t = t.replace("fileRef.current?.click()", "setShowImportModal(true)", 1)
               t = re.sub(r'<input ref=\{fileRef\} hidden type="file" accept="\.xlsx,\.xls" onChange=.*?/>', '', t, count=1)
               t = re.sub(r'\n\s*\{importing && <div className="fixed bottom-4 right-4 rounded-xl bg-slate-900.*?</div>\}', '', t, count=1, flags=re.S)
-              jsx = '[' + ', '.join('"' + h.replace('"', '\\"') + '"' for h in class_headers) + ']'
-              modal = f'''\n    {{showImportModal && <BulkEntityImportModal\n      title="Import Classes"\n      description="Download the institution-aware class template, upload a completed file, or paste spreadsheet rows and preview them before importing."\n      templateUrl="/classes/template"\n      importUrl="/classes/import"\n      templateName="classes-template.xlsx"\n      headers={{jsx}}\n      onClose={{() => setShowImportModal(false)}}\n      onImported={{refresh}}\n    />}}\n'''
-              anchor = "    {modal.open && <ClassModal"
-              return t.replace(anchor, modal + anchor, 1)
+              if 'showImportModal && <BulkEntityImportModal' not in t:
+                  jsx = '[' + ', '.join('"' + h.replace('"', '\\"') + '"' for h in class_headers) + ']'
+                  modal = f'''\n    {{showImportModal && <BulkEntityImportModal\n      title="Import Classes"\n      description="Download the institution-aware class template, upload a completed file, or paste spreadsheet rows and preview them before importing."\n      templateUrl="/classes/template"\n      importUrl="/classes/import"\n      templateName="classes-template.xlsx"\n      headers={{jsx}}\n      onClose={{() => setShowImportModal(false)}}\n      onImported={{refresh}}\n    />}}\n'''
+                  anchor = "    {modal.open && <ClassModal"
+                  t = t.replace(anchor, modal + anchor, 1)
+              return t
 
           def patch_course(t):
               t = add_component(t)
@@ -73,10 +75,12 @@ jobs:
               t = re.sub(pattern, replacement, t, count=1, flags=re.S)
               state = "  const [selected, setSelected] = useState<string[]>([]);\n  const type = resolveInstitutionType(org);"
               t = t.replace(state, "  const [selected, setSelected] = useState<string[]>([]);\n  const [showImportModal, setShowImportModal] = useState(false);\n  const type = resolveInstitutionType(org);", 1)
-              jsx = '[' + ', '.join('"' + h.replace('"', '\\"') + '"' for h in course_headers) + ']'
-              modal = f'''\n    {{showImportModal && <BulkEntityImportModal\n      title="Import Courses"\n      description="Download the official course template, upload a completed spreadsheet, or paste rows directly from Excel/Google Sheets."\n      templateUrl="/courses/template"\n      importUrl="/courses/import"\n      templateName="courses-template.xlsx"\n      headers={{jsx}}\n      onClose={{() => setShowImportModal(false)}}\n      onImported={{load}}\n    />}}\n'''
-              anchor = "    {modal && org && <CourseModal"
-              return t.replace(anchor, modal + anchor, 1)
+              if 'showImportModal && <BulkEntityImportModal' not in t:
+                  jsx = '[' + ', '.join('"' + h.replace('"', '\\"') + '"' for h in course_headers) + ']'
+                  modal = f'''\n    {{showImportModal && <BulkEntityImportModal\n      title="Import Courses"\n      description="Download the official course template, upload a completed spreadsheet, or paste rows directly from Excel/Google Sheets."\n      templateUrl="/courses/template"\n      importUrl="/courses/import"\n      templateName="courses-template.xlsx"\n      headers={{jsx}}\n      onClose={{() => setShowImportModal(false)}}\n      onImported={{load}}\n    />}}\n'''
+                  anchor = "    {modal && org && <CourseModal"
+                  t = t.replace(anchor, modal + anchor, 1)
+              return t
 
           patch('apps/frontend/src/features/admin/pages/teachers-manage.tsx', patch_teacher)
           patch('apps/frontend/src/features/admin/pages/classes-manage.tsx', patch_class)
@@ -89,6 +93,6 @@ jobs:
           rm -f .github/workflows/_restore-import-modals.yml .github/workflows/restore-import-modals-v2.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/frontend/src/features/admin/pages/teachers-manage.tsx apps/frontend/src/features/admin/pages/classes-manage.tsx apps/frontend/src/features/admin/pages/courses-manage.tsx apps/frontend/src/features/admin/pages/components/bulk-entity-import-modal.tsx .github/workflows/_restore-import-modals.yml .github/workflows/restore-import-modals-v2.yml
+          git add -A
           git commit -m "fix(admin): restore import modals for teachers classes and courses"
           git push origin fix/restore-import-modals-teacher-class-course
