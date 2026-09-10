@@ -230,6 +230,11 @@ async function main() {
     process.exit(1);
   }
   console.log('\nTeacher promotion E2E passed.');
+  // The full Express route graph can register long-lived handles that are
+  // irrelevant to this in-process E2E. Cleanup above has already closed the
+  // test MongoDB and Mongoose connection; exit explicitly so CI cannot wait
+  // for unrelated application handles after all assertions have passed.
+  process.exit(0);
 }
 
 main().catch(async (error) => {
