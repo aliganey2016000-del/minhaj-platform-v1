@@ -4,12 +4,11 @@ dotenv.config();
 
 import mongoose from 'mongoose';
 
-const mongoUri = process.env.MONGODB_URI ?? (() => {
-  throw new Error('MONGODB_URI is not set');
-})();
+export async function repairStudentRegistrationIndex(): Promise<void> {
+  if (mongoose.connection.readyState !== 1) {
+    throw new Error('MongoDB connection is not ready');
+  }
 
-async function main() {
-  await mongoose.connect(mongoUri);
   const collection = mongoose.connection.collection('studentregistrations');
   const indexes = await collection.indexes();
   const oldIndex = indexes.find((index) => index.name === 'school_1_registrationNumber_1');
@@ -45,11 +44,23 @@ async function main() {
   console.log('StudentRegistration index repaired: null/absent registration numbers are no longer blocked per school.');
 }
 
-main()
-  .catch((error) => {
+async function main(): Promise<void> {
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    throw new Error('MONGODB_URI is not set');
+  }
+
+  await mongoose.connect(mongoUri);
+  try {
+    await repairStudentRegistrationIndex();
+  } finally {
+    await mongoose.disconnect();
+  }
+}
+
+if (require.main === module) {
+  main().catch((error) => {
     console.error('StudentRegistration index repair failed:', error);
     process.exitCode = 1;
-  })
-  .finally(async () => {
-    await mongoose.disconnect();
   });
+}

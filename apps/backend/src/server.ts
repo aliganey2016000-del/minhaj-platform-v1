@@ -85,6 +85,7 @@ async function startServer() {
     // being saved.
     await import('./services/attendance-notification-automation');
     const { sendInstallmentReminders } = await import('./services/installment-reminder.service');
+    const { repairStudentRegistrationIndex } = await import('./scripts/repair-student-registration-index');
 
     const appModule = await import('./app');
     const app = appModule.default;
@@ -95,6 +96,12 @@ async function startServer() {
     // Connect to MongoDB
     await mongoose.connect(MONGODB_URI);
     console.log('✅ Connected to MongoDB');
+
+    // Repair the legacy registration-number index before accepting requests.
+    // This is idempotent and fixes existing production databases that still
+    // have the old sparse unique index, which incorrectly blocks multiple
+    // students whose registration number is absent.
+    await repairStudentRegistrationIndex();
 
     // Start Express server (wrapped in a raw http.Server so Socket.IO can
     // share the same port instead of needing a separate one)
