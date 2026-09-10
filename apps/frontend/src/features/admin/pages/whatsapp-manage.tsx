@@ -178,6 +178,7 @@ export function WhatsAppManage() {
 
   const connected = status.account?.status === 'connected';
   const configured = status.configured;
+  const baileysReady = status.provider === 'Baileys' && configured;
   const automated = Boolean(status.automation?.attendanceAlertsEnabled && status.automation?.attendanceTemplate);
 
   return (
@@ -210,30 +211,40 @@ export function WhatsAppManage() {
           </div>
         </div>
 
-        {status.provider === 'Baileys' && configured && <section className="rounded-2xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900 dark:bg-primary-950/20">
+        <section className="rounded-2xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900 dark:bg-primary-950/20">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div><h2 className="text-base font-bold">WhatsApp device</h2><p className="text-xs opacity-70">{status.account?.lastError || 'Choose QR scan or phone-number pairing.'}</p></div>
-            <div className="flex gap-2">
-              <button type="button" onClick={connect} disabled={connecting || pairingConnecting || connected} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${connectionMethod === 'qr' ? 'bg-primary-600 text-white' : 'border border-[var(--color-border-default)]'}`}>{connecting ? 'Starting…' : '1. QR code'}</button>
-              {!connected && <button type="button" onClick={() => { setConnectionMethod('pairing'); setQr(null); setError(''); }} disabled={connecting || pairingConnecting} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${connectionMethod === 'pairing' ? 'bg-primary-600 text-white' : 'border border-[var(--color-border-default)]'}`}>2. Pairing code</button>}
+            <div>
+              <h2 className="text-base font-bold">Connect WhatsApp device</h2>
+              <p className="text-xs opacity-70">
+                {status.account?.lastError || (baileysReady ? 'Choose QR scan or phone-number pairing.' : 'Baileys connection is not configured yet. The options are ready; configure the backend service before starting a connection.')}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={connect} disabled={!baileysReady || connecting || pairingConnecting || connected} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${connectionMethod === 'qr' ? 'bg-primary-600 text-white' : 'border border-[var(--color-border-default)]'} disabled:cursor-not-allowed disabled:opacity-50`}>{connecting ? 'Starting…' : '1. QR code'}</button>
+              {!connected && <button type="button" onClick={() => { setConnectionMethod('pairing'); setQr(null); setError(''); }} disabled={connecting || pairingConnecting} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${connectionMethod === 'pairing' ? 'bg-primary-600 text-white' : 'border border-[var(--color-border-default)]'} disabled:cursor-not-allowed disabled:opacity-50`}>2. Pairing code</button>}
               {connected && <button type="button" onClick={disconnect} className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-bold text-red-600">Disconnect</button>}
             </div>
           </div>
 
-          {connectionMethod === 'qr' && !connected && <div className="mt-4 flex flex-col items-center rounded-xl bg-white p-4">
-            {qr ? <img src={qr} alt="WhatsApp QR code" className="h-56 w-56" /> : <p className="py-10 text-sm text-gray-500">Press “1. QR code” to start a QR connection.</p>}
+          {!baileysReady && !connected && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+            <p className="font-semibold">Connection options are visible but not active yet.</p>
+            <p className="mt-1 text-xs opacity-80">Set the Baileys provider and service variables in Coolify, then refresh this page. QR code and pairing code will become active automatically.</p>
+          </div>}
+
+          {connectionMethod === 'qr' && !connected && <div className="mt-4 flex flex-col items-center rounded-xl bg-white p-4 dark:bg-[var(--color-surface-primary)]">
+            {qr ? <img src={qr} alt="WhatsApp QR code" className="h-56 w-56" /> : <p className="py-10 text-center text-sm text-gray-500">{baileysReady ? 'Press “1. QR code” to start a QR connection.' : 'QR preview will appear here after Baileys is configured.'}</p>}
             <p className="mt-2 text-xs text-gray-500">WhatsApp → Settings → Linked devices → Link a device</p>
           </div>}
 
           {connectionMethod === 'pairing' && !connected && <div className="mt-4 rounded-xl bg-white p-4 dark:bg-[var(--color-surface-primary)]">
             <form onSubmit={connectWithPairingCode} className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <label className="min-w-0 flex-1"><span className="mb-1 block text-xs font-semibold text-gray-600 dark:text-gray-300">WhatsApp phone number</span><input value={pairingPhone} onChange={event => setPairingPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="2526XXXXXXXX" className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500" /></label>
-              <button type="submit" disabled={pairingConnecting || connecting || !pairingPhone.trim()} className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{pairingConnecting ? 'Generating…' : 'Get pairing code'}</button>
+              <button type="submit" disabled={!baileysReady || pairingConnecting || connecting || !pairingPhone.trim()} className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{pairingConnecting ? 'Generating…' : 'Get pairing code'}</button>
             </form>
             {pairingCode && <div className="mt-4 rounded-xl border border-primary-200 bg-primary-50 p-5 text-center dark:border-primary-900 dark:bg-primary-950/20"><p className="text-xs font-semibold uppercase tracking-wide opacity-70">Your pairing code</p><p className="mt-2 select-all font-mono text-3xl font-black tracking-[0.3em]">{pairingCode}</p><p className="mt-3 text-sm opacity-75">On the WhatsApp phone: <strong>Settings → Linked devices → Link a device → Link with phone number instead</strong>, then enter this code.</p></div>}
             {!pairingCode && <p className="mt-3 text-xs text-gray-500">Use the full international number with country code. Do not include +, spaces, or dashes.</p>}
           </div>}
-        </section>}
+        </section>
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
         {success && <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950/20 dark:text-green-300">{success}</div>}
