@@ -60,7 +60,6 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
   const [result, setResult] = useState<ImportResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const rowCount = mode === 'paste' ? preview.length : file ? 1 : 0;
   const canImport = mode === 'upload' ? !!file : preview.length > 0;
   const normalizedHeaders = useMemo(() => headers.map((h) => h.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()), [headers]);
 

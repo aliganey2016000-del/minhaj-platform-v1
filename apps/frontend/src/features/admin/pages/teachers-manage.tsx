@@ -134,7 +134,7 @@ export default function TeachersManage() {
       templateUrl="/teachers/template"
       importUrl="/teachers/import"
       templateName="teachers-template.xlsx"
-      headers={jsx_headers}
+      headers=["First Name", "Last Name", "Gender", "Email", "Password", "Phone", "Organization", "Qualification", "Specialization", "Experience (years)", "Joining Date", "Bio"]
       onClose={() => setShowImportModal(false)}
       onImported={load}
     />}
