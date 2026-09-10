@@ -1,13 +1,14 @@
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+
+dotenv.config();
+
+import mongoose from 'mongoose';
 
 const uri = process.env.MONGODB_URI;
 if (!uri) throw new Error('MONGODB_URI is not set');
 
-dotenv.config();
-
 async function main() {
-  await mongoose.connect(process.env.MONGODB_URI!);
+  await mongoose.connect(uri);
   const collection = mongoose.connection.collection('studentregistrations');
   const indexes = await collection.indexes();
   const oldIndex = indexes.find((index) => index.name === 'school_1_registrationNumber_1');
@@ -40,7 +41,7 @@ async function main() {
     );
   }
 
-  console.log('StudentRegistration index repaired: null/absent registration numbers are no longer globally blocked per school.');
+  console.log('StudentRegistration index repaired: null/absent registration numbers are no longer blocked per school.');
 }
 
 main()
