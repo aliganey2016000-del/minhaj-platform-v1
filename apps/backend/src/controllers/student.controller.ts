@@ -574,6 +574,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   // tenant-scoped reporting never need to join back to Class for them.
   let department: string | undefined;
   let shiftMode: string | undefined;
+  let resolvedGrade: string | undefined = grade || undefined;
   if (classId) {
     const classDoc = await ClassModel.findById(classId).populate('department', 'name').populate('program', 'name');
     if (!classDoc) throw new NotFoundError('Class not found');
@@ -584,7 +585,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     const dept = (classDoc as any).department;
     department = typeof dept === 'string' ? dept : dept?.name || undefined;
     shiftMode = classDoc.shiftMode;
-    req.body.grade = (classDoc as any).gradeLevel !== null && (classDoc as any).gradeLevel !== undefined
+    resolvedGrade = (classDoc as any).gradeLevel !== null && (classDoc as any).gradeLevel !== undefined
       ? String((classDoc as any).gradeLevel)
       : String((classDoc as any).title || '').trim() || undefined;
   }
@@ -592,7 +593,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const student = await Student.create({
     user: user._id, profile: profile._id, parent: parentId || undefined,
     school: resolvedSchool, class: classId || undefined, department, shiftMode,
-    enrollmentDate: enrollmentDate || new Date(), grade: grade || undefined, medicalNotes: medicalNotes || undefined,
+    enrollmentDate: enrollmentDate || new Date(), grade: resolvedGrade, medicalNotes: medicalNotes || undefined,
     studentId: customStudentId,
   });
 
@@ -1579,6 +1580,14 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
       const parentId = await linkGuardian(item, studentId);
       if (parentId) await Student.updateOne({ _id: studentId }, { parent: parentId });
+
+      // Same enrollment sync the Add Student form triggers (create(), above):
+      // grants access to the class's existing published courses and opens an
+      // enrollmentHistory entry. Without this, an imported student's
+      // enrolledCourses stayed empty forever — ForbiddenError on every
+      // quiz/assignment for their own class — and Student.grade never picked
+      // up the class's gradeLevel when the Grade column was left blank.
+      if (item.classId) await syncStudentCourseEnrollment(studentId, item.classId);
 
       inserted++;
     } catch (rowErr: any) {
