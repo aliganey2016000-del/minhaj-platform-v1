@@ -28,6 +28,12 @@ function componentsFromBody(value: unknown): WhatsAppTemplateComponent[] | undef
 }
 function requestOrganizationId(req: Request) { return String((req.user as any)?.organizationId || '').trim(); }
 function normalizePhone(value: string) { return value.replace(/\D/g, ''); }
+function providerTimestamp(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return new Date();
+  // Baileys messageTimestamp is Unix seconds; tolerate millisecond payloads too.
+  return new Date(numeric < 1e12 ? numeric * 1000 : numeric);
+}
 function templateParameters(components?: WhatsAppTemplateComponent[]) {
   const body = components?.find((component: any) => component.type === 'body') as any;
   return Array.isArray(body?.parameters) ? body.parameters.map((parameter: any) => String(parameter?.text ?? '').trim()) : [];
@@ -82,8 +88,7 @@ export const webhook = async (req: Request, res: Response): Promise<Response> =>
   if (!from) return ApiResponse.success(res, { ignored: true });
   const parent = await Parent.findOne({ school: organizationId, $or: [{ phone: from }, { phone: `+${from}` }] }).lean();
   const conversation = await upsertConversation({ organizationId, phone: from, direction: 'inbound', preview: typeof payload.text === 'string' ? payload.text : '[WhatsApp message]', parentId: parent?._id, schoolId: parent?.school, contactName: payload.pushName ? String(payload.pushName) : undefined, unreadIncrement: 1 });
-  const providerTimestamp = payload.timestamp ? new Date(Number(payload.timestamp)) : new Date();
-  await WhatsAppMessage.create({ organization: organizationId, conversation: conversation?._id, recipient: organizationId, sender: from, parent: parent?._id, direction: 'inbound', kind: payload.kind === 'media' ? 'media' : 'text', body: typeof payload.text === 'string' ? payload.text : undefined, providerMessageId: String(payload.messageId), providerTimestamp, pushName: payload.pushName ? String(payload.pushName) : undefined, raw: payload.raw, status: 'received' });
+  await WhatsAppMessage.create({ organization: organizationId, conversation: conversation?._id, recipient: organizationId, sender: from, parent: parent?._id, direction: 'inbound', kind: payload.kind === 'media' ? 'media' : 'text', body: typeof payload.text === 'string' ? payload.text : undefined, providerMessageId: String(payload.messageId), providerTimestamp: providerTimestamp(payload.timestamp), pushName: payload.pushName ? String(payload.pushName) : undefined, raw: payload.raw, status: 'received' });
   return ApiResponse.created(res, { received: true, conversationId: conversation?._id });
 };
 
