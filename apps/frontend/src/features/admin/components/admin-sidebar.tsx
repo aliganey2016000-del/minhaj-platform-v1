@@ -24,7 +24,7 @@ import {
   PieChart, CreditCard, History, Zap, Award, MessagesSquare, Megaphone,
   Newspaper, PartyPopper, Image, ShieldCheck, Settings, Compass, TrendingUp,
   ScrollText, User, KeyRound, LogOut, Percent, ClipboardEdit, PanelLeftClose, PanelLeftOpen,
-  Trash2, FileText, Receipt, FileBarChart, BadgePercent, UsersRound, UserCog2,
+  Trash2, FileText, Receipt, FileBarChart, BadgePercent, UsersRound, UserCog2, Palette,
 } from 'lucide-react';
 
 interface NavLeaf { path: string; label: string; icon: LucideIcon; key?: string; }
@@ -182,6 +182,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
   const { user, logout } = useAuth();
   const location = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [organizationLogo, setOrganizationLogo] = useState('');
   const isSuperAdmin = user?.role === 'admin';
   const hasStaffRead = (module: string, page?: string) => user?.role !== 'staff' || user.permissions.some((permission) => permission.module === module && permission.actions.includes('read') && (!permission.page || permission.page === page));
   const moduleForPath = (path: string) => {
@@ -209,12 +210,33 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
     })();
   }, [isSuperAdmin, user?.role]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadOrganizationLogo = async () => {
+      if (!user?.organizationId || (user.role !== 'org_admin' && user.role !== 'teacher' && user.role !== 'staff')) {
+        setOrganizationLogo('');
+        return;
+      }
+      try {
+        const { data } = await api.get(`/schools/${user.organizationId}/branding`);
+        if (!cancelled) setOrganizationLogo(data.data?.school?.branding?.logo || '');
+      } catch {
+        if (!cancelled) setOrganizationLogo('');
+      }
+    };
+    loadOrganizationLogo();
+    return () => { cancelled = true; };
+  }, [user?.organizationId, user?.role]);
+
   const isVisible = (key: string) => isSuperAdmin || visibility?.[key] !== false;
   const hasStaffSidebarAccess = (key: string) => user?.role !== 'staff' || user.sidebarAccess.includes(key);
 
   const effectiveSections: { title: string; items: NavEntry[] }[] = navSections.map((section) => {
-    if (section.title !== 'System' || !isSuperAdmin) return section;
-    return { ...section, items: [...section.items, { path: '/admin/settings/org-sidebar', label: 'Org Admin Sidebar Manager', icon: KeyRound } as NavLeaf] };
+    if (section.title !== 'System') return section;
+    const items = [...section.items];
+    if (isSuperAdmin) items.push({ path: '/admin/settings/org-sidebar', label: 'Org Admin Sidebar Manager', icon: KeyRound } as NavLeaf);
+    if (isSuperAdmin || user?.role === 'org_admin') items.push({ path: '/admin/settings/branding', label: 'Organization Branding', icon: Palette } as NavLeaf);
+    return { ...section, items };
   });
 
   const visibleSections = effectiveSections
@@ -265,8 +287,12 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
     return (
     <aside className="flex h-full flex-col bg-[var(--color-surface-primary)] border-r border-[var(--color-border-subtle)]">
       <div className={`flex items-center gap-3 border-b border-[var(--color-border-subtle)] ${isCollapsed ? 'justify-center px-2 py-5' : 'px-5 py-5'}`}>
-        <Link to="/" className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-gold-500 to-gold-700 text-white flex-shrink-0 shadow-gold-sm">
-          <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7v5.5c0 5.05 4.29 9.5 10 11 5.71-1.5 10-5.95 10-11V7l-10-5z"/></svg>
+        <Link to="/" className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-gold-500 to-gold-700 text-white flex-shrink-0 shadow-gold-sm">
+          {organizationLogo ? (
+            <img src={organizationLogo} alt="Organization logo" className="h-full w-full object-contain bg-white p-1" onError={() => setOrganizationLogo('')} />
+          ) : (
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7v5.5c0 5.05 4.29 9.5 10 11 5.71-1.5 10-5.95 10-11V7l-10-5z"/></svg>
+          )}
         </Link>
         {!isCollapsed && <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)] truncate">Admin Portal</p><p className="text-xs text-[var(--color-text-tertiary)] truncate">{user?.email}</p></div>}
       </div>
