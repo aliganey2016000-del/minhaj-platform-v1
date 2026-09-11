@@ -120,6 +120,7 @@ export function OrganizationBrandingManage() {
       const logo = data.data?.branding?.logo || '';
       setPreview(logo);
       setSchool((prev) => prev ? { ...prev, branding: { ...(prev.branding || {}), logo } } : prev);
+      window.dispatchEvent(new CustomEvent('organization-branding-updated', { detail: { organizationId: selectedSchool, logo } }));
       setMessage('Organization logo updated successfully.');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to upload organization logo');
@@ -144,6 +145,7 @@ export function OrganizationBrandingManage() {
       await api.delete(`/schools/${selectedSchool}/branding/logo`);
       setPreview('');
       setSchool((prev) => prev ? { ...prev, branding: { ...(prev.branding || {}), logo: '' } } : prev);
+      window.dispatchEvent(new CustomEvent('organization-branding-updated', { detail: { organizationId: selectedSchool, logo: '' } }));
       setMessage('Organization logo removed. The default sidebar icon will be used.');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to remove organization logo');
@@ -213,7 +215,7 @@ export function OrganizationBrandingManage() {
               <div className="flex justify-center">
                 <div className="flex h-44 w-44 items-center justify-center overflow-hidden rounded-3xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
                   {preview ? (
-                    <img src={preview} alt="Organization logo preview" className="max-h-full max-w-full object-contain" />
+                    <img src={preview} alt="Organization logo preview" className="max-h-full max-w-full object-contain" onError={() => setPreview('')} />
                   ) : (
                     <div className="flex flex-col items-center gap-2 text-[var(--color-text-tertiary)]"><ImagePlus className="h-10 w-10" /><span className="text-xs">No logo</span></div>
                   )}
