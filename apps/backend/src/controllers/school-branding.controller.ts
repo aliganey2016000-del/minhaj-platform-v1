@@ -2,7 +2,8 @@
  * Organization Branding Controller
  *
  * Allows an organization admin to manage the logo used by the Admin Portal
- * sidebar. Super admins may manage any organization.
+ * sidebar. Super admins may manage any organization. Authenticated staff may
+ * read their own organization's branding so the sidebar can display it.
  */
 
 import { Request, Response } from 'express';
@@ -12,7 +13,6 @@ import crypto from 'crypto';
 import School from '../models/school.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
-import { assertOwnsOrg } from '../utils/tenant-scope';
 import { cloudinaryEnabled, uploadToCloudinary } from '../utils/cloudinary-storage';
 
 const IMAGE_TYPES: Record<string, string> = {
@@ -43,6 +43,13 @@ function validateLogo(file: Express.Multer.File): void {
   if (!valid) throw new BadRequestError('The uploaded logo content is invalid.');
 }
 
+function assertCanViewSchool(req: Request, schoolId: string): void {
+  if (req.user?.role === 'admin') return;
+  if (!req.user?.organizationId || String(req.user.organizationId) !== schoolId) {
+    throw new ForbiddenError('You can only access your organization branding.');
+  }
+}
+
 function assertCanManageSchool(req: Request, schoolId: string): void {
   if (req.user?.role === 'admin') return;
   if (req.user?.role !== 'org_admin') {
@@ -56,7 +63,7 @@ function assertCanManageSchool(req: Request, schoolId: string): void {
 export async function getBranding(req: Request, res: Response): Promise<Response> {
   const school = await School.findById(req.params.id).select('_id name branding').lean();
   if (!school) throw new NotFoundError('Organization');
-  assertCanManageSchool(req, String(school._id));
+  assertCanViewSchool(req, String(school._id));
   return ApiResponse.success(res, { school });
 }
 
