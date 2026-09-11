@@ -25,21 +25,19 @@ div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 4) {
   border-left: 4px solid rgba(139, 92, 246, 0.45);
 }
 
-/* Desktop table: use the same four-color rhythm on each class row. */
-div[class~="lg:block"] tbody tr:nth-child(4n + 1) {
-  background: rgba(14, 165, 233, 0.035);
-}
+/*
+ * Desktop: show the same responsive cards instead of the old table.
+ * !important is intentional because Tailwind's lg:block/lg:hidden utilities
+ * otherwise win at the large-screen breakpoint.
+ */
+@media (min-width: 1024px) {
+  div[class~="lg:block"] {
+    display: none !important;
+  }
 
-div[class~="lg:block"] tbody tr:nth-child(4n + 2) {
-  background: rgba(16, 185, 129, 0.035);
-}
-
-div[class~="lg:block"] tbody tr:nth-child(4n + 3) {
-  background: rgba(245, 158, 11, 0.04);
-}
-
-div[class~="lg:block"] tbody tr:nth-child(4n + 4) {
-  background: rgba(139, 92, 246, 0.035);
+  div[class~="divide-y"][class~="lg:hidden"] {
+    display: block !important;
+  }
 }
 
 /* Keep the visual grouping subtle in dark mode. */
