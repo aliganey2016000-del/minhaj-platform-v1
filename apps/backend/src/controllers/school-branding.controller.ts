@@ -13,7 +13,7 @@ import crypto from 'crypto';
 import School from '../models/school.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
-import { cloudinaryEnabled, uploadToCloudinary } from '../utils/cloudinary-storage';
+import { cloudinaryEnabled, getCloudinaryPrivateUrl, uploadToCloudinary } from '../utils/cloudinary-storage';
 
 const IMAGE_TYPES: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -78,7 +78,11 @@ export async function uploadLogo(req: Request, res: Response): Promise<Response>
   let logoUrl: string;
   if (cloudinaryEnabled) {
     const uploaded = await uploadToCloudinary(req.file.buffer, `organization-branding/${String(school._id)}`, 'image');
-    logoUrl = uploaded.url;
+    if (!uploaded.publicId) throw new BadRequestError('Logo upload completed without a storage identifier.');
+    // Cloudinary stores these assets as authenticated. Generate the signed
+    // delivery URL before saving it because authenticated assets require a
+    // signature for browser delivery.
+    logoUrl = getCloudinaryPrivateUrl(uploaded.publicId, 'image');
   } else {
     const directory = path.join(process.cwd(), 'uploads', 'organization-branding', String(school._id));
     fs.mkdirSync(directory, { recursive: true });
