@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as classController from '../../controllers/class.controller';
+import * as classDuplicateController from '../../controllers/class-duplicate.controller';
 import * as curriculumPromotionController from '../../controllers/curriculum-promotion.controller';
 import * as academicStructureController from '../../controllers/academic-structure.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
@@ -23,6 +24,7 @@ router.post('/import', adminOnly, upload.single('file'), asyncHandler(classContr
 router.get('/export', adminOnly, asyncHandler(classController.exportClasses as any));
 router.get('/template', adminOnly, asyncHandler(classController.downloadTemplate as any));
 router.delete('/bulk', adminOnly, asyncHandler(classController.bulkRemove));
+router.post('/:id/duplicate', adminOnly, asyncHandler(classDuplicateController.duplicate));
 router.patch('/:id', adminOnly, asyncHandler(validateAcademicClass), syncClassExamRoom, asyncHandler(classController.update));
 router.delete('/:id', adminOnly, asyncHandler(classController.remove));
 router.patch('/:id/status', adminOnly, asyncHandler(classController.updateStatus));

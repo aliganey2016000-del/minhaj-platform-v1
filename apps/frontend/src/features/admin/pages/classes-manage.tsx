@@ -115,21 +115,7 @@ export function ClassesManage() {
     setRowMenu(null);
     if (!confirm(`Create a copy of ${c.title}${c.section ? ` - ${c.section}` : ''}?`)) return;
     try {
-      const payload: Record<string, unknown> = {
-        department: c.departmentId || null,
-        program: c.programId || null,
-        capacity: c.capacity ?? null,
-        title: `${c.title} (Copy)`,
-        section: c.section ? `${c.section} Copy` : 'Copy',
-        room: c.room,
-        shiftMode: c.shiftMode || 'Morning',
-        academicYear: c.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
-        status: 'active',
-      };
-      if (institutionType === 'school') { payload.batch = c.batch || ''; payload.gradeLevel = c.gradeLevel ?? null; payload.isGraduatingGrade = !!c.isGraduatingGrade; payload.isEntryGrade = !!c.isEntryGrade; }
-      if (isTrainingCenter) payload.batch = c.batch || '';
-      if (higherEd) { payload.studyYear = c.studyYear ?? null; payload.semesterNumber = c.semesterNumber ?? null; payload.semesterInYear = c.semesterInYear ?? null; }
-      await api.post('/classes', payload);
+      await api.post(`/classes/${c._id}/duplicate`);
       await refresh();
     } catch(e) { setError(errOf(e)); }
   };
