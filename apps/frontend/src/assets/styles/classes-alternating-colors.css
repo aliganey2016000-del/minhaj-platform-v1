@@ -1,0 +1,60 @@
+/*
+ * Manage Classes visual grouping.
+ * The selectors intentionally target the responsive class list/table structure
+ * without changing the data model or action behavior.
+ */
+
+/* Mobile/tablet cards: rotate through four soft accent backgrounds. */
+div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 1) {
+  background: linear-gradient(90deg, rgba(14, 165, 233, 0.07), rgba(255, 255, 255, 0));
+  border-left: 4px solid rgba(14, 165, 233, 0.45);
+}
+
+div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 2) {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.07), rgba(255, 255, 255, 0));
+  border-left: 4px solid rgba(16, 185, 129, 0.45);
+}
+
+div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 3) {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.08), rgba(255, 255, 255, 0));
+  border-left: 4px solid rgba(245, 158, 11, 0.5);
+}
+
+div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 4) {
+  background: linear-gradient(90deg, rgba(139, 92, 246, 0.07), rgba(255, 255, 255, 0));
+  border-left: 4px solid rgba(139, 92, 246, 0.45);
+}
+
+/* Desktop table: use the same four-color rhythm on each class row. */
+div[class~="lg:block"] tbody tr:nth-child(4n + 1) {
+  background: rgba(14, 165, 233, 0.035);
+}
+
+div[class~="lg:block"] tbody tr:nth-child(4n + 2) {
+  background: rgba(16, 185, 129, 0.035);
+}
+
+div[class~="lg:block"] tbody tr:nth-child(4n + 3) {
+  background: rgba(245, 158, 11, 0.04);
+}
+
+div[class~="lg:block"] tbody tr:nth-child(4n + 4) {
+  background: rgba(139, 92, 246, 0.035);
+}
+
+/* Keep the visual grouping subtle in dark mode. */
+.dark div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 1) {
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.dark div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 2) {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.dark div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 3) {
+  background: rgba(245, 158, 11, 0.09);
+}
+
+.dark div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 4) {
+  background: rgba(139, 92, 246, 0.08);
+}
