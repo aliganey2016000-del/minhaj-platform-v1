@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
 import api from '../../../lib/axios';
 
@@ -16,6 +17,8 @@ export function ProfileManage() {
   const [loading, setLoading] = useState(true);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [pwMessage, setPwMessage] = useState('');
   const [pwError, setPwError] = useState('');
   const [pwLoading, setPwLoading] = useState(false);
@@ -43,6 +46,7 @@ export function ProfileManage() {
       await api.patch('/auth/change-password', { currentPassword, newPassword });
       setPwMessage('✅ Password changed successfully!');
       setCurrentPassword(''); setNewPassword('');
+      setShowCurrentPassword(false); setShowNewPassword(false);
     } catch (err: any) {
       setPwError(err.response?.data?.message || 'Failed to change password');
     } finally { setPwLoading(false); }
@@ -100,21 +104,83 @@ export function ProfileManage() {
           {pwMessage && <div className="mb-3 rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-3 text-sm text-green-700">{pwMessage}</div>}
           {pwError && <div className="mb-3 rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-600">{pwError}</div>}
           <form onSubmit={handleChangePassword} className="space-y-3 max-w-md">
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Current Password</label>
-              <input type="password" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">New Password</label>
-              <input type="password" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" value={newPassword} onChange={e => setNewPassword(e.target.value)} minLength={8} required />
-              <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1">Must contain: uppercase, lowercase, number, and special character</p>
-            </div>
+            <PasswordInput
+              label="Current Password"
+              value={currentPassword}
+              onChange={setCurrentPassword}
+              showPassword={showCurrentPassword}
+              onToggleVisibility={() => setShowCurrentPassword(prev => !prev)}
+              autoComplete="current-password"
+            />
+
+            <PasswordInput
+              label="New Password"
+              value={newPassword}
+              onChange={setNewPassword}
+              showPassword={showNewPassword}
+              onToggleVisibility={() => setShowNewPassword(prev => !prev)}
+              autoComplete="new-password"
+              minLength={8}
+              required
+              hint="Must contain: uppercase, lowercase, number, and special character"
+            />
+
             <button type="submit" disabled={pwLoading} className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60 transition-colors">
               {pwLoading ? 'Updating...' : 'Update Password'}
             </button>
           </form>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PasswordInput({
+  label,
+  value,
+  onChange,
+  showPassword,
+  onToggleVisibility,
+  autoComplete,
+  minLength,
+  required = true,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  showPassword: boolean;
+  onToggleVisibility: () => void;
+  autoComplete: string;
+  minLength?: number;
+  required?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div>
+      <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">{label}</label>
+      <div className="relative">
+        <input
+          type={showPassword ? 'text' : 'password'}
+          className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          autoComplete={autoComplete}
+          minLength={minLength}
+          required={required}
+          aria-label={label}
+        />
+        <button
+          type="button"
+          onClick={onToggleVisibility}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)] hover:text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500"
+          aria-label={showPassword ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+          title={showPassword ? 'Hide password' : 'Show password'}
+        >
+          {showPassword ? <EyeOff size={19} strokeWidth={2} /> : <Eye size={19} strokeWidth={2} />}
+        </button>
+      </div>
+      {hint && <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1">{hint}</p>}
     </div>
   );
 }
