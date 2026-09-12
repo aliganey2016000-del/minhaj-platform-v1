@@ -66,7 +66,7 @@ async function sendForAttendance(ops: AttendanceOp[]) {
   const scheduleIds = [...new Set([...unique.values()].map((event) => event.scheduleId).filter(Boolean).map(String))];
   const [students, courses, schedules] = await Promise.all([
     Student.find({ _id: { $in: studentIds } }).select('studentId parent profile').lean(),
-    Course.find({ _id: { $in: courseIds } }).select('title').lean(),
+    Course.find({ _id: { $in: courseIds } }).select('title courseCode').lean(),
     scheduleIds.length ? ClassSchedule.find({ _id: { $in: scheduleIds } }).select('startTime endTime').lean() : Promise.resolve([]),
   ]);
 
@@ -94,7 +94,7 @@ async function sendForAttendance(ops: AttendanceOp[]) {
       const schedule: any = event.scheduleId ? scheduleMap.get(String(event.scheduleId)) : null;
       const profile: any = profileMap.get(String(student.profile));
       const studentName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || student.studentId;
-      const courseName = course?.title || 'Class';
+      const courseName = course?.title?.en || course?.courseCode || 'Class';
       const dateText = formatDate(event.date);
       const startTime = schedule?.startTime || '-';
       const endTime = schedule?.endTime || '-';
