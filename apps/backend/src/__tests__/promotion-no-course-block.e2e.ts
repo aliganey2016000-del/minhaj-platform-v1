@@ -94,7 +94,8 @@ async function main() {
   console.log('\n=== PREVIEW: missing courses do not block promotion ===');
   const preview = await request(app)
     .get('/api/v1/classes/promotion-preview')
-    .set('Authorization', `Bearer ${token}`);
+    .set('Authorization', `Bearer ${token}`)
+    .query({ schoolId: school._id.toString() });
 
   assert(preview.status === 200, `preview succeeds (got ${preview.status})`);
   assert(preview.body?.data?.sourceAcademicYear === '2026-2027', 'source academic year is 2026-2027');
@@ -112,7 +113,7 @@ async function main() {
   const promoted = await request(app)
     .post('/api/v1/classes/promote-all')
     .set('Authorization', `Bearer ${token}`)
-    .send({ targetAcademicYear: '2027-2028' });
+    .send({ schoolId: school._id.toString(), targetAcademicYear: '2027-2028' });
 
   assert(promoted.status === 200, `promote-all succeeds (got ${promoted.status})`);
   assert(promoted.body?.data?.promoted === 3, `three classes progressed (got ${promoted.body?.data?.promoted})`);
@@ -144,7 +145,7 @@ async function main() {
   const runAgain = await request(app)
     .post('/api/v1/classes/promote-all')
     .set('Authorization', `Bearer ${token}`)
-    .send({ targetAcademicYear: '2027-2028' });
+    .send({ schoolId: school._id.toString(), targetAcademicYear: '2027-2028' });
   assert(runAgain.status === 200, 'second run succeeds safely');
   assert(runAgain.body?.data?.studentsMoved === 0, `second run moves zero students (got ${runAgain.body?.data?.studentsMoved})`);
   assert(runAgain.body?.data?.graduated === 0, `second run graduates nobody else (got ${runAgain.body?.data?.graduated})`);
