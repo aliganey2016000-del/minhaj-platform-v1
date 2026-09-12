@@ -3,7 +3,7 @@ import { Request, Response } from 'express';
 import Attendance from '../models/attendance.model';
 import AttendanceSession from '../models/attendance-session.model';
 import Student from '../models/student.model';
-import School from '../models/school.model';
+import School, { resolveInstitutionType } from '../models/school.model';
 import ClassSchedule from '../models/class-schedule.model';
 import SchoolCalendarDay from '../models/school-calendar-day.model';
 import ApiResponse from '../utils/api-response';
@@ -52,7 +52,12 @@ async function expectedRoster(course: any) {
     : { ...base, enrolledCourses: course._id };
 
   const students = await Student.find(filter).select('_id').lean();
-  return { school, students, studentIds: new Set(students.map((student: any) => String(student._id))) };
+  return {
+    school,
+    isSchool: resolveInstitutionType(school) === 'school',
+    students,
+    studentIds: new Set(students.map((student: any) => String(student._id))),
+  };
 }
 
 export const markBulk = async (req: Request, res: Response): Promise<Response> => {
@@ -73,13 +78,15 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
     throw new BadRequestError('The selected schedule does not meet on this attendance date.');
   }
 
-  const calendarDay = await SchoolCalendarDay.findOne({ school: course.school, date }).select('name type isInstructional').lean();
-  if (calendarDay && calendarDay.isInstructional === false) {
-    throw new BadRequestError(`Attendance cannot be taken on ${calendarDay.name || calendarDay.type}; the school calendar marks this date as non-instructional.`);
-  }
-
-  const { students, studentIds } = await expectedRoster(course);
+  const { isSchool, students, studentIds } = await expectedRoster(course);
   if (students.length === 0) throw new BadRequestError('This class/course has no active approved students in its attendance roster.');
+
+  if (isSchool) {
+    const calendarDay = await SchoolCalendarDay.findOne({ school: course.school, date }).select('name type isInstructional').lean();
+    if (calendarDay && calendarDay.isInstructional === false) {
+      throw new BadRequestError(`Attendance cannot be taken on ${calendarDay.name || calendarDay.type}; the school calendar marks this date as non-instructional.`);
+    }
+  }
 
   const seen = new Set<string>();
   const normalized = records.map((record: any) => {
@@ -104,24 +111,25 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
     };
   });
 
-  // A scheduled school lesson is only considered submitted when the complete
-  // roster is present. This prevents the historic "one row means Taken"
-  // problem and mirrors SectionAttendanceTakenEvent semantics.
-  if (schedule && normalized.length !== students.length) {
+  // Schools use affirmative section attendance: a scheduled lesson becomes
+  // Complete only when the entire active/approved class roster is submitted.
+  // Other institution types retain their older partial/course-based workflow.
+  if (isSchool && schedule && normalized.length !== students.length) {
     throw new BadRequestError(`Complete roster required: ${normalized.length} of ${students.length} students were submitted.`);
   }
 
   const scheduleFilter = schedule ? schedule._id : null;
   if (req.user?.role !== 'admin') {
-    const lockedSession = schedule
-      ? await AttendanceSession.exists({ schedule: schedule._id, date, locked: true })
+    const lockedSession = isSchool && schedule
+      ? await AttendanceSession.exists({ school: course.school, schedule: schedule._id, date, locked: true })
       : await Attendance.exists({ course: course._id, date, schedule: scheduleFilter, locked: true });
     if (lockedSession) {
       throw new ForbiddenError('Attendance for this session is locked. An authorized school administrator must unlock it with a correction reason.');
     }
   }
 
-  const locked = schedule ? normalized.length === students.length : true;
+  const completeRoster = normalized.length >= students.length;
+  const locked = isSchool && schedule ? completeRoster : true;
   const ops = normalized.map((record) => ({
     updateOne: {
       filter: { course: course._id, student: record.student, date, schedule: scheduleFilter },
@@ -140,10 +148,10 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
     },
   }));
 
-  await Attendance.bulkWrite(ops);
+  await Attendance.bulkWrite(ops as any[]);
 
-  let completion: 'partial' | 'complete' = normalized.length >= students.length ? 'complete' : 'partial';
-  if (schedule) {
+  const completion: 'partial' | 'complete' = completeRoster ? 'complete' : 'partial';
+  if (isSchool && schedule) {
     await AttendanceSession.findOneAndUpdate(
       { school: course.school, schedule: schedule._id, date },
       {
@@ -173,10 +181,12 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
       date,
       expectedStudents: students.length,
       recordedStudents: normalized.length,
-      completion,
+      completion: isSchool && schedule ? completion : 'complete',
       locked,
     },
-    completion === 'complete' ? 'Attendance submitted and locked successfully' : 'Attendance saved as partial',
+    isSchool && schedule
+      ? 'Attendance submitted and locked successfully'
+      : 'Attendance marked successfully',
   );
 };
 
@@ -190,6 +200,9 @@ export const unlockSchoolSession = async (req: Request, res: Response): Promise<
   const schedule: any = (req as any).attendanceSchedule;
   if (!course || !schedule) throw new NotFoundError('Attendance session');
   const date = attendanceDate(rawDate);
+
+  const school: any = await School.findById(course.school).select('institutionType organizationType').lean();
+  if (!school || resolveInstitutionType(school) !== 'school') throw new BadRequestError('This correction workflow is only available for schools.');
 
   const session = await AttendanceSession.findOne({ school: course.school, schedule: schedule._id, date });
   if (!session) throw new NotFoundError('Attendance session');
