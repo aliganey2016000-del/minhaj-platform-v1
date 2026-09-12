@@ -2,8 +2,14 @@ import { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import Course from '../models/course.model';
 import ClassSchedule from '../models/class-schedule.model';
+import Student from '../models/student.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
-import { assertTeacherOwnsCourse, resolveViewableOrgId } from '../utils/tenant-scope';
+import {
+  assertTeacherOwnsCourse,
+  getOwnParentRecord,
+  getOwnTeacherRecord,
+  resolveViewableOrgId,
+} from '../utils/tenant-scope';
 
 /**
  * Shared read/write guard for generic attendance endpoints.
@@ -39,7 +45,7 @@ export async function attendanceCourseScope(req: Request, _res: Response, next: 
     if (rawScheduleId) {
       const scheduleId = String(rawScheduleId);
       if (!mongoose.isValidObjectId(scheduleId)) throw new BadRequestError('A valid schedule is required.');
-      const schedule: any = await ClassSchedule.findById(scheduleId).select('_id school course class teacher').lean();
+      const schedule: any = await ClassSchedule.findById(scheduleId).select('_id school course class teacher dayOfWeek').lean();
       if (!schedule) throw new NotFoundError('Schedule');
       if (String(schedule.course) !== courseId || String(schedule.school) !== String(course.school)) {
         throw new ForbiddenError('This schedule does not belong to the selected course and organization.');
@@ -48,6 +54,55 @@ export async function attendanceCourseScope(req: Request, _res: Response, next: 
     }
 
     (req as any).attendanceCourse = course;
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/** Restrict student-level attendance summaries to legitimate relationships. */
+export async function attendanceStudentScope(req: Request, _res: Response, next: NextFunction) {
+  try {
+    const studentId = String(req.params.studentId || req.query.studentId || '');
+    if (!mongoose.isValidObjectId(studentId)) throw new BadRequestError('A valid student is required.');
+    const student: any = await Student.findById(studentId).select('_id user parent school class enrolledCourses').lean();
+    if (!student) throw new NotFoundError('Student');
+
+    const role = req.user?.role;
+    if (role === 'admin') {
+      (req as any).attendanceStudent = student;
+      return next();
+    }
+
+    const orgId = resolveViewableOrgId(req);
+    if (!orgId || !student.school || String(student.school) !== String(orgId)) {
+      throw new ForbiddenError("You do not have permission to access another organization's student attendance.");
+    }
+
+    if (role === 'student') {
+      if (String(student.user) !== String(req.user?.userId)) throw new ForbiddenError('You can only view your own attendance.');
+    } else if (role === 'parent') {
+      const parent: any = await getOwnParentRecord(req);
+      const isChild = parent?.children?.some((child: any) => String(child) === studentId);
+      if (!isChild) throw new ForbiddenError("You can only view your own children's attendance.");
+    } else if (role === 'teacher') {
+      const teacher = await getOwnTeacherRecord(req);
+      if (!teacher) throw new ForbiddenError('Teacher record not found.');
+      const enrolled = Array.isArray(student.enrolledCourses) ? student.enrolledCourses : [];
+      const teachesStudent = await Course.exists({
+        teacher: teacher._id,
+        school: orgId,
+        $or: [
+          ...(student.class ? [{ class: student.class }] : []),
+          ...(enrolled.length ? [{ _id: { $in: enrolled } }] : []),
+        ],
+      });
+      if (!teachesStudent) throw new ForbiddenError('You can only view attendance for students you teach.');
+    } else if (role !== 'org_admin') {
+      throw new ForbiddenError('You do not have permission to view this attendance summary.');
+    }
+
+    (req as any).attendanceStudent = student;
     return next();
   } catch (error) {
     return next(error);
