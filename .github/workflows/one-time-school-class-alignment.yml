@@ -1,0 +1,89 @@
+name: One-time School Class Alignment
+
+on:
+  push:
+    branches:
+      - fix/manage-classes-school-alignment
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = 'fix/manage-classes-school-alignment';
+
+            async function get(path) {
+              const { data } = await github.rest.repos.getContent({ owner, repo, path, ref: branch });
+              return { sha: data.sha, text: Buffer.from(data.content, 'base64').toString('utf8') };
+            }
+
+            async function put(path, text, sha, message) {
+              await github.rest.repos.createOrUpdateFileContents({
+                owner, repo, path, branch, message,
+                content: Buffer.from(text, 'utf8').toString('base64'), sha,
+              });
+            }
+
+            const frontendPath = 'apps/frontend/src/features/admin/pages/classes-manage.tsx';
+            const backendPath = 'apps/backend/src/controllers/class.controller.ts';
+            const frontend = await get(frontendPath);
+            const backend = await get(backendPath);
+
+            let f = frontend.text;
+            let b = backend.text;
+
+            // Frontend: make the import modal use exactly the school fields represented by Add/Edit Class.
+            const oldHeaders = 'headers={["Organization", "Faculty", "Department", "Program", "Batch Number", "Grade Level", "Academic Year", "Study Year", "Semester Number", "Semester In Year", "Final Grade (Yes/No)", "Entry Grade (Yes/No)", "Class Name", "Section", "Room", "Capacity", "Shift / Learning Mode", "Status"]}';
+            const newHeaders = 'headers={institutionType === \'school\' ? ["Batch Number", "Academic Year", "Grade Level", "Department", "Class Name", "Section", "Room", "Capacity", "Shift / Learning Mode", "Final Grade (Yes/No)", "Entry Grade (Yes/No)"] : ["Organization", "Faculty", "Department", "Program", "Batch Number", "Grade Level", "Academic Year", "Study Year", "Semester Number", "Semester In Year", "Final Grade (Yes/No)", "Entry Grade (Yes/No)", "Class Name", "Section", "Room", "Capacity", "Shift / Learning Mode"]}';
+            if (!f.includes(oldHeaders)) throw new Error('Frontend import headers block not found');
+            f = f.replace(oldHeaders, newHeaders);
+
+            // Frontend: make the school desktop list summarize the same core fields as Add/Edit.
+            const oldTable = '<div className="hidden overflow-x-auto lg:block"><table className="w-full text-left text-sm"><thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900"><tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={allSelected} onChange={toggleAll}/></th><th className="px-4 py-3">{higherEd?\'Program / Cohort\':isTrainingCenter?\'Program\':\'Class\'}</th><th className="px-4 py-3">Department</th>{higherEd && <th className="px-4 py-3">Progression</th>}<th className="px-4 py-3">Academic Year</th><th className="px-4 py-3">Room</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{loading ? <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-500">Loading...</td></tr> : filtered.length===0 ? <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-500">No classes found.</td></tr> : filtered.map(c=><tr key={c._id} className="hover:bg-slate-50 dark:hover:bg-slate-900/60"><td className="px-4 py-3"><input type="checkbox" checked={selected.includes(c._id)} onChange={()=>toggleSelected(c._id)}/></td><td className="px-4 py-3"><div className="font-semibold text-slate-900 dark:text-white">{c.title}</div><div className="text-xs text-slate-500">{c.section ? `Section ${c.section}` : ''}{institutionType === 'school' && c.gradeLevel != null ? ` · Grade ${c.gradeLevel}` : ''}{isTrainingCenter && c.batch ? ` · Batch ${c.batch}` : ''}</div></td><td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.department || '—'}{c.program ? <span className="block text-xs text-slate-400">{c.program}</span> : null}</td>{higherEd && <td className="px-4 py-3">{c.semesterNumber ? <><span className="font-semibold">Y{c.studyYear || semesterYear(c.semesterNumber, semestersPerYear)} S{c.semesterNumber}</span><span className="ml-2 text-xs text-slate-500">({c.semesterInYear || semesterInYear(c.semesterNumber, semestersPerYear)}/{semestersPerYear})</span></> : `Year ${c.studyYear || '—'}`}</td>}<td className="px-4 py-3">{c.academicYear || '—'}</td><td className="px-4 py-3">{c.room}{c.capacity ? <span className="block text-xs text-slate-400">Cap. {c.capacity}</span> : null}</td><td className="px-4 py-3"><button onClick={()=>toggleStatus(c)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${c.status==='active'?'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300':c.status==='completed'?'bg-blue-50 text-blue-700':'bg-slate-100 text-slate-600'}`}>{c.status}</button></td><td className="px-4 py-3 text-right">{rowActions(c)}</td></tr>)}</tbody></table></div>';
+            const newTable = '<div className="hidden overflow-x-auto lg:block"><table className="w-full table-fixed text-left text-sm"><thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900"><tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={allSelected} onChange={toggleAll}/></th><th className="w-[22%] px-4 py-3">{higherEd?\'Program / Cohort\':isTrainingCenter?\'Program\':\'Class / Grade\'}</th><th className="w-[18%] px-4 py-3">Department</th>{higherEd && <th className="w-[15%] px-4 py-3">Progression</th>}<th className="w-[14%] px-4 py-3">Academic Year</th><th className="w-[17%] px-4 py-3">{institutionType === \'school\' ? \'Room / Capacity\' : \'Room\'}</th><th className="w-[9%] px-4 py-3">Status</th><th className="w-[8%] px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{loading ? <tr><td colSpan={higherEd ? 8 : 7} className="px-4 py-10 text-center text-slate-500">Loading...</td></tr> : filtered.length===0 ? <tr><td colSpan={higherEd ? 8 : 7} className="px-4 py-10 text-center text-slate-500">No classes found.</td></tr> : filtered.map(c=><tr key={c._id} className="align-middle hover:bg-slate-50 dark:hover:bg-slate-900/60"><td className="px-4 py-3"><input type="checkbox" checked={selected.includes(c._id)} onChange={()=>toggleSelected(c._id)}/></td><td className="px-4 py-3"><div className="font-semibold text-slate-900 dark:text-white">{c.title}</div><div className="text-xs text-slate-500">{institutionType === \'school\' && c.batch ? `Batch ${c.batch}` : \'\'}{c.section ? `${institutionType === \'school\' && c.batch ? \' · \' : \'\'}Section ${c.section}` : \'\'}{institutionType === \'school\' && c.gradeLevel != null ? ` · Grade ${c.gradeLevel}` : \'\'}{isTrainingCenter && c.batch ? ` · Batch ${c.batch}` : \'\'}</div></td><td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.department || \'—\'}{c.program ? <span className="block text-xs text-slate-400">{c.program}</span> : null}</td>{higherEd && <td className="px-4 py-3">{c.semesterNumber ? <><span className="font-semibold">Y{c.studyYear || semesterYear(c.semesterNumber, semestersPerYear)} S{c.semesterNumber}</span><span className="ml-2 text-xs text-slate-500">({c.semesterInYear || semesterInYear(c.semesterNumber, semestersPerYear)}/{semestersPerYear})</span></> : `Year ${c.studyYear || \'—\'}`}</td>}<td className="px-4 py-3">{c.academicYear || \'—\'}</td><td className="px-4 py-3">{c.room}{c.capacity ? <span className="block text-xs text-slate-400">Cap. {c.capacity}</span> : null}{institutionType === \'school\' && c.shiftMode ? <span className="block text-xs text-slate-400">{c.shiftMode}</span> : null}</td><td className="px-4 py-3"><button onClick={()=>toggleStatus(c)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${c.status===\'active\'?\'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300\':c.status===\'completed\'?\'bg-blue-50 text-blue-700\':\'bg-slate-100 text-slate-600\'}`}>{c.status}</button></td><td className="px-4 py-3 text-right">{rowActions(c)}</td></tr>)}</tbody></table></div>';
+            if (!f.includes(oldTable)) throw new Error('Frontend desktop table block not found');
+            f = f.replace(oldTable, newTable);
+
+            // Backend: school export/template should use the exact school Add/Edit field set.
+            const marker = "const CLASS_EXPORT_HEADERS = [\n  'Organization', 'Faculty', 'Department', 'Program',\n  'Batch Number', 'Grade Level', 'Academic Year', 'Study Year', 'Semester Number', 'Semester In Year',\n  'Final Grade (Yes/No)', 'Entry Grade (Yes/No)',\n  'Class Name', 'Section', 'Room', 'Capacity', 'Shift / Learning Mode',\n];";
+            const replacement = "const CLASS_EXPORT_HEADERS = [\n  'Organization', 'Faculty', 'Department', 'Program',\n  'Batch Number', 'Grade Level', 'Academic Year', 'Study Year', 'Semester Number', 'Semester In Year',\n  'Final Grade (Yes/No)', 'Entry Grade (Yes/No)',\n  'Class Name', 'Section', 'Room', 'Capacity', 'Shift / Learning Mode',\n];\n\nconst SCHOOL_CLASS_EXPORT_HEADERS = [\n  'Batch Number', 'Academic Year', 'Grade Level', 'Department', 'Class Name', 'Section',\n  'Room', 'Capacity', 'Shift / Learning Mode', 'Final Grade (Yes/No)', 'Entry Grade (Yes/No)',\n];";
+            if (!b.includes(marker)) throw new Error('Backend export header marker not found');
+            b = b.replace(marker, replacement);
+
+            const exportStart = b.indexOf('export const exportClasses = async');
+            const exportEnd = b.indexOf('\n};\n\n// ---------------------------------------------------------------------------\n// GET /classes/template', exportStart);
+            if (exportStart < 0 || exportEnd < 0) throw new Error('Backend export function boundaries not found');
+            const newExport = `export const exportClasses = async (req: Request, res: Response): Promise<void> => {\n  const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');\n  const orgId = resolveOrgIdForCreate(req);\n  const org = orgId ? await School.findById(orgId).select('institutionType organizationType').lean() : null;\n  const institutionType = org ? resolveInstitutionType(org) : 'school';\n\n  const classes = await ClassModel.find(filter)\n    .populate('school', 'name')\n    .populate({ path: 'department', select: 'name code facultyId', populate: { path: 'facultyId', select: 'name' } })\n    .populate('program', 'name')\n    .sort({ createdAt: -1 })\n    .lean();\n\n  const rows = classes.map((c: any) => {\n    const dept = typeof c.department === 'object' ? c.department : null;\n    if (institutionType === 'school') {\n      return [\n        c.batch || '',\n        c.academicYear || '',\n        c.gradeLevel !== null && c.gradeLevel !== undefined ? String(c.gradeLevel) : '',\n        dept?.name || (typeof c.department === 'string' ? c.department : '') || '',\n        c.title || '',\n        c.section || '',\n        c.room || '',\n        c.capacity !== null && c.capacity !== undefined ? String(c.capacity) : '',\n        c.shiftMode || 'Morning',\n        c.isGraduatingGrade ? 'Yes' : 'No',\n        c.isEntryGrade ? 'Yes' : 'No',\n      ];\n    }\n    return [\n      c.school?.name || '', dept?.facultyId?.name || '',\n      dept?.name || (typeof c.department === 'string' ? c.department : '') || '',\n      c.program?.name || '', c.batch || '',\n      c.gradeLevel !== null && c.gradeLevel !== undefined ? String(c.gradeLevel) : '',\n      c.academicYear || '',\n      c.studyYear !== null && c.studyYear !== undefined ? String(c.studyYear) : '',\n      c.semesterNumber !== null && c.semesterNumber !== undefined ? String(c.semesterNumber) : '',\n      c.semesterInYear !== null && c.semesterInYear !== undefined ? String(c.semesterInYear) : '',\n      c.isGraduatingGrade ? 'Yes' : 'No', c.isEntryGrade ? 'Yes' : 'No',\n      c.title || '', c.section || '', c.room || '',\n      c.capacity !== null && c.capacity !== undefined ? String(c.capacity) : '', c.shiftMode || 'Morning',\n    ];\n  });\n\n  const headers = institutionType === 'school' ? SCHOOL_CLASS_EXPORT_HEADERS : CLASS_EXPORT_HEADERS;\n  const buffer = buildXlsxBuffer(headers, rows, 'Classes');\n\n  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');\n  res.setHeader('Content-Disposition', \\`attachment; filename=classes-export-\\${new Date().toISOString().slice(0, 10)}.xlsx\\`);\n  res.end(buffer);\n}`;
+            b = b.slice(0, exportStart) + newExport + b.slice(exportEnd + 3);
+
+            const templateRowsMarker = "const TEMPLATE_EXAMPLE_ROWS: Record<string, (string | number)[]> = {";
+            if (!b.includes(templateRowsMarker)) throw new Error('Template rows marker not found');
+            const oldSchoolRow = "  school: ['', '', 'Primary', '', '10026', '3', '2026-2027', '', '', '', 'No', 'No', 'Grade 3', 'A', 'Room 5', '35', 'Morning'],";
+            const newSchoolRow = "  school: ['10026', '2026-2027', '3', 'Primary', 'Grade 3', 'A', 'Room 5', '35', 'Morning', 'No', 'No'],";
+            if (!b.includes(oldSchoolRow)) throw new Error('Old school template row not found');
+            b = b.replace(oldSchoolRow, newSchoolRow);
+
+            const oldTemplate = "  const rows = [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.school];\n  const buffer = buildXlsxBuffer(CLASS_EXPORT_HEADERS, rows, 'Class Template');";
+            const newTemplate = "  const rows = [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.school];\n  const headers = institutionType === 'school' ? SCHOOL_CLASS_EXPORT_HEADERS : CLASS_EXPORT_HEADERS;\n  const buffer = buildXlsxBuffer(headers, rows, 'Class Template');";
+            if (!b.includes(oldTemplate)) throw new Error('Template builder block not found');
+            b = b.replace(oldTemplate, newTemplate);
+
+            await put(frontendPath, f, frontend.sha, 'fix(classes): align school import and class list with Add/Edit');
+            const freshBackend = await get(backendPath);
+            await put(backendPath, b, freshBackend.sha, 'fix(classes): align school export and template with Add/Edit');
+
+            for (const path of ['.github/workflows/one-time-school-class-alignment.yml']) {
+              try {
+                const { data: temp } = await github.rest.repos.getContent({ owner, repo, path, ref: branch });
+                await github.rest.repos.deleteFile({ owner, repo, path, branch, sha: temp.sha, message: 'chore: remove temporary school alignment workflow' });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
