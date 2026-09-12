@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as attendanceController from '../../controllers/attendance.controller';
 import * as attendanceProController from '../../controllers/attendance-pro.controller';
 import * as attendanceReportController from '../../controllers/attendance-report.controller';
+import * as attendanceSummaryController from '../../controllers/attendance-summary.controller';
 import * as schoolAttendanceController from '../../controllers/school-attendance.controller';
 import * as schoolCalendarController from '../../controllers/school-calendar.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
@@ -13,8 +14,8 @@ const router = Router();
 
 router.use(authMiddleware);
 
-router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendance));
-router.get('/my/courses', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendanceByCourse));
+router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceSummaryController.getMyAttendance));
+router.get('/my/courses', roleMiddleware(['student']), asyncHandler(attendanceSummaryController.getMyAttendanceByCourse));
 router.get('/my/course-history', roleMiddleware(['student']), asyncHandler(attendanceController.getMyCourseHistory));
 
 // School schedule-first workflow. Teachers receive only their own scheduled
@@ -45,6 +46,6 @@ router.get('/course', attendanceCourseScope, asyncHandler(attendanceController.g
 router.get('/report', attendanceCourseScope, asyncHandler(attendanceReportController.getCourseReport));
 router.get('/insights', attendanceCourseScope, asyncHandler(attendanceController.getReportInsights));
 router.get('/history', attendanceCourseScope, attendanceStudentScope, asyncHandler(attendanceController.getStudentCourseHistory));
-router.get('/student/:studentId', attendanceStudentScope, asyncHandler(attendanceController.getStudentSummary));
+router.get('/student/:studentId', attendanceStudentScope, asyncHandler(attendanceSummaryController.getStudentSummary));
 
 export default router;
