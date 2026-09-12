@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Attendance from '../models/attendance.model';
 import AttendanceSession from '../models/attendance-session.model';
+import SubstituteAssignment from '../models/substitute-assignment.model';
 import SchoolCalendarDay from '../models/school-calendar-day.model';
 import ClassSchedule from '../models/class-schedule.model';
 import Student from '../models/student.model';
@@ -31,11 +32,17 @@ async function schoolContext(req: Request) {
   return { schoolId, school };
 }
 
-async function scheduleScope(req: Request): Promise<Record<string, unknown>> {
+async function scheduleScope(req: Request, date?: Date): Promise<Record<string, unknown>> {
   if (req.user?.role !== 'teacher') return {};
   const teacher = await getOwnTeacherRecord(req);
   if (!teacher) throw new ForbiddenError('Teacher record not found.');
-  return { teacher: teacher._id };
+  if (!date) return { teacher: teacher._id };
+
+  const substitutes = await SubstituteAssignment.find({ teacher: teacher._id, date, active: true }).select('schedule').lean();
+  const substituteScheduleIds = substitutes.map((row: any) => row.schedule);
+  return substituteScheduleIds.length
+    ? { $or: [{ teacher: teacher._id }, { _id: { $in: substituteScheduleIds } }] }
+    : { teacher: teacher._id };
 }
 
 const TEACHER_POPULATE = {
@@ -62,7 +69,7 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
   const { schoolId } = await schoolContext(req);
   const date = attendanceDay(req.query.date);
   const dayOfWeek = date.getDay();
-  const teacherFilter = await scheduleScope(req);
+  const teacherFilter = await scheduleScope(req, date);
 
   const calendarDay: any = await SchoolCalendarDay.findOne({ school: schoolId, date })
     .select('date type name isInstructional notes')
@@ -84,14 +91,18 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
     .lean();
 
   const scheduleIds = schedules.map((s: any) => s._id);
-  const [attendance, completionRows] = scheduleIds.length
+  const [attendance, completionRows, substitutes] = scheduleIds.length
     ? await Promise.all([
         Attendance.find({ schedule: { $in: scheduleIds }, date }).select('schedule status locked').lean(),
         AttendanceSession.find({ school: schoolId, schedule: { $in: scheduleIds }, date })
           .select('schedule expectedStudents recordedStudents status locked takenBy submittedAt unlockReason')
           .lean(),
+        SubstituteAssignment.find({ school: schoolId, schedule: { $in: scheduleIds }, date, active: true })
+          .populate({ path: 'teacher', select: 'teacherId profile user', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'user', select: 'email' }] })
+          .select('schedule teacher reason')
+          .lean(),
       ])
-    : [[], []];
+    : [[], [], []];
 
   const bySchedule = new Map<string, any>();
   for (const row of attendance as any[]) {
@@ -103,10 +114,12 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
     bySchedule.set(key, current);
   }
   const completionMap = new Map((completionRows as any[]).map((row) => [String(row.schedule), row]));
+  const substituteMap = new Map((substitutes as any[]).map((row) => [String(row.schedule), row]));
 
   const data = schedules.map((schedule: any) => {
     const summary = bySchedule.get(String(schedule._id)) || { total: 0, present: 0, absent: 0, late: 0, excused: 0, locked: false };
     const completion: any = completionMap.get(String(schedule._id));
+    const substitute: any = substituteMap.get(String(schedule._id));
     const completionStatus = completion?.status || (summary.total > 0 ? 'partial' : 'not_taken');
     return {
       _id: schedule._id,
@@ -114,7 +127,10 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
       className: className(schedule.class),
       course: schedule.course,
       teacher: schedule.teacher,
-      teacherName: teacherName(schedule.teacher),
+      regularTeacherName: teacherName(schedule.teacher),
+      teacherName: substitute ? teacherName(substitute.teacher) : teacherName(schedule.teacher),
+      isSubstitute: !!substitute,
+      substitute: substitute ? { _id: substitute._id, teacher: substitute.teacher, reason: substitute.reason || '' } : null,
       dayOfWeek: schedule.dayOfWeek,
       dayName: DAY_NAMES[schedule.dayOfWeek] || '',
       startTime: schedule.startTime,
@@ -141,7 +157,7 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
 export const getSchoolSession = async (req: Request, res: Response): Promise<Response> => {
   const { schoolId } = await schoolContext(req);
   const date = attendanceDay(req.query.date);
-  const teacherFilter = await scheduleScope(req);
+  const teacherFilter = await scheduleScope(req, date);
 
   const calendarDay: any = await SchoolCalendarDay.findOne({ school: schoolId, date }).select('name type isInstructional').lean();
   if (calendarDay && calendarDay.isInstructional === false) {
@@ -158,7 +174,7 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
 
   const classId = (schedule as any).class?._id || (schedule as any).class;
   const courseId = (schedule as any).course?._id || (schedule as any).course;
-  const [students, records, completion] = await Promise.all([
+  const [students, records, completion, substitute] = await Promise.all([
     Student.find({ school: schoolId, class: classId, status: 'active', approvalStatus: 'approved' })
       .populate('profile', 'firstName lastName')
       .select('studentId profile class status approvalStatus')
@@ -169,6 +185,10 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
       .lean(),
     AttendanceSession.findOne({ school: schoolId, schedule: schedule._id, date })
       .select('expectedStudents recordedStudents status locked takenBy submittedAt unlockReason')
+      .lean(),
+    SubstituteAssignment.findOne({ school: schoolId, schedule: schedule._id, date, active: true })
+      .populate({ path: 'teacher', select: 'teacherId profile user', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'user', select: 'email' }] })
+      .select('teacher reason')
       .lean(),
   ]);
 
@@ -200,7 +220,10 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
     schedule: {
       ...(schedule as any),
       className: className((schedule as any).class),
-      teacherName: teacherName((schedule as any).teacher),
+      regularTeacherName: teacherName((schedule as any).teacher),
+      teacherName: substitute ? teacherName((substitute as any).teacher) : teacherName((schedule as any).teacher),
+      isSubstitute: !!substitute,
+      substitute: substitute ? { _id: (substitute as any)._id, teacher: (substitute as any).teacher, reason: (substitute as any).reason || '' } : null,
     },
     locked: completion ? !!completion.locked : records.some((r: any) => !!r.locked),
     taken: completionStatus === 'complete',
