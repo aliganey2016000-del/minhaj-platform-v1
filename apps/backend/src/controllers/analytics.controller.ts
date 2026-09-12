@@ -13,8 +13,6 @@ import ApiResponse from '../utils/api-response';
 import { applyOrgFilter } from '../utils/tenant-scope';
 
 export const getDashboardStats = async (req: Request, res: Response): Promise<Response> => {
-  // Keep every dashboard metric scoped to the current organization for
-  // org_admin users. Super admins intentionally receive platform-wide data.
   const studentFilter = applyOrgFilter(req, {}, 'school');
   const courseFilter = applyOrgFilter(req, {}, 'school');
   const userFilter = applyOrgFilter(req, {}, 'organizationId');
@@ -25,60 +23,33 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
     ? new mongoose.Types.ObjectId(organizationId)
     : null;
 
-  const revenuePaymentPipeline: mongoose.PipelineStage[] = [
-    { $match: { status: 'completed' } },
-  ];
-  const revenueRefundPipeline: mongoose.PipelineStage[] = [
-    { $match: { status: 'completed' } },
-  ];
+  const revenuePaymentPipeline: mongoose.PipelineStage[] = [{ $match: { status: 'completed' } }];
+  const revenueRefundPipeline: mongoose.PipelineStage[] = [{ $match: { status: 'completed' } }];
 
   if (isOrgAdmin && organizationObjectId) {
-    // Some older Payment/Refund records were created before `school` was
-    // consistently populated. Resolve the organization through the linked
-    // Student when `school` is missing so legitimate historical transactions
-    // are not silently excluded from Revenue.
     revenuePaymentPipeline.push(
-      {
-        $lookup: {
-          from: 'students',
-          localField: 'student',
-          foreignField: '_id',
-          as: '_revenueStudent',
-        },
-      },
-      {
-        $match: {
-          $or: [
-            { school: organizationObjectId },
-            { school: null, '_revenueStudent.school': organizationObjectId },
-          ],
-        },
-      },
+      { $lookup: { from: 'students', localField: 'student', foreignField: '_id', as: '_revenueStudent' } },
+      { $match: { $or: [
+        { school: organizationObjectId },
+        { school: null, '_revenueStudent.school': organizationObjectId },
+      ] } },
     );
     revenueRefundPipeline.push(
-      {
-        $lookup: {
-          from: 'students',
-          localField: 'student',
-          foreignField: '_id',
-          as: '_revenueStudent',
-        },
-      },
-      {
-        $match: {
-          $or: [
-            { school: organizationObjectId },
-            { school: null, '_revenueStudent.school': organizationObjectId },
-          ],
-        },
-      },
+      { $lookup: { from: 'students', localField: 'student', foreignField: '_id', as: '_revenueStudent' } },
+      { $match: { $or: [
+        { school: organizationObjectId },
+        { school: null, '_revenueStudent.school': organizationObjectId },
+      ] } },
     );
   } else if (isOrgAdmin) {
-    // Never fall back to platform-wide financial data for an unassigned
-    // organization-bound account.
     revenuePaymentPipeline.push({ $match: { _id: null } });
     revenueRefundPipeline.push({ $match: { _id: null } });
   }
+
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+  sixMonthsAgo.setDate(1);
+  sixMonthsAgo.setHours(0, 0, 0, 0);
 
   const [
     totalStudents,
@@ -90,6 +61,10 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
     recentRegistrations,
     revenuePayments,
     revenueRefunds,
+    courseDistribution,
+    monthlyRegistrations,
+    enrollmentCount,
+    enrollmentCapacity,
   ] = await Promise.all([
     Student.countDocuments(studentFilter),
     Student.countDocuments({ ...studentFilter, status: 'active' }),
@@ -97,59 +72,58 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
     Course.countDocuments({ ...courseFilter, status: 'published' }),
     User.countDocuments({ ...userFilter, role: 'teacher' }),
     User.countDocuments({ ...userFilter, role: 'parent' }),
-    User.countDocuments({ ...userFilter, createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
-    // Revenue comes from the authoritative Payment ledger, not the legacy
-    // Student.totalFeesPaid cache. Completed payments are reduced by their
-    // payment-level discounts.
+    // Registration means a student registration, not creation of any User account.
+    Student.countDocuments({ ...studentFilter, enrollmentDate: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
     Payment.aggregate([
       ...revenuePaymentPipeline,
-      {
-        $group: {
-          _id: null,
-          total: {
-            $sum: {
-              $max: [0, { $subtract: ['$amount', { $ifNull: ['$discount', 0] }] }],
-            },
-          },
-        },
-      },
-    ]).then((r) => (r[0]?.total || 0)),
-    // Refunds are immutable ledger records and must be deducted from revenue.
+      { $group: { _id: null, total: { $sum: { $max: [0, { $subtract: ['$amount', { $ifNull: ['$discount', 0] }] }] } } } },
+    ]).then((r) => r[0]?.total || 0),
     Refund.aggregate([
       ...revenueRefundPipeline,
       { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]).then((r) => (r[0]?.total || 0)),
+    ]).then((r) => r[0]?.total || 0),
+    // Always return a breakdown for all courses. Legacy records without a category
+    // are grouped under "uncategorized" rather than disappearing from the chart.
+    Course.aggregate([
+      { $match: courseFilter },
+      { $group: { _id: { $ifNull: ['$category', 'uncategorized'] }, count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+    ]),
+    // Use Student.enrollmentDate because this is the actual registration event.
+    Student.aggregate([
+      { $match: { ...studentFilter, enrollmentDate: { $gte: sixMonthsAgo } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m', date: '$enrollmentDate' } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ]),
+    // enrolledCourses is the current enrollment source used by enrollment.service.ts.
+    Student.aggregate([
+      { $match: { ...studentFilter, status: 'active' } },
+      { $project: { enrolledCourses: { $ifNull: ['$enrolledCourses', []] } } },
+      { $unwind: '$enrolledCourses' },
+      { $count: 'total' },
+    ]).then((r) => r[0]?.total || 0),
+    Course.aggregate([
+      { $match: courseFilter },
+      { $group: { _id: null, total: { $sum: '$maxStudents' } } },
+    ]).then((r) => r[0]?.total || 0),
   ]);
 
   const totalRevenue = Math.max(0, revenuePayments - revenueRefunds);
 
-  // Course distribution by category — every course regardless of status
-  // (published or draft), so the slices always sum to `totalCourses` above.
-  const courseDistribution = await Course.aggregate([
-    { $match: courseFilter },
-    { $group: { _id: '$category', count: { $sum: 1 } } },
-    { $sort: { count: -1 } },
-  ]);
+  // Always provide six monthly points, including zero months.
+  const monthKeys: string[] = [];
+  const cursor = new Date(sixMonthsAgo);
+  for (let i = 0; i < 6; i += 1) {
+    monthKeys.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`);
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  const registrationMap = new Map(monthlyRegistrations.map((m) => [m._id, m.count]));
 
-  // Monthly registrations (last 6 months)
-  const sixMonthsAgo = new Date();
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-  const monthlyRegistrations = await User.aggregate([
-    { $match: { ...userFilter, createdAt: { $gte: sixMonthsAgo } } },
-    {
-      $group: {
-        _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
-        count: { $sum: 1 },
-      },
-    },
-    { $sort: { _id: 1 } },
-  ]);
-
-  // Enrollment stats
-  const enrollmentStats = await Course.aggregate([
-    { $match: courseFilter },
-    { $group: { _id: null, totalEnrolled: { $sum: '$enrolledStudents' }, totalCapacity: { $sum: '$maxStudents' } } },
-  ]);
+  const totalEnrolled = Number(enrollmentCount || 0);
+  const totalCapacity = Number(enrollmentCapacity || 0);
+  const occupancyRate = totalCapacity > 0
+    ? Math.min(100, Math.round((totalEnrolled / totalCapacity) * 100))
+    : 0;
 
   return ApiResponse.success(res, {
     students: { total: totalStudents, active: activeStudents },
@@ -158,14 +132,18 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
     parents: totalParents,
     recentRegistrations,
     totalRevenue,
-    courseDistribution: courseDistribution.map((c) => ({ category: c._id || '', count: c.count })),
-    monthlyRegistrations: monthlyRegistrations.map((m) => ({ month: m._id, count: m.count })),
+    courseDistribution: courseDistribution.map((c) => ({
+      category: c._id || 'uncategorized',
+      count: c.count,
+    })),
+    monthlyRegistrations: monthKeys.map((month) => ({
+      month,
+      count: registrationMap.get(month) || 0,
+    })),
     enrollment: {
-      totalEnrolled: enrollmentStats[0]?.totalEnrolled || 0,
-      totalCapacity: enrollmentStats[0]?.totalCapacity || 0,
-      occupancyRate: enrollmentStats[0]
-        ? Math.round((enrollmentStats[0].totalEnrolled / enrollmentStats[0].totalCapacity) * 100)
-        : 0,
+      totalEnrolled,
+      totalCapacity,
+      occupancyRate,
     },
   });
 };
