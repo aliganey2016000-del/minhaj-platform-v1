@@ -1,0 +1,1 @@
+Temporary trigger for the Manage Students UI bridge; this file should be removed by the bridge workflow.
