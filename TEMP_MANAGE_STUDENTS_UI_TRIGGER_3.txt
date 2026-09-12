@@ -1,1 +1,0 @@
-Third trigger after the branch-local bridge workflow was installed.
