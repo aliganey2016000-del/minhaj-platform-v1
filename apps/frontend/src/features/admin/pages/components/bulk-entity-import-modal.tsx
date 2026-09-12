@@ -114,6 +114,16 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
 
   const resetInput = () => { setFile(null); setResult(null); setError(''); if (inputRef.current) inputRef.current.value = ''; };
 
+  const startAnotherImport = () => {
+    setFile(null);
+    setPaste('');
+    setPreview([]);
+    setResult(null);
+    setError('');
+    setMode('upload');
+    if (inputRef.current) inputRef.current.value = '';
+  };
+
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-3 backdrop-blur-sm sm:p-5">
       <div className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950">
@@ -150,7 +160,7 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
           {result && <div className="mt-4 space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800"><div className="grid grid-cols-2 gap-2 sm:grid-cols-3"><div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900"><p className="text-[11px] text-slate-500">Rows</p><p className="text-lg font-bold">{result.totalRows || (result.created || 0) + (result.failed || 0)}</p></div><div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-950/20"><p className="text-[11px] text-emerald-600">Created</p><p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{result.created || 0}</p></div><div className="rounded-lg bg-red-50 p-3 dark:bg-red-950/20"><p className="text-[11px] text-red-600">Failed</p><p className="text-lg font-bold text-red-700 dark:text-red-300">{result.failed || 0}</p></div></div>{(result.errors?.length || 0) > 0 && <div className="overflow-x-auto rounded-lg border border-red-100 dark:border-red-900/40"><table className="min-w-full text-left text-xs"><thead className="bg-red-50 dark:bg-red-950/20"><tr><th className="px-3 py-2">Row</th><th className="px-3 py-2">Error</th></tr></thead><tbody>{result.errors!.map((e, i) => <tr key={`${e.row}-${i}`} className="border-t dark:border-red-900/30"><td className="px-3 py-2 font-semibold">{e.row || '—'}</td><td className="px-3 py-2 text-red-700 dark:text-red-300">{e.message || 'Import failed'}</td></tr>)}</tbody></table></div>}{(result.created || 0) > 0 && <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4"/>Import finished. The list has been refreshed.</p>}</div>}
         </div>
 
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6"><button type="button" onClick={onClose} disabled={importing} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900">{result ? 'Done' : 'Cancel'}</button><button type="button" onClick={submit} disabled={!canImport || importing} className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">{importing ? <><Loader2 className="h-4 w-4 animate-spin"/>Importing...</> : result ? 'Import Again' : 'Import'}</button></div>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6"><button type="button" onClick={onClose} disabled={importing} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900">{result ? 'Done' : 'Cancel'}</button><button type="button" onClick={result ? startAnotherImport : submit} disabled={!canImport || importing} className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">{importing ? <><Loader2 className="h-4 w-4 animate-spin"/>Importing...</> : result ? 'Import Another File' : 'Import'}</button></div>
       </div>
     </div>
   );
