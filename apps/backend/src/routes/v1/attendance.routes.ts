@@ -3,6 +3,7 @@ import * as attendanceController from '../../controllers/attendance.controller';
 import * as attendanceProController from '../../controllers/attendance-pro.controller';
 import * as attendanceReportController from '../../controllers/attendance-report.controller';
 import * as attendanceSummaryController from '../../controllers/attendance-summary.controller';
+import * as dailyAttendanceController from '../../controllers/daily-attendance.controller';
 import * as schoolAttendanceController from '../../controllers/school-attendance.controller';
 import * as schoolCalendarController from '../../controllers/school-calendar.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
@@ -23,6 +24,15 @@ router.get('/my/course-history', roleMiddleware(['student']), asyncHandler(atten
 router.get('/school/sessions', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolSessions));
 router.get('/school/session/:scheduleId', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolSession));
 router.get('/school/options', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolOptions));
+
+// Daily school attendance is separate from lesson/period attendance. Reception
+// can record whole-day status and check-in/check-out times; the roster displays
+// a section-derived status when no explicit daily record exists yet.
+router.get('/school/daily', roleMiddleware(['admin', 'org_admin']), asyncHandler(dailyAttendanceController.getDailyRoster));
+router.post('/school/daily', roleMiddleware(['admin', 'org_admin']), asyncHandler(dailyAttendanceController.markDailyBulk));
+router.post('/school/check-in', roleMiddleware(['admin', 'org_admin']), asyncHandler(dailyAttendanceController.checkIn));
+router.post('/school/check-out', roleMiddleware(['admin', 'org_admin']), asyncHandler(dailyAttendanceController.checkOut));
+router.get('/school/dashboard', roleMiddleware(['admin', 'org_admin']), asyncHandler(dailyAttendanceController.getSchoolDashboard));
 
 // Instructional calendar — attendance is blocked on non-instructional dates.
 router.get('/school/calendar', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCalendarController.listCalendarDays));
