@@ -35,7 +35,7 @@ div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 4) {
     display: none !important;
   }
 
-  div[class~="divide-y"][class~="lg:hidden"]:has(> div > div > div > div) {
+  div[class~="divide-y"][class~="lg:hidden"]:has(button[aria-label^="Actions for"]) {
     display: block !important;
   }
 }
