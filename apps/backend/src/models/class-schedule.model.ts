@@ -35,7 +35,8 @@ export interface IClassSchedule extends Document {
   _id: mongoose.Types.ObjectId;
   school: mongoose.Types.ObjectId;
   class: mongoose.Types.ObjectId;
-  course: mongoose.Types.ObjectId;
+  /** ObjectId when stored; populated Course document in populated queries. */
+  course: any;
   teacher?: mongoose.Types.ObjectId | null;
   dayOfWeek: DayOfWeek;
   startTime: string; // HH:MM (24h)
