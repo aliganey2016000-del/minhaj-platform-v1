@@ -3,6 +3,7 @@ import multer from 'multer';
 import * as ctrl from '../../controllers/class-schedule.controller';
 import * as schoolCtrl from '../../controllers/school-class-schedule.controller';
 import * as schoolListCtrl from '../../controllers/school-class-schedule-list.controller';
+import * as dispatchCtrl from '../../controllers/class-schedule-dispatch.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -19,8 +20,9 @@ const router = Router();
 
 router.use(authMiddleware);
 
-// Admin/Teacher: full CRUD
-router.get('/', adminOrTeacher, asyncHandler(ctrl.getAll));
+// Admin/Teacher: full CRUD. School org-admins are dispatched to the full
+// simplified school list so weekly timetables are not truncated by paging.
+router.get('/', adminOrTeacher, asyncHandler(dispatchCtrl.getAllSchedules));
 router.post('/', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.create));
 
 // Simplified school-only workflow. These routes intentionally sit before /:id.
