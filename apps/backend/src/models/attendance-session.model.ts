@@ -2,6 +2,12 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export type AttendanceSessionStatus = 'partial' | 'complete';
 
+export interface IAttendanceCorrection {
+  unlockedBy: mongoose.Types.ObjectId;
+  unlockedAt: Date;
+  reason: string;
+}
+
 export interface IAttendanceSession extends Document {
   school: mongoose.Types.ObjectId;
   class?: mongoose.Types.ObjectId | null;
@@ -17,9 +23,19 @@ export interface IAttendanceSession extends Document {
   unlockedBy?: mongoose.Types.ObjectId | null;
   unlockedAt?: Date | null;
   unlockReason?: string;
+  corrections: IAttendanceCorrection[];
   createdAt: Date;
   updatedAt: Date;
 }
+
+const correctionSchema = new Schema<IAttendanceCorrection>(
+  {
+    unlockedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    unlockedAt: { type: Date, required: true },
+    reason: { type: String, trim: true, maxlength: 500, required: true },
+  },
+  { _id: false }
+);
 
 const attendanceSessionSchema = new Schema<IAttendanceSession>(
   {
@@ -34,9 +50,12 @@ const attendanceSessionSchema = new Schema<IAttendanceSession>(
     locked: { type: Boolean, default: false, index: true },
     takenBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     submittedAt: { type: Date, required: true, default: Date.now },
+    // Last correction is kept for quick display, while corrections[] is an
+    // append-only session audit trail that survives subsequent resubmissions.
     unlockedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     unlockedAt: { type: Date, default: null },
     unlockReason: { type: String, trim: true, maxlength: 500, default: '' },
+    corrections: { type: [correctionSchema], default: [] },
   },
   { timestamps: true }
 );
