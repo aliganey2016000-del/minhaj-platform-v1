@@ -6,16 +6,19 @@ import { Request, Response } from 'express';
 import User from '../models/user.model';
 import Student from '../models/student.model';
 import Course from '../models/course.model';
+import Payment from '../models/payment.model';
+import Refund from '../models/refund.model';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter } from '../utils/tenant-scope';
 
 export const getDashboardStats = async (req: Request, res: Response): Promise<Response> => {
-  // org_admin must only ever see their own organization's numbers — every
-  // query here used to run completely unscoped, so an org_admin's
-  // dashboard silently showed platform-wide totals across every tenant.
+  // Keep every dashboard metric scoped to the current organization for
+  // org_admin users. Super admins intentionally receive platform-wide data.
   const studentFilter = applyOrgFilter(req, {}, 'school');
   const courseFilter = applyOrgFilter(req, {}, 'school');
   const userFilter = applyOrgFilter(req, {}, 'organizationId');
+  const paymentFilter = applyOrgFilter(req, { status: 'completed' }, 'school');
+  const refundFilter = applyOrgFilter(req, { status: 'completed' }, 'school');
 
   const [
     totalStudents,
@@ -25,7 +28,8 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
     totalTeachers,
     totalParents,
     recentRegistrations,
-    totalRevenue,
+    revenuePayments,
+    revenueRefunds,
   ] = await Promise.all([
     Student.countDocuments(studentFilter),
     Student.countDocuments({ ...studentFilter, status: 'active' }),
@@ -34,15 +38,25 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
     User.countDocuments({ ...userFilter, role: 'teacher' }),
     User.countDocuments({ ...userFilter, role: 'parent' }),
     User.countDocuments({ ...userFilter, createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
-    Student.aggregate([
-      { $match: studentFilter },
-      { $group: { _id: null, total: { $sum: '$totalFeesPaid' } } },
+    // Revenue must come from the authoritative Payment ledger, not the
+    // legacy/cached Student.totalFeesPaid field. Match the finance collection
+    // report definition: completed payments net of payment discounts.
+    Payment.aggregate([
+      { $match: paymentFilter },
+      { $group: { _id: null, total: { $sum: { $max: [0, { $subtract: ['$amount', { $ifNull: ['$discount', 0] }] }] } } } },
+    ]).then((r) => (r[0]?.total || 0)),
+    // Refunds are separate immutable ledger records. Subtract them so the
+    // dashboard displays actual net money retained by the organization.
+    Refund.aggregate([
+      { $match: refundFilter },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
     ]).then((r) => (r[0]?.total || 0)),
   ]);
 
+  const totalRevenue = Math.max(0, revenuePayments - revenueRefunds);
+
   // Course distribution by category — every course regardless of status
-  // (published or draft), so the slices always sum to `totalCourses`
-  // above instead of silently under-counting against it.
+  // (published or draft), so the slices always sum to `totalCourses` above.
   const courseDistribution = await Course.aggregate([
     { $match: courseFilter },
     { $group: { _id: '$category', count: { $sum: 1 } } },
