@@ -2,24 +2,32 @@ import { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import Course from '../models/course.model';
 import ClassSchedule from '../models/class-schedule.model';
+import SubstituteAssignment from '../models/substitute-assignment.model';
 import Student from '../models/student.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import {
-  assertTeacherOwnsCourse,
   getOwnParentRecord,
   getOwnTeacherRecord,
   resolveViewableOrgId,
 } from '../utils/tenant-scope';
 
+function requestAttendanceDate(req: Request): Date | null {
+  const raw = req.body?.date ?? req.query?.date;
+  const value = String(raw || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
 /**
  * Shared read/write guard for generic attendance endpoints.
  *
  * Platform admins may access any course. Every other role is restricted to
- * the organization embedded in its JWT; teachers are additionally restricted
- * to courses they teach. When a schedule id is supplied, it must belong to
- * the same course and organization. This closes the historical cross-tenant
- * gap where a caller who knew another tenant's course id could query or write
- * attendance through the generic endpoints.
+ * the organization embedded in its JWT. Teachers are limited to their own
+ * courses, except for a dated schedule for which the school explicitly
+ * assigned them as the substitute teacher.
  */
 export async function attendanceCourseScope(req: Request, _res: Response, next: NextFunction) {
   try {
@@ -28,9 +36,21 @@ export async function attendanceCourseScope(req: Request, _res: Response, next: 
 
     const courseId = String(rawCourseId);
     if (!mongoose.isValidObjectId(courseId)) throw new BadRequestError('A valid course is required.');
-
     const course: any = await Course.findById(courseId).select('_id school class teacher').lean();
     if (!course) throw new NotFoundError('Course');
+
+    const rawScheduleId = req.body?.schedule ?? req.query?.schedule;
+    let schedule: any = null;
+    if (rawScheduleId) {
+      const scheduleId = String(rawScheduleId);
+      if (!mongoose.isValidObjectId(scheduleId)) throw new BadRequestError('A valid schedule is required.');
+      schedule = await ClassSchedule.findById(scheduleId).select('_id school course class teacher dayOfWeek').lean();
+      if (!schedule) throw new NotFoundError('Schedule');
+      if (String(schedule.course) !== courseId || String(schedule.school) !== String(course.school)) {
+        throw new ForbiddenError('This schedule does not belong to the selected course and organization.');
+      }
+      (req as any).attendanceSchedule = schedule;
+    }
 
     if (req.user?.role !== 'admin') {
       const orgId = resolveViewableOrgId(req);
@@ -38,19 +58,28 @@ export async function attendanceCourseScope(req: Request, _res: Response, next: 
       if (!course.school || String(course.school) !== String(orgId)) {
         throw new ForbiddenError("You do not have permission to access another organization's attendance.");
       }
-      await assertTeacherOwnsCourse(req, courseId);
-    }
 
-    const rawScheduleId = req.body?.schedule ?? req.query?.schedule;
-    if (rawScheduleId) {
-      const scheduleId = String(rawScheduleId);
-      if (!mongoose.isValidObjectId(scheduleId)) throw new BadRequestError('A valid schedule is required.');
-      const schedule: any = await ClassSchedule.findById(scheduleId).select('_id school course class teacher dayOfWeek').lean();
-      if (!schedule) throw new NotFoundError('Schedule');
-      if (String(schedule.course) !== courseId || String(schedule.school) !== String(course.school)) {
-        throw new ForbiddenError('This schedule does not belong to the selected course and organization.');
+      if (req.user?.role === 'teacher') {
+        const teacher = await getOwnTeacherRecord(req);
+        if (!teacher) throw new ForbiddenError('Teacher record not found.');
+        const regularTeacher = String(course.teacher || '') === String(teacher._id)
+          && (!schedule || String(schedule.teacher || '') === String(teacher._id));
+
+        let substituteTeacher = false;
+        const date = requestAttendanceDate(req);
+        if (!regularTeacher && schedule && date) {
+          substituteTeacher = !!(await SubstituteAssignment.exists({
+            school: course.school,
+            schedule: schedule._id,
+            date,
+            teacher: teacher._id,
+            active: true,
+          }));
+        }
+        if (!regularTeacher && !substituteTeacher) {
+          throw new ForbiddenError('You can only access attendance for your own course or a dated substitute assignment.');
+        }
       }
-      (req as any).attendanceSchedule = schedule;
     }
 
     (req as any).attendanceCourse = course;
