@@ -89,14 +89,12 @@ export async function attendanceStudentScope(req: Request, _res: Response, next:
       const teacher = await getOwnTeacherRecord(req);
       if (!teacher) throw new ForbiddenError('Teacher record not found.');
       const enrolled = Array.isArray(student.enrolledCourses) ? student.enrolledCourses : [];
-      const teachesStudent = await Course.exists({
-        teacher: teacher._id,
-        school: orgId,
-        $or: [
-          ...(student.class ? [{ class: student.class }] : []),
-          ...(enrolled.length ? [{ _id: { $in: enrolled } }] : []),
-        ],
-      });
+      const clauses: Record<string, unknown>[] = [];
+      if (student.class) clauses.push({ class: student.class });
+      if (enrolled.length) clauses.push({ _id: { $in: enrolled } });
+      const teachesStudent = clauses.length
+        ? await Course.exists({ teacher: teacher._id, school: orgId, $or: clauses })
+        : null;
       if (!teachesStudent) throw new ForbiddenError('You can only view attendance for students you teach.');
     } else if (role !== 'org_admin') {
       throw new ForbiddenError('You do not have permission to view this attendance summary.');
