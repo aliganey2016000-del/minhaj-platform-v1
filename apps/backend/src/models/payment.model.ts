@@ -53,6 +53,8 @@ const paymentSchema = new Schema<IPayment>(
 );
 
 paymentSchema.index({ student: 1, createdAt: -1 });
+paymentSchema.index({ school: 1, createdAt: -1, _id: -1 });
+paymentSchema.index({ createdAt: -1, _id: -1 });
 paymentSchema.index({ type: 1 });
 paymentSchema.index({ method: 1, createdAt: -1 });
 paymentSchema.index({ reference: 1, createdAt: -1 });
