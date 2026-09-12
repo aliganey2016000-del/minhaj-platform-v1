@@ -296,6 +296,7 @@ function ResponsiveStudentsManage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; student?: Student }>({ open: false });
   const [profileStudent, setProfileStudent] = useState<Student | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
