@@ -1,0 +1,20 @@
+/*
+ * Manage Classes desktop/tablet rendering fix.
+ *
+ * The page intentionally renders two representations of the same class data:
+ * a desktop table and a compact mobile card list. A previous visual override
+ * forced the mobile cards to display on desktop, making every class appear
+ * twice and making one delete look like it deleted two records.
+ *
+ * Restore the intended responsive behavior without changing class data or
+ * CRUD logic: table on desktop, cards below the lg breakpoint.
+ */
+@media (min-width: 1024px) {
+  div[class~="lg:block"]:has(table > thead > tr > th:nth-child(8)) {
+    display: block !important;
+  }
+
+  div[class~="divide-y"][class~="lg:hidden"]:has(button[aria-label^="Actions for"]) {
+    display: none !important;
+  }
+}
