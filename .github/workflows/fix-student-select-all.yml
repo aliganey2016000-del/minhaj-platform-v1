@@ -1,0 +1,76 @@
+name: Fix Student Select All
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-student-select-all.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch pagination-aware selection
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path('apps/frontend/src/features/admin/pages/students-manage.tsx')
+          text = path.read_text()
+          original = text
+
+          # Patch the active ResponsiveStudentsManage implementation only.
+          marker = 'function ResponsiveStudentsManage() {'
+          start = text.index(marker)
+          end = text.index('\nfunction LegacyStudentsManage() {', start)
+          section = text[start:end]
+
+          if 'const [selectingAll, setSelectingAll]' not in section:
+              section = section.replace(
+                  "  const [students, setStudents] = useState<Student[]>([]); const [selected, setSelected] = useState<string[]>([]);",
+                  "  const [students, setStudents] = useState<Student[]>([]); const [selected, setSelected] = useState<string[]>([]);\n  const [selectingAll, setSelectingAll] = useState(false);",
+                  1,
+              )
+
+          old = """  const allSelected = students.length > 0 && students.every(student => selected.includes(student._id));\n  const toggleAll = () => setSelected(allSelected ? [] : students.map(student => student._id));"""
+          new = """  const allSelected = total > 0 && selected.length === total;\n  const toggleAll = async () => {\n    if (selectingAll) return;\n    if (allSelected) {\n      setSelected([]);\n      return;\n    }\n\n    setSelectingAll(true);\n    try {\n      const ids = new Set<string>();\n      let currentPage = 1;\n      const fetchLimit = 100;\n      const baseParams: Record<string, string | number> = { limit: fetchLimit, school: organizationId };\n      if (search.trim()) baseParams.search = search.trim();\n      if (status) baseParams.status = status;\n      if (classFilter) baseParams.classId = classFilter;\n\n      while (true) {\n        const response = await api.get('/students', { params: { ...baseParams, page: currentPage } });\n        const payload: any = response.data;\n        const batch: Student[] = payload.data || [];\n        batch.forEach(student => ids.add(student._id));\n\n        const reportedTotal = Number(payload.pagination?.total ?? payload.meta?.total ?? 0);\n        const reportedPages = Number(payload.pagination?.pages ?? payload.pagination?.totalPages ?? payload.meta?.pages ?? 0);\n        if (batch.length === 0 || (reportedPages > 0 && currentPage >= reportedPages) || batch.length < fetchLimit || (reportedTotal > 0 && ids.size >= reportedTotal)) break;\n        currentPage += 1;\n      }\n\n      setSelected(Array.from(ids));\n    } catch (err: any) {\n      setError(err?.response?.data?.message || 'Failed to select all students.');\n    } finally {\n      setSelectingAll(false);\n    }\n  };"""
+          if old not in section:
+              raise SystemExit('Expected Responsive selection block was not found; aborting without changes.')
+          section = section.replace(old, new, 1)
+
+          old_label = '<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allSelected} onChange={toggleAll} /> Select page</label>'
+          new_label = '<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allSelected} onChange={() => { void toggleAll(); }} disabled={selectingAll} /> {selectingAll ? \'Selecting all…\' : allSelected ? \'Unselect all students\' : \'Select all students\'}</label>'
+          if old_label not in section:
+              raise SystemExit('Expected select-page label was not found; aborting without changes.')
+          section = section.replace(old_label, new_label, 1)
+
+          # Do not clear selection merely because another page is loaded. Filters/search
+          # still reset selection through loadStudents, as intended.
+          section = section.replace(
+              "      setSelected([]);\n    } catch (err: any) {",
+              "    } catch (err: any) {",
+              1,
+          )
+
+          text = text[:start] + section + text[end:]
+          if text == original:
+              raise SystemExit('No changes made; aborting.')
+          path.write_text(text)
+
+      - name: Commit patch and remove temporary workflow
+        run: |
+          rm -f .github/workflows/fix-student-select-all.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/frontend/src/features/admin/pages/students-manage.tsx .github/workflows/fix-student-select-all.yml
+          git commit -m "fix students select all across pagination"
+          git push origin HEAD:main
