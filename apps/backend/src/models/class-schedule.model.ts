@@ -2,7 +2,7 @@
  * ClassSchedule Model
  *
  * Dedicated scheduling model linking an organization, class, course, and
- * teacher to a specific day-of-week and time window.
+ * optional teacher to a specific day-of-week and time window.
  *
  * Used to determine whether a teacher's "Take Attendance" action is
  * time-locked (only enabled during the scheduled window on the correct day)
@@ -35,8 +35,9 @@ export interface IClassSchedule extends Document {
   _id: mongoose.Types.ObjectId;
   school: mongoose.Types.ObjectId;
   class: mongoose.Types.ObjectId;
-  course: mongoose.Types.ObjectId;
-  teacher: mongoose.Types.ObjectId;
+  /** ObjectId when stored; populated Course document in populated queries. */
+  course: any;
+  teacher?: mongoose.Types.ObjectId | null;
   dayOfWeek: DayOfWeek;
   startTime: string; // HH:MM (24h)
   endTime: string; // HH:MM (24h)
@@ -73,7 +74,7 @@ const classScheduleSchema = new Schema<IClassSchedule>(
     teacher: {
       type: Schema.Types.ObjectId,
       ref: 'Teacher',
-      required: [true, 'Teacher is required'],
+      default: null,
       index: true,
     },
     dayOfWeek: {
@@ -127,6 +128,8 @@ const classScheduleSchema = new Schema<IClassSchedule>(
 // ---------------------------------------------------------------------------
 classScheduleSchema.index({ school: 1, isActive: 1 });
 classScheduleSchema.index({ course: 1, dayOfWeek: 1 });
+classScheduleSchema.index({ school: 1, class: 1, dayOfWeek: 1, startTime: 1, endTime: 1 });
+classScheduleSchema.index({ school: 1, teacher: 1, dayOfWeek: 1, startTime: 1, endTime: 1 });
 
 // ---------------------------------------------------------------------------
 // Static: Check if a course is currently within its scheduled window
@@ -146,7 +149,7 @@ export interface ScheduleStatus {
 /**
  * Checks whether a given course is scheduled right now.
  * Returns the schedule status including whether the current time
- * falls within an active schedule window for this course.
+ * falls within an active schedule window.
  */
 export async function getCourseScheduleStatus(
   courseId: string,
