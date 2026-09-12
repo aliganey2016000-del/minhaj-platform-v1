@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import * as ctrl from '../../controllers/class-schedule.controller';
 import * as schoolCtrl from '../../controllers/school-class-schedule.controller';
+import * as schoolListCtrl from '../../controllers/school-class-schedule-list.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -23,6 +24,7 @@ router.get('/', adminOrTeacher, asyncHandler(ctrl.getAll));
 router.post('/', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.create));
 
 // Simplified school-only workflow. These routes intentionally sit before /:id.
+router.get('/school/list', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolListCtrl.getSchoolSchedules));
 router.post('/school', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.createSchoolSchedule));
 router.put('/school/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.updateSchoolSchedule));
 router.post('/school/import', roleMiddleware(['admin', 'org_admin']), upload.single('file'), asyncHandler(schoolCtrl.importSchoolSchedules));
