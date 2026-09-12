@@ -76,6 +76,7 @@ async function main() {
   // -------------------------------------------------------------------
   tplRows[0].Email = 'imported-via-file@test.local';
   tplRows[0].Organization = school.name;
+  tplRows[0].Password = 'Password123!';
   const filledSheet = XLSX.utils.json_to_sheet(tplRows);
   const filledWb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(filledWb, filledSheet, 'Sheet1');
@@ -87,6 +88,20 @@ async function main() {
     .attach('file', filledBuf, 'teachers.xlsx');
   assert(fileImportRes.status === 200, `file import request succeeds (status ${fileImportRes.status})`);
   assert(fileImportRes.body?.data?.created === 1, `file import created exactly 1 teacher (got ${JSON.stringify(fileImportRes.body?.data)})`);
+
+  const importedUser = await User.findOne({ email: tplRows[0].Email }).select('+password');
+  assert(!!importedUser && await importedUser.comparePassword('Password123!'), 'imported password can authenticate (hashed once)');
+  const exportRes = await request(app).get('/api/v1/teachers/export').set('Authorization', `Bearer ${orgAdminToken}`).responseType('blob');
+  const exportWb = XLSX.read(exportRes.body as Buffer, { type: 'buffer' });
+  const exportRows: any[] = XLSX.utils.sheet_to_json(exportWb.Sheets[exportWb.SheetNames[0]], { defval: '' });
+  assert(JSON.stringify(Object.keys(exportRows[0])) === JSON.stringify(tplHeaders), 'export and template have identical columns and order');
+  assert(exportRows[0].Phone === tplRows[0].Phone, 'export preserves teacher phone');
+  assert(exportRows[0].Organization === school.name, 'export includes organization');
+  assert(exportRows[0].Password === '', 'export does not expose passwords');
+  const badWb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(badWb, XLSX.utils.json_to_sheet([{ ...tplRows[0], Email: 'bad@test.local', Password: '' }]), 'Teachers');
+  const badRes = await request(app).post('/api/v1/teachers/import').set('Authorization', `Bearer ${orgAdminToken}`).attach('file', XLSX.write(badWb, { type: 'buffer', bookType: 'xlsx' }), 'bad.xlsx');
+  assert(badRes.body?.data?.created === 0 && /Password/.test(badRes.body?.data?.errors?.[0]?.message || ''), 'missing password produces an actionable row error');
 
   // The exact regression this was about: filling in the DOWNLOADED template
   // as instructed and NOT touching Organization must fail with a clear,
@@ -116,7 +131,7 @@ async function main() {
   // -------------------------------------------------------------------
   const PASTE_COLUMNS = ['First Name', 'Last Name', 'Gender', 'Email', 'Password', 'Phone', 'Organization', 'Qualification', 'Specialization', 'Experience (years)', 'Joining Date', 'Bio'];
   const pastedRows = [
-    ['Ahmed', 'Hassan', 'male', 'pasted-1@test.local', 'changeme123', '+252612345678', '', 'Bachelor', 'Tajweed', '5', '2026-01-15', 'Bio 1'],
+    ['Ahmed', 'Hassan', 'male', 'pasted-1@test.local', 'changeme123', '+252612345680', '', 'Bachelor', 'Tajweed', '5', '2026-01-15', 'Bio 1'],
     ['Fatima', 'Ali', 'female', 'pasted-2@test.local', 'changeme123', '+252612345679', '', 'Master', 'Quran', '3', '2026-02-01', 'Bio 2'],
   ];
   const pasteCsv = [PASTE_COLUMNS.join(','), ...pastedRows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(','))].join('\n');
