@@ -6,7 +6,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
-import bcrypt from 'bcrypt';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Teacher from '../models/teacher.model';
 import User from '../models/user.model';
@@ -461,63 +460,40 @@ export const updateCoursePermission = async (req: Request, res: Response): Promi
 // GET /teachers/export — Export all teachers as formatted XLSX
 // ---------------------------------------------------------------------------
 
+// Keep template and export columns in the same order as the Add/Edit form.
+const TEACHER_COLUMNS = [
+  'First Name', 'Last Name', 'Gender', 'Joining Date', 'Email', 'Phone',
+  'Password', 'Qualification', 'Experience (years)', 'Specialization', 'Bio', 'Organization',
+];
+
 export const exportTeachers = async (req: Request, res: Response): Promise<void> => {
-  const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
-
+  const filter = applyOrgFilter(req, req.query.school ? { school: req.query.school } : {}, 'school');
   const teachers = await Teacher.find(filter)
-    .populate('user', 'email')
+    .populate('user', 'email phone')
     .populate('profile', 'firstName lastName gender avatar')
-    .populate('school', 'name')
-    .sort({ createdAt: -1 })
-    .lean();
-
-  const headers = [
-    'First Name', 'Last Name', 'Gender', 'Email', 'Password',
-    'Phone', 'Qualification', 'Specialization', 'Experience (years)',
-    'Joining Date', 'Bio',
-  ];
+    .populate('school', 'name').sort({ createdAt: -1 }).lean();
   const rows = teachers.map((t: any) => [
-    t.profile?.firstName || '', t.profile?.lastName || '',
-    t.profile?.gender || '', t.user?.email || '', '',
-    (t.user as any)?.phone || '', t.qualification || '',
-    Array.isArray(t.specialization) ? t.specialization.join(', ') : '',
-    t.experience || 0,
+    t.profile?.firstName || '', t.profile?.lastName || '', t.profile?.gender || '',
     t.joiningDate ? new Date(t.joiningDate).toISOString().slice(0, 10) : '',
-    t.bio || '',
+    t.user?.email || '', t.user?.phone || '', '', t.qualification || '',
+    t.experience || 0, (t.specialization || []).join(', '), t.bio || '', t.school?.name || '',
   ]);
-
-  const buffer = buildXlsxBuffer(headers, rows, 'Teachers');
-
+  const buffer = buildXlsxBuffer(TEACHER_COLUMNS, rows, 'Teachers');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename=teachers-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  res.setHeader('Content-Disposition', 'attachment; filename=teachers-export.xlsx');
   res.end(buffer);
 };
 
-// ---------------------------------------------------------------------------
-// GET /teachers/template — Download empty structured template (XLSX)
-// ---------------------------------------------------------------------------
-
-export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
-  // 'Organization' is read via getField(row, 'School', 'Organization') in
-  // bulkImport below and is REQUIRED for a global admin (who manages more
-  // than one school, so there's no single org to default to) — omitting it
-  // here previously meant every row of an unmodified downloaded-and-filled
-  // template failed with "School is required for super admin", 0 imported,
-  // no obvious reason why. An org_admin's own organization is still
-  // auto-filled server-side regardless of what's in this column for them.
-  const headers = [
-    'First Name', 'Last Name', 'Gender', 'Email', 'Password',
-    'Phone', 'Organization', 'Qualification', 'Specialization', 'Experience (years)',
-    'Joining Date', 'Bio',
-  ];
+export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
+  const schoolId = resolveOrgIdForCreate(req, req.query.school);
+  const school = schoolId ? await School.findById(schoolId).select('name').lean() : null;
   const rows = [[
-    'Ahmed', 'Hassan', 'male', 'ahmed.hassan@example.com', '',
-    '+252612345678', 'Your School Name (required if you manage more than one)', 'Bachelor of Islamic Studies', 'Tajweed, Fiqh', '5',
-    '2026-01-15', 'Experienced Quran teacher with 5 years of teaching.',
+    'Ahmed', 'Hassan', 'male', '2026-01-15', 'ahmed.hassan@example.com', '+252612345678',
+    '', 'Bachelor of Islamic Studies', 5, 'Tajweed, Fiqh',
+    'Experienced Quran teacher.', school?.name || '',
   ]];
-  const buffer = buildXlsxBuffer(headers, rows, 'Teacher Template');
-
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  const buffer = buildXlsxBuffer(TEACHER_COLUMNS, rows, 'Teacher Template');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=teachers-template.xlsx');
   res.end(buffer);
 };
@@ -546,7 +522,7 @@ function esc(val: string): string {
 export const bulkImport = async (req: Request, res: Response): Promise<Response> => {
   if (!req.file) throw new BadRequestError('An Excel file is required (field name "file")');
 
-  const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+  const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true, raw: true });
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) throw new BadRequestError('The uploaded file has no sheets');
 
@@ -571,34 +547,29 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const lastName = String(getField(row, 'Last Name') ?? '').trim();
       const gender = String(getField(row, 'Gender') ?? 'male').trim().toLowerCase();
       const email = String(getField(row, 'Email') ?? '').trim().toLowerCase();
-      const password = String(getField(row, 'Password') ?? 'changeme123').trim();
+      const password = String(getField(row, 'Password') ?? '');
       const phone = String(getField(row, 'Phone') ?? '').trim();
       const qualification = String(getField(row, 'Qualification') ?? '').trim();
       const specializationRaw = String(getField(row, 'Specialization') ?? '').trim();
       const experienceRaw = String(getField(row, 'Experience (years)', 'Experience') ?? '0').trim();
-      const joiningDateRaw = String(getField(row, 'Joining Date') ?? '').trim();
+      const joiningDateRaw = getField(row, 'Joining Date');
       const bio = String(getField(row, 'Bio') ?? '').trim();
 
       if (!firstName || !lastName) throw new Error('First Name and Last Name are required');
-      if (!email) throw new Error('Email is required');
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('A valid Email is required');
+      if (!['male', 'female'].includes(gender)) throw new Error('Gender must be male or female');
+      if (password.length < 8) throw new Error('Password is required and must be at least 8 characters');
 
       const specialization = specializationRaw
         ? specializationRaw.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean)
         : [];
-      const experience = parseInt(experienceRaw, 10) || 0;
-
-      // A malformed/unparseable date must never reach Teacher.create() as a
-      // raw JS "Invalid Date" — Mongoose's Date cast rejects it outright.
-      // Falls back to today rather than failing the whole row over a date
-      // that's often just a formatting mismatch, not a real data problem.
-      const parsedJoiningDate = joiningDateRaw ? new Date(joiningDateRaw) : new Date();
-      const joiningDate = isNaN(parsedJoiningDate.getTime()) ? new Date() : parsedJoiningDate;
-
+      const experience = Number(experienceRaw || 0);
+      if (!Number.isInteger(experience) || experience < 0) throw new Error('Experience must be a non-negative whole number');
+      const joiningDate = joiningDateRaw instanceof Date ? joiningDateRaw
+        : joiningDateRaw ? new Date(String(joiningDateRaw)) : new Date();
+      if (isNaN(joiningDate.getTime())) throw new Error('Joining Date must be a valid date (YYYY-MM-DD)');
       const existingUser = await User.findOne({ email }).lean();
       if (existingUser) throw new Error(`Email "${email}" is already registered`);
-
-      const finalPassword = password || 'changeme123';
-      const hashedPassword = await bcrypt.hash(finalPassword, 10);
 
       // Resolve organization
       let schoolId: string | undefined = ownOrgId;
@@ -612,7 +583,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
       teachersToInsert.push({
         rowNum, firstName, lastName, gender: ['male', 'female'].includes(gender) ? gender : 'male',
-        email, hashedPassword, phone, qualification, specialization, experience,
+        email, password, phone, qualification, specialization, experience,
         joiningDate,
         bio, school: schoolId ? new mongoose.Types.ObjectId(schoolId) : undefined,
       });
@@ -645,7 +616,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
       try {
         const user = await User.create({
-          email: item.email, password: item.hashedPassword, role: 'teacher',
+          email: item.email, password: item.password, role: 'teacher',
           organizationId: item.school, phone: item.phone || undefined,
           isVerified: true, isActive: true, preferredLanguage: 'en',
         });

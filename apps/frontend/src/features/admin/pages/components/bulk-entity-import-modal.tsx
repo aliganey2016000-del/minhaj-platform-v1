@@ -18,23 +18,23 @@ interface Props {
 }
 
 function splitClipboard(text: string): string[][] {
-  const lines = text.replace(/\r/g, '').split('\n').filter((line) => line.trim().length > 0);
-  return lines.map((line) => {
-    const cells: string[] = [];
-    let cell = '';
-    let quoted = false;
-    for (let i = 0; i < line.length; i += 1) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (quoted && line[i + 1] === '"') { cell += '"'; i += 1; }
-        else quoted = !quoted;
-      } else if (!quoted && (ch === '\t' || ch === ',')) {
-        cells.push(cell.trim()); cell = '';
-      } else cell += ch;
-    }
-    cells.push(cell.trim());
-    return cells;
-  });
+  // Excel clipboard rows are TSV: commas inside specialization must stay in one cell.
+  const delimiter = text.includes('\t') ? '\t' : ',';
+  const rows: string[][] = [];
+  let row: string[] = []; let cell = ''; let quoted = false;
+  const pushRow = () => { row.push(cell.trim()); if (row.some(value => value.length)) rows.push(row); row = []; cell = ''; };
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '"') {
+      if (quoted && text[i + 1] === '"') { cell += '"'; i += 1; }
+      else quoted = !quoted;
+    } else if (!quoted && ch === delimiter) { row.push(cell.trim()); cell = ''; }
+    else if (!quoted && (ch === '\n' || ch === '\r')) {
+      pushRow(); if (ch === '\r' && text[i + 1] === '\n') i += 1;
+    } else cell += ch;
+  }
+  pushRow();
+  return rows;
 }
 
 function csvEscape(value: string) {
@@ -75,7 +75,7 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
     if (!rows.length) { setPreview([]); return; }
     const first = rows[0].map((v) => v.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim());
     const headerMatches = normalizedHeaders.filter((h) => first.includes(h)).length;
-    setPreview(headerMatches >= Math.min(2, headers.length) ? rows.slice(1).slice(0, 200) : rows.slice(0, 200));
+    setPreview(headerMatches >= Math.min(2, headers.length) ? rows.slice(1).slice(0, 200).map(row => normalizedHeaders.map(h => row[first.indexOf(h)] || '')) : rows.slice(0, 200));
   };
 
   const buildPasteFile = () => {
@@ -153,7 +153,7 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
             <div className="mt-4 space-y-3"><div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">Paste the spreadsheet rows below. Including the header row is supported; if you paste data rows only, the official template headers will be added automatically.</div><textarea value={paste} onChange={(e) => parsePaste(e.target.value)} placeholder={headers.join('\t')} className="min-h-40 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 font-mono text-xs outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white"/><div className="flex items-center justify-between text-xs text-slate-500"><span>{preview.length ? `${preview.length} row${preview.length === 1 ? '' : 's'} detected` : 'No rows detected yet'}</span><span>Preview is limited to 200 rows</span></div></div>
           )}
 
-          {mode === 'paste' && preview.length > 0 && <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800"><div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">3. Preview before import</div><div className="max-h-64 overflow-auto"><table className="min-w-full text-left text-xs"><thead className="sticky top-0 bg-white dark:bg-slate-950"><tr>{headers.slice(0, Math.min(headers.length, 8)).map((h) => <th key={h} className="whitespace-nowrap border-b px-3 py-2 font-semibold text-slate-500">{h}</th>)}</tr></thead><tbody>{preview.slice(0, 20).map((row, i) => <tr key={i} className="border-b last:border-0 dark:border-slate-800">{headers.slice(0, Math.min(headers.length, 8)).map((_, j) => <td key={j} className="max-w-48 truncate px-3 py-2 text-slate-700 dark:text-slate-300">{row[j] || '—'}</td>)}</tr>)}</tbody></table></div></div>}
+          {mode === 'paste' && preview.length > 0 && <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800"><div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">3. Preview before import</div><div className="max-h-64 overflow-auto"><table className="min-w-full text-left text-xs"><thead className="sticky top-0 bg-white dark:bg-slate-950"><tr>{headers.slice(0, Math.min(headers.length, 8)).map((h) => <th key={h} className="whitespace-nowrap border-b px-3 py-2 font-semibold text-slate-500">{h}</th>)}</tr></thead><tbody>{preview.slice(0, 20).map((row, i) => <tr key={i} className="border-b last:border-0 dark:border-slate-800">{headers.slice(0, Math.min(headers.length, 8)).map((_, j) => <td key={j} className="max-w-48 truncate px-3 py-2 text-slate-700 dark:text-slate-300">{/password/i.test(headers[j]) && row[j] ? '••••••••' : row[j] || '—'}</td>)}</tr>)}</tbody></table></div></div>}
 
           {error && <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>{error}</div>}
 
