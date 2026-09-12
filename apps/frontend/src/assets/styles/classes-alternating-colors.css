@@ -26,17 +26,121 @@ div[class~="divide-y"][class~="lg:hidden"] > div:nth-child(4n + 4) {
 }
 
 /*
- * Desktop: show the same responsive cards instead of the old table.
- * !important is intentional because Tailwind's lg:block/lg:hidden utilities
- * otherwise win at the large-screen breakpoint.
+ * Desktop Manage Classes only: switch its 8-column table to the existing
+ * responsive cards. The :has() guard is important: other admin tables also
+ * use lg:block/lg:hidden, and must remain tables on desktop.
  */
 @media (min-width: 1024px) {
-  div[class~="lg:block"] {
+  div[class~="lg:block"]:has(table > thead > tr > th:nth-child(8)) {
     display: none !important;
   }
 
-  div[class~="divide-y"][class~="lg:hidden"] {
+  div[class~="divide-y"][class~="lg:hidden"]:has(> div > div > div > div) {
     display: block !important;
+  }
+}
+
+/*
+ * Manage Students desktop table.
+ * The source table contains separate Grade/Department and Class/Enrollment
+ * cells. Visually combine those two cells into one "Grade / Class" column,
+ * while preserving the underlying data and all row actions.
+ */
+@media (min-width: 1024px) {
+  table.min-w-\[820px\] {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  table.min-w-\[820px\] > thead,
+  table.min-w-\[820px\] > tbody {
+    display: block;
+    width: 100%;
+  }
+
+  table.min-w-\[820px\] > thead > tr,
+  table.min-w-\[820px\] > tbody > tr {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(180px, 1.35fr) minmax(220px, 1.65fr) minmax(180px, 1.15fr) 110px 130px;
+    width: 100%;
+  }
+
+  /* Keep row selection available without consuming a visible data column. */
+  table.min-w-\[820px\] > thead > tr > th:first-child,
+  table.min-w-\[820px\] > tbody > tr > td:first-child {
+    position: absolute;
+    left: 0.5rem;
+    top: 50%;
+    z-index: 2;
+    width: 1.5rem;
+    padding: 0;
+    transform: translateY(-50%);
+  }
+
+  table.min-w-\[820px\] > thead > tr > th:nth-child(2),
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(2) {
+    grid-column: 1;
+    padding-left: 2.75rem;
+  }
+
+  table.min-w-\[820px\] > thead > tr > th:nth-child(3),
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(3) {
+    grid-column: 2;
+  }
+
+  /* Grade/Department + Class/Enrollment share the same visual column. */
+  table.min-w-\[820px\] > thead > tr > th:nth-child(4) {
+    grid-column: 3;
+    font-size: 0;
+  }
+
+  table.min-w-\[820px\] > thead > tr > th:nth-child(4)::after {
+    content: 'Grade / Class';
+    font-size: 0.75rem;
+  }
+
+  table.min-w-\[820px\] > thead > tr > th:nth-child(5) {
+    display: none;
+  }
+
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(4),
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(5) {
+    grid-column: 3;
+    width: 50%;
+    min-width: 0;
+  }
+
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(5) {
+    justify-self: end;
+  }
+
+  table.min-w-\[820px\] > thead > tr > th:nth-child(6),
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(6) {
+    grid-column: 4;
+  }
+
+  table.min-w-\[820px\] > thead > tr > th:nth-child(7),
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(7) {
+    grid-column: 5;
+  }
+
+  /* Actions requested: Edit, View, Delete. Hide the decorative avatar. */
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(7) > div > div:first-child {
+    display: none;
+  }
+
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(7) > div > button:nth-of-type(1) {
+    order: 2;
+  }
+
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(7) > div > button:nth-of-type(2) {
+    order: 1;
+  }
+
+  table.min-w-\[820px\] > tbody > tr > td:nth-child(7) > div > button:nth-of-type(3) {
+    order: 3;
   }
 }
 
