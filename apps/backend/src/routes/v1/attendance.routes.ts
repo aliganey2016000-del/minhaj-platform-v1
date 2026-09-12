@@ -6,6 +6,7 @@ import * as attendanceSummaryController from '../../controllers/attendance-summa
 import * as dailyAttendanceController from '../../controllers/daily-attendance.controller';
 import * as schoolAttendanceController from '../../controllers/school-attendance.controller';
 import * as schoolCalendarController from '../../controllers/school-calendar.controller';
+import * as substituteAssignmentController from '../../controllers/substitute-assignment.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { attendanceCourseScope, attendanceStudentScope } from '../../middleware/attendance-scope.middleware';
@@ -19,11 +20,17 @@ router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceSummaryCon
 router.get('/my/courses', roleMiddleware(['student']), asyncHandler(attendanceSummaryController.getMyAttendanceByCourse));
 router.get('/my/course-history', roleMiddleware(['student']), asyncHandler(attendanceController.getMyCourseHistory));
 
-// School schedule-first workflow. Teachers receive only their own scheduled
-// lessons; admins/org-admins receive the organization's full timetable.
+// School schedule-first workflow. Teachers receive their own lessons plus any
+// dated substitute assignments; admins/org-admins receive the full timetable.
 router.get('/school/sessions', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolSessions));
 router.get('/school/session/:scheduleId', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolSession));
 router.get('/school/options', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolOptions));
+
+// Substitute coverage is dated and schedule-specific so it never permanently
+// changes the course's regular teacher.
+router.get('/school/substitutes', roleMiddleware(['admin', 'org_admin']), asyncHandler(substituteAssignmentController.listSubstitutes));
+router.post('/school/substitutes', roleMiddleware(['admin', 'org_admin']), asyncHandler(substituteAssignmentController.assignSubstitute));
+router.delete('/school/substitutes/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(substituteAssignmentController.removeSubstitute));
 
 // Daily school attendance is separate from lesson/period attendance. Reception
 // can record whole-day status and check-in/check-out times; the roster displays
