@@ -61,9 +61,11 @@ function gradeBounds(classes: Array<{ gradeLevel?: number | null }>) {
   const grades = classes
     .map((c) => c.gradeLevel)
     .filter((g): g is number => typeof g === 'number' && Number.isFinite(g));
+  const uniqueGrades = [...new Set(grades)];
   return {
-    min: grades.length ? Math.min(...grades) : null,
-    max: grades.length ? Math.max(...grades) : null,
+    min: uniqueGrades.length ? Math.min(...uniqueGrades) : null,
+    max: uniqueGrades.length ? Math.max(...uniqueGrades) : null,
+    distinctCount: uniqueGrades.length,
   };
 }
 
@@ -338,10 +340,11 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
 
   const activeSourceClasses = schoolClasses.filter((c) => c.status === 'active');
   const bounds = gradeBounds(activeSourceClasses);
+  const canInferBounds = bounds.distinctCount > 1;
   const hasExplicitEntry = activeSourceClasses.some((c) => !!c.isEntryGrade);
   const hasExplicitFinal = activeSourceClasses.some((c) => !!c.isGraduatingGrade);
-  const isEntryClass = (cls: any) => !!cls.isEntryGrade || (!hasExplicitEntry && bounds.min !== null && cls.gradeLevel === bounds.min);
-  const isFinalClass = (cls: any) => !!cls.isGraduatingGrade || (!hasExplicitFinal && bounds.max !== null && cls.gradeLevel === bounds.max);
+  const isEntryClass = (cls: any) => !!cls.isEntryGrade || (!hasExplicitEntry && canInferBounds && bounds.min !== null && cls.gradeLevel === bounds.min);
+  const isFinalClass = (cls: any) => !!cls.isGraduatingGrade || (!hasExplicitFinal && canInferBounds && bounds.max !== null && cls.gradeLevel === bounds.max);
 
   const groups: PromotionGroup[] = [];
   const missingGradeLevel: Array<{ classId: mongoose.Types.ObjectId; title: string; section?: string }> = [];
@@ -369,10 +372,10 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
     }
 
     if (cls.status !== 'active') continue;
-    if (isEntryClass(cls)) entryIntakesToOpen += 1;
 
     const studentCount = await Student.countDocuments({ class: cls._id, status: 'active' });
     const sourceCourseCount = await Course.countDocuments({ school: schoolId, class: cls._id });
+    if (isEntryClass(cls) && sourceCourseCount > 0) entryIntakesToOpen += 1;
 
     if (isFinalClass(cls)) {
       groups.push({
@@ -415,8 +418,8 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
     entryIntakesToOpen,
     missingGradeLevel,
     sameYearSkipped,
-    inferredEntryGrade: !hasExplicitEntry ? bounds.min : null,
-    inferredFinalGrade: !hasExplicitFinal ? bounds.max : null,
+    inferredEntryGrade: !hasExplicitEntry && canInferBounds ? bounds.min : null,
+    inferredFinalGrade: !hasExplicitFinal && canInferBounds ? bounds.max : null,
   });
 };
 
@@ -438,11 +441,15 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
 
   const classes = await ClassModel.find(classFilter).sort({ gradeLevel: 1, title: 1, section: 1 });
   const bounds = gradeBounds(classes);
+  const canInferBounds = bounds.distinctCount > 1;
   const hasExplicitEntry = classes.some((c) => !!c.isEntryGrade);
   const hasExplicitFinal = classes.some((c) => !!c.isGraduatingGrade);
-  const isEntryClass = (cls: any) => !!cls.isEntryGrade || (!hasExplicitEntry && bounds.min !== null && cls.gradeLevel === bounds.min);
-  const isFinalClass = (cls: any) => !!cls.isGraduatingGrade || (!hasExplicitFinal && bounds.max !== null && cls.gradeLevel === bounds.max);
-  const entryClasses = classes.filter((c) => isEntryClass(c));
+  const isEntryClass = (cls: any) => !!cls.isEntryGrade || (!hasExplicitEntry && canInferBounds && bounds.min !== null && cls.gradeLevel === bounds.min);
+  const isFinalClass = (cls: any) => !!cls.isGraduatingGrade || (!hasExplicitFinal && canInferBounds && bounds.max !== null && cls.gradeLevel === bounds.max);
+  const entryClasses: Array<mongoose.HydratedDocument<IClass>> = [];
+  for (const cls of classes) {
+    if (isEntryClass(cls) && await publishedCourseCount(schoolId, cls._id as mongoose.Types.ObjectId) > 0) entryClasses.push(cls);
+  }
 
   const results: Record<string, unknown>[] = [];
   let studentsMoved = 0;
@@ -577,8 +584,8 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
       intakesOpened,
       targetsCreated,
       coursesCopied,
-      inferredEntryGrade: !hasExplicitEntry ? bounds.min : null,
-      inferredFinalGrade: !hasExplicitFinal ? bounds.max : null,
+      inferredEntryGrade: !hasExplicitEntry && canInferBounds ? bounds.min : null,
+      inferredFinalGrade: !hasExplicitFinal && canInferBounds ? bounds.max : null,
     },
     `Year-end promotion complete: moved ${studentsMoved} student(s), graduated ${graduated}, prepared ${targetsCreated} class(es) and opened ${intakesOpened} intake class(es)${skipped ? `; skipped ${skipped} class(es)` : ''}.`,
   );
