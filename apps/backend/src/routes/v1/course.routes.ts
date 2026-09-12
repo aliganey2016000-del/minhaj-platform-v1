@@ -25,6 +25,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as courseController from '../../controllers/course.controller';
+import * as courseSpreadsheetController from '../../controllers/course-spreadsheet.controller';
 import * as gateReportController from '../../controllers/gate-report.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { roleMiddleware, adminOnly, adminOrTeacher, requireModulePermission } from '../../middleware/role.middleware';
@@ -195,14 +196,17 @@ router.post(
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-// POST /api/v1/courses/import — Bulk import (admin + org_admin)
-router.post('/import', authMiddleware, requireModulePermission('courses'), adminOnly, upload.single('file'), asyncHandler(courseController.bulkImport));
+// POST /api/v1/courses/import — Bulk import matching Add/Edit Course fields
+router.post('/import', authMiddleware, requireModulePermission('courses'), adminOnly, upload.single('file'), asyncHandler(courseSpreadsheetController.bulkImport));
 
-// GET /api/v1/courses/export — Export courses (admin + org_admin)
-router.get('/export', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseController.exportCourses as any));
+// GET /api/v1/courses/export — Export matching Add/Edit Course fields
+router.get('/export', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseSpreadsheetController.exportCourses as any));
 
-// GET /api/v1/courses/template — Download import template
-router.get('/template', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseController.downloadTemplate as any));
+// GET /api/v1/courses/template — Download institution-aware import template
+router.get('/template', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseSpreadsheetController.downloadTemplate as any));
+
+// GET /api/v1/courses/template-headers — Frontend paste/import columns from same source of truth
+router.get('/template-headers', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseSpreadsheetController.getTemplateHeaders as any));
 
 // GET /api/v1/courses/:slug — Get published course by slug (MUST be last)
 router.get(
