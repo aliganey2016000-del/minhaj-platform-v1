@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import * as classController from '../../controllers/class.controller';
 import * as classDuplicateController from '../../controllers/class-duplicate.controller';
-import * as curriculumPromotionController from '../../controllers/curriculum-promotion.controller';
+import * as curriculumPromotionController from '../../controllers/school-year-promotion.controller';
 import * as academicStructureController from '../../controllers/academic-structure.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
