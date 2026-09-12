@@ -57,6 +57,16 @@ function previousAcademicYear(targetAcademicYear: string): string | null {
   return start === null ? null : `${start - 1}-${start}`;
 }
 
+function gradeBounds(classes: Array<{ gradeLevel?: number | null }>) {
+  const grades = classes
+    .map((c) => c.gradeLevel)
+    .filter((g): g is number => typeof g === 'number' && Number.isFinite(g));
+  return {
+    min: grades.length ? Math.min(...grades) : null,
+    max: grades.length ? Math.max(...grades) : null,
+  };
+}
+
 async function getScopedSchoolId(req: Request): Promise<string> {
   const requested = req.method === 'GET' ? req.query.schoolId : req.body?.schoolId;
   const resolved = resolveOrgIdForCreate(req, requested as string | undefined);
@@ -217,6 +227,7 @@ async function ensurePromotionTarget(
   let targetClass = await getTargetClass(schoolId, source, targetAcademicYear);
   const targetGradeLevel = Number(source.gradeLevel) + 1;
   const templateClass = await getGradeTemplate(schoolId, source, targetGradeLevel);
+  let targetCreated = false;
 
   if (!targetClass) {
     if (!templateClass) throw new BadRequestError(`No Grade ${targetGradeLevel} template is available.`);
@@ -237,11 +248,8 @@ async function ensurePromotionTarget(
       promotedAt: null,
       promotedTo: null,
     });
+    targetCreated = true;
   }
-
-  const targetCreated = targetClass.createdAt.getTime() === targetClass.updatedAt.getTime()
-    && targetClass.academicYear === targetAcademicYear
-    && !targetClass.promotedAt;
 
   let coursesCopied = 0;
   const existingPublished = await publishedCourseCount(schoolId, targetClass._id as mongoose.Types.ObjectId);
@@ -268,7 +276,6 @@ async function ensureEntryIntake(
     department: source.department,
     gradeLevel: source.gradeLevel,
     academicYear: targetAcademicYear,
-    isEntryGrade: true,
     status: { $ne: 'completed' },
   };
   if (String(source.section || '').trim()) query.section = String(source.section).trim();
@@ -295,6 +302,9 @@ async function ensureEntryIntake(
       promotedTo: null,
     });
     created = true;
+  } else if (!intake.isEntryGrade) {
+    intake.isEntryGrade = true;
+    await intake.save();
   }
 
   let coursesCopied = 0;
@@ -326,6 +336,13 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
     .select('_id title section batch gradeLevel academicYear department room capacity shiftMode isGraduatingGrade isEntryGrade promotedAt promotedTo status createdAt updatedAt')
     .sort({ gradeLevel: 1, title: 1, section: 1 });
 
+  const activeSourceClasses = schoolClasses.filter((c) => c.status === 'active');
+  const bounds = gradeBounds(activeSourceClasses);
+  const hasExplicitEntry = activeSourceClasses.some((c) => !!c.isEntryGrade);
+  const hasExplicitFinal = activeSourceClasses.some((c) => !!c.isGraduatingGrade);
+  const isEntryClass = (cls: any) => !!cls.isEntryGrade || (!hasExplicitEntry && bounds.min !== null && cls.gradeLevel === bounds.min);
+  const isFinalClass = (cls: any) => !!cls.isGraduatingGrade || (!hasExplicitFinal && bounds.max !== null && cls.gradeLevel === bounds.max);
+
   const groups: PromotionGroup[] = [];
   const missingGradeLevel: Array<{ classId: mongoose.Types.ObjectId; title: string; section?: string }> = [];
   const sameYearSkipped: Array<{ classId: mongoose.Types.ObjectId; title: string; section?: string }> = [];
@@ -352,12 +369,12 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
     }
 
     if (cls.status !== 'active') continue;
-    if (cls.isEntryGrade) entryIntakesToOpen += 1;
+    if (isEntryClass(cls)) entryIntakesToOpen += 1;
 
     const studentCount = await Student.countDocuments({ class: cls._id, status: 'active' });
     const sourceCourseCount = await Course.countDocuments({ school: schoolId, class: cls._id });
 
-    if (cls.isGraduatingGrade) {
+    if (isFinalClass(cls)) {
       groups.push({
         classId: cls._id,
         title: cls.title,
@@ -398,6 +415,8 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
     entryIntakesToOpen,
     missingGradeLevel,
     sameYearSkipped,
+    inferredEntryGrade: !hasExplicitEntry ? bounds.min : null,
+    inferredFinalGrade: !hasExplicitFinal ? bounds.max : null,
   });
 };
 
@@ -418,7 +437,13 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
   if (!allowRepromote) classFilter.promotedAt = null;
 
   const classes = await ClassModel.find(classFilter).sort({ gradeLevel: 1, title: 1, section: 1 });
-  const entryClasses = classes.filter((c) => !!c.isEntryGrade);
+  const bounds = gradeBounds(classes);
+  const hasExplicitEntry = classes.some((c) => !!c.isEntryGrade);
+  const hasExplicitFinal = classes.some((c) => !!c.isGraduatingGrade);
+  const isEntryClass = (cls: any) => !!cls.isEntryGrade || (!hasExplicitEntry && bounds.min !== null && cls.gradeLevel === bounds.min);
+  const isFinalClass = (cls: any) => !!cls.isGraduatingGrade || (!hasExplicitFinal && bounds.max !== null && cls.gradeLevel === bounds.max);
+  const entryClasses = classes.filter((c) => isEntryClass(c));
+
   const results: Record<string, unknown>[] = [];
   let studentsMoved = 0;
   let graduated = 0;
@@ -429,6 +454,24 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
   let targetsCreated = 0;
   let coursesCopied = 0;
 
+  if (!classes.length) {
+    const ownActiveClasses = await ClassModel.find({
+      school: schoolId,
+      status: 'active',
+      gradeLevel: { $ne: null },
+    }).select('_id title academicYear').sort({ gradeLevel: 1, title: 1 });
+    for (const cls of ownActiveClasses) {
+      skipped += 1;
+      results.push({
+        classId: cls._id,
+        title: cls.title,
+        action: 'skipped',
+        reason: `Not part of source academic year ${sourceAcademicYear}; no data was changed.`,
+        studentsMoved: 0,
+      });
+    }
+  }
+
   for (const cls of classes) {
     if (cls.gradeLevel === null || cls.gradeLevel === undefined) {
       skipped += 1;
@@ -438,7 +481,7 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
 
     const students = await Student.find({ class: cls._id, status: 'active' }).select('_id').lean();
 
-    if (cls.isGraduatingGrade) {
+    if (isFinalClass(cls)) {
       let modifiedCount = 0;
       for (const student of students) {
         const result = await Student.updateOne(
@@ -534,6 +577,8 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
       intakesOpened,
       targetsCreated,
       coursesCopied,
+      inferredEntryGrade: !hasExplicitEntry ? bounds.min : null,
+      inferredFinalGrade: !hasExplicitFinal ? bounds.max : null,
     },
     `Year-end promotion complete: moved ${studentsMoved} student(s), graduated ${graduated}, prepared ${targetsCreated} class(es) and opened ${intakesOpened} intake class(es)${skipped ? `; skipped ${skipped} class(es)` : ''}.`,
   );
