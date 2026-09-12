@@ -3,6 +3,7 @@
  */
 
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import User from '../models/user.model';
 import Student from '../models/student.model';
 import Course from '../models/course.model';
@@ -17,8 +18,67 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
   const studentFilter = applyOrgFilter(req, {}, 'school');
   const courseFilter = applyOrgFilter(req, {}, 'school');
   const userFilter = applyOrgFilter(req, {}, 'organizationId');
-  const paymentFilter = applyOrgFilter(req, { status: 'completed' }, 'school');
-  const refundFilter = applyOrgFilter(req, { status: 'completed' }, 'school');
+
+  const isOrgAdmin = req.user?.role === 'org_admin';
+  const organizationId = req.user?.organizationId;
+  const organizationObjectId = organizationId && mongoose.isValidObjectId(organizationId)
+    ? new mongoose.Types.ObjectId(organizationId)
+    : null;
+
+  const revenuePaymentPipeline: mongoose.PipelineStage[] = [
+    { $match: { status: 'completed' } },
+  ];
+  const revenueRefundPipeline: mongoose.PipelineStage[] = [
+    { $match: { status: 'completed' } },
+  ];
+
+  if (isOrgAdmin && organizationObjectId) {
+    // Some older Payment/Refund records were created before `school` was
+    // consistently populated. Resolve the organization through the linked
+    // Student when `school` is missing so legitimate historical transactions
+    // are not silently excluded from Revenue.
+    revenuePaymentPipeline.push(
+      {
+        $lookup: {
+          from: 'students',
+          localField: 'student',
+          foreignField: '_id',
+          as: '_revenueStudent',
+        },
+      },
+      {
+        $match: {
+          $or: [
+            { school: organizationObjectId },
+            { school: null, '_revenueStudent.school': organizationObjectId },
+          ],
+        },
+      },
+    );
+    revenueRefundPipeline.push(
+      {
+        $lookup: {
+          from: 'students',
+          localField: 'student',
+          foreignField: '_id',
+          as: '_revenueStudent',
+        },
+      },
+      {
+        $match: {
+          $or: [
+            { school: organizationObjectId },
+            { school: null, '_revenueStudent.school': organizationObjectId },
+          ],
+        },
+      },
+    );
+  } else if (isOrgAdmin) {
+    // Never fall back to platform-wide financial data for an unassigned
+    // organization-bound account.
+    revenuePaymentPipeline.push({ $match: { _id: null } });
+    revenueRefundPipeline.push({ $match: { _id: null } });
+  }
 
   const [
     totalStudents,
@@ -38,17 +98,25 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
     User.countDocuments({ ...userFilter, role: 'teacher' }),
     User.countDocuments({ ...userFilter, role: 'parent' }),
     User.countDocuments({ ...userFilter, createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
-    // Revenue must come from the authoritative Payment ledger, not the
-    // legacy/cached Student.totalFeesPaid field. Match the finance collection
-    // report definition: completed payments net of payment discounts.
+    // Revenue comes from the authoritative Payment ledger, not the legacy
+    // Student.totalFeesPaid cache. Completed payments are reduced by their
+    // payment-level discounts.
     Payment.aggregate([
-      { $match: paymentFilter },
-      { $group: { _id: null, total: { $sum: { $max: [0, { $subtract: ['$amount', { $ifNull: ['$discount', 0] }] }] } } } },
+      ...revenuePaymentPipeline,
+      {
+        $group: {
+          _id: null,
+          total: {
+            $sum: {
+              $max: [0, { $subtract: ['$amount', { $ifNull: ['$discount', 0] }] }],
+            },
+          },
+        },
+      },
     ]).then((r) => (r[0]?.total || 0)),
-    // Refunds are separate immutable ledger records. Subtract them so the
-    // dashboard displays actual net money retained by the organization.
+    // Refunds are immutable ledger records and must be deducted from revenue.
     Refund.aggregate([
-      { $match: refundFilter },
+      ...revenueRefundPipeline,
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]).then((r) => (r[0]?.total || 0)),
   ]);
