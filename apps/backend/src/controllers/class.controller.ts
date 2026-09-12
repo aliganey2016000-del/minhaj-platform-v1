@@ -357,47 +357,29 @@ const CLASS_EXPORT_HEADERS = [
   'Class Name', 'Section', 'Room', 'Capacity', 'Shift / Learning Mode',
 ];
 
+const SCHOOL_CLASS_EXPORT_HEADERS = [
+  'Batch Number', 'Academic Year', 'Grade Level', 'Department', 'Class Name', 'Section',
+  'Room', 'Capacity', 'Shift / Learning Mode', 'Final Grade (Yes/No)', 'Entry Grade (Yes/No)',
+];
+
 export const exportClasses = async (req: Request, res: Response): Promise<void> => {
   const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
-
-  const classes = await ClassModel.find(filter)
-    .populate('school', 'name')
-    .populate({ path: 'department', select: 'name code facultyId', populate: { path: 'facultyId', select: 'name' } })
-    .populate('program', 'name')
-    .sort({ createdAt: -1 })
-    .lean();
-
+  const orgId = resolveOrgIdForCreate(req);
+  const org = orgId ? await School.findById(orgId).select('institutionType organizationType').lean() : null;
+  const institutionType = org ? resolveInstitutionType(org) : 'school';
+  const classes = await ClassModel.find(filter).populate('school', 'name').populate({ path: 'department', select: 'name code facultyId', populate: { path: 'facultyId', select: 'name' } }).populate('program', 'name').sort({ createdAt: -1 }).lean();
   const rows = classes.map((c: any) => {
     const dept = typeof c.department === 'object' ? c.department : null;
-    return [
-      c.school?.name || '',
-      dept?.facultyId?.name || '',
-      dept?.name || (typeof c.department === 'string' ? c.department : '') || '',
-      c.program?.name || '',
-      c.batch || '',
-      c.gradeLevel !== null && c.gradeLevel !== undefined ? String(c.gradeLevel) : '',
-      c.academicYear || '',
-      c.studyYear !== null && c.studyYear !== undefined ? String(c.studyYear) : '',
-      c.semesterNumber !== null && c.semesterNumber !== undefined ? String(c.semesterNumber) : '',
-      c.semesterInYear !== null && c.semesterInYear !== undefined ? String(c.semesterInYear) : '',
-      c.isGraduatingGrade ? 'Yes' : 'No',
-      c.isEntryGrade ? 'Yes' : 'No',
-      c.title || '',
-      c.section || '',
-      c.room || '',
-      c.capacity !== null && c.capacity !== undefined ? String(c.capacity) : '',
-      c.shiftMode || 'Morning',
-    ];
+    if (institutionType === 'school') return [c.batch || '', c.academicYear || '', c.gradeLevel != null ? String(c.gradeLevel) : '', dept?.name || (typeof c.department === 'string' ? c.department : '') || '', c.title || '', c.section || '', c.room || '', c.capacity != null ? String(c.capacity) : '', c.shiftMode || 'Morning', c.isGraduatingGrade ? 'Yes' : 'No', c.isEntryGrade ? 'Yes' : 'No'];
+    return [c.school?.name || '', dept?.facultyId?.name || '', dept?.name || (typeof c.department === 'string' ? c.department : '') || '', c.program?.name || '', c.batch || '', c.gradeLevel != null ? String(c.gradeLevel) : '', c.academicYear || '', c.studyYear != null ? String(c.studyYear) : '', c.semesterNumber != null ? String(c.semesterNumber) : '', c.semesterInYear != null ? String(c.semesterInYear) : '', c.isGraduatingGrade ? 'Yes' : 'No', c.isEntryGrade ? 'Yes' : 'No', c.title || '', c.section || '', c.room || '', c.capacity != null ? String(c.capacity) : '', c.shiftMode || 'Morning'];
   });
-
-  const buffer = buildXlsxBuffer(CLASS_EXPORT_HEADERS, rows, 'Classes');
-
+  const headers = institutionType === 'school' ? SCHOOL_CLASS_EXPORT_HEADERS : CLASS_EXPORT_HEADERS;
+  const buffer = buildXlsxBuffer(headers, rows, 'Classes');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=classes-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
   res.end(buffer);
-};
+}
 
-// ---------------------------------------------------------------------------
 // GET /classes/template — Download empty structured template (XLSX).
 // Institution-aware: ?institutionType=school|college|university|training_center
 // picks a tailored example row; omitted, it resolves the caller's own org
@@ -405,7 +387,7 @@ export const exportClasses = async (req: Request, res: Response): Promise<void> 
 // ---------------------------------------------------------------------------
 
 const TEMPLATE_EXAMPLE_ROWS: Record<string, (string | number)[]> = {
-  school: ['', '', 'Primary', '', '10026', '3', '2026-2027', '', '', '', 'No', 'No', 'Grade 3', 'A', 'Room 5', '35', 'Morning'],
+  school: ['10026', '2026-2027', '3', 'Primary', 'Grade 3', 'A', 'Room 5', '35', 'Morning', 'No', 'No'],
   college: ['', '', 'Business', 'BA Accounting', '', '', '2026-2027', '1', '', '', '', '', 'Cohort 2026', 'A', 'Hall 2', '60', 'Morning'],
   university: ['', 'Faculty of Science', 'Computer Science', 'BSc Computer Science', '', '', '2026-2027', '', '1', '1', '', '', 'Cohort 2026', 'A', 'Hall 204', '80', 'Morning'],
   training_center: ['', '', '', 'Web Development', 'B12', '', '2026-2027', '', '', '', '', '', 'Web Development Bootcamp', '', 'Lab 1', '20', 'Evening'],
@@ -419,7 +401,8 @@ export const downloadTemplate = async (req: Request, res: Response): Promise<voi
     institutionType = org ? resolveInstitutionType(org) : 'school';
   }
   const rows = [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.school];
-  const buffer = buildXlsxBuffer(CLASS_EXPORT_HEADERS, rows, 'Class Template');
+  const headers = institutionType === 'school' ? SCHOOL_CLASS_EXPORT_HEADERS : CLASS_EXPORT_HEADERS;
+  const buffer = buildXlsxBuffer(headers, rows, 'Class Template');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=classes-template.xlsx');

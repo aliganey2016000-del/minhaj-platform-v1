@@ -392,6 +392,10 @@ function ResponsiveStudentsManage() {
       if (status) baseParams.status = status;
       if (classFilter) baseParams.classId = classFilter;
 
+      // Pagination loop intentionally has an open-ended condition; the response metadata controls termination.
+      // eslint-disable-next-line no-constant-condition
+      // Pagination loop intentionally has an open-ended condition; the response metadata controls termination.
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const response = await api.get('/students', { params: { ...baseParams, page: currentPage } });
         const payload: any = response.data;
