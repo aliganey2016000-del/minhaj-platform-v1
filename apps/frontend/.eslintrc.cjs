@@ -17,14 +17,6 @@ module.exports = {
     'plugin:react-hooks/recommended',
   ],
   ignorePatterns: ['dist/', 'node_modules/', '*.config.js', '*.config.ts'],
-  overrides: [
-    {
-      files: ['src/features/admin/pages/students-manage.tsx'],
-      rules: {
-        'no-constant-condition': 'off',
-      },
-    },
-  ],
   rules: {
     '@typescript-eslint/no-explicit-any': 'off',
     // These rules are enabled incrementally; the existing codebase has a
