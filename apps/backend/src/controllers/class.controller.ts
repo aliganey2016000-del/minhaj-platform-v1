@@ -367,12 +367,7 @@ export const exportClasses = async (req: Request, res: Response): Promise<void> 
   const orgId = resolveOrgIdForCreate(req);
   const org = orgId ? await School.findById(orgId).select('institutionType organizationType').lean() : null;
   const institutionType = org ? resolveInstitutionType(org) : 'school';
-  const classes = await ClassModel.find(filter)
-    .populate('school', 'name')
-    .populate({ path: 'department', select: 'name code facultyId', populate: { path: 'facultyId', select: 'name' } })
-    .populate('program', 'name')
-    .sort({ createdAt: -1 })
-    .lean();
+  const classes = await ClassModel.find(filter).populate('school', 'name').populate({ path: 'department', select: 'name code facultyId', populate: { path: 'facultyId', select: 'name' } }).populate('program', 'name').sort({ createdAt: -1 }).lean();
   const rows = classes.map((c: any) => {
     const dept = typeof c.department === 'object' ? c.department : null;
     if (institutionType === 'school') return [c.batch || '', c.academicYear || '', c.gradeLevel != null ? String(c.gradeLevel) : '', dept?.name || (typeof c.department === 'string' ? c.department : '') || '', c.title || '', c.section || '', c.room || '', c.capacity != null ? String(c.capacity) : '', c.shiftMode || 'Morning', c.isGraduatingGrade ? 'Yes' : 'No', c.isEntryGrade ? 'Yes' : 'No'];
@@ -385,8 +380,7 @@ export const exportClasses = async (req: Request, res: Response): Promise<void> 
   res.end(buffer);
 }
 
-// ---------------------------------------------------------------------------
-// GET /classes/template — Download empty structured template (XLSX).
+/ GET /classes/template — Download empty structured template (XLSX).
 // Institution-aware: ?institutionType=school|college|university|training_center
 // picks a tailored example row; omitted, it resolves the caller's own org
 // (falling back to a school-shaped example for a super admin with none).
