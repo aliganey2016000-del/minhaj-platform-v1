@@ -3,6 +3,7 @@ import multer from 'multer';
 import * as ctrl from '../../controllers/class-schedule.controller';
 import * as schoolCtrl from '../../controllers/school-class-schedule.controller';
 import * as schoolListCtrl from '../../controllers/school-class-schedule-list.controller';
+import * as schoolTemplateCtrl from '../../controllers/school-class-schedule-template.controller';
 import * as dispatchCtrl from '../../controllers/class-schedule-dispatch.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
@@ -31,7 +32,7 @@ router.post('/school', roleMiddleware(['admin', 'org_admin']), asyncHandler(scho
 router.put('/school/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.updateSchoolSchedule));
 router.post('/school/import', roleMiddleware(['admin', 'org_admin']), upload.single('file'), asyncHandler(schoolCtrl.importSchoolSchedules));
 router.get('/school/export', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.exportSchoolSchedules as any));
-router.get('/school/template', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.downloadSchoolTemplate as any));
+router.get('/school/template', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolTemplateCtrl.downloadSchoolTemplate as any));
 
 // Legacy/comprehensive spreadsheet workflow retained for university, college,
 // training-center and super-admin use.
