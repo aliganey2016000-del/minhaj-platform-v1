@@ -164,9 +164,6 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
           locked: completion === 'complete',
           takenBy: new mongoose.Types.ObjectId(req.user!.userId),
           submittedAt: new Date(),
-          unlockedBy: null,
-          unlockedAt: null,
-          unlockReason: '',
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
@@ -212,10 +209,14 @@ export const unlockSchoolSession = async (req: Request, res: Response): Promise<
     { $set: { locked: false } },
   );
 
+  const unlockedAt = new Date();
+  const unlockedBy = new mongoose.Types.ObjectId(req.user!.userId);
+  const reasonText = correctionReason.slice(0, 500);
   session.locked = false;
-  session.unlockedBy = new mongoose.Types.ObjectId(req.user!.userId);
-  session.unlockedAt = new Date();
-  session.unlockReason = correctionReason.slice(0, 500);
+  session.unlockedBy = unlockedBy;
+  session.unlockedAt = unlockedAt;
+  session.unlockReason = reasonText;
+  session.corrections.push({ unlockedBy, unlockedAt, reason: reasonText });
   await session.save();
 
   return ApiResponse.success(res, { schedule: schedule._id, date, reason: session.unlockReason }, 'Attendance unlocked for correction');
