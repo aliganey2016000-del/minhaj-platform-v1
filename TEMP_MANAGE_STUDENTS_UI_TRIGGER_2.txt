@@ -1,0 +1,1 @@
+Second temporary trigger; bridge should remove temporary files.
