@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as ctrl from '../../controllers/class-schedule.controller';
+import * as schoolCtrl from '../../controllers/school-class-schedule.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
-import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
+import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 // ---------------------------------------------------------------------------
@@ -20,6 +21,16 @@ router.use(authMiddleware);
 // Admin/Teacher: full CRUD
 router.get('/', adminOrTeacher, asyncHandler(ctrl.getAll));
 router.post('/', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.create));
+
+// Simplified school-only workflow. These routes intentionally sit before /:id.
+router.post('/school', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.createSchoolSchedule));
+router.put('/school/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.updateSchoolSchedule));
+router.post('/school/import', roleMiddleware(['admin', 'org_admin']), upload.single('file'), asyncHandler(schoolCtrl.importSchoolSchedules));
+router.get('/school/export', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.exportSchoolSchedules as any));
+router.get('/school/template', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.downloadSchoolTemplate as any));
+
+// Legacy/comprehensive spreadsheet workflow retained for university, college,
+// training-center and super-admin use.
 router.post('/bulk-import', roleMiddleware(['admin', 'org_admin']), upload.single('file'), asyncHandler(ctrl.bulkImport));
 router.post('/import', roleMiddleware(['admin', 'org_admin']), upload.single('file'), asyncHandler(ctrl.bulkImportTransactional));
 router.get('/export', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.exportSchedules as any));
