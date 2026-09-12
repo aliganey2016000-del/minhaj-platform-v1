@@ -6,17 +6,23 @@
  * organizations omit Duration/Fee/Capacity exactly like the form does.
  */
 import { Request, Response } from 'express';
+import crypto from 'crypto';
 import * as XLSX from 'xlsx';
 import Course from '../models/course.model';
 import School, { resolveInstitutionType } from '../models/school.model';
 import ClassModel from '../models/class.model';
 import Teacher from '../models/teacher.model';
+import User from '../models/user.model';
+import Profile from '../models/profile.model';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { BadRequestError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
 
 const DIACRITICS_REGEX = new RegExp('[\\u0300-\\u036f]', 'g');
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type TeacherGender = 'male' | 'female';
 
 function slugify(value: string): string {
   const base = value
@@ -44,6 +50,134 @@ function normalizeLookup(value: unknown): string {
 function isHeaderRow(row: Record<string, any>): boolean {
   const first = normalizeLookup(Object.values(row)[0]);
   return first === 'course / subject name' || first === 'course subject name' || first === 'course title (english)' || first === 'course title';
+}
+
+function titleCase(value: string): string {
+  return value
+    .split(/[._\-\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function parseTeacherReference(raw: string): { lookupKeys: string[]; email?: string; displayName?: string; gender?: TeacherGender } {
+  const trimmed = raw.trim();
+  const pipeParts = trimmed.split('|').map((part) => part.trim()).filter(Boolean);
+  const identity = pipeParts[0] || trimmed;
+  const genderPart = pipeParts.slice(1).map((part) => part.toLowerCase()).find((part) => part === 'male' || part === 'female') as TeacherGender | undefined;
+
+  const namedEmail = identity.match(/^(.+?)\s*<([^>]+)>$/);
+  const displayName = namedEmail?.[1]?.trim() || undefined;
+  const possibleEmail = (namedEmail?.[2] || identity).trim().toLowerCase();
+  const email = EMAIL_REGEX.test(possibleEmail) ? possibleEmail : undefined;
+
+  const lookupKeys = new Set<string>();
+  lookupKeys.add(normalizeLookup(trimmed));
+  lookupKeys.add(normalizeLookup(identity));
+  if (displayName) lookupKeys.add(normalizeLookup(displayName));
+  if (email) lookupKeys.add(normalizeLookup(email));
+
+  return { lookupKeys: Array.from(lookupKeys).filter(Boolean), email, displayName, gender: genderPart };
+}
+
+function deriveTeacherName(displayName: string | undefined, email: string): { firstName: string; lastName: string } {
+  const source = (displayName || titleCase(email.split('@')[0] || 'New Teacher')).trim();
+  const parts = source.split(/\s+/).filter(Boolean);
+  const firstName = (parts.shift() || 'New').slice(0, 50);
+  const lastName = (parts.join(' ') || 'Teacher').slice(0, 50);
+  return { firstName, lastName };
+}
+
+async function resolveOrCreateTeacher(
+  teacherValue: string,
+  schoolId: string,
+  teacherMap: Map<string, any>
+): Promise<{ teacherId: any; created: boolean }> {
+  const parsed = parseTeacherReference(teacherValue);
+
+  for (const key of parsed.lookupKeys) {
+    const existingId = teacherMap.get(key);
+    if (existingId) return { teacherId: existingId, created: false };
+  }
+
+  if (!parsed.email) {
+    throw new Error(
+      `Teacher / Instructor "${teacherValue}" was not found. ` +
+      'To auto-create a new teacher, use: Full Name <email@example.com> | male or female.'
+    );
+  }
+  if (!parsed.gender) {
+    throw new Error(
+      `Teacher "${parsed.email}" does not exist yet. ` +
+      'For a new teacher, add gender in the same cell, e.g. Ahmed Ali <ahmed@example.com> | male.'
+    );
+  }
+
+  const existingUser = await User.findOne({ email: parsed.email }).lean();
+  if (existingUser) {
+    const existingTeacher = await Teacher.findOne({ user: existingUser._id, school: schoolId })
+      .select('_id teacherId user profile')
+      .populate('user', 'email')
+      .populate('profile', 'firstName lastName')
+      .lean();
+    if (existingTeacher) {
+      const fullName = normalizeLookup(`${(existingTeacher as any).profile?.firstName || ''} ${(existingTeacher as any).profile?.lastName || ''}`);
+      teacherMap.set(normalizeLookup(parsed.email), existingTeacher._id);
+      if ((existingTeacher as any).teacherId) teacherMap.set(normalizeLookup((existingTeacher as any).teacherId), existingTeacher._id);
+      if (fullName) teacherMap.set(fullName, existingTeacher._id);
+      return { teacherId: existingTeacher._id, created: false };
+    }
+    throw new Error(`Email "${parsed.email}" is already registered but is not a teacher in this organization`);
+  }
+
+  const { firstName, lastName } = deriveTeacherName(parsed.displayName, parsed.email);
+  const temporaryPassword = crypto.randomBytes(24).toString('base64url');
+  const currentYear = new Date().getFullYear();
+  const teacherCount = await Teacher.countDocuments();
+  const proposedTeacherId = `TCH-${currentYear}-${String(teacherCount + 1).padStart(4, '0')}`;
+
+  let createdUser: any = null;
+  let createdProfile: any = null;
+  try {
+    createdUser = await User.create({
+      email: parsed.email,
+      password: temporaryPassword,
+      role: 'teacher',
+      organizationId: schoolId,
+      isVerified: true,
+      isActive: true,
+      preferredLanguage: 'en',
+      onboardingCompleted: false,
+    });
+
+    createdProfile = await Profile.create({
+      user: createdUser._id,
+      firstName,
+      lastName,
+      gender: parsed.gender,
+    });
+
+    const createdTeacher = await Teacher.create({
+      user: createdUser._id,
+      profile: createdProfile._id,
+      teacherId: proposedTeacherId,
+      school: schoolId,
+      status: 'active',
+      joiningDate: new Date(),
+    });
+
+    const keys = new Set<string>(parsed.lookupKeys);
+    keys.add(normalizeLookup(parsed.email));
+    keys.add(normalizeLookup(createdTeacher.teacherId));
+    keys.add(normalizeLookup(`${firstName} ${lastName}`));
+    for (const key of keys) if (key) teacherMap.set(key, createdTeacher._id);
+
+    return { teacherId: createdTeacher._id, created: true };
+  } catch (error) {
+    if (createdProfile?._id) await Profile.deleteOne({ _id: createdProfile._id }).catch(() => undefined);
+    if (createdUser?._id) await User.deleteOne({ _id: createdUser._id }).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function resolveSpreadsheetContext(req: Request) {
@@ -98,7 +232,7 @@ export const downloadTemplate = async (req: Request, res: Response): Promise<voi
     'Mathematics',
     'MATH-101',
     placementSample,
-    'teacher@example.com',
+    'Ahmed Ali <ahmed.ali@example.com> | male',
     'Core mathematics course',
   ];
   if (context.includeCommercialFields) row.push(8, 0, 50);
@@ -203,6 +337,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   const updateOps: any[] = [];
   const seenSlugs = new Set<string>();
   const seenExistingIds = new Set<string>();
+  let teachersCreated = 0;
 
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
@@ -222,12 +357,6 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       if (placement) {
         classId = classMap.get(normalizeLookup(placement));
         if (!classId) throw new Error(`${context.placementHeader} "${placement}" was not found`);
-      }
-
-      let teacherId: any = null;
-      if (teacherValue) {
-        teacherId = teacherMap.get(normalizeLookup(teacherValue));
-        if (!teacherId) throw new Error(`Teacher / Instructor "${teacherValue}" was not found`);
       }
 
       let duration = 8;
@@ -251,6 +380,30 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const slugOwner = slugMap.get(slug);
       const existing = existingByCode || (slugOwner && String(slugOwner.school) === String(context.schoolId) ? slugOwner : undefined);
 
+      if (existing) {
+        const existingId = String(existing._id);
+        if (seenExistingIds.has(existingId)) throw new Error('This course appears more than once in the import file');
+        if (slugOwner && String(slugOwner._id) !== existingId) {
+          throw new Error(`Another course already uses the generated course URL "${slug}"`);
+        }
+      } else {
+        if (slugOwner && String(slugOwner.school) !== String(context.schoolId)) {
+          throw new Error(`A course with generated URL "${slug}" already exists in another organization`);
+        }
+        if (seenSlugs.has(slug)) throw new Error('This course appears more than once in the import file');
+      }
+
+      // Teacher is optional. Blank means Unassigned and remains editable later.
+      // Existing teacher values can be email, Teacher ID, or full name.
+      // Missing teachers are auto-created when the cell supplies enough
+      // information: Full Name <email@example.com> | male/female.
+      let teacherId: any = null;
+      if (teacherValue) {
+        const teacherResolution = await resolveOrCreateTeacher(teacherValue, context.schoolId, teacherMap);
+        teacherId = teacherResolution.teacherId;
+        if (teacherResolution.created) teachersCreated += 1;
+      }
+
       const commonFields: any = {
         title: { en: title, so: '', ar: '' },
         courseCode,
@@ -267,11 +420,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
       if (existing) {
         const existingId = String(existing._id);
-        if (seenExistingIds.has(existingId)) throw new Error('This course appears more than once in the import file');
         seenExistingIds.add(existingId);
-        if (slugOwner && String(slugOwner._id) !== existingId) {
-          throw new Error(`Another course already uses the generated course URL "${slug}"`);
-        }
         commonFields.slug = slug;
         updateOps.push({
           updateOne: {
@@ -282,10 +431,6 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         continue;
       }
 
-      if (slugOwner && String(slugOwner.school) !== String(context.schoolId)) {
-        throw new Error(`A course with generated URL "${slug}" already exists in another organization`);
-      }
-      if (seenSlugs.has(slug)) throw new Error('This course appears more than once in the import file');
       seenSlugs.add(slug);
       insertRowNumbers.push(rowNumber);
       insertDocs.push({
@@ -337,7 +482,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     totalRows: rows.length,
     created,
     updated,
+    teachersCreated,
     failed: errors.length,
     errors,
-  }, `Imported ${created} new and updated ${updated} existing course(s)`);
+  }, `Imported ${created} new and updated ${updated} existing course(s); auto-created ${teachersCreated} teacher(s)`);
 };
