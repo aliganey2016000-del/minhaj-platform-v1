@@ -364,7 +364,6 @@ function ResponsiveStudentsManage() {
       const payload = response.data;
       setStudents(payload.data || []);
       setTotal(payload.pagination?.total ?? payload.meta?.total ?? 0);
-      setSelected([]);
     } catch (err: any) {
       const endpoint = err.config?.url ? ` (${err.config.url})` : '';
       setError(err.response?.data?.message || `Failed to load students${endpoint}.`);
@@ -374,8 +373,43 @@ function ResponsiveStudentsManage() {
   useEffect(() => { loadMeta(); }, [loadMeta]);
   useEffect(() => { const timer = window.setTimeout(loadStudents, 250); return () => window.clearTimeout(timer); }, [loadStudents]);
 
-  const allSelected = students.length > 0 && students.every(student => selected.includes(student._id));
-  const toggleAll = () => setSelected(allSelected ? [] : students.map(student => student._id));
+  const allSelected = total > 0 && selected.length === total;
+  const toggleAll = async () => {
+    if (selectingAll) return;
+    if (allSelected) {
+      setSelected([]);
+      return;
+    }
+
+    setSelectingAll(true);
+    try {
+      const ids = new Set<string>();
+      let currentPage = 1;
+      const fetchLimit = 100;
+      const baseParams: Record<string, string | number> = { limit: fetchLimit, school: organizationId };
+      if (search.trim()) baseParams.search = search.trim();
+      if (status) baseParams.status = status;
+      if (classFilter) baseParams.classId = classFilter;
+
+      while (true) {
+        const response = await api.get('/students', { params: { ...baseParams, page: currentPage } });
+        const payload: any = response.data;
+        const batch: Student[] = payload.data || [];
+        batch.forEach(student => ids.add(student._id));
+
+        const reportedTotal = Number(payload.pagination?.total ?? payload.meta?.total ?? 0);
+        const reportedPages = Number(payload.pagination?.pages ?? payload.pagination?.totalPages ?? payload.meta?.pages ?? 0);
+        if (batch.length === 0 || (reportedPages > 0 && currentPage >= reportedPages) || batch.length < fetchLimit || (reportedTotal > 0 && ids.size >= reportedTotal)) break;
+        currentPage += 1;
+      }
+
+      setSelected(Array.from(ids));
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to select all students.');
+    } finally {
+      setSelectingAll(false);
+    }
+  };
   const removeStudent = async (id: string) => {
     if (!window.confirm('Move this student to Trash?')) return;
     try { await api.delete(`/students/${id}`); await loadStudents(); } catch (err: any) { setError(err.response?.data?.message || 'Failed to delete student.'); }
@@ -533,7 +567,7 @@ function ResponsiveStudentsManage() {
     {error && !showImportModal && <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span><button className="ml-auto" onClick={() => setError('')}><X className="h-4 w-4" /></button></div>}
     <div className="flex flex-col gap-3 lg:flex-row"><div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input className={`${inputClass} pl-9`} placeholder="Search student, ID, email or phone..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} /></div><select className={`${inputClass} lg:w-44`} value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="">All Status</option>{statusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><select className={`${inputClass} lg:w-60`} value={classFilter} onChange={e => { setClassFilter(e.target.value); setPage(1); }}><option value="">All {type === 'school' ? 'Classes' : type === 'training_center' ? 'Batches' : 'Cohorts'}</option>{classes.map(item => <option key={item._id} value={item._id}>{item.title}{item.section ? ` - ${item.section}` : ''}</option>)}</select></div>
     <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]">
-      <div className="flex items-center justify-between border-b px-3 py-3 sm:px-4"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allSelected} onChange={toggleAll} /> Select page</label><span className="text-xs text-[var(--color-text-tertiary)]">{type.replace('_', ' ')} students</span>{selected.length > 0 && <button onClick={bulkDelete} className="rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">Delete selected ({selected.length})</button>}</div>
+      <div className="flex items-center justify-between border-b px-3 py-3 sm:px-4"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allSelected} onChange={() => { void toggleAll(); }} disabled={selectingAll} /> {selectingAll ? 'Selecting all…' : allSelected ? 'Unselect all students' : 'Select all students'}</label><span className="text-xs text-[var(--color-text-tertiary)]">{type.replace('_', ' ')} students</span>{selected.length > 0 && <button onClick={bulkDelete} className="rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">Delete selected ({selected.length})</button>}</div>
       {loading ? <div className="flex items-center justify-center py-16 text-sm text-[var(--color-text-tertiary)]"><RefreshCw className="mr-2 h-4 w-4 animate-spin" /> Loading students...</div> : students.length === 0 ? <div className="py-16 text-center text-sm text-[var(--color-text-tertiary)]">No students found.</div> : <>
         <div className="hidden overflow-x-auto lg:block"><table className="w-full min-w-[900px] table-fixed text-left text-sm"><thead className="bg-[var(--color-surface-secondary)] text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]"><tr><th className="w-10 px-4 py-3" /><th className="w-[22%] px-4 py-3">Name / ID</th><th className="w-[24%] px-4 py-3">Email / Phone</th><th className="w-[25%] px-4 py-3">Depart / Class</th><th className="w-[12%] px-4 py-3">Status</th><th className="w-[12%] px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-[var(--color-border-subtle)]">{students.map(student => <tr key={student._id} onClick={() => setProfileStudent(student)} className="cursor-pointer hover:bg-[var(--color-surface-secondary)]"><td className="px-4 py-3"><input type="checkbox" checked={selected.includes(student._id)} onClick={event => event.stopPropagation()} onChange={() => setSelected(value => value.includes(student._id) ? value.filter(id => id !== student._id) : [...value, student._id])} /></td><td className="px-4 py-3 align-middle"><div className="font-semibold text-[var(--color-text-primary)]">{student.profile?.firstName} {student.profile?.lastName}</div><div className="font-mono text-xs text-[var(--color-text-secondary)]">{student.studentId}</div></td><td className="px-4 py-3 align-middle text-xs text-[var(--color-text-tertiary)]"><div className="truncate">{student.user?.email || 'No email'}</div><div className="truncate">{student.user?.phone || 'No phone'}</div></td><td className="px-4 py-3 align-middle"><div className="font-medium text-[var(--color-text-primary)]">{academicLabel(student)}</div><div className="text-xs text-[var(--color-text-tertiary)]">{classLabel(student)}</div></td><td className="px-4 py-3 align-middle"><span className={`inline-flex rounded-full border px-2 py-1 text-xs font-medium ${statusBadge[student.status] || statusBadge.inactive}`}>{student.status}</span></td><td className="px-4 py-3 align-middle">{renderActions(student, true)}</td></tr>)}</tbody></table></div>
         <div className="divide-y divide-[var(--color-border-subtle)] lg:hidden">{students.map(student => <div key={student._id} onClick={() => setProfileStudent(student)} className="cursor-pointer p-4"><div className="flex items-start gap-3"><input className="mt-1" type="checkbox" checked={selected.includes(student._id)} onClick={event => event.stopPropagation()} onChange={() => setSelected(value => value.includes(student._id) ? value.filter(id => id !== student._id) : [...value, student._id])} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><div className="font-semibold hover:text-primary-600">{student.profile?.firstName} {student.profile?.lastName}</div><span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusBadge[student.status] || statusBadge.inactive}`}>{student.status}</span></div><div className="mt-1 font-mono text-xs text-[var(--color-text-secondary)]">{student.studentId}</div><div className="truncate text-xs text-[var(--color-text-tertiary)]">{student.user?.email || 'No email'} / {student.user?.phone || 'No phone'}</div><dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-xs"><div><dt className="text-[var(--color-text-tertiary)]">{higherEd ? 'Department' : type === 'training_center' ? 'Batch' : 'Grade'}</dt><dd>{academicLabel(student)}</dd></div><div><dt className="text-[var(--color-text-tertiary)]">Class</dt><dd>{classLabel(student)}</dd></div></dl></div>{renderActions(student)}</div></div>)}</div>
