@@ -8,6 +8,7 @@ import { resolveInstitutionType, isHigherEdInstitutionType } from '../../../lib/
 type Status = 'active' | 'inactive' | 'completed';
 type Shift = 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
 type AcademicSystem = 'annual' | 'semester';
+type SchoolClassTab = 'active' | 'completed';
 type PromotionAction = 'promote-new' | 'promote-existing' | 'graduate' | 'already-promoted' | 'skipped';
 
 interface Organization { _id: string; name: string; institutionType?: string; organizationType?: string; }
@@ -357,6 +358,7 @@ export function ClassesManage() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'all' | Status>('all');
+  const [schoolTab, setSchoolTab] = useState<SchoolClassTab>('active');
   const [modal, setModal] = useState<{ open: boolean; cls?: ClassItem }>({ open: false });
   const [menu, setMenu] = useState(false);
   const [rowMenu, setRowMenu] = useState<string | null>(null);
@@ -397,7 +399,7 @@ export function ClassesManage() {
     try {
       const p = new URLSearchParams({ limit: '200' });
       if (search.trim()) p.set('search', search.trim());
-      if (status !== 'all') p.set('status', status);
+      if (institutionType !== 'school' && status !== 'all') p.set('status', status);
       const r = await api.get(`/classes?${p}`);
       setClasses(dataOf<ClassItem[]>(r) || []);
       setError('');
@@ -407,7 +409,7 @@ export function ClassesManage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [search, status]);
+  }, [search, status, institutionType]);
 
   useEffect(() => { if (!authLoading) loadMeta().catch(e => setError(errOf(e))); }, [authLoading, loadMeta]);
   useEffect(() => { if (!authLoading) loadClasses().catch(() => undefined); }, [authLoading, loadClasses]);
@@ -420,6 +422,7 @@ export function ClassesManage() {
   };
   const toggleStatus = async (c: ClassItem) => {
     setRowMenu(null);
+    if (c.status === 'completed') return;
     try { await api.patch(`/classes/${c._id}/status`, { status: c.status === 'active' ? 'inactive' : 'active' }); await refresh(); } catch (e) { setError(errOf(e)); }
   };
   const duplicateClass = async (c: ClassItem) => {
@@ -449,25 +452,56 @@ export function ClassesManage() {
     } catch (e) { setError(errOf(e)); }
   };
 
+  const schoolActiveCount = useMemo(() => classes.filter(c => c.status !== 'completed').length, [classes]);
+  const schoolCompletedCount = useMemo(() => classes.filter(c => c.status === 'completed').length, [classes]);
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return classes.filter(c => !q || `${c.title} ${c.section || ''} ${c.room || ''} ${c.department || ''} ${c.academicYear || ''} ${higherEd ? c.semesterNumber || '' : ''}`.toLowerCase().includes(q));
-  }, [classes, search, higherEd]);
+    return classes
+      .filter(c => {
+        if (institutionType === 'school') {
+          if (schoolTab === 'completed' && c.status !== 'completed') return false;
+          if (schoolTab === 'active' && c.status === 'completed') return false;
+        }
+        return !q || `${c.title} ${c.section || ''} ${c.room || ''} ${c.department || ''} ${c.academicYear || ''} ${higherEd ? c.semesterNumber || '' : ''}`.toLowerCase().includes(q);
+      })
+      .sort((a, b) => {
+        if (institutionType !== 'school') return 0;
+        const yearCompare = String(b.academicYear || '').localeCompare(String(a.academicYear || ''), undefined, { numeric: true });
+        if (yearCompare !== 0) return yearCompare;
+        const gradeA = a.gradeLevel ?? Number.MAX_SAFE_INTEGER;
+        const gradeB = b.gradeLevel ?? Number.MAX_SAFE_INTEGER;
+        if (gradeA !== gradeB) return gradeA - gradeB;
+        const sectionCompare = String(a.section || '').localeCompare(String(b.section || ''), undefined, { numeric: true, sensitivity: 'base' });
+        if (sectionCompare !== 0) return sectionCompare;
+        return a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' });
+      });
+  }, [classes, search, higherEd, institutionType, schoolTab]);
+  const switchSchoolTab = (tab: SchoolClassTab) => {
+    setSchoolTab(tab);
+    setSelected([]);
+    setRowMenu(null);
+  };
   const toggleSelected = (id: string) => setSelected(x => x.includes(id) ? x.filter(i => i !== id) : [...x, id]);
   const allSelected = filtered.length > 0 && filtered.every(c => selected.includes(c._id));
   const toggleAll = () => setSelected(allSelected ? [] : filtered.map(c => c._id));
   const rowMenuFor = (c: ClassItem) => rowMenu === c._id ? null : c._id;
+  const emptyText = institutionType === 'school' ? (schoolTab === 'active' ? 'No active classes found.' : 'No completed classes found.') : 'No classes found.';
 
   const rowActions = (c: ClassItem) => <div className="relative inline-flex">
     <button type="button" aria-label={`Actions for ${c.title}`} aria-haspopup="menu" aria-expanded={rowMenu === c._id} onClick={() => setRowMenu(rowMenuFor(c))} className="rounded-lg border border-transparent p-2 text-slate-600 hover:border-slate-200 hover:bg-slate-100 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800"><MoreVertical size={17}/></button>
     {rowMenu === c._id && <div role="menu" className="absolute right-0 top-full z-50 mt-1 w-48 rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-xl dark:border-slate-700 dark:bg-slate-900">
       <button type="button" role="menuitem" onClick={() => { setRowMenu(null); setModal({ open: true, cls: c }); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"><Pencil size={15}/> Edit</button>
       <button type="button" role="menuitem" onClick={() => void duplicateClass(c)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"><Copy size={15}/> Duplicate / Copy</button>
-      <button type="button" role="menuitem" onClick={() => void toggleStatus(c)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800">{c.status === 'active' ? <RefreshCw size={15}/> : <Plus size={15}/>} {c.status === 'active' ? 'Deactivate' : 'Activate'}</button>
+      {c.status !== 'completed' && <button type="button" role="menuitem" onClick={() => void toggleStatus(c)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800">{c.status === 'active' ? <RefreshCw size={15}/> : <Plus size={15}/>} {c.status === 'active' ? 'Deactivate' : 'Activate'}</button>}
       <div className="my-1 border-t border-slate-100 dark:border-slate-800"/>
       <button type="button" role="menuitem" onClick={() => void remove(c)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><Trash2 size={15}/> Delete</button>
     </div>}
   </div>;
+
+  const statusBadge = (c: ClassItem) => {
+    const cls = `rounded-full px-2.5 py-1 text-xs font-semibold ${c.status === 'active' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : c.status === 'completed' ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`;
+    return c.status === 'completed' ? <span className={cls}>{c.status}</span> : <button onClick={() => void toggleStatus(c)} className={cls}>{c.status}</button>;
+  };
 
   return <div className="space-y-5 p-4 sm:p-6">
     <div className="flex items-start justify-between gap-3">
@@ -486,15 +520,20 @@ export function ClassesManage() {
 
     {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
 
-    <div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17}/><input className={`${inputClass} pl-9`} value={search} onChange={e => setSearch(e.target.value)} placeholder={higherEd ? 'Search class, program, room, semester...' : isTrainingCenter ? 'Search program, batch, room...' : 'Search class, grade, room...'}/></div><select className={`${inputClass} sm:w-44`} value={status} onChange={e => setStatus(e.target.value as 'all' | Status)}><option value="all">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select><button onClick={() => void refresh()} className="rounded-lg border border-slate-200 px-3 dark:border-slate-700" title="Refresh"><RefreshCw size={17} className={refreshing ? 'animate-spin' : ''}/></button></div>
+    {institutionType === 'school' && <div className="grid grid-cols-2 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
+      <button type="button" onClick={() => switchSchoolTab('active')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${schoolTab === 'active' ? 'bg-white text-emerald-700 shadow-sm dark:bg-slate-950 dark:text-emerald-300' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}><span>Active</span><span className={`rounded-full px-2 py-0.5 text-[11px] ${schoolTab === 'active' ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'bg-slate-200 dark:bg-slate-800'}`}>{schoolActiveCount}</span></button>
+      <button type="button" onClick={() => switchSchoolTab('completed')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${schoolTab === 'completed' ? 'bg-white text-blue-700 shadow-sm dark:bg-slate-950 dark:text-blue-300' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}><span>Completed</span><span className={`rounded-full px-2 py-0.5 text-[11px] ${schoolTab === 'completed' ? 'bg-blue-50 dark:bg-blue-950/40' : 'bg-slate-200 dark:bg-slate-800'}`}>{schoolCompletedCount}</span></button>
+    </div>}
+
+    <div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17}/><input className={`${inputClass} pl-9`} value={search} onChange={e => setSearch(e.target.value)} placeholder={higherEd ? 'Search class, program, room, semester...' : isTrainingCenter ? 'Search program, batch, room...' : schoolTab === 'completed' ? 'Search completed class, grade, year...' : 'Search active class, grade, room...'}/></div>{institutionType !== 'school' && <select className={`${inputClass} sm:w-44`} value={status} onChange={e => setStatus(e.target.value as 'all' | Status)}><option value="all">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select>}<button onClick={() => void refresh()} className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700" title="Refresh"><RefreshCw size={17} className={refreshing ? 'animate-spin' : ''}/></button></div>
 
     {selected.length > 0 && <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-slate-800 dark:bg-slate-900"><span>{selected.length} class(es) selected</span>{semesterMode && <button onClick={() => void advanceSemester()} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white dark:bg-white dark:text-slate-900">Advance Selected Semester</button>}</div>}
 
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
       <div className="hidden overflow-x-auto lg:block"><table className="w-full table-fixed text-left text-sm"><thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900"><tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={allSelected} onChange={toggleAll}/></th><th className="w-[22%] px-4 py-3">{higherEd ? 'Program / Cohort' : isTrainingCenter ? 'Program' : 'Class / Grade'}</th><th className="w-[18%] px-4 py-3">Department</th>{higherEd && <th className="px-4 py-3">Progression</th>}<th className="w-[14%] px-4 py-3">Academic Year</th><th className="w-[17%] px-4 py-3">{institutionType === 'school' ? 'Room / Capacity' : 'Room'}</th><th className="w-[9%] px-4 py-3">Status</th><th className="w-[8%] px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-        {loading ? <tr><td colSpan={higherEd ? 8 : 7} className="px-4 py-10 text-center text-slate-500">Loading...</td></tr> : filtered.length === 0 ? <tr><td colSpan={higherEd ? 8 : 7} className="px-4 py-10 text-center text-slate-500">No classes found.</td></tr> : filtered.map(c => <tr key={c._id} className="hover:bg-slate-50 dark:hover:bg-slate-900/60"><td className="px-4 py-3"><input type="checkbox" checked={selected.includes(c._id)} onChange={() => toggleSelected(c._id)}/></td><td className="px-4 py-3"><div className="font-semibold text-slate-900 dark:text-white">{c.title}</div><div className="text-xs text-slate-500">{institutionType === 'school' && c.batch ? `Batch ${c.batch}` : ''}{c.section ? `${institutionType === 'school' && c.batch ? ' · ' : ''}Section ${c.section}` : ''}{institutionType === 'school' && c.gradeLevel != null ? ` · Grade ${c.gradeLevel}` : ''}{isTrainingCenter && c.batch ? ` · Batch ${c.batch}` : ''}</div></td><td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.department || '—'}{c.program ? <span className="block text-xs text-slate-400">{c.program}</span> : null}</td>{higherEd && <td className="px-4 py-3">{c.semesterNumber ? <><span className="font-semibold">Y{c.studyYear || semesterYear(c.semesterNumber, semestersPerYear)} S{c.semesterNumber}</span><span className="ml-2 text-xs text-slate-500">({c.semesterInYear || semesterInYear(c.semesterNumber, semestersPerYear)}/{semestersPerYear})</span></> : `Year ${c.studyYear || '—'}`}</td>}<td className="px-4 py-3">{c.academicYear || '—'}</td><td className="px-4 py-3">{c.room}{c.capacity ? <span className="block text-xs text-slate-400">Cap. {c.capacity}</span> : null}{institutionType === 'school' && c.shiftMode ? <span className="block text-xs text-slate-400">{c.shiftMode}</span> : null}</td><td className="px-4 py-3"><button onClick={() => void toggleStatus(c)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${c.status === 'active' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : c.status === 'completed' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{c.status}</button></td><td className="px-4 py-3 text-right">{rowActions(c)}</td></tr>)}
+        {loading ? <tr><td colSpan={higherEd ? 8 : 7} className="px-4 py-10 text-center text-slate-500">Loading...</td></tr> : filtered.length === 0 ? <tr><td colSpan={higherEd ? 8 : 7} className="px-4 py-10 text-center text-slate-500">{emptyText}</td></tr> : filtered.map(c => <tr key={c._id} className="hover:bg-slate-50 dark:hover:bg-slate-900/60"><td className="px-4 py-3"><input type="checkbox" checked={selected.includes(c._id)} onChange={() => toggleSelected(c._id)}/></td><td className="px-4 py-3"><div className="font-semibold text-slate-900 dark:text-white">{c.title}</div><div className="text-xs text-slate-500">{institutionType === 'school' && c.batch ? `Batch ${c.batch}` : ''}{c.section ? `${institutionType === 'school' && c.batch ? ' · ' : ''}Section ${c.section}` : ''}{institutionType === 'school' && c.gradeLevel != null ? ` · Grade ${c.gradeLevel}` : ''}{isTrainingCenter && c.batch ? ` · Batch ${c.batch}` : ''}</div></td><td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.department || '—'}{c.program ? <span className="block text-xs text-slate-400">{c.program}</span> : null}</td>{higherEd && <td className="px-4 py-3">{c.semesterNumber ? <><span className="font-semibold">Y{c.studyYear || semesterYear(c.semesterNumber, semestersPerYear)} S{c.semesterNumber}</span><span className="ml-2 text-xs text-slate-500">({c.semesterInYear || semesterInYear(c.semesterNumber, semestersPerYear)}/{semestersPerYear})</span></> : `Year ${c.studyYear || '—'}`}</td>}<td className="px-4 py-3">{c.academicYear || '—'}</td><td className="px-4 py-3">{c.room}{c.capacity ? <span className="block text-xs text-slate-400">Cap. {c.capacity}</span> : null}{institutionType === 'school' && c.shiftMode ? <span className="block text-xs text-slate-400">{c.shiftMode}</span> : null}</td><td className="px-4 py-3">{statusBadge(c)}</td><td className="px-4 py-3 text-right">{rowActions(c)}</td></tr>)}
       </tbody></table></div>
-      <div className="divide-y divide-slate-100 lg:hidden dark:divide-slate-800">{loading ? <div className="px-4 py-10 text-center text-slate-500">Loading...</div> : filtered.length === 0 ? <div className="px-4 py-10 text-center text-slate-500">No classes found.</div> : filtered.map(c => <div key={c._id} className="p-4"><div className="flex items-start gap-3"><input type="checkbox" className="mt-1" checked={selected.includes(c._id)} onChange={() => toggleSelected(c._id)}/><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="font-semibold text-slate-900 dark:text-white">{c.title}</div><div className="mt-1 text-xs text-slate-500">{c.department || 'No department'} · {c.room}{c.section ? ` · ${c.section}` : ''}</div></div>{rowActions(c)}</div>{higherEd && <div className="mt-2 text-xs font-medium">{c.semesterNumber ? `Year ${c.studyYear || semesterYear(c.semesterNumber, semestersPerYear)} · Semester ${c.semesterNumber}` : `Year ${c.studyYear || '—'}`}</div>}<div className="mt-2 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-slate-800">{c.academicYear || 'No academic year'}</span><span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-slate-800">{c.status}</span></div></div></div></div>)}</div>
+      <div className="divide-y divide-slate-100 lg:hidden dark:divide-slate-800">{loading ? <div className="px-4 py-10 text-center text-slate-500">Loading...</div> : filtered.length === 0 ? <div className="px-4 py-10 text-center text-slate-500">{emptyText}</div> : filtered.map(c => <div key={c._id} className="p-4"><div className="flex items-start gap-3"><input type="checkbox" className="mt-1" checked={selected.includes(c._id)} onChange={() => toggleSelected(c._id)}/><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="font-semibold text-slate-900 dark:text-white">{c.title}</div><div className="mt-1 text-xs text-slate-500">{c.department || 'No department'} · {c.room}{c.section ? ` · ${c.section}` : ''}</div></div>{rowActions(c)}</div>{higherEd && <div className="mt-2 text-xs font-medium">{c.semesterNumber ? `Year ${c.studyYear || semesterYear(c.semesterNumber, semestersPerYear)} · Semester ${c.semesterNumber}` : `Year ${c.studyYear || '—'}`}</div>}<div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-slate-800">{c.academicYear || 'No academic year'}</span>{statusBadge(c)}</div></div></div></div>)}</div>
     </div>
 
     {semesterMode && selected.length === 0 && filtered.length > 0 && <button onClick={() => void advanceSemester()} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900">Advance All Active Classes to Next Semester</button>}
