@@ -11,7 +11,7 @@ import Course from '../models/course.model';
 import CourseCategory from '../models/course-category.model';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Student from '../models/student.model';
-import School from '../models/school.model';
+import School, { resolveInstitutionType } from '../models/school.model';
 import ClassModel from '../models/class.model';
 import Teacher from '../models/teacher.model';
 import User from '../models/user.model';
@@ -214,7 +214,7 @@ export const getByIdAdmin = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { title, description, category, level, duration, fee, teacher, school, class: classId, maxStudents, syllabus, prerequisites } = req.body;
+  const { title, courseCode, description, category, level, duration, fee, teacher, school, class: classId, maxStudents, syllabus, prerequisites } = req.body;
 
   // Generate slug from English title
   const slug = slugify(title.en);
@@ -231,18 +231,23 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     if (!categoryExists) throw new BadRequestError(`Category "${category}" does not exist for this organization`);
   }
 
+  // School forms omit these legacy numeric settings; retain the existing
+  // creation defaults without overwriting stored values during an edit.
+  const organization = resolvedSchool ? await School.findById(resolvedSchool).select('institutionType organizationType').lean() : null;
+  const isSchool = !!organization && resolveInstitutionType(organization) === 'school';
   const course = await Course.create({
     title,
+    courseCode,
     slug,
     description,
     category,
     level,
-    duration,
+    duration: duration ?? (isSchool ? 8 : undefined),
     fee: fee || 0,
     teacher: teacher || null,
     school: resolvedSchool,
     class: classId || null,
-    maxStudents,
+    maxStudents: maxStudents ?? (isSchool ? 50 : undefined),
     syllabus: syllabus || [],
     prerequisites: prerequisites || [],
     status: 'draft',
@@ -297,7 +302,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   assertOwnsOrg(req, existing, 'school');
 
   const allowedUpdates = [
-    'title', 'description', 'category', 'level', 'duration',
+    'title', 'courseCode', 'description', 'category', 'level', 'duration',
     'fee', 'teacher', 'school', 'class', 'maxStudents', 'syllabus', 'prerequisites', 'status',
     'startDate', 'endDate', 'thumbnail', 'meetingLink', 'accessMode',
   ];

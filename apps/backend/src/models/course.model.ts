@@ -34,6 +34,7 @@ export interface ICourse extends Document {
     ar: string;
   };
   slug: string;
+  courseCode?: string;
   description: {
     en: string;
     so: string;
@@ -123,6 +124,7 @@ const courseSchema = new Schema<ICourse>(
       so: { type: String, default: '', trim: true, maxlength: 200 },
       ar: { type: String, default: '', trim: true, maxlength: 200 },
     },
+    courseCode: { type: String, trim: true, maxlength: 50, default: '' },
     slug: {
       type: String,
       required: [true, 'Slug is required'],
@@ -137,14 +139,14 @@ const courseSchema = new Schema<ICourse>(
     },
     category: {
       type: String,
-      required: [true, 'Category is required'],
+      default: '',
       trim: true,
       lowercase: true,
       index: true,
     },
     level: {
       type: String,
-      required: [true, 'Level is required'],
+      default: 'beginner',
       enum: {
         values: ['beginner', 'intermediate', 'advanced'],
         message: '{VALUE} is not a valid level',
