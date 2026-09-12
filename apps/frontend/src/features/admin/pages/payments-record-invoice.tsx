@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, CreditCard, FileText, Search, ShieldCheck, Wallet, X } from 'lucide-react';
 import api from '../../../lib/axios';
-import { PaymentReceipt, PaymentReceiptData } from './payment-receipt';
+import { PaymentReceipt } from './payment-receipt';
+import type { PaymentReceiptData } from './payment-receipt';
 
 interface Student {
   _id: string;
