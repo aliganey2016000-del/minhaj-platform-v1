@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import * as attendanceController from '../../controllers/attendance.controller';
+import * as schoolAttendanceController from '../../controllers/school-attendance.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -48,6 +49,12 @@ const teacherReadCourseScope = async (req: Request, _res: Response, next: NextFu
 router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendance));
 router.get('/my/courses', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendanceByCourse));
 router.get('/my/course-history', roleMiddleware(['student']), asyncHandler(attendanceController.getMyCourseHistory));
+
+// School org-admin workflow: date -> scheduled session -> class roster.
+router.get('/school/sessions', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolSessions));
+router.get('/school/session/:scheduleId', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolSession));
+router.get('/school/options', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolOptions));
+
 router.post('/', adminOrTeacher, teacherCourseScope, asyncHandler(attendanceController.markBulk));
 // Unlocking a locked session is a platform-Admin-only power — org_admin
 // (who is the one submitting/getting locked out) cannot self-unlock.
