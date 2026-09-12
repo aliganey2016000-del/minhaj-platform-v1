@@ -1,12 +1,14 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Attendance from '../models/attendance.model';
+import AttendanceSession from '../models/attendance-session.model';
+import SchoolCalendarDay from '../models/school-calendar-day.model';
 import ClassSchedule from '../models/class-schedule.model';
 import Student from '../models/student.model';
 import School, { resolveInstitutionType } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
-import { resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
+import { getOwnTeacherRecord, resolveViewableOrgId } from '../utils/tenant-scope';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -21,12 +23,19 @@ function attendanceDay(raw: unknown): Date {
 
 async function schoolContext(req: Request) {
   const requested = (req.query.school || req.body?.school) as string | undefined;
-  const schoolId = String(resolveOrgIdForCreate(req, requested) || '');
-  if (!schoolId) throw new BadRequestError('School is required');
+  const schoolId = String(resolveViewableOrgId(req, requested) || '');
+  if (!schoolId || !mongoose.isValidObjectId(schoolId)) throw new BadRequestError('School is required');
   const school = await School.findById(schoolId).select('name institutionType organizationType').lean();
   if (!school) throw new NotFoundError('School');
   if (resolveInstitutionType(school as any) !== 'school') throw new BadRequestError('This attendance workflow is only available for schools');
   return { schoolId, school };
+}
+
+async function scheduleScope(req: Request): Promise<Record<string, unknown>> {
+  if (req.user?.role !== 'teacher') return {};
+  const teacher = await getOwnTeacherRecord(req);
+  if (!teacher) throw new ForbiddenError('Teacher record not found.');
+  return { teacher: teacher._id };
 }
 
 const TEACHER_POPULATE = {
@@ -53,8 +62,21 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
   const { schoolId } = await schoolContext(req);
   const date = attendanceDay(req.query.date);
   const dayOfWeek = date.getDay();
+  const teacherFilter = await scheduleScope(req);
 
-  const schedules = await ClassSchedule.find({ school: schoolId, dayOfWeek, isActive: true })
+  const calendarDay: any = await SchoolCalendarDay.findOne({ school: schoolId, date })
+    .select('date type name isInstructional notes')
+    .lean();
+  if (calendarDay && calendarDay.isInstructional === false) {
+    return ApiResponse.success(res, {
+      date: String(req.query.date),
+      dayName: DAY_NAMES[dayOfWeek],
+      calendarDay,
+      sessions: [],
+    });
+  }
+
+  const schedules = await ClassSchedule.find({ school: schoolId, dayOfWeek, isActive: true, ...teacherFilter })
     .populate('class', 'title section')
     .populate('course', 'title courseCode')
     .populate(TEACHER_POPULATE)
@@ -62,9 +84,14 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
     .lean();
 
   const scheduleIds = schedules.map((s: any) => s._id);
-  const attendance = scheduleIds.length
-    ? await Attendance.find({ schedule: { $in: scheduleIds }, date }).select('schedule status locked').lean()
-    : [];
+  const [attendance, completionRows] = scheduleIds.length
+    ? await Promise.all([
+        Attendance.find({ schedule: { $in: scheduleIds }, date }).select('schedule status locked').lean(),
+        AttendanceSession.find({ school: schoolId, schedule: { $in: scheduleIds }, date })
+          .select('schedule expectedStudents recordedStudents status locked takenBy submittedAt unlockReason')
+          .lean(),
+      ])
+    : [[], []];
 
   const bySchedule = new Map<string, any>();
   for (const row of attendance as any[]) {
@@ -75,9 +102,12 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
     current.locked = current.locked || !!row.locked;
     bySchedule.set(key, current);
   }
+  const completionMap = new Map((completionRows as any[]).map((row) => [String(row.schedule), row]));
 
   const data = schedules.map((schedule: any) => {
     const summary = bySchedule.get(String(schedule._id)) || { total: 0, present: 0, absent: 0, late: 0, excused: 0, locked: false };
+    const completion: any = completionMap.get(String(schedule._id));
+    const completionStatus = completion?.status || (summary.total > 0 ? 'partial' : 'not_taken');
     return {
       _id: schedule._id,
       class: schedule.class,
@@ -89,33 +119,56 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
       dayName: DAY_NAMES[schedule.dayOfWeek] || '',
       startTime: schedule.startTime,
       endTime: schedule.endTime,
-      attendance: { ...summary, taken: summary.total > 0 },
+      attendance: {
+        ...summary,
+        expectedStudents: completion?.expectedStudents ?? null,
+        recordedStudents: completion?.recordedStudents ?? summary.total,
+        completionStatus,
+        taken: completionStatus === 'complete',
+        locked: completion ? !!completion.locked : summary.locked,
+      },
     };
   });
 
-  return ApiResponse.success(res, { date: String(req.query.date), dayName: DAY_NAMES[dayOfWeek], sessions: data });
+  return ApiResponse.success(res, {
+    date: String(req.query.date),
+    dayName: DAY_NAMES[dayOfWeek],
+    calendarDay: calendarDay || null,
+    sessions: data,
+  });
 };
 
 export const getSchoolSession = async (req: Request, res: Response): Promise<Response> => {
   const { schoolId } = await schoolContext(req);
   const date = attendanceDay(req.query.date);
-  const schedule = await ClassSchedule.findOne({ _id: req.params.scheduleId, school: schoolId })
+  const teacherFilter = await scheduleScope(req);
+
+  const calendarDay: any = await SchoolCalendarDay.findOne({ school: schoolId, date }).select('name type isInstructional').lean();
+  if (calendarDay && calendarDay.isInstructional === false) {
+    throw new BadRequestError(`Attendance is closed for ${calendarDay.name || calendarDay.type} on this date.`);
+  }
+
+  const schedule = await ClassSchedule.findOne({ _id: req.params.scheduleId, school: schoolId, ...teacherFilter })
     .populate('class', 'title section')
     .populate('course', 'title courseCode')
     .populate(TEACHER_POPULATE)
     .lean();
   if (!schedule) throw new NotFoundError('Schedule');
+  if ((schedule as any).dayOfWeek !== date.getDay()) throw new BadRequestError('This class does not meet on the selected date.');
 
   const classId = (schedule as any).class?._id || (schedule as any).class;
   const courseId = (schedule as any).course?._id || (schedule as any).course;
-  const [students, records] = await Promise.all([
+  const [students, records, completion] = await Promise.all([
     Student.find({ school: schoolId, class: classId, status: 'active', approvalStatus: 'approved' })
       .populate('profile', 'firstName lastName')
-      .select('studentId profile class status')
+      .select('studentId profile class status approvalStatus')
       .sort({ studentId: 1 })
       .lean(),
     Attendance.find({ schedule: schedule._id, course: courseId, date })
-      .select('student status notes locked markedBy updatedAt')
+      .select('student status notes reasonCode arrivalTime departureTime locked markedBy updatedAt')
+      .lean(),
+    AttendanceSession.findOne({ school: schoolId, schedule: schedule._id, date })
+      .select('expectedStudents recordedStudents status locked takenBy submittedAt unlockReason')
       .lean(),
   ]);
 
@@ -130,6 +183,9 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
         _id: record._id,
         status: record.status,
         notes: record.notes || '',
+        reasonCode: record.reasonCode || '',
+        arrivalTime: record.arrivalTime || '',
+        departureTime: record.departureTime || '',
         locked: !!record.locked,
         markedBy: record.markedBy,
         updatedAt: record.updatedAt,
@@ -137,6 +193,8 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
     };
   });
 
+  const inferredComplete = students.length > 0 && records.length === students.length;
+  const completionStatus = completion?.status || (records.length === 0 ? 'not_taken' : inferredComplete ? 'complete' : 'partial');
   return ApiResponse.success(res, {
     date: String(req.query.date),
     schedule: {
@@ -144,15 +202,20 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
       className: className((schedule as any).class),
       teacherName: teacherName((schedule as any).teacher),
     },
-    locked: records.some((r: any) => !!r.locked),
-    taken: records.length > 0,
+    locked: completion ? !!completion.locked : records.some((r: any) => !!r.locked),
+    taken: completionStatus === 'complete',
+    completionStatus,
+    expectedStudents: completion?.expectedStudents ?? students.length,
+    recordedStudents: completion?.recordedStudents ?? records.length,
+    unlockReason: completion?.unlockReason || '',
     roster,
   });
 };
 
 export const getSchoolOptions = async (req: Request, res: Response): Promise<Response> => {
   const { schoolId } = await schoolContext(req);
-  const schedules = await ClassSchedule.find({ school: schoolId, isActive: true })
+  const teacherFilter = await scheduleScope(req);
+  const schedules = await ClassSchedule.find({ school: schoolId, isActive: true, ...teacherFilter })
     .populate('class', 'title section')
     .populate('course', 'title courseCode')
     .sort({ dayOfWeek: 1, startTime: 1 })
