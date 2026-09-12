@@ -12,6 +12,7 @@ import { PwaUpdatePrompt } from './components/shared/pwa-update-prompt';
 import { initOfflineSync } from './lib/offline-sync';
 import './assets/styles/globals.css';
 import './assets/styles/classes-alternating-colors.css';
+import './assets/styles/classes-desktop-fix.css';
 import './features/teacher/components/modern-dashboard.css';
 
 // ---------------------------------------------------------------------------
