@@ -380,7 +380,7 @@ export const exportClasses = async (req: Request, res: Response): Promise<void> 
   res.end(buffer);
 }
 
-/ GET /classes/template — Download empty structured template (XLSX).
+// GET /classes/template — Download empty structured template (XLSX).
 // Institution-aware: ?institutionType=school|college|university|training_center
 // picks a tailored example row; omitted, it resolves the caller's own org
 // (falling back to a school-shaped example for a super admin with none).
