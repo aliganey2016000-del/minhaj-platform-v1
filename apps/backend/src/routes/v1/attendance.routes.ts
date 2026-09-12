@@ -1,68 +1,68 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router } from 'express';
 import * as attendanceController from '../../controllers/attendance.controller';
+import * as attendanceProController from '../../controllers/attendance-pro.controller';
+import * as attendanceReportController from '../../controllers/attendance-report.controller';
+import * as attendanceSummaryController from '../../controllers/attendance-summary.controller';
+import * as dailyAttendanceController from '../../controllers/daily-attendance.controller';
 import * as schoolAttendanceController from '../../controllers/school-attendance.controller';
+import * as schoolCalendarController from '../../controllers/school-calendar.controller';
+import * as substituteAssignmentController from '../../controllers/substitute-assignment.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
+import { attendanceCourseScope, attendanceStudentScope } from '../../middleware/attendance-scope.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
-import Course from '../../models/course.model';
-import Teacher from '../../models/teacher.model';
-import { ForbiddenError } from '../../utils/api-error';
 
 const router = Router();
 
 router.use(authMiddleware);
 
-// Teachers may submit attendance only for courses assigned to their own
-// Teacher record. Admin/org_admin retain their existing broader access.
-const teacherCourseScope = async (req: Request, _res: Response, next: NextFunction) => {
-  try {
-    if (req.user?.role !== 'teacher') return next();
-    const courseId = req.body?.course;
-    if (!courseId) throw new ForbiddenError('Course is required for teacher attendance.');
-    const teacher = await Teacher.findOne({ user: req.user.userId }).select('_id').lean();
-    const course = teacher ? await Course.findOne({ _id: courseId, teacher: teacher._id }).select('_id').lean() : null;
-    if (!course) throw new ForbiddenError('You can only mark attendance for courses assigned to you.');
-    return next();
-  } catch (error) {
-    return next(error);
-  }
-};
-
-// Read-side scope: teacher attendance reports/history must not expose another
-// teacher's course data just because the caller knows a courseId.
-const teacherReadCourseScope = async (req: Request, _res: Response, next: NextFunction) => {
-  try {
-    if (req.user?.role !== 'teacher') return next();
-    const courseId = req.query.courseId;
-    if (typeof courseId !== 'string' || !courseId) {
-      throw new ForbiddenError('Course is required for teacher attendance reports.');
-    }
-    const teacher = await Teacher.findOne({ user: req.user.userId }).select('_id').lean();
-    const course = teacher ? await Course.findOne({ _id: courseId, teacher: teacher._id }).select('_id').lean() : null;
-    if (!course) throw new ForbiddenError('You can only view attendance for courses assigned to you.');
-    return next();
-  } catch (error) {
-    return next(error);
-  }
-};
-
-router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendance));
-router.get('/my/courses', roleMiddleware(['student']), asyncHandler(attendanceController.getMyAttendanceByCourse));
+router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceSummaryController.getMyAttendance));
+router.get('/my/courses', roleMiddleware(['student']), asyncHandler(attendanceSummaryController.getMyAttendanceByCourse));
 router.get('/my/course-history', roleMiddleware(['student']), asyncHandler(attendanceController.getMyCourseHistory));
 
-// School org-admin workflow: date -> scheduled session -> class roster.
-router.get('/school/sessions', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolSessions));
-router.get('/school/session/:scheduleId', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolSession));
-router.get('/school/options', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolOptions));
+// School schedule-first workflow. Teachers receive their own lessons plus any
+// dated substitute assignments; admins/org-admins receive the full timetable.
+router.get('/school/sessions', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolSessions));
+router.get('/school/session/:scheduleId', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolSession));
+router.get('/school/options', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolOptions));
 
-router.post('/', adminOrTeacher, teacherCourseScope, asyncHandler(attendanceController.markBulk));
-// Unlocking a locked session is a platform-Admin-only power — org_admin
-// (who is the one submitting/getting locked out) cannot self-unlock.
-router.patch('/unlock', roleMiddleware(['admin']), asyncHandler(attendanceController.unlockSession));
-router.get('/course', teacherReadCourseScope, asyncHandler(attendanceController.getByCourseAndDate));
-router.get('/report', teacherReadCourseScope, asyncHandler(attendanceController.getCourseReport));
-router.get('/insights', teacherReadCourseScope, asyncHandler(attendanceController.getReportInsights));
-router.get('/history', teacherReadCourseScope, asyncHandler(attendanceController.getStudentCourseHistory));
-router.get('/student/:studentId', asyncHandler(attendanceController.getStudentSummary));
+// Substitute coverage is dated and schedule-specific so it never permanently
+// changes the course's regular teacher.
+router.get('/school/substitutes', roleMiddleware(['admin', 'org_admin']), asyncHandler(substituteAssignmentController.listSubstitutes));
+router.post('/school/substitutes', roleMiddleware(['admin', 'org_admin']), asyncHandler(substituteAssignmentController.assignSubstitute));
+router.delete('/school/substitutes/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(substituteAssignmentController.removeSubstitute));
+
+// Daily school attendance is separate from lesson/period attendance. Reception
+// can record whole-day status and check-in/check-out times; the roster displays
+// a section-derived status when no explicit daily record exists yet.
+router.get('/school/daily', roleMiddleware(['admin', 'org_admin']), asyncHandler(dailyAttendanceController.getDailyRoster));
+router.post('/school/daily', roleMiddleware(['admin', 'org_admin']), asyncHandler(dailyAttendanceController.markDailyBulk));
+router.post('/school/check-in', roleMiddleware(['admin', 'org_admin']), asyncHandler(dailyAttendanceController.checkIn));
+router.post('/school/check-out', roleMiddleware(['admin', 'org_admin']), asyncHandler(dailyAttendanceController.checkOut));
+router.get('/school/dashboard', roleMiddleware(['admin', 'org_admin']), asyncHandler(dailyAttendanceController.getSchoolDashboard));
+
+// Instructional calendar — attendance is blocked on non-instructional dates.
+router.get('/school/calendar', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCalendarController.listCalendarDays));
+router.post('/school/calendar', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCalendarController.upsertCalendarDay));
+router.delete('/school/calendar/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCalendarController.deleteCalendarDay));
+
+// Secure writes: tenant/course/schedule scope is enforced before any records
+// can be changed. Scheduled school attendance also requires the full roster.
+router.post('/', adminOrTeacher, attendanceCourseScope, asyncHandler(attendanceProController.markBulk));
+
+// Organization administrators may unlock their own submitted school session,
+// but only with an auditable correction reason. Keep the platform-admin legacy
+// endpoint for backward compatibility with existing admin tools.
+router.patch('/school/unlock', roleMiddleware(['admin', 'org_admin']), attendanceCourseScope, asyncHandler(attendanceProController.unlockSchoolSession));
+router.patch('/unlock', roleMiddleware(['admin']), attendanceCourseScope, asyncHandler(attendanceController.unlockSession));
+
+// Generic attendance reads now share the same tenant/course guard. The report
+// implementation keeps Excused separate from Absent and treats Late as
+// attendance rather than arbitrary half-credit.
+router.get('/course', attendanceCourseScope, asyncHandler(attendanceController.getByCourseAndDate));
+router.get('/report', attendanceCourseScope, asyncHandler(attendanceReportController.getCourseReport));
+router.get('/insights', attendanceCourseScope, asyncHandler(attendanceController.getReportInsights));
+router.get('/history', attendanceCourseScope, attendanceStudentScope, asyncHandler(attendanceController.getStudentCourseHistory));
+router.get('/student/:studentId', attendanceStudentScope, asyncHandler(attendanceSummaryController.getStudentSummary));
 
 export default router;

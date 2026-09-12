@@ -11,8 +11,7 @@ import { getOwnTeacherRecord } from '../utils/tenant-scope';
  *
  * Course-based organizations use the student's explicit enrolledCourses list.
  * Class-based organizations use the course's assigned Class and include every
- * active student currently belonging to that class, even when the student was
- * never individually enrolled in the course.
+ * active, approved student currently belonging to that class.
  */
 export const getRoster = async (req: Request, res: Response): Promise<Response> => {
   const teacher = await getOwnTeacherRecord(req);
@@ -28,13 +27,18 @@ export const getRoster = async (req: Request, res: Response): Promise<Response> 
     : null;
 
   const isClassBased = school?.attendanceType === 'class_based' && !!course.class;
+  const common = {
+    school: course.school,
+    status: 'active',
+    approvalStatus: 'approved',
+  };
 
   const rosterFilter = isClassBased
-    ? { class: course.class, status: 'active' }
-    : { enrolledCourses: course._id, status: 'active' };
+    ? { ...common, class: course.class }
+    : { ...common, enrolledCourses: course._id };
 
   const students = await Student.find(rosterFilter)
-    .select('_id studentId profile class status')
+    .select('_id studentId profile class status approvalStatus')
     .populate('profile', 'firstName lastName avatar')
     .populate('class', 'title section')
     .sort({ studentId: 1 })

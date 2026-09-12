@@ -1,5 +1,15 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export type AttendanceReasonCode =
+  | ''
+  | 'sick'
+  | 'medical'
+  | 'family_emergency'
+  | 'school_activity'
+  | 'suspension'
+  | 'transport_delay'
+  | 'other';
+
 export interface IAttendance extends Document {
   course: mongoose.Types.ObjectId;
   // Which specific ClassSchedule session this record belongs to — a course
@@ -14,10 +24,15 @@ export interface IAttendance extends Document {
   date: Date;
   status: 'present' | 'absent' | 'late' | 'excused';
   notes?: string;
+  reasonCode?: AttendanceReasonCode;
+  /** Local school time (HH:MM), useful for late arrivals / check-in. */
+  arrivalTime?: string;
+  /** Local school time (HH:MM), useful for early departures / check-out. */
+  departureTime?: string;
   markedBy: mongoose.Types.ObjectId;
-  // Once attendance for a session is submitted it locks — the submitter
-  // (org_admin/teacher) can no longer edit it; only a platform Admin can
-  // unlock it via PATCH /attendance/unlock before it can be resubmitted.
+  // Once a complete scheduled roster is submitted it locks. A platform Admin
+  // or authorized organization administrator can unlock it with a correction
+  // reason through the attendance-session workflow.
   locked: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -30,7 +45,23 @@ const attendanceSchema = new Schema<IAttendance>(
     student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
     date: { type: Date, required: true },
     status: { type: String, enum: ['present', 'absent', 'late', 'excused'], required: true, default: 'present' },
-    notes: { type: String, default: '' },
+    notes: { type: String, default: '', maxlength: 1000 },
+    reasonCode: {
+      type: String,
+      enum: ['', 'sick', 'medical', 'family_emergency', 'school_activity', 'suspension', 'transport_delay', 'other'],
+      default: '',
+      index: true,
+    },
+    arrivalTime: {
+      type: String,
+      default: '',
+      match: [/^$|^([01]\d|2[0-3]):([0-5]\d)$/, 'Arrival time must be HH:MM (24-hour format)'],
+    },
+    departureTime: {
+      type: String,
+      default: '',
+      match: [/^$|^([01]\d|2[0-3]):([0-5]\d)$/, 'Departure time must be HH:MM (24-hour format)'],
+    },
     markedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     locked: { type: Boolean, default: false },
   },
@@ -40,6 +71,7 @@ const attendanceSchema = new Schema<IAttendance>(
 attendanceSchema.index({ course: 1, student: 1, date: 1, schedule: 1 }, { unique: true });
 attendanceSchema.index({ student: 1, date: 1 });
 attendanceSchema.index({ date: 1 });
+attendanceSchema.index({ course: 1, date: 1, status: 1 });
 
 const Attendance = mongoose.model<IAttendance>('Attendance', attendanceSchema);
 export default Attendance;
