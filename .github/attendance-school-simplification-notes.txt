@@ -1,1 +1,0 @@
-School attendance uses Date -> Scheduled Class -> Class Roster while preserving legacy attendance for non-school institutions.
