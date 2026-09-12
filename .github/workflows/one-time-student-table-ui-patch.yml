@@ -1,0 +1,84 @@
+name: One-time Manage Students UI patch
+
+on:
+  push:
+    branches:
+      - fix/manage-students-table-ui
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[ui-patch]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch Manage Students table
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/frontend/src/features/admin/pages/students-manage.tsx')
+          text = path.read_text(encoding='utf-8-sig')
+
+          old_actions = '''  const renderActions = (student: Student) => <div className="flex items-center justify-end gap-1">
+            <div className="mr-2 h-9 w-9 overflow-hidden rounded-full bg-primary-50 text-center text-xs font-bold leading-9 text-primary-700" title="Profile photo">{student.profile?.avatar ? <img src={student.profile.avatar} alt="" className="h-full w-full object-cover" /> : `${student.profile?.firstName?.[0] || ''}${student.profile?.lastName?.[0] || ''}`.toUpperCase()}</div>
+            <button title="View profile" onClick={event => { event.stopPropagation(); setProfileStudent(student); }} className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]"><GraduationCap className="h-4 w-4" /></button><button title="Edit" onClick={event => { event.stopPropagation(); setModal({ open: true, student }); }} className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]"><Pencil className="h-4 w-4" /></button>
+            <button title="Delete" onClick={event => { event.stopPropagation(); removeStudent(student._id); }} className="rounded-lg p-2 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
+          </div>;
+'''
+          new_actions = '''  const renderMobileActions = (student: Student) => <div className="flex items-center justify-end gap-1">
+            <div className="mr-2 h-9 w-9 overflow-hidden rounded-full bg-primary-50 text-center text-xs font-bold leading-9 text-primary-700" title="Profile photo">{student.profile?.avatar ? <img src={student.profile.avatar} alt="" className="h-full w-full object-cover" /> : `${student.profile?.firstName?.[0] || ''}${student.profile?.lastName?.[0] || ''}`.toUpperCase()}</div>
+            <button title="View profile" onClick={event => { event.stopPropagation(); setProfileStudent(student); }} className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]"><GraduationCap className="h-4 w-4" /></button><button title="Edit" onClick={event => { event.stopPropagation(); setModal({ open: true, student }); }} className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]"><Pencil className="h-4 w-4" /></button>
+            <button title="Delete" onClick={event => { event.stopPropagation(); removeStudent(student._id); }} className="rounded-lg p-2 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
+          </div>;
+
+          const renderDesktopActions = (student: Student) => <details className="relative flex justify-end" onClick={event => event.stopPropagation()}>
+            <summary className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-lg text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)] [&::-webkit-details-marker]:hidden" aria-label="Student actions" title="Student actions"><MoreVertical className="h-5 w-5" /></summary>
+            <div className="absolute right-0 top-10 z-50 w-36 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-xl">
+              <button onClick={event => { event.stopPropagation(); setModal({ open: true, student }); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-secondary)]"><Pencil className="h-4 w-4" /> Edit</button>
+              <button onClick={event => { event.stopPropagation(); setProfileStudent(student); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-secondary)]"><GraduationCap className="h-4 w-4" /> View</button>
+              <button onClick={event => { event.stopPropagation(); removeStudent(student._id); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /> Delete</button>
+            </div>
+          </details>;
+'''
+          if old_actions not in text:
+              raise SystemExit('Expected renderActions block was not found')
+          text = text.replace(old_actions, new_actions, 1)
+
+          old_table = '''        <div className="hidden overflow-x-auto lg:block"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-[var(--color-surface-secondary)] text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]"><tr><th className="w-10 px-4 py-3" /><th className="px-4 py-3">Name / ID</th><th className="px-4 py-3">Email / Phone</th><th className="px-4 py-3">{higherEd ? 'Department' : type === 'training_center' ? 'Batch' : 'Grade'}</th><th className="px-4 py-3">{higherEd ? 'Class / Cohort' : 'Enrollment'}</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-[var(--color-border-subtle)]">{students.map(student => <tr key={student._id} onClick={() => setProfileStudent(student)} className="cursor-pointer hover:bg-[var(--color-surface-secondary)]"><td className="px-4 py-3"><input type="checkbox" checked={selected.includes(student._id)} onClick={event => event.stopPropagation()} onChange={() => setSelected(value => value.includes(student._id) ? value.filter(id => id !== student._id) : [...value, student._id])} /></td><td className="px-4 py-3"><div className="font-semibold text-[var(--color-text-primary)]">{student.profile?.firstName} {student.profile?.lastName}</div><div className="font-mono text-xs text-[var(--color-text-secondary)]">{student.studentId}</div></td><td className="max-w-[260px] px-4 py-3 text-xs text-[var(--color-text-tertiary)]"><div className="truncate">{student.user?.email || 'No email'}</div><div className="truncate">{student.user?.phone || 'No phone'}</div></td><td className="px-4 py-3 text-[var(--color-text-secondary)]">{academicLabel(student)}</td><td className="px-4 py-3 text-[var(--color-text-secondary)]">{classLabel(student)}<div className="text-xs text-[var(--color-text-tertiary)]">{student.enrollmentDate ? new Date(student.enrollmentDate).toLocaleDateString() : '-'}</div></td><td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs font-medium ${statusBadge[student.status] || statusBadge.inactive}`}>{student.status}</span></td><td className="px-4 py-3">{renderActions(student)}</td></tr>)}</tbody></table></div>
+        <div className="divide-y divide-[var(--color-border-subtle)] lg:hidden">{students.map(student => <div key={student._id} onClick={() => setProfileStudent(student)} className="cursor-pointer p-4"><div className="flex items-start gap-3"><input className="mt-1" type="checkbox" checked={selected.includes(student._id)} onClick={event => event.stopPropagation()} onChange={() => setSelected(value => value.includes(student._id) ? value.filter(id => id !== student._id) : [...value, student._id])} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><div className="font-semibold hover:text-primary-600">{student.profile?.firstName} {student.profile?.lastName}</div><span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusBadge[student.status] || statusBadge.inactive}`}>{student.status}</span></div><div className="mt-1 font-mono text-xs text-[var(--color-text-secondary)]">{student.studentId}</div><div className="truncate text-xs text-[var(--color-text-tertiary)]">{student.user?.email || 'No email'} / {student.user?.phone || 'No phone'}</div><dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-xs"><div><dt className="text-[var(--color-text-tertiary)]">{higherEd ? 'Department' : type === 'training_center' ? 'Batch' : 'Grade'}</dt><dd>{academicLabel(student)}</dd></div><div><dt className="text-[var(--color-text-tertiary)]">Class</dt><dd>{classLabel(student)}</dd></div></dl></div>{renderActions(student)}</div></div>)}</div>
+'''
+          new_table = '''        <div className="hidden overflow-x-auto lg:block"><table className="w-full min-w-[900px] table-fixed text-left text-sm"><thead className="bg-[var(--color-surface-secondary)] text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]"><tr><th className="w-10 px-4 py-3" /><th className="w-[22%] px-4 py-3">Name / ID</th><th className="w-[24%] px-4 py-3">Email / Phone</th><th className="w-[25%] px-4 py-3">Depart / Class</th><th className="w-[12%] px-4 py-3">Status</th><th className="w-[12%] px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-[var(--color-border-subtle)]">{students.map(student => <tr key={student._id} onClick={() => setProfileStudent(student)} className="cursor-pointer hover:bg-[var(--color-surface-secondary)]"><td className="px-4 py-3"><input type="checkbox" checked={selected.includes(student._id)} onClick={event => event.stopPropagation()} onChange={() => setSelected(value => value.includes(student._id) ? value.filter(id => id !== student._id) : [...value, student._id])} /></td><td className="px-4 py-3 align-middle"><div className="font-semibold text-[var(--color-text-primary)]">{student.profile?.firstName} {student.profile?.lastName}</div><div className="font-mono text-xs text-[var(--color-text-secondary)]">{student.studentId}</div></td><td className="px-4 py-3 align-middle text-xs text-[var(--color-text-tertiary)]"><div className="truncate">{student.user?.email || 'No email'}</div><div className="truncate">{student.user?.phone || 'No phone'}</div></td><td className="px-4 py-3 align-middle"><div className="font-medium text-[var(--color-text-primary)]">{academicLabel(student)}</div><div className="text-xs text-[var(--color-text-tertiary)]">{classLabel(student)}</div></td><td className="px-4 py-3 align-middle"><span className={`inline-flex rounded-full border px-2 py-1 text-xs font-medium ${statusBadge[student.status] || statusBadge.inactive}`}>{student.status}</span></td><td className="px-4 py-3 align-middle">{renderDesktopActions(student)}</td></tr>)}</tbody></table></div>
+        <div className="divide-y divide-[var(--color-border-subtle)] lg:hidden">{students.map(student => <div key={student._id} onClick={() => setProfileStudent(student)} className="cursor-pointer p-4"><div className="flex items-start gap-3"><input className="mt-1" type="checkbox" checked={selected.includes(student._id)} onClick={event => event.stopPropagation()} onChange={() => setSelected(value => value.includes(student._id) ? value.filter(id => id !== student._id) : [...value, student._id])} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><div className="font-semibold hover:text-primary-600">{student.profile?.firstName} {student.profile?.lastName}</div><span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusBadge[student.status] || statusBadge.inactive}`}>{student.status}</span></div><div className="mt-1 font-mono text-xs text-[var(--color-text-secondary)]">{student.studentId}</div><div className="truncate text-xs text-[var(--color-text-tertiary)]">{student.user?.email || 'No email'} / {student.user?.phone || 'No phone'}</div><dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-xs"><div><dt className="text-[var(--color-text-tertiary)]">{higherEd ? 'Department' : type === 'training_center' ? 'Batch' : 'Grade'}</dt><dd>{academicLabel(student)}</dd></div><div><dt className="text-[var(--color-text-tertiary)]">Class</dt><dd>{classLabel(student)}</dd></div></dl></div>{renderMobileActions(student)}</div></div>)}</div>
+'''
+          if old_table not in text:
+              raise SystemExit('Expected desktop table block was not found')
+          text = text.replace(old_table, new_table, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Verify requested UI changes
+        run: |
+          grep -q 'Depart / Class' apps/frontend/src/features/admin/pages/students-manage.tsx
+          grep -q 'renderDesktopActions' apps/frontend/src/features/admin/pages/students-manage.tsx
+          if grep -q 'student.enrollmentDate ? new Date(student.enrollmentDate)' apps/frontend/src/features/admin/pages/students-manage.tsx; then
+            echo 'Enrollment date is still rendered in the active student table'
+            exit 1
+          fi
+
+      - name: Commit patch and remove one-time workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/frontend/src/features/admin/pages/students-manage.tsx
+          git rm .github/workflows/one-time-student-table-ui-patch.yml
+          git commit -m 'fix(admin): polish Manage Students desktop table [ui-patch]'
+          git push origin HEAD:fix/manage-students-table-ui
