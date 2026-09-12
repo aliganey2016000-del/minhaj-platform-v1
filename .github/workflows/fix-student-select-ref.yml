@@ -1,0 +1,31 @@
+name: Fix Student Select Ref
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-student-select-ref.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('apps/frontend/src/features/admin/pages/students-manage.tsx')
+          s=p.read_text()
+          if 'const [selectingAll, setSelectingAll]' not in s:
+              needle="  const [selected, setSelected] = useState<string[]>([]);"
+              assert needle in s, 'selection state line not found'
+              s=s.replace(needle, needle+"\n  const [selectingAll, setSelectingAll] = useState(false);", 1)
+              p.write_text(s)
+          PY
+          rm .github/workflows/fix-student-select-ref.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/frontend/src/features/admin/pages/students-manage.tsx .github/workflows/fix-student-select-ref.yml
+          git commit -m 'fix students select all loading state'
+          git push
