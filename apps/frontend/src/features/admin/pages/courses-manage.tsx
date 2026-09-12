@@ -220,8 +220,6 @@ function CourseCard({ course: c, selected, onToggleSelect, onEdit, onDelete, onD
           </div>
         </div>
 
-        <p className="text-xs text-[var(--color-text-tertiary)]">{c.category || 'Uncategorized'} · {c.level || '—'}</p>
-
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-lg bg-[var(--color-surface-tertiary)] p-2"><span className="text-[var(--color-text-tertiary)]">Teacher</span><p className="mt-0.5 truncate font-medium">{teacherName(c.teacher)}</p></div>
           <div className="rounded-lg bg-[var(--color-surface-tertiary)] p-2"><span className="text-[var(--color-text-tertiary)]">Students</span><p className="mt-0.5 font-medium">{c.enrolledStudents || 0} / {c.maxStudents || '∞'}</p></div>
