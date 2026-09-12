@@ -7,6 +7,9 @@ import { SchoolSubstitutesPanel } from './components/school-substitutes-panel';
 
 type Workspace = 'dashboard' | 'period' | 'daily' | 'substitutes';
 
+// School attendance is intentionally split into operational workspaces so a
+// small-school admin can reach the daily task in one tap without navigating a
+// university-style cascade of organization/department/course filters.
 export function SchoolAttendanceManage() {
   const [workspace, setWorkspace] = useState<Workspace>('dashboard');
 
