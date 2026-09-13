@@ -14,6 +14,7 @@ import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { validateScheduleRoomConflict } from '../../middleware/timetable-room-conflict.middleware';
 import { preflightTimetableDraft } from '../../middleware/timetable-draft-preflight.middleware';
+import { preflightTimetablePublish } from '../../middleware/timetable-publish-preflight.middleware';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -56,7 +57,7 @@ router.post('/school/studio/conflicts', roleMiddleware(['admin', 'org_admin']), 
 router.post('/school/studio/drafts', roleMiddleware(['admin', 'org_admin']), asyncHandler(preflightTimetableDraft), asyncHandler(safeStudioCtrl.createDraft));
 router.put('/school/studio/drafts/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.saveDraft));
 router.post('/school/studio/drafts/:id/reset', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.resetDraft));
-router.post('/school/studio/drafts/:id/publish', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.publishDraft));
+router.post('/school/studio/drafts/:id/publish', roleMiddleware(['admin', 'org_admin']), asyncHandler(preflightTimetablePublish), asyncHandler(studioCtrl.publishDraft));
 router.post('/school/studio/versions/:version/rollback', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.rollbackVersion));
 
 // Simplified school-only CRUD/import/export workflow.
