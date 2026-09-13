@@ -3,12 +3,13 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Student from '../models/student.model';
+import Course from '../models/course.model';
 import Attendance from '../models/attendance.model';
 import AssignmentSubmission from '../models/assignment-submission.model';
 import Gamification from '../models/gamification.model';
 import { NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
-import { assertCanAccessStudent } from '../utils/tenant-scope';
+import { assertCanAccessStudent, getOwnTeacherRecord } from '../utils/tenant-scope';
 
 export const getStudentProfile = async (req: Request, res: Response): Promise<Response> => {
   const { studentId } = req.params;
@@ -21,13 +22,18 @@ export const getStudentProfile = async (req: Request, res: Response): Promise<Re
   if (!student) throw new NotFoundError('Student');
   await assertCanAccessStudent(req, student);
 
+  const teacher = await getOwnTeacherRecord(req);
+  const teacherCourseIds = teacher
+    ? await Course.find({ teacher: teacher._id }).distinct('_id')
+    : [];
+
   const studentObjectId = new mongoose.Types.ObjectId(studentId);
   const [attendanceStats, submissions, gamification] = await Promise.all([
     Attendance.aggregate([
-      { $match: { student: studentObjectId } },
+      { $match: { student: studentObjectId, course: { $in: teacherCourseIds } } },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]),
-    AssignmentSubmission.find({ student: studentObjectId })
+    AssignmentSubmission.find({ student: studentObjectId, course: { $in: teacherCourseIds } })
       .populate({ path: 'assignment', select: 'title maxScore dueDate' })
       .populate({ path: 'course', select: 'title slug' })
       .sort({ submittedAt: -1 })
