@@ -151,16 +151,16 @@ async function main() {
 
   console.log('\n=== 5. MANAGE STUDENTS LIST / FILTERS AFTER PROMOTION ===');
   const allStudents = await request(app).get('/api/v1/students').set('Authorization', `Bearer ${token}`).query({ school: school._id.toString(), limit: 20 });
-  assert(allStudents.status === 200 && allStudents.body?.pagination?.total === 4, `Manage Students sees all four lifecycle students (got ${allStudents.body?.pagination?.total})`);
+  assert(allStudents.status === 200 && allStudents.body?.meta?.total === 4, `Manage Students sees all four lifecycle students (got ${allStudents.body?.meta?.total})`);
 
   const activeStudents = await request(app).get('/api/v1/students').set('Authorization', `Bearer ${token}`).query({ school: school._id.toString(), status: 'active', limit: 20 });
-  assert(activeStudents.status === 200 && activeStudents.body?.pagination?.total === 3, `active filter shows promoted + two repeaters only (got ${activeStudents.body?.pagination?.total})`);
+  assert(activeStudents.status === 200 && activeStudents.body?.meta?.total === 3, `active filter shows promoted + two repeaters only (got ${activeStudents.body?.meta?.total})`);
 
   const graduatedStudents = await request(app).get('/api/v1/students').set('Authorization', `Bearer ${token}`).query({ school: school._id.toString(), status: 'graduated', limit: 20 });
-  assert(graduatedStudents.status === 200 && graduatedStudents.body?.pagination?.total === 1, `graduated filter shows exactly one graduate (got ${graduatedStudents.body?.pagination?.total})`);
+  assert(graduatedStudents.status === 200 && graduatedStudents.body?.meta?.total === 1, `graduated filter shows exactly one graduate (got ${graduatedStudents.body?.meta?.total})`);
 
   const repeatClassStudents = await request(app).get('/api/v1/students').set('Authorization', `Bearer ${token}`).query({ school: school._id.toString(), classId: importedRepeatClass?._id?.toString(), limit: 20 });
-  assert(repeatClassStudents.status === 200 && repeatClassStudents.body?.pagination?.total === 1, 'class filter finds the Grade 9 repeater in its target-year repeat class');
+  assert(repeatClassStudents.status === 200 && repeatClassStudents.body?.meta?.total === 1, 'class filter finds the Grade 9 repeater in its target-year repeat class');
 
   console.log('\n=== 6. GRADUATE EDIT SAFETY ===');
   const preserveGraduate = await request(app).patch(`/api/v1/students/${graduateId}`).set('Authorization', `Bearer ${token}`).send({
