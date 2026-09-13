@@ -208,7 +208,7 @@ export function SchedulesTimetableEditor() {
       const sourceEntries = bootstrap.draft?.entries || bootstrap.schedules || [];
       setClasses(classList);
       setDepartments(departmentResponse.data?.data || []);
-      setCourses((courseResponse.data?.data || []).filter((course: Course) => course.status !== 'archived'));
+      setCourses(courseResponse.data?.data || []);
       setPeriods((bootstrap.config?.periods || []).slice().sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)));
       setEntries(sourceEntries.map(normalizeEntry).filter((entry): entry is DraftEntry => Boolean(entry)));
       setDraftId(bootstrap.draft?._id ? String(bootstrap.draft._id) : '');
@@ -266,6 +266,7 @@ export function SchedulesTimetableEditor() {
   const coursesByClass = useMemo(() => {
     const map = new Map<string, Course[]>();
     courses.forEach((course) => {
+      if (course.status !== 'published') return;
       const classId = idOf(course.class);
       if (!classId) return;
       const list = map.get(classId) || [];
@@ -319,6 +320,10 @@ export function SchedulesTimetableEditor() {
         const course = courseMap.get(courseId);
         if (!course || idOf(course.class) !== classId) {
           setError('This course is not assigned to the selected class.');
+          return;
+        }
+        if (course.status !== 'published') {
+          setError('Only published courses can be assigned to the timetable.');
           return;
         }
         const cls = classMap.get(classId);
