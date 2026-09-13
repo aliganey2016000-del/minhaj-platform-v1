@@ -179,8 +179,13 @@ export function SchedulesTimetable() {
     || schools.find((school) => school._id === schoolId)?.name
     || (schoolId ? 'Class Timetable' : 'All Organizations');
 
-  const previousDay = () => setSelectedDay((day) => (day + 6) % 7);
-  const nextDay = () => setSelectedDay((day) => (day + 1) % 7);
+  const moveSelectedDay = (offset: number) => setSelectedDay((day) => {
+    const currentIndex = DISPLAY_ORDER.indexOf(day as (typeof DISPLAY_ORDER)[number]);
+    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+    return DISPLAY_ORDER[(safeIndex + offset + DISPLAY_ORDER.length) % DISPLAY_ORDER.length];
+  });
+  const previousDay = () => moveSelectedDay(-1);
+  const nextDay = () => moveSelectedDay(1);
 
   return (
     <div className="min-h-full bg-[var(--color-surface-primary)] p-4 pt-20 sm:p-6 lg:pt-8">
