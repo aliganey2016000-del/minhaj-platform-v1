@@ -208,6 +208,9 @@ router.get('/template', authMiddleware, requireModulePermission('courses'), admi
 // GET /api/v1/courses/generate-template — Pre-fill a course template with this school's classes
 router.get('/generate-template', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseSpreadsheetController.generateTemplate as any));
 
+// POST /api/v1/courses/generate — Import the Grade 1–12 school template without an upload
+router.post('/generate', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseSpreadsheetController.generateCourses as any));
+
 // GET /api/v1/courses/template-headers — Frontend paste/import columns from same source of truth
 router.get('/template-headers', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseSpreadsheetController.getTemplateHeaders as any));
 

@@ -322,12 +322,12 @@ export default function CoursesManage() {
 
     {showImportModal && <BulkEntityImportModal
       title="Import Courses"
-      description="Download the official course template, upload a completed spreadsheet, or paste rows directly from Excel/Google Sheets."
+      description="Download the Grade 1–12 course template, generate and import the same 104 courses instantly, upload a completed spreadsheet, or paste rows."
       templateUrl="/courses/template"
-      generateTemplateUrl="/courses/generate-template"
+      generateImportUrl="/courses/generate"
+      generateTemplateDescription="Import the same 104 Grade 1–12 courses instantly without uploading a file."
       importUrl="/courses/import"
       templateName="courses-template.xlsx"
-      generateTemplateName="courses-generated-template.xlsx"
       headers={["Course Title (English)", "Category", "Level", "Organization Name", "Class Title", "Teacher Email", "Duration (weeks)", "Price ($)", "Capacity", "Thumbnail URL"]}
       onClose={() => setShowImportModal(false)}
       onImported={load}

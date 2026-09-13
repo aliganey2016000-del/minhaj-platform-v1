@@ -220,6 +220,52 @@ export const getTemplateHeaders = async (req: Request, res: Response): Promise<R
   });
 };
 
+const PRIMARY_SUBJECTS = [
+  ['Islamic Studies', 'ISLA'],
+  ['Somali', 'SOM'],
+  ['Arabic', 'ARAB'],
+  ['Mathematics', 'MATH'],
+  ['Science', 'SCI'],
+  ['Social Studies', 'SOC'],
+] as const;
+
+const UPPER_PRIMARY_EXTRA_SUBJECTS = [
+  ['English', 'ENG'],
+  ['ICT', 'ICT'],
+] as const;
+
+const SECONDARY_SUBJECTS = [
+  ['Islamic Studies', 'ISLA'],
+  ['Somali', 'SOM'],
+  ['Arabic', 'ARAB'],
+  ['English', 'ENG'],
+  ['Mathematics', 'MATH'],
+  ['Physics', 'PHY'],
+  ['Chemistry', 'CHEM'],
+  ['Biology', 'BIO'],
+  ['Geography', 'GEO'],
+  ['History', 'HIST'],
+  ['ICT', 'ICT'],
+  ['Business', 'BUS'],
+] as const;
+
+// The single source of truth for both Download Template and attachment-free
+// Generate & Import. This matches courses-template-Grade1-12.xlsx exactly.
+function schoolCourseRows(): Array<Array<string | number>> {
+  const rows: Array<Array<string | number>> = [];
+  for (let grade = 1; grade <= 12; grade += 1) {
+    const subjects = grade <= 4
+      ? PRIMARY_SUBJECTS
+      : grade <= 8
+        ? [...PRIMARY_SUBJECTS.slice(0, 3), ...UPPER_PRIMARY_EXTRA_SUBJECTS.slice(0, 1), ...PRIMARY_SUBJECTS.slice(3), ...UPPER_PRIMARY_EXTRA_SUBJECTS.slice(1)]
+        : SECONDARY_SUBJECTS;
+    for (const [name, code] of subjects) {
+      rows.push([name, `${code}-${grade}`, `Grade ${grade} — A`, '', '']);
+    }
+  }
+  return rows;
+}
+
 export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
   const context = await resolveSpreadsheetContext(req);
   const placementSample = context.institutionType === 'school'
@@ -237,7 +283,8 @@ export const downloadTemplate = async (req: Request, res: Response): Promise<voi
   ];
   if (context.includeCommercialFields) row.push(8, 0, 50);
 
-  const buffer = buildXlsxBuffer(context.headers, [row], 'Course Template');
+  const rows = context.institutionType === 'school' ? schoolCourseRows() : [row];
+  const buffer = buildXlsxBuffer(context.headers, rows, 'Course Template');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=courses-template.xlsx');
   res.end(buffer);
@@ -247,6 +294,13 @@ export const downloadTemplate = async (req: Request, res: Response): Promise<voi
 // existing class is prefilled so admins only need to complete the course data.
 export const generateTemplate = async (req: Request, res: Response): Promise<void> => {
   const context = await resolveSpreadsheetContext(req);
+  if (context.institutionType === 'school') {
+    const buffer = buildXlsxBuffer(context.headers, schoolCourseRows(), 'Course Template');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=courses-generated-template.xlsx');
+    res.end(buffer);
+    return;
+  }
   const classes = await ClassModel.find({ school: context.schoolId, status: { $ne: 'completed' } })
     .select('title name section academicYear')
     .sort({ academicYear: -1, title: 1, section: 1 })
@@ -517,4 +571,18 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     failed: errors.length,
     errors,
   }, `Imported ${created} new and updated ${updated} existing course(s); auto-created ${teachersCreated} teacher(s)`);
+};
+
+// POST /courses/generate — Import the exact same 104 school course rows that
+// Download Template returns. Reuse the normal importer so validation, class
+// matching, upserts, and the Created/Updated/Failed report stay identical.
+export const generateCourses = async (req: Request, res: Response): Promise<Response> => {
+  const context = await resolveSpreadsheetContext(req);
+  if (context.institutionType !== 'school') {
+    throw new BadRequestError('Automatic Grade 1–12 course generation is available for schools only.');
+  }
+
+  const buffer = buildXlsxBuffer(context.headers, schoolCourseRows(), 'Course Template');
+  (req as any).file = { buffer };
+  return bulkImport(req, res);
 };
