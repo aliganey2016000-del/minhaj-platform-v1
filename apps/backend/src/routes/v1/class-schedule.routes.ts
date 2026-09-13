@@ -24,17 +24,17 @@ router.get('/', adminOrTeacher, asyncHandler(dispatchCtrl.getAllSchedules));
 router.post('/', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.create));
 
 // AI Timetable Studio foundation. All AI/solver operations remain server-side;
-// the browser only submits validated draft/rule changes. Bootstrap/current
-// conflict scans recover safely from legacy orphaned schedule references.
+// the browser only submits validated draft/rule changes. Published timetable
+// recovery paths also protect draft creation/reset from legacy bad references.
 router.get('/school/studio/bootstrap', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.getBootstrap));
 router.patch('/school/studio/config', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.updateConfig));
 router.put('/school/studio/teachers/:teacherId/availability', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.upsertTeacherAvailability));
 router.post('/school/studio/constraints', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.createConstraint));
 router.delete('/school/studio/constraints/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.deleteConstraint));
 router.post('/school/studio/conflicts', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.checkConflicts));
-router.post('/school/studio/drafts', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.createDraft));
+router.post('/school/studio/drafts', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.createDraft));
 router.put('/school/studio/drafts/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.saveDraft));
-router.post('/school/studio/drafts/:id/reset', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.resetDraft));
+router.post('/school/studio/drafts/:id/reset', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.resetDraft));
 router.post('/school/studio/drafts/:id/publish', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.publishDraft));
 router.post('/school/studio/versions/:version/rollback', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.rollbackVersion));
 
