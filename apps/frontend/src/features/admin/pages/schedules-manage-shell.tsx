@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, List } from 'lucide-react';
+import { CalendarDays, List, PencilLine } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { resolveInstitutionType } from '../../../lib/institution-type';
 import { SchedulesManage } from './schedules-manage';
 import { SchoolSchedulesManage } from './school-schedules-manage';
 import { SchedulesTimetable } from './schedules-timetable';
+import { SchedulesTimetableEditor } from './schedules-timetable-editor';
 
 export function SchedulesManageShell() {
   const { user } = useAuth();
-  const [view, setView] = useState<'table' | 'timetable'>('table');
+  const [view, setView] = useState<'table' | 'timetable' | 'edit'>('table');
   const [schoolMode, setSchoolMode] = useState(false);
   const [resolvingMode, setResolvingMode] = useState(user?.role === 'org_admin');
 
@@ -41,6 +42,10 @@ export function SchedulesManageShell() {
     return () => { cancelled = true; };
   }, [user]);
 
+  useEffect(() => {
+    if (!schoolMode && view === 'edit') setView('table');
+  }, [schoolMode, view]);
+
   if (resolvingMode) {
     return <div className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">Loading schedule workspace...</div>;
   }
@@ -48,11 +53,11 @@ export function SchedulesManageShell() {
   return (
     <div className="min-w-0">
       <div className="sticky top-0 z-20 mb-3 flex items-center justify-end px-1 pt-1">
-        <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-sm">
+        <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-sm">
           <button
             type="button"
             onClick={() => setView('table')}
-            className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors ${
+            className={`inline-flex min-h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors ${
               view === 'table'
                 ? 'bg-[var(--color-surface-secondary)] text-[var(--color-text-primary)] shadow-sm'
                 : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
@@ -65,7 +70,7 @@ export function SchedulesManageShell() {
           <button
             type="button"
             onClick={() => setView('timetable')}
-            className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors ${
+            className={`inline-flex min-h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors ${
               view === 'timetable'
                 ? 'bg-primary-600 text-white shadow-sm'
                 : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
@@ -75,12 +80,29 @@ export function SchedulesManageShell() {
             <CalendarDays className="h-4 w-4" />
             Timetable View
           </button>
+          {schoolMode && (
+            <button
+              type="button"
+              onClick={() => setView('edit')}
+              className={`inline-flex min-h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors ${
+                view === 'edit'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
+              }`}
+              aria-pressed={view === 'edit'}
+            >
+              <PencilLine className="h-4 w-4" />
+              Edit Timetable
+            </button>
+          )}
         </div>
       </div>
 
       {view === 'table'
         ? (schoolMode ? <SchoolSchedulesManage /> : <SchedulesManage />)
-        : <SchedulesTimetable />}
+        : view === 'edit'
+          ? <SchedulesTimetableEditor />
+          : <SchedulesTimetable />}
     </div>
   );
 }
