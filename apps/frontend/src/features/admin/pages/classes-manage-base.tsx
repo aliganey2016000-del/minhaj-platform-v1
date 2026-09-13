@@ -588,7 +588,18 @@ export function ClassesManage() {
 
     {semesterMode && selected.length === 0 && filtered.length > 0 && <button onClick={() => void advanceSemester()} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900">Advance All Active Classes to Next Semester</button>}
 
-    {showImportModal && <BulkEntityImportModal title="Import Classes" description="Download the institution-aware class template, generate one from this school's departments, upload a completed file, or paste spreadsheet rows." templateUrl="/classes/template" generateTemplateUrl="/classes/generate-template" generateTemplateDescription="Create a template pre-filled with this school's departments." importUrl="/classes/import" templateName="classes-template.xlsx" generateTemplateName="classes-generated-template.xlsx" headers={institutionType === 'school' ? ['Batch Number', 'Academic Year', 'Grade Level', 'Department', 'Class Name', 'Section', 'Room', 'Capacity', 'Shift / Learning Mode', 'Final Grade (Yes/No)', 'Entry Grade (Yes/No)'] : ['Organization', 'Faculty', 'Department', 'Program', 'Batch Number', 'Grade Level', 'Academic Year', 'Study Year', 'Semester Number', 'Semester In Year', 'Final Grade (Yes/No)', 'Entry Grade (Yes/No)', 'Class Name', 'Section', 'Room', 'Capacity', 'Shift / Learning Mode']} onClose={() => setShowImportModal(false)} onImported={refresh}/>}
+    {showImportModal && <BulkEntityImportModal
+      title="Import Classes"
+      description="Download the 12-class school template, generate and import the same classes instantly, upload a completed file, or paste spreadsheet rows."
+      templateUrl="/classes/template"
+      generateImportUrl="/classes/generate"
+      generateTemplateDescription="Import the same 12 classes instantly without uploading a file."
+      importUrl="/classes/import"
+      templateName="classes-template.xlsx"
+      headers={institutionType === 'school' ? ['Batch Number', 'Academic Year', 'Grade Level', 'Department', 'Class Name', 'Section', 'Room', 'Capacity', 'Shift / Learning Mode', 'Final Grade (Yes/No)', 'Entry Grade (Yes/No)'] : ['Organization', 'Faculty', 'Department', 'Program', 'Batch Number', 'Grade Level', 'Academic Year', 'Study Year', 'Semester Number', 'Semester In Year', 'Final Grade (Yes/No)', 'Entry Grade (Yes/No)', 'Class Name', 'Section', 'Room', 'Capacity', 'Shift / Learning Mode']}
+      onClose={() => setShowImportModal(false)}
+      onImported={refresh}
+    />}
     {showPromotionModal && <SchoolPromotionModal onClose={() => setShowPromotionModal(false)} onCompleted={refresh}/>} 
     {modal.open && <ClassModal cls={modal.cls} organization={organization} structure={{ ...(structure || { _id: '', school: orgId || '', academicSystem, semestersPerAcademicYear: semestersPerYear }), academicSystem, semestersPerAcademicYear: semestersPerYear } as AcademicStructure} faculties={faculties} departments={departments} programs={programs} onClose={() => setModal({ open: false })} onSaved={async () => { setModal({ open: false }); await refresh(); }}/>} 
   </div>;

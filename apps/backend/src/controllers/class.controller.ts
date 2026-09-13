@@ -393,6 +393,27 @@ const TEMPLATE_EXAMPLE_ROWS: Record<string, (string | number)[]> = {
   training_center: ['', '', '', 'Web Development', 'B12', '', '2026-2027', '', '', '', '', '', 'Web Development Bootcamp', '', 'Lab 1', '20', 'Evening'],
 };
 
+function schoolGeneratedRows(): Array<Array<string | number>> {
+  const year = new Date().getFullYear();
+  const academicYear = `${year}-${year + 1}`;
+  return Array.from({ length: 12 }, (_, index) => {
+    const grade = index + 1;
+    return [
+      String(13 - grade),
+      academicYear,
+      String(grade),
+      grade <= 8 ? 'Primary' : 'Secondary',
+      `Grade ${grade}`,
+      'A',
+      `Room ${grade}`,
+      '35',
+      'Morning',
+      grade === 12 ? 'Yes' : 'No',
+      grade === 1 ? 'Yes' : 'No',
+    ];
+  });
+}
+
 export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
   let institutionType = String(req.query.institutionType || '').trim();
   if (!TEMPLATE_EXAMPLE_ROWS[institutionType]) {
@@ -400,7 +421,9 @@ export const downloadTemplate = async (req: Request, res: Response): Promise<voi
     const org = schoolId ? await School.findById(schoolId).select('institutionType organizationType').lean() : null;
     institutionType = org ? resolveInstitutionType(org) : 'school';
   }
-  const rows = [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.school];
+  const rows = institutionType === 'school'
+    ? schoolGeneratedRows()
+    : [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.school];
   const headers = institutionType === 'school' ? SCHOOL_CLASS_EXPORT_HEADERS : CLASS_EXPORT_HEADERS;
   const buffer = buildXlsxBuffer(headers, rows, 'Class Template');
 
@@ -409,10 +432,8 @@ export const downloadTemplate = async (req: Request, res: Response): Promise<voi
   res.end(buffer);
 };
 
-// GET /classes/generate-template — Build an organization-specific template.
-// For schools, every existing department gets a ready-to-complete row so the
-// generated workbook reflects that school's own structure without embedding
-// another tenant's data in the standard template.
+// GET /classes/generate-template — Download the exact same generated rows used
+// by the attachment-free Generate action.
 export const generateTemplate = async (req: Request, res: Response): Promise<void> => {
   const schoolId = resolveOrgIdForCreate(req);
   if (!schoolId) throw new BadRequestError('Organization is required to generate a class template');
@@ -420,27 +441,85 @@ export const generateTemplate = async (req: Request, res: Response): Promise<voi
   const org = await School.findById(schoolId).select('institutionType organizationType').lean();
   if (!org) throw new NotFoundError('Organization');
   const institutionType = resolveInstitutionType(org);
-  const currentYear = new Date().getFullYear();
-  const academicYear = `${currentYear}-${currentYear + 1}`;
-
-  let headers = CLASS_EXPORT_HEADERS;
-  let rows: Array<Array<string | number>> = [];
-  if (institutionType === 'school') {
-    headers = SCHOOL_CLASS_EXPORT_HEADERS;
-    const departments = await Department.find({ tenantId: schoolId }).select('name').sort({ name: 1 }).lean();
-    rows = departments.map((department: any) => [
-      '', academicYear, '', department.name || '', '', '', '', '', 'Morning', 'No', 'No',
-    ]);
-  }
-
-  if (!rows.length) {
-    rows = [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.school];
-  }
+  const headers = institutionType === 'school' ? SCHOOL_CLASS_EXPORT_HEADERS : CLASS_EXPORT_HEADERS;
+  const rows = institutionType === 'school'
+    ? schoolGeneratedRows()
+    : [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.school];
 
   const buffer = buildXlsxBuffer(headers, rows, 'Class Template');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=classes-generated-template.xlsx');
   res.end(buffer);
+};
+
+// POST /classes/generate — Import the same twelve school rows produced by
+// Download Template, without requiring a file upload. Existing rows are
+// updated instead of duplicated, and the response uses the normal import
+// report shape consumed by BulkEntityImportModal.
+export const generateClasses = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = resolveOrgIdForCreate(req);
+  if (!schoolId) throw new BadRequestError('Organization is required to generate classes');
+
+  const org = await School.findById(schoolId).select('institutionType organizationType').lean();
+  if (!org) throw new NotFoundError('Organization');
+  if (resolveInstitutionType(org) !== 'school') {
+    throw new BadRequestError('Automatic class generation is available for schools only');
+  }
+
+  const rows = schoolGeneratedRows();
+  const tenantId = new mongoose.Types.ObjectId(String(schoolId));
+  const errors: { row: number; message: string }[] = [];
+  let created = 0;
+  let updated = 0;
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const [batch, academicYear, gradeLevel, departmentName, title, section, room, capacity, shiftMode, finalGrade, entryGrade] = rows[index];
+    try {
+      const department = await Department.findOneAndUpdate(
+        { tenantId, name: new RegExp(`^${esc(String(departmentName))}$`, 'i') },
+        { $setOnInsert: { tenantId, name: departmentName } },
+        { upsert: true, new: true, lean: true },
+      );
+      if (!department) throw new Error(`Could not resolve department "${departmentName}"`);
+
+      const identity = {
+        school: tenantId,
+        academicYear: String(academicYear),
+        gradeLevel: Number(gradeLevel),
+        section: String(section),
+      };
+      const values = {
+        department: department._id,
+        title: String(title),
+        room: String(room),
+        capacity: Number(capacity),
+        shiftMode: String(shiftMode),
+        status: 'active',
+        batch: String(batch),
+        isGraduatingGrade: isTruthy(finalGrade),
+        isEntryGrade: isTruthy(entryGrade),
+      };
+
+      const existing = await ClassModel.findOne(identity).select('_id').lean();
+      if (existing) {
+        await ClassModel.updateOne({ _id: existing._id }, { $set: values }, { runValidators: true });
+        updated += 1;
+      } else {
+        await ClassModel.create({ ...identity, ...values });
+        created += 1;
+      }
+    } catch (error: any) {
+      errors.push({ row: index + 2, message: error?.message || 'Generation failed' });
+    }
+  }
+
+  return ApiResponse.success(res, {
+    totalRows: rows.length,
+    created,
+    updated,
+    failed: errors.length,
+    errors,
+  }, `Generated ${created} new and updated ${updated} existing classes`);
 };
 
 // ---------------------------------------------------------------------------

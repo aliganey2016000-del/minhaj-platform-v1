@@ -14,6 +14,7 @@ interface Props {
   templateName: string;
   headers: string[];
   generateTemplateUrl?: string;
+  generateImportUrl?: string;
   generateTemplateName?: string;
   generateTemplateDescription?: string;
   onClose: () => void;
@@ -50,7 +51,7 @@ function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-export default function BulkEntityImportModal({ title, description, templateUrl, importUrl, templateName, headers, generateTemplateUrl, generateTemplateName, generateTemplateDescription, onClose, onImported }: Props) {
+export default function BulkEntityImportModal({ title, description, templateUrl, importUrl, templateName, headers, generateTemplateUrl, generateImportUrl, generateTemplateName, generateTemplateDescription, onClose, onImported }: Props) {
   const [mode, setMode] = useState<'upload' | 'paste'>('upload');
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -59,6 +60,7 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
   const [effectiveHeaders, setEffectiveHeaders] = useState<string[]>(headers);
   const [downloading, setDownloading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ImportResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -122,9 +124,32 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
     finally { setDownloading(false); }
   };
 
+  const showResult = (response: any) => {
+    const data = response?.data?.data ?? response?.data ?? {};
+    setResult({
+      totalRows: Number(data.totalRows ?? 0),
+      created: Number(data.created ?? 0),
+      updated: Number(data.updated ?? 0),
+      failed: Number(data.failed ?? 0),
+      errors: Array.isArray(data.errors) ? data.errors : [],
+    });
+  };
+
   const generateTemplate = async () => {
+    if (!generateTemplateUrl && !generateImportUrl) return;
+    setError(''); setResult(null);
+    if (generateImportUrl) {
+      setGenerating(true);
+      try {
+        const response = await api.post(generateImportUrl);
+        showResult(response);
+        await onImported?.();
+      } catch (e: any) { setError(e?.response?.data?.message || 'Could not generate and import the classes.'); }
+      finally { setGenerating(false); }
+      return;
+    }
     if (!generateTemplateUrl) return;
-    setDownloading(true); setError('');
+    setDownloading(true);
     try {
       const response = await api.get(generateTemplateUrl, { responseType: 'blob' });
       downloadBlob(response.data, generateTemplateName || templateName);
@@ -139,14 +164,7 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
     try {
       const fd = new FormData(); fd.append('file', selected);
       const response = await api.post(importUrl, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      const data = response?.data?.data ?? response?.data ?? {};
-      setResult({
-        totalRows: Number(data.totalRows ?? 0),
-        created: Number(data.created ?? 0),
-        updated: Number(data.updated ?? 0),
-        failed: Number(data.failed ?? 0),
-        errors: Array.isArray(data.errors) ? data.errors : [],
-      });
+      showResult(response);
       await onImported?.();
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Import failed.');
@@ -172,16 +190,16 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
       <div className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950">
         <div className="flex shrink-0 items-start justify-between border-b border-slate-200 px-5 py-4 sm:px-6 dark:border-slate-800">
           <div className="min-w-0"><div className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-primary-600" /><h2 className="truncate text-lg font-bold text-slate-900 dark:text-white">{title}</h2></div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{description}</p></div>
-          <button type="button" onClick={onClose} disabled={importing} className="ml-3 rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18}/></button>
+          <button type="button" onClick={onClose} disabled={importing || generating} className="ml-3 rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18}/></button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
-          <div className={`grid gap-3 ${generateTemplateUrl ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+          <div className={`grid gap-3 ${generateTemplateUrl || generateImportUrl ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             <button type="button" onClick={downloadTemplate} disabled={downloading} className="rounded-xl border border-primary-200 bg-primary-50 p-4 text-left transition hover:bg-primary-100 disabled:opacity-60 dark:border-primary-900/60 dark:bg-primary-950/20 dark:hover:bg-primary-950/40">
               <div className="flex items-start gap-3"><Download className="mt-0.5 h-5 w-5 shrink-0 text-primary-600"/><div><p className="text-sm font-bold text-primary-800 dark:text-primary-300">1. Download Template</p><p className="mt-1 text-xs text-primary-700/70 dark:text-primary-300/70">Use the official columns and sample format.</p></div>{downloading && <Loader2 className="ml-auto h-4 w-4 animate-spin"/>}</div>
             </button>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/50"><p className="text-sm font-bold text-slate-800 dark:text-slate-200">2. Choose a source</p><p className="mt-1 text-xs text-slate-500">Upload your completed spreadsheet or paste rows directly from Excel/Google Sheets.</p></div>
-            {generateTemplateUrl && <button type="button" onClick={generateTemplate} disabled={downloading} className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-left transition hover:bg-violet-100 disabled:opacity-60 dark:border-violet-900/60 dark:bg-violet-950/20 dark:hover:bg-violet-950/40"><div className="flex items-start gap-3"><Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-violet-600"/><div><p className="text-sm font-bold text-violet-800 dark:text-violet-300">3. Generate</p><p className="mt-1 text-xs text-violet-700/70 dark:text-violet-300/70">{generateTemplateDescription || "Create a template pre-filled with this school's classes."}</p></div>{downloading && <Loader2 className="ml-auto h-4 w-4 animate-spin"/>}</div></button>}
+            {(generateTemplateUrl || generateImportUrl) && <button type="button" onClick={generateTemplate} disabled={downloading || generating} className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-left transition hover:bg-violet-100 disabled:opacity-60 dark:border-violet-900/60 dark:bg-violet-950/20 dark:hover:bg-violet-950/40"><div className="flex items-start gap-3"><Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-violet-600"/><div><p className="text-sm font-bold text-violet-800 dark:text-violet-300">3. Generate</p><p className="mt-1 text-xs text-violet-700/70 dark:text-violet-300/70">{generateTemplateDescription || "Create a template pre-filled with this school's classes."}</p></div>{(downloading || generating) && <Loader2 className="ml-auto h-4 w-4 animate-spin"/>}</div></button>}
           </div>
 
           <div className="mt-4 flex rounded-xl bg-slate-100 p-1 dark:bg-slate-900">
@@ -204,7 +222,7 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
           {result && <div className="mt-4 space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800"><div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900"><p className="text-[11px] text-slate-500">Rows</p><p className="text-lg font-bold">{result.totalRows || successful + (result.failed || 0)}</p></div><div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-950/20"><p className="text-[11px] text-emerald-600">Created</p><p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{result.created || 0}</p></div><div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-950/20"><p className="text-[11px] text-blue-600">Updated</p><p className="text-lg font-bold text-blue-700 dark:text-blue-300">{result.updated || 0}</p></div><div className="rounded-lg bg-red-50 p-3 dark:bg-red-950/20"><p className="text-[11px] text-red-600">Failed</p><p className="text-lg font-bold text-red-700 dark:text-red-300">{result.failed || 0}</p></div></div>{(result.errors?.length || 0) > 0 && <div className="overflow-x-auto rounded-lg border border-red-100 dark:border-red-900/40"><table className="min-w-full text-left text-xs"><thead className="bg-red-50 dark:bg-red-950/20"><tr><th className="px-3 py-2">Row</th><th className="px-3 py-2">Error</th></tr></thead><tbody>{result.errors!.map((e, i) => <tr key={`${e.row}-${i}`} className="border-t dark:border-red-900/30"><td className="px-3 py-2 font-semibold">{e.row || '—'}</td><td className="px-3 py-2 text-red-700 dark:text-red-300">{e.message || 'Import failed'}</td></tr>)}</tbody></table></div>}{successful > 0 && <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4"/>Import finished. The list has been refreshed.</p>}</div>}
         </div>
 
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6"><button type="button" onClick={onClose} disabled={importing} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900">{result ? 'Done' : 'Cancel'}</button><button type="button" onClick={result ? startAnotherImport : submit} disabled={!canImport || importing} className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">{importing ? <><Loader2 className="h-4 w-4 animate-spin"/>Importing...</> : result ? 'Import Another File' : 'Import'}</button></div>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6"><button type="button" onClick={onClose} disabled={importing || generating} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900">{result ? 'Done' : 'Cancel'}</button><button type="button" onClick={result ? startAnotherImport : submit} disabled={!canImport || importing || generating} className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">{importing ? <><Loader2 className="h-4 w-4 animate-spin"/>Importing...</> : result ? 'Import Another File' : 'Import'}</button></div>
       </div>
     </div>
   );

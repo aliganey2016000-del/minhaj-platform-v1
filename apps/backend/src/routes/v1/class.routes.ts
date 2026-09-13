@@ -27,6 +27,7 @@ router.post('/import', adminOnly, upload.single('file'), asyncHandler(classContr
 router.get('/export', adminOnly, asyncHandler(classController.exportClasses as any));
 router.get('/template', adminOnly, asyncHandler(classController.downloadTemplate as any));
 router.get('/generate-template', adminOnly, asyncHandler(classController.generateTemplate as any));
+router.post('/generate', adminOnly, asyncHandler(classController.generateClasses as any));
 router.delete('/bulk', adminOnly, asyncHandler(guardBulkClassDelete), asyncHandler(classController.bulkRemove));
 router.post('/:id/duplicate', adminOnly, asyncHandler(classDuplicateController.duplicate));
 router.patch('/:id', adminOnly, asyncHandler(validateAcademicClass), syncClassExamRoom, asyncHandler(classController.update));
