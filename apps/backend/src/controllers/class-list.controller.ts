@@ -52,7 +52,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     const departmentSearchFilter: Record<string, unknown> = { name: regex };
     if (schoolScope) {
       schoolSearchFilter._id = schoolScope;
-      departmentSearchFilter.school = schoolScope;
+      departmentSearchFilter.tenantId = schoolScope;
     }
 
     const [schools, departments] = await Promise.all([
