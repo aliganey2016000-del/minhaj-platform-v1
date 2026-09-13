@@ -409,6 +409,40 @@ export const downloadTemplate = async (req: Request, res: Response): Promise<voi
   res.end(buffer);
 };
 
+// GET /classes/generate-template — Build an organization-specific template.
+// For schools, every existing department gets a ready-to-complete row so the
+// generated workbook reflects that school's own structure without embedding
+// another tenant's data in the standard template.
+export const generateTemplate = async (req: Request, res: Response): Promise<void> => {
+  const schoolId = resolveOrgIdForCreate(req);
+  if (!schoolId) throw new BadRequestError('Organization is required to generate a class template');
+
+  const org = await School.findById(schoolId).select('institutionType organizationType').lean();
+  if (!org) throw new NotFoundError('Organization');
+  const institutionType = resolveInstitutionType(org);
+  const currentYear = new Date().getFullYear();
+  const academicYear = `${currentYear}-${currentYear + 1}`;
+
+  let headers = CLASS_EXPORT_HEADERS;
+  let rows: Array<Array<string | number>> = [];
+  if (institutionType === 'school') {
+    headers = SCHOOL_CLASS_EXPORT_HEADERS;
+    const departments = await Department.find({ tenantId: schoolId }).select('name').sort({ name: 1 }).lean();
+    rows = departments.map((department: any) => [
+      '', academicYear, '', department.name || '', '', '', '', '', 'Morning', 'No', 'No',
+    ]);
+  }
+
+  if (!rows.length) {
+    rows = [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.school];
+  }
+
+  const buffer = buildXlsxBuffer(headers, rows, 'Class Template');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=classes-generated-template.xlsx');
+  res.end(buffer);
+};
+
 // ---------------------------------------------------------------------------
 // Helpers for import
 // ---------------------------------------------------------------------------

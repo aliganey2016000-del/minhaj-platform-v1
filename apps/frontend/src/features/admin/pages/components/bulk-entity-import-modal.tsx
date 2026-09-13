@@ -15,6 +15,7 @@ interface Props {
   headers: string[];
   generateTemplateUrl?: string;
   generateTemplateName?: string;
+  generateTemplateDescription?: string;
   onClose: () => void;
   onImported?: () => void | Promise<void>;
 }
@@ -49,7 +50,7 @@ function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-export default function BulkEntityImportModal({ title, description, templateUrl, importUrl, templateName, headers, generateTemplateUrl, generateTemplateName, onClose, onImported }: Props) {
+export default function BulkEntityImportModal({ title, description, templateUrl, importUrl, templateName, headers, generateTemplateUrl, generateTemplateName, generateTemplateDescription, onClose, onImported }: Props) {
   const [mode, setMode] = useState<'upload' | 'paste'>('upload');
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -180,7 +181,7 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
               <div className="flex items-start gap-3"><Download className="mt-0.5 h-5 w-5 shrink-0 text-primary-600"/><div><p className="text-sm font-bold text-primary-800 dark:text-primary-300">1. Download Template</p><p className="mt-1 text-xs text-primary-700/70 dark:text-primary-300/70">Use the official columns and sample format.</p></div>{downloading && <Loader2 className="ml-auto h-4 w-4 animate-spin"/>}</div>
             </button>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/50"><p className="text-sm font-bold text-slate-800 dark:text-slate-200">2. Choose a source</p><p className="mt-1 text-xs text-slate-500">Upload your completed spreadsheet or paste rows directly from Excel/Google Sheets.</p></div>
-            {generateTemplateUrl && <button type="button" onClick={generateTemplate} disabled={downloading} className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-left transition hover:bg-violet-100 disabled:opacity-60 dark:border-violet-900/60 dark:bg-violet-950/20 dark:hover:bg-violet-950/40"><div className="flex items-start gap-3"><Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-violet-600"/><div><p className="text-sm font-bold text-violet-800 dark:text-violet-300">3. Generate</p><p className="mt-1 text-xs text-violet-700/70 dark:text-violet-300/70">Create a template pre-filled with this school's classes.</p></div>{downloading && <Loader2 className="ml-auto h-4 w-4 animate-spin"/>}</div></button>}
+            {generateTemplateUrl && <button type="button" onClick={generateTemplate} disabled={downloading} className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-left transition hover:bg-violet-100 disabled:opacity-60 dark:border-violet-900/60 dark:bg-violet-950/20 dark:hover:bg-violet-950/40"><div className="flex items-start gap-3"><Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-violet-600"/><div><p className="text-sm font-bold text-violet-800 dark:text-violet-300">3. Generate</p><p className="mt-1 text-xs text-violet-700/70 dark:text-violet-300/70">{generateTemplateDescription || "Create a template pre-filled with this school's classes."}</p></div>{downloading && <Loader2 className="ml-auto h-4 w-4 animate-spin"/>}</div></button>}
           </div>
 
           <div className="mt-4 flex rounded-xl bg-slate-100 p-1 dark:bg-slate-900">
