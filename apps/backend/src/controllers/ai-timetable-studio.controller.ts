@@ -89,7 +89,7 @@ async function resolveSchool(req: Request, requested?: unknown) {
 function validatePeriods(raw: any[]) {
   if (!Array.isArray(raw) || raw.length === 0) throw new BadRequestError('At least one timetable period is required');
   const keys = new Set<string>();
-  return raw.map((item, index) => {
+  const periods = raw.map((item, index) => {
     const key = String(item?.key || `period-${index + 1}`).trim();
     const label = String(item?.label || `Period ${index + 1}`).trim();
     const startTime = String(item?.startTime || '').trim();
@@ -99,6 +99,12 @@ function validatePeriods(raw: any[]) {
     if (!TIME_RE.test(startTime) || !TIME_RE.test(endTime) || endTime <= startTime) throw new BadRequestError(`Invalid time range for ${label}`);
     return { key, label, startTime, endTime, isBreak: Boolean(item?.isBreak) };
   }).sort((a, b) => a.startTime.localeCompare(b.startTime));
+  for (let i = 1; i < periods.length; i += 1) {
+    if (periods[i].startTime < periods[i - 1].endTime) {
+      throw new BadRequestError(`Timetable periods overlap: ${periods[i - 1].label} and ${periods[i].label}`);
+    }
+  }
+  return periods;
 }
 
 function sanitizeEntries(raw: unknown): StudioEntry[] {
@@ -346,7 +352,7 @@ async function applyEntries(schoolId: string, entries: StudioEntry[], userId: st
 
   const applied: Array<StudioEntry & { scheduleId: string }> = [];
   for (const entry of entries) {
-    const payload = {
+    const updatePayload = {
       school: schoolId,
       class: entry.class,
       course: entry.course,
@@ -356,13 +362,14 @@ async function applyEntries(schoolId: string, entries: StudioEntry[], userId: st
       startTime: entry.startTime,
       endTime: entry.endTime,
       isActive: entry.isActive !== false,
-      createdBy: new mongoose.Types.ObjectId(userId),
     };
     let schedule: any = null;
     if (entry.sourceSchedule && currentIds.has(entry.sourceSchedule)) {
-      schedule = await ClassSchedule.findOneAndUpdate({ _id: entry.sourceSchedule, school: schoolId }, { $set: payload }, { new: true });
+      schedule = await ClassSchedule.findOneAndUpdate({ _id: entry.sourceSchedule, school: schoolId }, { $set: updatePayload }, { new: true });
     }
-    if (!schedule) schedule = await ClassSchedule.create(payload);
+    if (!schedule) {
+      schedule = await ClassSchedule.create({ ...updatePayload, createdBy: new mongoose.Types.ObjectId(userId) });
+    }
     applied.push({ ...entry, sourceSchedule: String(schedule._id), scheduleId: String(schedule._id) });
   }
   return applied;
@@ -384,8 +391,10 @@ export const getBootstrap = async (req: Request, res: Response): Promise<Respons
 
 export const updateConfig = async (req: Request, res: Response): Promise<Response> => {
   const { schoolId } = await resolveSchool(req, req.body?.school);
-  const workingDays = Array.isArray(req.body?.workingDays) ? [...new Set(req.body.workingDays.map(Number))] : [];
-  if (!workingDays.length || workingDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) throw new BadRequestError('Select at least one valid working day');
+  const workingDays: number[] = Array.isArray(req.body?.workingDays)
+    ? [...new Set((req.body.workingDays as unknown[]).map((value) => Number(value)))]
+    : [];
+  if (!workingDays.length || workingDays.some((day: number) => !Number.isInteger(day) || day < 0 || day > 6)) throw new BadRequestError('Select at least one valid working day');
   const periods = validatePeriods(req.body?.periods || []);
   const config = await TimetableConfig.findOneAndUpdate(
     { school: schoolId },
@@ -399,8 +408,10 @@ export const upsertTeacherAvailability = async (req: Request, res: Response): Pr
   const { schoolId } = await resolveSchool(req, req.body?.school);
   const teacherId = String(req.params.teacherId || '');
   if (!mongoose.isValidObjectId(teacherId) || !(await Teacher.exists({ _id: teacherId, school: schoolId }))) throw new NotFoundError('Teacher');
-  const dayOffs = Array.isArray(req.body?.dayOffs) ? [...new Set(req.body.dayOffs.map(Number))] : [];
-  if (dayOffs.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) throw new BadRequestError('Teacher day-offs are invalid');
+  const dayOffs: number[] = Array.isArray(req.body?.dayOffs)
+    ? [...new Set((req.body.dayOffs as unknown[]).map((value) => Number(value)))]
+    : [];
+  if (dayOffs.some((day: number) => !Number.isInteger(day) || day < 0 || day > 6)) throw new BadRequestError('Teacher day-offs are invalid');
   const unavailableWindows = Array.isArray(req.body?.unavailableWindows) ? req.body.unavailableWindows.map((window: any) => {
     const dayOfWeek = Number(window?.dayOfWeek);
     const startTime = String(window?.startTime || '').trim();
