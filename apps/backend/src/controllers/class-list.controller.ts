@@ -43,12 +43,21 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const searchTerm = typeof search === 'string' ? search.trim() : '';
   if (searchTerm) {
     const regex = new RegExp(escapeRegExp(searchTerm), 'i');
+    const schoolScope = scopedFilter.school;
 
-    // Keep the same searchable fields the UI already exposed, but resolve
-    // referenced names to ids so MongoDB can filter before pagination.
+    // Resolve referenced names before pagination, but keep those auxiliary
+    // lookups inside the same tenant scope as the class query whenever the
+    // caller is organization-scoped. Platform-wide admins remain global.
+    const schoolSearchFilter: Record<string, unknown> = { name: regex };
+    const departmentSearchFilter: Record<string, unknown> = { name: regex };
+    if (schoolScope) {
+      schoolSearchFilter._id = schoolScope;
+      departmentSearchFilter.school = schoolScope;
+    }
+
     const [schools, departments] = await Promise.all([
-      School.find({ name: regex }).select('_id').lean(),
-      Department.find({ name: regex }).select('_id').lean(),
+      School.find(schoolSearchFilter).select('_id').lean(),
+      Department.find(departmentSearchFilter).select('_id').lean(),
     ]);
 
     scopedFilter.$or = [
