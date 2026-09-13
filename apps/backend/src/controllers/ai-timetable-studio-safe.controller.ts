@@ -227,3 +227,38 @@ export const checkConflicts = async (req: Request, res: Response): Promise<Respo
     }, 'Timetable conflicts checked in recovery mode');
   }
 };
+
+export const createDraft = async (req: Request, res: Response): Promise<Response> => {
+  // Explicit client entries keep the normal strict validation path. Only the
+  // "start from published timetable" action needs recovery-aware filtering.
+  if (req.body?.entries) return studioCtrl.createDraft(req, res);
+
+  const schoolId = await resolveSchool(req, req.body?.school);
+  const snapshot = await safePublishedSnapshot(schoolId);
+
+  // Build the safe snapshot before archiving an existing working draft. The
+  // previous controller archived first, so a legacy reference crash could
+  // destroy the user's active draft even though no replacement was created.
+  await TimetableDraft.updateMany({ school: schoolId, status: 'draft' }, { $set: { status: 'archived' } });
+  const draft = await TimetableDraft.create({
+    school: schoolId,
+    name: String(req.body?.name || 'Working Draft').trim(),
+    entries: snapshot.entries,
+    status: 'draft',
+    createdBy: req.user!.userId,
+    updatedBy: req.user!.userId,
+  });
+  return ApiResponse.created(res, draft, snapshot.conflicts.length ? 'Timetable draft created in recovery mode' : 'Timetable draft created');
+};
+
+export const resetDraft = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = await resolveSchool(req, req.body?.school);
+  const snapshot = await safePublishedSnapshot(schoolId);
+  const draft = await TimetableDraft.findOneAndUpdate(
+    { _id: req.params.id, school: schoolId, status: 'draft' },
+    { $set: { entries: snapshot.entries, updatedBy: req.user!.userId } },
+    { new: true },
+  ).lean();
+  if (!draft) throw new NotFoundError('Timetable draft');
+  return ApiResponse.success(res, draft, snapshot.conflicts.length ? 'Draft reset in recovery mode; invalid legacy schedules were excluded' : 'Draft reset to the currently published timetable');
+};
