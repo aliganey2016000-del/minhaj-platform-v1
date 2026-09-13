@@ -228,7 +228,7 @@ export function TeacherDashboard() {
             <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-4 py-4 md:px-5">
               <div>
                 <h2 className="text-sm font-bold text-[var(--color-text-primary)]">{isSo ? 'Shaqooyinka sugaya' : 'Pending submissions'}</h2>
-                <p className="text-xs text-[var(--color-text-tertiary)]">{dashboard.pendingSubmissions.length} need attention</p>
+                <p className="text-xs text-[var(--color-text-tertiary)]">{dashboard.stats.pendingSubmissions} need attention</p>
               </div>
               <Link to="/teacher/gradebook" className="text-xs font-bold text-emerald-600">Open gradebook</Link>
             </div>

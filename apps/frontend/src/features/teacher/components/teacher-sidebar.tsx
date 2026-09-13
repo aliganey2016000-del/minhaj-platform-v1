@@ -66,7 +66,15 @@ export function TeacherSidebar() {
   }, [user?.role]);
 
   const visible = (key: string) => visibility[key] !== false;
-  const isActive = (path: string) => path === '/teacher' ? location.pathname === path : location.pathname.startsWith(path);
+  const leafPaths = navSections.flatMap((section) => section.items.flatMap((item) => (
+    isGroup(item) ? item.children.map((child) => child.path) : [item.path]
+  )));
+  // Pick the most specific matching link. Without this, both "All Quizzes"
+  // and "Create Quiz" (and both gradebook links) appear active together.
+  const activePath = leafPaths
+    .filter((path) => location.pathname === path || (path !== '/teacher' && location.pathname.startsWith(`${path}/`)))
+    .sort((a, b) => b.length - a.length)[0];
+  const isActive = (path: string) => activePath === path;
   const filtered = navSections.map((section) => ({ ...section, items: section.items.map((item) => {
     if (isGroup(item)) {
       if (!visible(item.key)) return null;

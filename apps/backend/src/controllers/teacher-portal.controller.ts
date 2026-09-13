@@ -134,7 +134,8 @@ export const getGamificationOverview = async (req: Request, res: Response): Prom
     .sort((a, b) => b.xp - a.xp)
     .slice(0, 10);
 
-  const totalClassXP = topByXP.reduce((sum: number, s: any) => sum + s.xp, 0);
+  // This metric represents the whole class, not only the ten leaderboard rows.
+  const totalClassXP = gamifications.reduce((sum: number, item: any) => sum + Math.max(0, Number(item.xp) || 0), 0);
 
   return ApiResponse.success(res, {
     topStudents: topByXP,
@@ -350,7 +351,7 @@ export const getCourseSubmissions = async (req: Request, res: Response): Promise
   const [submissions, total] = await Promise.all([
     AssignmentSubmission.find(filter)
       .populate({ path: 'student', select: 'user profile', populate: { path: 'profile', select: 'firstName lastName avatar' } })
-      .populate({ path: 'assignment', select: 'title description maxScore rubric dueDate' })
+      .populate({ path: 'assignment', select: 'title description totalMarks rubric dueDate' })
       .populate({ path: 'course', select: 'title' })
       .sort({ submittedAt: -1 })
       .skip((page - 1) * limit)
@@ -366,7 +367,7 @@ export const getCourseSubmissions = async (req: Request, res: Response): Promise
     studentAvatar: (s.student?.profile as any)?.avatar,
     assignmentTitle: s.assignment?.title || 'Untitled',
     assignmentId: s.assignment?._id,
-    maxScore: s.assignment?.maxScore || 100,
+    maxScore: s.assignment?.totalMarks || 100,
     rubric: s.assignment?.rubric || null,
     submittedAt: s.submittedAt,
     status: s.status,
@@ -385,7 +386,7 @@ export const getSubmissionDetail = async (req: Request, res: Response): Promise<
 
   const submission = await AssignmentSubmission.findById(submissionId)
     .populate({ path: 'student', select: 'user profile', populate: { path: 'profile', select: 'firstName lastName avatar' } })
-    .populate({ path: 'assignment', select: 'title description maxScore rubric dueDate' })
+    .populate({ path: 'assignment', select: 'title description totalMarks rubric dueDate' })
     .populate({ path: 'course', select: 'title' })
     .lean();
 
@@ -462,17 +463,20 @@ export const getCourseAnalytics = async (req: Request, res: Response): Promise<R
   const gamMapAnalytics = new Map<string, any>();
   for (const g of gamificationsForAnalytics) gamMapAnalytics.set(g.student.toString(), g);
 
-  const submissions = await AssignmentSubmission.find({ course: courseId }).lean();
-  const gradedSubmissions = submissions.filter((s: any) => s.status === 'graded');
-  const avgGrade = gradedSubmissions.length > 0
-    ? Math.round(gradedSubmissions.reduce((sum: number, s: any) => sum + (s.score || 0), 0) / gradedSubmissions.length)
+  const submissions = await AssignmentSubmission.find({ course: courseId })
+    .populate({ path: 'assignment', select: 'totalMarks' })
+    .lean();
+  const gradedSubmissions = submissions.filter((s: any) => s.status === 'graded' || s.status === 'returned');
+  const gradedWithTotals = gradedSubmissions.filter((s: any) => Number(s.assignment?.totalMarks) > 0 && typeof s.score === 'number');
+  const avgGrade = gradedWithTotals.length > 0
+    ? Math.round(gradedWithTotals.reduce((sum: number, s: any) => sum + (s.score / Number(s.assignment.totalMarks)) * 100, 0) / gradedWithTotals.length)
     : 0;
 
   const studentPerformance = students.map((s: any) => {
     const studentSubs = submissions.filter((sub: any) => sub.student?.toString() === s._id.toString());
-    const graded = studentSubs.filter((sub: any) => sub.status === 'graded');
+    const graded = studentSubs.filter((sub: any) => sub.status === 'graded' && Number(sub.assignment?.totalMarks) > 0 && typeof sub.score === 'number');
     const avg = graded.length > 0
-      ? Math.round(graded.reduce((sum: number, sub: any) => sum + (sub.score || 0), 0) / graded.length)
+      ? Math.round(graded.reduce((sum: number, sub: any) => sum + (sub.score / Number(sub.assignment.totalMarks)) * 100, 0) / graded.length)
       : null;
 
     const gData = gamMapAnalytics.get(s._id.toString());
@@ -512,10 +516,13 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
   const { assertCanAccessStudent } = await import('../utils/tenant-scope');
   await assertCanAccessStudent(req, student);
 
+  const { teacherId } = await getTeacherScope(req);
+  const teacherCourseIds = await Course.find({ teacher: teacherId }).distinct('_id');
+
   const gamData = await Gamification.findOne({ student: studentId }).lean();
 
-  const submissions = await AssignmentSubmission.find({ student: studentId })
-    .populate({ path: 'assignment', select: 'title maxScore' })
+  const submissions = await AssignmentSubmission.find({ student: studentId, course: { $in: teacherCourseIds } })
+    .populate({ path: 'assignment', select: 'title totalMarks' })
     .populate({ path: 'course', select: 'title' })
     .sort({ submittedAt: -1 })
     .lean();

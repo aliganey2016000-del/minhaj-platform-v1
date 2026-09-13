@@ -50,7 +50,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
       .sort({ submittedAt: -1 })
       .limit(20)
       .lean(),
-    Student.countDocuments({ enrolledCourses: { $in: allCourseIds } }),
+    Student.countDocuments({ enrolledCourses: { $in: allCourseIds }, status: 'active' }),
     AssignmentSubmission.aggregate([
       {
         $match: {
