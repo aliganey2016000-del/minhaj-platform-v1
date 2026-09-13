@@ -70,6 +70,9 @@ export default function AITimetableStudio({ organizationId, classes, teachers, i
   const [redoStack, setRedoStack] = useState<DraftEntry[][]>([]);
   const [ignoredWarnings, setIgnoredWarnings] = useState<Set<string>>(new Set());
   const [ruleForm, setRuleForm] = useState({ type: 'no_day', priority: 'required', dayOfWeek: 5, teacher: '', class: '', course: '', count: 5, description: '' });
+  const [aiPrompt, setAiPrompt] = useState('Create a balanced, conflict-free weekly timetable for all classes and courses.');
+  const [aiRules, setAiRules] = useState<Array<{ type: string; teacher?: string; course?: string; day?: string; value?: number; priority?: string }>>([]);
+  const [chat, setChat] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([]);
 
   const loadCourses = useCallback(async () => {
     if (!organizationId) return;
@@ -289,6 +292,32 @@ export default function AITimetableStudio({ organizationId, classes, teachers, i
     finally { setBusy(false); }
   };
 
+  const generateWithAI = async () => {
+    const message = aiPrompt.trim();
+    if (!message) return;
+    setBusy(true); setError(''); setNotice('');
+    setChat(current => [...current, { role: 'user', text: message }]);
+    try {
+      const { data } = await api.post('/class-schedules/school/ai-plan', { school: organizationId, prompt: message, constraints: aiRules });
+      const payload = data.data || data;
+      const generated: DraftEntry[] = (payload.items || []).map((item: DraftEntry) => ({
+        ...item,
+        room: item.room || classMap.get(item.class)?.room || '',
+        isActive: true,
+      }));
+      remember(generated);
+      setAiRules(payload.constraints || []);
+      setChat(current => [...current, { role: 'assistant', text: payload.reply || `Generated ${generated.length} lessons.` }]);
+      const checked = await checkCandidate(generated);
+      const errors = checked.filter(item => item.severity === 'error').length;
+      setNotice(`AI generated ${generated.length} lesson(s). ${errors ? `${errors} hard conflict(s) need review.` : 'No hard conflicts found.'} Save the draft before publishing.`);
+      setView(errors ? 'conflicts' : 'grid');
+    } catch (err: any) {
+      const messageText = err.response?.data?.message || 'Unable to generate the timetable with AI';
+      setError(messageText); setChat(current => [...current, { role: 'assistant', text: messageText }]);
+    } finally { setBusy(false); }
+  };
+
   const dayToggle = (day: number) => {
     if (!config) return;
     const next = config.workingDays.includes(day) ? config.workingDays.filter(value => value !== day) : [...config.workingDays, day].sort((a, b) => a - b);
@@ -339,7 +368,7 @@ export default function AITimetableStudio({ organizationId, classes, teachers, i
         {!!versions.length && <section className="space-y-3 rounded-2xl border border-[var(--color-border-default)] p-4 xl:col-span-2"><h2 className="font-bold">Published Versions & Rollback</h2><div className="flex flex-wrap gap-2">{versions.map(version => <button type="button" key={version.version} disabled={busy} onClick={() => void rollbackVersion(version.version)} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-left text-xs hover:bg-[var(--color-surface-tertiary)]"><div className="font-semibold">v{version.version} · {version.label}</div><div className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">{new Date(version.publishedAt).toLocaleString()}</div></button>)}</div></section>}
       </div>}
 
-      {!loading && view === 'ai' && <div className="mx-auto max-w-3xl space-y-4"><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20"><div className="flex items-center gap-2 font-bold text-emerald-800 dark:text-emerald-200"><Bot className="h-5 w-5" />AI Assistant foundation is ready</div><p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">The Studio now stores validated rules, teacher availability, drafts, conflict reports and published versions. DeepSeek will be connected only as a prompt parser; it will never receive direct database write access.</p></div><div className="rounded-2xl border border-[var(--color-border-default)] p-5"><h3 className="font-bold">Next AI layer</h3><p className="mt-2 text-sm text-[var(--color-text-secondary)]">A prompt such as “Ahmed Monday day off, Grade 12 Mathematics no consecutive periods” will become structured rules. The deterministic solver will generate a draft, the conflict checker will verify it, and an admin will review before publishing.</p><textarea disabled rows={5} placeholder="DeepSeek chat is enabled after the deterministic generator is connected in the next phase." className="mt-4 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-3 text-sm opacity-70" /></div></div>}
+      {!loading && view === 'ai' && <div className="mx-auto grid max-w-5xl gap-4 lg:grid-cols-[minmax(0,1fr)_300px]"><section className="rounded-2xl border border-[var(--color-border-default)] p-5"><div className="flex items-center gap-2 font-bold"><Bot className="h-5 w-5 text-emerald-600" />DeepSeek Timetable Assistant</div><p className="mt-2 text-sm text-[var(--color-text-secondary)]">Describe teacher days off, daily limits and timetable preferences. DeepSeek converts the conversation into structured rules; the deterministic generator creates the draft and the server checks every conflict.</p><div className="mt-4 max-h-72 space-y-2 overflow-y-auto">{!chat.length && <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3 text-xs text-[var(--color-text-secondary)]">Examples: “Macallin Ahmed Monday fasax sii.” · “Macallin maalintii ha dhaafin 5 cashar.” · “Prefer morning lessons.”</div>}{chat.map((message, index) => <div key={index} className={`rounded-xl px-3 py-2 text-sm ${message.role === 'user' ? 'ml-10 bg-emerald-600 text-white' : 'mr-10 bg-[var(--color-surface-secondary)]'}`}>{message.text}</div>)}</div><textarea value={aiPrompt} onChange={event => setAiPrompt(event.target.value)} rows={5} placeholder="Tell DeepSeek how to arrange the timetable..." className="mt-4 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent p-3 text-sm"/><ActionButton variant="primary" disabled={busy || !aiPrompt.trim()} onClick={() => void generateWithAI()}><Sparkles className="h-4 w-4" />{entries.length ? 'Apply Prompt & Regenerate Draft' : 'Generate Timetable'}</ActionButton></section><aside className="rounded-2xl border border-[var(--color-border-default)] p-4"><h3 className="text-sm font-bold">Understood AI rules</h3><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">New prompts build on rules from this chat.</p><div className="mt-3 space-y-2">{!aiRules.length && <p className="text-xs text-[var(--color-text-tertiary)]">No AI rules yet.</p>}{aiRules.map((rule, index) => <div key={index} className="rounded-xl border border-[var(--color-border-subtle)] p-2 text-xs"><div className="font-bold uppercase">{prettyRule(rule.type)}</div><div className="mt-1 text-[var(--color-text-secondary)]">{[rule.teacher, rule.course, rule.day, rule.value].filter(value => value !== undefined && value !== '').join(' · ') || rule.priority || 'Active'}</div></div>)}</div><div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-200">AI never writes directly to the published timetable. Review the generated grid, save it as a draft, resolve hard conflicts, then publish.</div></aside></div>}
     </main>
   </div>;
 }

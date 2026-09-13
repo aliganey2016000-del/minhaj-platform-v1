@@ -7,6 +7,7 @@ import * as schoolTemplateCtrl from '../../controllers/school-class-schedule-tem
 import * as dispatchCtrl from '../../controllers/class-schedule-dispatch.controller';
 import * as studioCtrl from '../../controllers/ai-timetable-studio.controller';
 import * as safeStudioCtrl from '../../controllers/ai-timetable-studio-safe.controller';
+import * as aiTimetableCtrl from '../../controllers/ai-timetable.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
