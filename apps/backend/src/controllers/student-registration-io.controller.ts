@@ -41,6 +41,7 @@ export const STUDENT_REGISTRATION_HEADERS = [
 const EXPORT_HEADERS = ['Student ID', ...STUDENT_REGISTRATION_HEADERS, 'Organization'];
 const RELATIONSHIPS = new Set(['father', 'mother', 'guardian', 'other']);
 const GENDERS = new Set(['male', 'female']);
+const SIMPLE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type RowAction = 'new' | 'update' | 'duplicate' | 'class_not_found' | 'invalid';
 
@@ -165,12 +166,6 @@ function classKey(title: string, section: string): string {
   return `${title.trim().toLowerCase()}::${section.trim().toLowerCase()}`;
 }
 
-function currentAcademicYearLabel(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  return `${year}-${year + 1}`;
-}
-
 async function resolveSchoolId(req: Request, row: Record<string, unknown>): Promise<string> {
   const requested = clean(req.query.school || req.body?.school || req.body?.schoolId);
   const resolved = resolveOrgIdForCreate(req, requested || undefined);
@@ -227,26 +222,44 @@ async function resolveClass(
   section: string,
   legacyAcademicYear: string,
   legacyBatch: string,
+  preferredClassId?: string,
 ): Promise<ClassCandidate> {
   const byKey = await getClassCandidates(schoolId);
   let matches = byKey.get(classKey(className, section)) || [];
   if (matches.length === 0) throw new Error(`Active class "${className} — Section ${section}" was not found`);
 
-  // Old templates/exports can still disambiguate explicitly. New templates do
-  // not need these columns; the system chooses the current/newest active class.
+  // Legacy sheets may contain Academic Year / Batch Number. They are not part
+  // of the new template, but remain accepted to safely disambiguate older
+  // cohort-aware files.
   if (legacyAcademicYear) {
     const filtered = matches.filter((candidate) => candidate.academicYear.toLowerCase() === legacyAcademicYear.toLowerCase());
-    if (filtered.length > 0) matches = filtered;
+    if (filtered.length === 0) {
+      throw new Error(`No active class "${className} — Section ${section}" matches Academic Year "${legacyAcademicYear}"`);
+    }
+    matches = filtered;
   }
   if (legacyBatch) {
     const filtered = matches.filter((candidate) => candidate.batch.toLowerCase() === legacyBatch.toLowerCase());
-    if (filtered.length > 0) matches = filtered;
+    if (filtered.length === 0) {
+      throw new Error(`No active class "${className} — Section ${section}" matches Batch Number "${legacyBatch}"`);
+    }
+    matches = filtered;
   }
 
   if (matches.length === 1) return matches[0];
-  const currentYear = currentAcademicYearLabel().toLowerCase();
-  const current = matches.find((candidate) => candidate.academicYear.toLowerCase() === currentYear);
-  return current || matches[0];
+
+  // Export -> Import round trips carry Student ID. For an existing student,
+  // preserve the exact current class when multiple active cohorts share the
+  // same display title + section.
+  if (preferredClassId) {
+    const current = matches.find((candidate) => String(candidate.classId) === String(preferredClassId));
+    if (current) return current;
+  }
+
+  throw new Error(
+    `Multiple active classes match "${className} — Section ${section}". ` +
+    'Use Academic Year and Batch Number to disambiguate this cohort, or make Class Name + Section unique.'
+  );
 }
 
 function readRows(req: Request): Record<string, unknown>[] {
@@ -280,7 +293,12 @@ async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise
       const guardianName = clean(getField(row, 'Guardian Name', 'Guardian Full Name'));
       const guardianEmail = clean(getField(row, 'Guardian Email')).toLowerCase();
       const guardianPhone = clean(getField(row, 'Guardian Phone', 'Parent Phone'));
-      const relationship = relationshipTitle(getField(row, 'Relationship'));
+      const relationshipRaw = clean(getField(row, 'Relationship')).toLowerCase();
+      const relationship = relationshipTitle(relationshipRaw);
+      const hasGuardianColumns = hasField(
+        row,
+        'Guardian Name', 'Guardian Full Name', 'Guardian Email', 'Guardian Phone', 'Parent Phone', 'Relationship',
+      );
       const enrollmentRaw = getField(row, 'Enrollment Date');
       const enrollmentDate = parseSpreadsheetDate(enrollmentRaw);
       const medicalNotes = clean(getField(row, 'Medical Notes'));
@@ -289,24 +307,19 @@ async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise
 
       if (!firstName) throw new Error('First Name is required');
       if (!GENDERS.has(gender)) throw new Error('Gender must be male or female');
+      if (email && !SIMPLE_EMAIL.test(email)) throw new Error('Student Email is invalid');
       if (!className) throw new Error('Class Name is required');
       if (!section) throw new Error('Section is required');
-      if (!guardianName) throw new Error('Guardian Name is required');
-      if (!guardianPhone) throw new Error('Guardian Phone is required');
+      if (guardianEmail && !SIMPLE_EMAIL.test(guardianEmail)) throw new Error('Guardian Email is invalid');
+      if (relationshipRaw && !RELATIONSHIPS.has(relationshipRaw)) {
+        throw new Error('Relationship must be Father, Mother, Guardian or Other');
+      }
       if (clean(enrollmentRaw) && !enrollmentDate) throw new Error('Enrollment Date is invalid');
 
-      let classCandidate: ClassCandidate;
-      try {
-        classCandidate = await resolveClass(schoolId, className, section, legacyAcademicYear, legacyBatch);
-      } catch (error: any) {
-        parsed.push({
-          row: rowNum, action: 'class_not_found', message: error?.message || 'Class not found', schoolId,
-          studentId: studentId || undefined, firstName, lastName, gender, email: email || undefined,
-          className, section, guardianName, guardianEmail: guardianEmail || undefined, guardianPhone, relationship,
-        });
-        continue;
-      }
-
+      // Resolve an existing student before resolving the class. This is what
+      // makes an exported workbook round-trip safely when two active cohorts
+      // happen to share the same Class Name + Section: Student ID preserves
+      // the exact current class instead of guessing.
       let existingStudent: any = null;
       if (studentId) {
         existingStudent = await Student.findOne({ school: schoolId, studentId }).select('_id user studentId class').lean();
@@ -325,6 +338,38 @@ async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise
         if (conflictingUser) throw new Error(`Email "${email}" is already used by another account`);
       }
 
+      // New 12-column templates intentionally require a guardian name + phone.
+      // Older SAHAL import sheets had no guardian columns at all, so those are
+      // still accepted for backward compatibility. Existing legacy students
+      // exported with blank guardian fields can also be imported back safely.
+      if (hasGuardianColumns) {
+        if (guardianName && !guardianPhone) throw new Error('Guardian Phone is required when Guardian Name is provided');
+        if (guardianPhone && !guardianName) throw new Error('Guardian Name is required when Guardian Phone is provided');
+        if (!existingStudent && !guardianName && !guardianPhone) {
+          throw new Error('Guardian Name and Guardian Phone are required');
+        }
+      }
+
+      let classCandidate: ClassCandidate;
+      try {
+        classCandidate = await resolveClass(
+          schoolId,
+          className,
+          section,
+          legacyAcademicYear,
+          legacyBatch,
+          existingStudent?.class ? String(existingStudent.class) : undefined,
+        );
+      } catch (error: any) {
+        parsed.push({
+          row: rowNum, action: 'class_not_found', message: error?.message || 'Class not found', schoolId,
+          studentId: studentId || existingStudent?.studentId || undefined, firstName, lastName, gender, email: email || undefined,
+          className, section, guardianName: guardianName || undefined, guardianEmail: guardianEmail || undefined,
+          guardianPhone: guardianPhone || undefined, relationship,
+        });
+        continue;
+      }
+
       const identity = existingStudent
         ? `existing:${existingStudent._id}`
         : studentId
@@ -337,7 +382,8 @@ async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise
         parsed.push({
           row: rowNum, action: 'duplicate', message: 'This student appears more than once in the import file', schoolId,
           studentId: studentId || existingStudent?.studentId, firstName, lastName, gender, email: email || undefined,
-          className, section, classCandidate, guardianName, guardianEmail: guardianEmail || undefined, guardianPhone, relationship,
+          className, section, classCandidate, guardianName: guardianName || undefined,
+          guardianEmail: guardianEmail || undefined, guardianPhone: guardianPhone || undefined, relationship,
         });
         continue;
       }
@@ -360,9 +406,9 @@ async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise
         hasEnrollmentDate: hasField(row, 'Enrollment Date') && clean(enrollmentRaw) !== '',
         medicalNotes,
         hasMedicalNotes: hasField(row, 'Medical Notes'),
-        guardianName,
+        guardianName: guardianName || undefined,
         guardianEmail: guardianEmail || undefined,
-        guardianPhone,
+        guardianPhone: guardianPhone || undefined,
         relationship,
       });
     } catch (error: any) {
@@ -410,9 +456,11 @@ async function generateParentId(): Promise<string> {
 }
 
 async function linkGuardian(item: ParsedRegistration, student: any): Promise<void> {
+  if (!item.guardianName || !item.guardianPhone) return;
+
   const schoolId = item.schoolId!;
-  const guardianName = item.guardianName!;
-  const guardianPhone = item.guardianPhone!;
+  const guardianName = item.guardianName;
+  const guardianPhone = item.guardianPhone;
   const [firstName, ...rest] = guardianName.split(/\s+/);
   const lastName = rest.join(' ') || firstName;
 
@@ -448,9 +496,10 @@ async function linkGuardian(item: ParsedRegistration, student: any): Promise<voi
       }
       parent = existingParentForUser;
     } else {
+      const relationship = relationshipModel(item.relationship);
       const profile = await Profile.findOneAndUpdate(
         { user: guardianUser._id },
-        { firstName, lastName, gender: 'male' },
+        { firstName, lastName, gender: relationship === 'mother' ? 'female' : 'male' },
         { new: true, upsert: true, setDefaultsOnInsert: true },
       );
       parent = await Parent.create({
@@ -459,7 +508,7 @@ async function linkGuardian(item: ParsedRegistration, student: any): Promise<voi
         parentId: await generateParentId(),
         school: schoolId,
         phone: guardianPhone,
-        relationship: relationshipModel(item.relationship),
+        relationship,
         children: [],
         status: 'active',
       });
@@ -528,8 +577,10 @@ async function createStudent(item: ParsedRegistration): Promise<string> {
   });
 
   try {
-    await linkGuardian(item, student);
-    await student.save();
+    if (item.guardianName && item.guardianPhone) {
+      await linkGuardian(item, student);
+      await student.save();
+    }
     await syncStudentCourseEnrollment(student._id as mongoose.Types.ObjectId, cls.classId);
     return student.studentId;
   } catch (error) {
@@ -570,7 +621,7 @@ async function updateStudent(item: ParsedRegistration): Promise<string> {
   if (item.hasEnrollmentDate && item.enrollmentDate) student.enrollmentDate = item.enrollmentDate;
   if (item.hasMedicalNotes) student.medicalNotes = item.medicalNotes || undefined;
 
-  await linkGuardian(item, student);
+  if (item.guardianName && item.guardianPhone) await linkGuardian(item, student);
   await student.save();
 
   if (classChanged) {
