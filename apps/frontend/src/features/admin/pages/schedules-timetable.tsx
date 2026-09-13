@@ -28,6 +28,8 @@ interface ClassItem {
   gradeLevel?: number;
   department?: { _id?: string; name?: string } | string | null;
   departmentId?: string;
+  shiftMode?: string;
+  shift?: string;
 }
 
 interface TimetablePeriod {
@@ -50,6 +52,8 @@ const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5] as const;
 const ALL_DEPARTMENTS = '__all__';
 const UNASSIGNED_DEPARTMENT = '__unassigned__';
+const ALL_SHIFTS = '__all_shifts__';
+const UNASSIGNED_SHIFT = '__unassigned_shift__';
 
 function courseName(course?: ScheduleItem['course']) {
   if (!course) return '—';
@@ -71,6 +75,20 @@ function classDepartmentId(item: ClassItem) {
   if (item.departmentId) return String(item.departmentId);
   if (typeof item.department === 'string') return item.department;
   return item.department?._id ? String(item.department._id) : UNASSIGNED_DEPARTMENT;
+}
+
+function classShiftValue(item: ClassItem) {
+  const raw = String(item.shiftMode || item.shift || '').trim();
+  return raw ? raw.toLowerCase() : UNASSIGNED_SHIFT;
+}
+
+function shiftLabel(value: string) {
+  if (value === UNASSIGNED_SHIFT) return 'Unassigned Shift';
+  return value
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
 }
 
 function schoolName(school?: ScheduleItem['school']) {
@@ -107,6 +125,7 @@ export function SchedulesTimetable() {
   const [schoolId, setSchoolId] = useState(isOrgAdmin ? organizationId : '');
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
   const [departmentFilter, setDepartmentFilter] = useState(ALL_DEPARTMENTS);
+  const [shiftFilter, setShiftFilter] = useState(ALL_SHIFTS);
   const [hiddenClassIds, setHiddenClassIds] = useState<Set<string>>(() => new Set());
   const [classPickerOpen, setClassPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -218,6 +237,7 @@ export function SchedulesTimetable() {
 
   useEffect(() => {
     setDepartmentFilter(ALL_DEPARTMENTS);
+    setShiftFilter(ALL_SHIFTS);
     setHiddenClassIds(new Set());
     setClassPickerOpen(false);
   }, [effectiveSchoolId]);
@@ -257,22 +277,47 @@ export function SchedulesTimetable() {
     [classes, departmentFilter],
   );
 
+  const shiftOptions = useMemo(() => {
+    const values = new Set(departmentClasses.map((item) => classShiftValue(item)));
+    return Array.from(values)
+      .map((value) => ({ value, label: shiftLabel(value) }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [departmentClasses]);
+
+  const filteredClasses = useMemo(
+    () => departmentClasses.filter((item) => shiftFilter === ALL_SHIFTS || classShiftValue(item) === shiftFilter),
+    [departmentClasses, shiftFilter],
+  );
+
   const allColumns = useMemo(() => {
-    if (classes.length > 0) return classes.map((item) => ({ id: item._id, label: className(item), departmentId: classDepartmentId(item) }));
+    if (classes.length > 0) {
+      return classes.map((item) => ({
+        id: item._id,
+        label: className(item),
+        departmentId: classDepartmentId(item),
+        shift: classShiftValue(item),
+      }));
+    }
     const map = new Map<string, string>();
     schedules.filter((item) => item.isActive).forEach((item) => {
       const id = item.class?._id || className(item.class);
       if (!map.has(id)) map.set(id, className(item.class));
     });
-    return Array.from(map.entries()).map(([id, label]) => ({ id, label, departmentId: UNASSIGNED_DEPARTMENT }));
+    return Array.from(map.entries()).map(([id, label]) => ({
+      id,
+      label,
+      departmentId: UNASSIGNED_DEPARTMENT,
+      shift: UNASSIGNED_SHIFT,
+    }));
   }, [classes, schedules]);
 
   const columns = useMemo(
     () => allColumns.filter((column) => {
       const matchesDepartment = departmentFilter === ALL_DEPARTMENTS || column.departmentId === departmentFilter;
-      return matchesDepartment && !hiddenClassIds.has(column.id);
+      const matchesShift = shiftFilter === ALL_SHIFTS || column.shift === shiftFilter;
+      return matchesDepartment && matchesShift && !hiddenClassIds.has(column.id);
     }),
-    [allColumns, departmentFilter, hiddenClassIds],
+    [allColumns, departmentFilter, shiftFilter, hiddenClassIds],
   );
 
   const periods = useMemo(() => {
@@ -318,9 +363,9 @@ export function SchedulesTimetable() {
     return visibleColumnIds.has(classId);
   }).length;
   const visibleClassCount = columns.length;
-  const filterClassCount = departmentClasses.length || (classes.length === 0 ? allColumns.length : 0);
+  const filterClassCount = filteredClasses.length || (classes.length === 0 ? allColumns.length : 0);
   const selectedFilterClassCount = classes.length > 0
-    ? departmentClasses.filter((item) => !hiddenClassIds.has(item._id)).length
+    ? filteredClasses.filter((item) => !hiddenClassIds.has(item._id)).length
     : allColumns.filter((item) => !hiddenClassIds.has(item.id)).length;
 
   const schoolTitle = schoolName(daySchedules[0]?.school)
@@ -349,7 +394,7 @@ export function SchedulesTimetable() {
   };
 
   const selectAllFilteredClasses = () => {
-    const ids = (classes.length > 0 ? departmentClasses.map((item) => item._id) : allColumns.map((item) => item.id));
+    const ids = classes.length > 0 ? filteredClasses.map((item) => item._id) : allColumns.map((item) => item.id);
     setHiddenClassIds((previous) => {
       const next = new Set(previous);
       ids.forEach((id) => next.delete(id));
@@ -358,7 +403,7 @@ export function SchedulesTimetable() {
   };
 
   const hideAllFilteredClasses = () => {
-    const ids = (classes.length > 0 ? departmentClasses.map((item) => item._id) : allColumns.map((item) => item.id));
+    const ids = classes.length > 0 ? filteredClasses.map((item) => item._id) : allColumns.map((item) => item.id);
     setHiddenClassIds((previous) => {
       const next = new Set(previous);
       ids.forEach((id) => next.add(id));
@@ -368,12 +413,13 @@ export function SchedulesTimetable() {
 
   const resetColumnFilters = () => {
     setDepartmentFilter(ALL_DEPARTMENTS);
+    setShiftFilter(ALL_SHIFTS);
     setHiddenClassIds(new Set());
     setClassPickerOpen(false);
   };
 
   const classPickerItems = classes.length > 0
-    ? departmentClasses.map((item) => ({ id: item._id, label: className(item) }))
+    ? filteredClasses.map((item) => ({ id: item._id, label: className(item) }))
     : allColumns.map((item) => ({ id: item.id, label: item.label }));
 
   return (
@@ -424,13 +470,14 @@ export function SchedulesTimetable() {
 
         <div className="relative z-20 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm print:hidden">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end">
-              <label className="min-w-[210px] text-xs font-semibold text-[var(--color-text-secondary)]">
+            <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <label className="min-w-[200px] text-xs font-semibold text-[var(--color-text-secondary)]">
                 <span className="mb-1.5 block">Department</span>
                 <select
                   value={departmentFilter}
                   onChange={(event) => {
                     setDepartmentFilter(event.target.value);
+                    setShiftFilter(ALL_SHIFTS);
                     setClassPickerOpen(false);
                   }}
                   className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-medium text-[var(--color-text-primary)]"
@@ -438,6 +485,23 @@ export function SchedulesTimetable() {
                   <option value={ALL_DEPARTMENTS}>All Departments</option>
                   {departmentOptions.map((department) => (
                     <option key={department._id} value={department._id}>{department.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="min-w-[170px] text-xs font-semibold text-[var(--color-text-secondary)]">
+                <span className="mb-1.5 block">Shift</span>
+                <select
+                  value={shiftFilter}
+                  onChange={(event) => {
+                    setShiftFilter(event.target.value);
+                    setClassPickerOpen(false);
+                  }}
+                  className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-medium text-[var(--color-text-primary)]"
+                >
+                  <option value={ALL_SHIFTS}>All Shifts</option>
+                  {shiftOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
               </label>
@@ -467,7 +531,7 @@ export function SchedulesTimetable() {
                     </div>
                     <div className="max-h-72 overflow-y-auto p-2">
                       {classPickerItems.length === 0 ? (
-                        <div className="px-2 py-6 text-center text-xs text-[var(--color-text-tertiary)]">No classes in this department.</div>
+                        <div className="px-2 py-6 text-center text-xs text-[var(--color-text-tertiary)]">No classes match this department and shift.</div>
                       ) : classPickerItems.map((item) => (
                         <label key={item.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-surface-secondary)]">
                           <input
@@ -485,7 +549,7 @@ export function SchedulesTimetable() {
               </div>
             </div>
 
-            {(departmentFilter !== ALL_DEPARTMENTS || hiddenClassIds.size > 0) && (
+            {(departmentFilter !== ALL_DEPARTMENTS || shiftFilter !== ALL_SHIFTS || hiddenClassIds.size > 0) && (
               <button type="button" onClick={resetColumnFilters} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
                 <RotateCcw className="h-3.5 w-3.5" /> Reset Filters
               </button>
@@ -514,7 +578,7 @@ export function SchedulesTimetable() {
             <div className="flex min-h-[260px] flex-col items-center justify-center px-6 text-center">
               <Columns3 className="h-10 w-10 text-[var(--color-text-tertiary)]" />
               <p className="mt-3 font-semibold text-[var(--color-text-primary)]">No class columns selected</p>
-              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose a department or enable one or more classes from Class Columns.</p>
+              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose a department, shift, or enable one or more classes from Class Columns.</p>
               <button type="button" onClick={resetColumnFilters} className="mt-4 rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-700 print:hidden">Show All Classes</button>
             </div>
           ) : (
@@ -580,7 +644,7 @@ export function SchedulesTimetable() {
 
           <div className="flex flex-col gap-1 border-t border-[var(--color-border-default)] px-4 py-3 text-[9px] text-[var(--color-text-tertiary)] sm:flex-row sm:items-center sm:justify-between">
             <span>Rows follow Timetable Settings periods and breaks.</span>
-            <span>Department and class filters control visible columns and print output.</span>
+            <span>Department, shift, and class filters control visible columns and print output.</span>
           </div>
         </div>
       </div>
