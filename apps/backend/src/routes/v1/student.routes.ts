@@ -22,6 +22,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import * as studentController from '../../controllers/student.controller';
 import * as studentRegistrationIoController from '../../controllers/student-registration-io.controller';
+import * as studentRegistrationTemplateController from '../../controllers/student-registration-template.controller';
 import * as studentDocumentsController from '../../controllers/student-documents.controller';
 import * as studentRegistrationController from '../../controllers/student-registration.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
@@ -41,6 +42,10 @@ import {
   prepareStudentCreateDefaults,
   prepareStudentUpdateDefaults,
 } from '../../middleware/student-registration-defaults.middleware';
+import {
+  requireStudentEmailForCreate,
+  requireStudentEmailInImport,
+} from '../../middleware/student-email-required.middleware';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -78,24 +83,25 @@ router.get(
   asyncHandler(studentController.exportReport as any)
 );
 
-// Add Student uses the same core registration contract as Import. Missing
-// IDs/emails/passwords are system-generated before the existing controller
-// runs, while class-derived academic fields remain owned by the backend.
+// Student Email is required. IDs/passwords and class-derived academic fields
+// remain system-managed so manual Add uses the same data contract as Import.
 router.post(
   '/',
   adminOnly,
   photoUpload.single('photo'),
+  asyncHandler(requireStudentEmailForCreate),
   asyncHandler(prepareStudentCreateDefaults),
   asyncHandler(validateStudentCreateClass),
   asyncHandler(studentController.create)
 );
 
-// Preview and commit use the exact same parser/validation path. Register the
-// preview route before /import and all dynamic /:id routes.
+// Preview and commit use the exact same parser/validation path. Student Email
+// is required on every non-empty row before either endpoint proceeds.
 router.post(
   '/import/preview',
   adminOnly,
   upload.single('file'),
+  asyncHandler(requireStudentEmailInImport),
   asyncHandler(studentRegistrationIoController.previewImport)
 );
 
@@ -103,6 +109,7 @@ router.post(
   '/import',
   adminOnly,
   upload.single('file'),
+  asyncHandler(requireStudentEmailInImport),
   asyncHandler(studentRegistrationIoController.bulkImport)
 );
 
@@ -188,7 +195,7 @@ router.get(
 router.get(
   '/template',
   adminOnly,
-  asyncHandler(studentRegistrationIoController.downloadTemplate as any)
+  asyncHandler(studentRegistrationTemplateController.downloadTemplate as any)
 );
 
 router.delete(
