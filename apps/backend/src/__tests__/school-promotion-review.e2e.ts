@@ -25,14 +25,22 @@ async function main() {
   const { default: Department } = await import('../models/department.model');
   const { default: ClassModel } = await import('../models/class.model');
   const { default: Student } = await import('../models/student.model');
+  const { default: Course } = await import('../models/course.model');
+  const { syncStudentCourseEnrollment } = await import('../services/enrollment.service');
 
   const admin = await User.create({ email: 'review-promotion@test.local', password: 'Password123!', role: 'admin' });
   const token = generateAccessToken({ userId: admin._id.toString(), role: 'admin', permissions: [] });
   const school = await School.create({ name: 'Review Promotion School', organizationType: 'private', country: 'Somalia', city: 'Mogadishu', address: 'Road', phone: '+252611000000', email: 'review-school@test.local', principalName: 'Principal', establishedYear: 2020, createdBy: admin._id });
   const department = await Department.create({ name: 'Secondary', tenantId: school._id });
 
-  const grade9 = await ClassModel.create({ school: school._id, department: department._id, title: 'Grade 9', section: 'A', room: '9A', batch: '2026', gradeLevel: 9, academicYear: '2026-2027', status: 'active', isEntryGrade: true });
-  const grade10 = await ClassModel.create({ school: school._id, department: department._id, title: 'Grade 10', section: 'A', room: '10A', batch: '2026', gradeLevel: 10, academicYear: '2026-2027', status: 'active', isGraduatingGrade: true });
+  const grade9 = await ClassModel.create({ school: school._id, department: department._id, title: 'Grade 9', section: 'A', room: '9A', batch: '2026', gradeLevel: 9, academicYear: '2026-2027', status: 'active', shiftMode: 'Morning', isEntryGrade: true });
+  const grade10 = await ClassModel.create({ school: school._id, department: department._id, title: 'Grade 10', section: 'A', room: '10A', batch: '2026', gradeLevel: 10, academicYear: '2026-2027', status: 'active', shiftMode: 'Afternoon', isGraduatingGrade: true });
+  const grade10Course = await Course.create({
+    title: { en: 'Grade 10 Core' },
+    slug: `grade-10-core-${new mongoose.Types.ObjectId().toString().slice(-6)}`,
+    category: 'general', level: 'beginner', duration: 10, maxStudents: 30,
+    school: school._id, class: grade10._id, status: 'published',
+  });
 
   async function makeStudent(name: string, cls: any) {
     const user = await User.create({ email: `${name.toLowerCase()}@review.test`, password: 'Password123!', role: 'student' });
@@ -44,6 +52,11 @@ async function main() {
   const repeatNine = await makeStudent('RepeatNine', grade9);
   const graduateMe = await makeStudent('GraduateMe', grade10);
   const repeatTen = await makeStudent('RepeatTen', grade10);
+
+  await syncStudentCourseEnrollment(graduateMe._id, grade10._id);
+  await syncStudentCourseEnrollment(repeatTen._id, grade10._id);
+  const courseBefore: any = await Course.findById(grade10Course._id).lean();
+  assert(courseBefore?.enrolledStudents === 2, `source course starts with two active students (got ${courseBefore?.enrolledStudents})`);
 
   console.log('\n=== REVIEW PREVIEW ===');
   const preview = await request(app).get('/api/v1/classes/promotion-review').set('Authorization', `Bearer ${token}`).query({ schoolId: school._id.toString() });
@@ -67,18 +80,25 @@ async function main() {
   assert(execute.body?.data?.studentsRepeated === 2, 'two students repeat');
   assert(execute.body?.data?.studentsGraduated === 1, 'one student graduated');
 
-  const promoted = await Student.findById(promoteMe._id).lean();
-  const repeated9 = await Student.findById(repeatNine._id).lean();
-  const graduated = await Student.findById(graduateMe._id).lean();
-  const repeated10 = await Student.findById(repeatTen._id).lean();
-  const pClass: any = await ClassModel.findById((promoted as any).class).lean();
-  const r9Class: any = await ClassModel.findById((repeated9 as any).class).lean();
-  const r10Class: any = await ClassModel.findById((repeated10 as any).class).lean();
+  const promoted: any = await Student.findById(promoteMe._id).lean();
+  const repeated9: any = await Student.findById(repeatNine._id).lean();
+  const graduated: any = await Student.findById(graduateMe._id).lean();
+  const repeated10: any = await Student.findById(repeatTen._id).lean();
+  const pClass: any = await ClassModel.findById(promoted?.class).lean();
+  const r9Class: any = await ClassModel.findById(repeated9?.class).lean();
+  const r10Class: any = await ClassModel.findById(repeated10?.class).lean();
 
   assert(pClass?.gradeLevel === 10 && pClass?.academicYear === '2027-2028', 'promoted student moves to next grade in new year');
+  assert(promoted?.grade === '10', `promoted student's denormalized grade is synchronized (got ${promoted?.grade})`);
+  assert(promoted?.department === 'Secondary', `promoted student's department is synchronized (got ${promoted?.department})`);
+  assert(promoted?.shiftMode === 'Afternoon', `promoted student's shift follows target class (got ${promoted?.shiftMode})`);
   assert(r9Class?.gradeLevel === 9 && r9Class?.academicYear === '2027-2028' && r9Class?.batch === '2026', 'Grade 9 repeater stays same grade in new year and keeps cohort batch');
+  assert(repeated9?.shiftMode === 'Morning', `repeater keeps the repeated class shift (got ${repeated9?.shiftMode})`);
   assert(r10Class?.gradeLevel === 10 && r10Class?.academicYear === '2027-2028' && r10Class?.batch === '2026', 'final-grade repeater stays final grade in new year');
-  assert((graduated as any)?.status === 'graduated', 'default final-grade student graduates');
+  assert(graduated?.status === 'graduated', 'default final-grade student graduates');
+
+  const courseAfter: any = await Course.findById(grade10Course._id).lean();
+  assert(courseAfter?.enrolledStudents === 0, `completed source course has zero active students after repeat/graduate (got ${courseAfter?.enrolledStudents})`);
 
   const newIntake = await ClassModel.findOne({ school: school._id, gradeLevel: 9, academicYear: '2027-2028', batch: '2027', isEntryGrade: true }).lean();
   assert(!!newIntake, 'new Grade 9 intake is separate from repeat class');
