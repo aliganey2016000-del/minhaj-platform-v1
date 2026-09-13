@@ -131,21 +131,54 @@ async function main() {
 
   const restored9: any = await ClassModel.findById(grade9._id).lean();
   const restored10: any = await ClassModel.findById(grade10._id).lean();
-  assert(restored9?.status === 'active' && !restored9?.promotedAt && !restored9?.promotedTo, 'Grade 9 promotion markers cleared and class reopened');
-  assert(restored10?.status === 'active' && !restored10?.promotedAt && !restored10?.promotedTo, 'Grade 10 promotion markers cleared and class reopened');
+  assert(restored9?.status === 'active' && restored9?.academicYear === '2025-2026' && !restored9?.promotedAt && !restored9?.promotedTo, 'Grade 9 reopens one academic year earlier and clears promotion markers');
+  assert(restored10?.status === 'active' && restored10?.academicYear === '2025-2026' && !restored10?.promotedAt && !restored10?.promotedTo, 'Grade 10 reopens one academic year earlier and clears promotion markers');
 
   const courseAfterRollback: any = await Course.findById(grade10Course._id).lean();
   assert(courseAfterRollback?.enrolledStudents === 2, `source course count is restored after rollback (got ${courseAfterRollback?.enrolledStudents})`);
 
-  const previewAfterRollback = await request(app).get('/api/v1/classes/promotion-review').set('Authorization', `Bearer ${token}`).query({ schoolId: school._id.toString(), targetAcademicYear: '2027-2028' });
-  assert(previewAfterRollback.status === 200 && (previewAfterRollback.body?.data?.groups || []).length === 2, 'restored classes become eligible for promotion again');
+  const previewAfterRollback = await request(app).get('/api/v1/classes/promotion-review').set('Authorization', `Bearer ${token}`).query({ schoolId: school._id.toString(), targetAcademicYear: '2026-2027' });
+  assert(previewAfterRollback.status === 200 && (previewAfterRollback.body?.data?.groups || []).length === 2, 'rewound classes become eligible for promotion from their restored academic year');
+
+  console.log('\n=== MIXED ACADEMIC YEAR UNDO ===');
+  const mixedA = await ClassModel.create({
+    school: school._id, department: department._id, title: 'Mixed Grade 6', section: 'M1', room: 'M1', batch: 'MIX-A',
+    gradeLevel: 6, academicYear: '2028-2029', status: 'completed', shiftMode: 'Morning', promotedAt: new Date(),
+  });
+  const mixedB = await ClassModel.create({
+    school: school._id, department: department._id, title: 'Mixed Grade 7', section: 'M2', room: 'M2', batch: 'MIX-B',
+    gradeLevel: 7, academicYear: '2030-2031', status: 'completed', shiftMode: 'Morning', promotedAt: new Date(),
+  });
+  const mixedRollback = await request(app).post('/api/v1/classes/rollback-promotion').set('Authorization', `Bearer ${token}`).send({
+    classIds: [mixedA._id.toString(), mixedB._id.toString()],
+  });
+  assert(mixedRollback.status === 200, `mixed-year promotion rollback succeeds (got ${mixedRollback.status}, ${JSON.stringify(mixedRollback.body)})`);
+  const mixedAAfter: any = await ClassModel.findById(mixedA._id).lean();
+  const mixedBAfter: any = await ClassModel.findById(mixedB._id).lean();
+  assert(mixedAAfter?.status === 'active' && mixedAAfter?.academicYear === '2027-2028', '2028-2029 selected class rewinds independently to 2027-2028');
+  assert(mixedBAfter?.status === 'active' && mixedBAfter?.academicYear === '2029-2030', '2030-2031 selected class rewinds independently to 2029-2030');
 
   console.log('\n=== BULK MAKE ACTIVE ===');
   const manualCompleted = await ClassModel.create({ school: school._id, department: department._id, title: 'Manual Completed', section: 'B', room: 'MB', batch: '2025', gradeLevel: 8, academicYear: '2025-2026', status: 'completed', shiftMode: 'Morning' });
+  await Student.updateOne({ _id: promoteMe._id }, {
+    $push: {
+      enrollmentHistory: {
+        academicYear: '2025-2026', class: manualCompleted._id, grade: 'Manual Completed', courses: [], status: 'completed',
+        startedAt: new Date('2025-09-01'), endedAt: new Date('2026-06-30'),
+      },
+    },
+  });
   const activate = await request(app).patch('/api/v1/classes/bulk/status').set('Authorization', `Bearer ${token}`).send({ ids: [manualCompleted._id.toString()], status: 'active' });
   assert(activate.status === 200 && activate.body?.data?.updated === 1, 'bulk Make Active succeeds for completed class');
   const activated: any = await ClassModel.findById(manualCompleted._id).lean();
   assert(activated?.status === 'active', 'bulk Make Active changes class status to active');
+  assert(activated?.academicYear === '2025-2026', 'Make Active leaves academic year unchanged');
+
+  const deleteActiveHistoryClass = await request(app).delete(`/api/v1/classes/${manualCompleted._id}`).set('Authorization', `Bearer ${token}`);
+  assert(deleteActiveHistoryClass.status === 204, `active class with history-only references can be deleted (got ${deleteActiveHistoryClass.status})`);
+
+  const deleteCurrentActiveClass = await request(app).delete(`/api/v1/classes/${grade9._id}`).set('Authorization', `Bearer ${token}`);
+  assert(deleteCurrentActiveClass.status === 400, `active class with current live students remains protected (got ${deleteCurrentActiveClass.status})`);
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(failures === 0 ? 'ALL REVIEWED PROMOTION CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);

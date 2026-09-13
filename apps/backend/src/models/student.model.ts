@@ -101,34 +101,46 @@ studentSchema.index({ school: 1, shiftMode: 1 });
 studentSchema.index({ school: 1, studentId: 1 }, { unique: true });
 
 /**
- * Allocate the next automatic ID from the highest existing sequence rather
- * than `count + 1`. Count-based generation breaks as soon as a student is
- * deleted or a custom ID creates a gap: with 18 rows, for example, the next
- * generated ID may already belong to an existing student. The unique index
- * is still the final database guard; this lookup simply chooses a free,
- * monotonic-looking candidate in the normal case.
+ * Generate a tenant-friendly Student ID from the first word of the
+ * organization name, followed by a per-organization sequence beginning at
+ * 001. Example: "Bal'ad Primary and Secondary School" => BALAD001.
+ *
+ * The sequence is scoped to the school so every organization starts from
+ * 001. The organization prefix also keeps IDs distinct on databases that may
+ * still have an older platform-wide unique index on studentId.
  */
 async function generateAutomaticStudentId(school?: unknown): Promise<string> {
-  const currentYear = new Date().getFullYear();
   const StudentModel = mongoose.model<IStudent>('Student');
+  const SchoolModel = mongoose.model('School');
   const schoolFilter = school ? { school } : {};
-  const pattern = new RegExp(`^STU-${currentYear}-\\d+$`);
 
-  const highest = await StudentModel.findOne({
+  let prefix = 'STU';
+  if (school) {
+    const organization: any = await SchoolModel.findById(school).select('name').lean();
+    const firstWord = String(organization?.name || '').trim().split(/\s+/)[0] || '';
+    const normalized = firstWord
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase();
+    if (normalized) prefix = normalized;
+  }
+
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^${escapedPrefix}\\d+$`);
+
+  // Start from the number of existing IDs in this organization's namespace,
+  // then advance until a free value is found. This remains safe when rows
+  // have been deleted or older/custom IDs leave gaps.
+  let sequence = (await StudentModel.countDocuments({
     ...schoolFilter,
     studentId: { $regex: pattern },
-  })
-    .sort({ studentId: -1 })
-    .select('studentId')
-    .lean();
+  })) + 1;
 
-  const match = String(highest?.studentId || '').match(new RegExp(`^STU-${currentYear}-(\\d+)$`));
-  let sequence = match ? Number(match[1]) + 1 : 1;
-
-  let candidate = `STU-${currentYear}-${String(sequence).padStart(4, '0')}`;
+  let candidate = `${prefix}${String(sequence).padStart(3, '0')}`;
   while (await StudentModel.exists({ ...schoolFilter, studentId: candidate })) {
     sequence += 1;
-    candidate = `STU-${currentYear}-${String(sequence).padStart(4, '0')}`;
+    candidate = `${prefix}${String(sequence).padStart(3, '0')}`;
   }
 
   return candidate;

@@ -16,13 +16,23 @@ function parseClassIds(raw: unknown): string[] {
   return ids;
 }
 
-function nextAcademicYear(value: string): string | null {
+function academicYearParts(value: string): { start: number; end: number } | null {
   const match = String(value || '').trim().match(/^(\d{4})-(\d{4})$/);
   if (!match) return null;
   const start = Number(match[1]);
   const end = Number(match[2]);
   if (end !== start + 1) return null;
-  return `${end}-${end + 1}`;
+  return { start, end };
+}
+
+function nextAcademicYear(value: string): string | null {
+  const parts = academicYearParts(value);
+  return parts ? `${parts.end}-${parts.end + 1}` : null;
+}
+
+function previousAcademicYear(value: string): string | null {
+  const parts = academicYearParts(value);
+  return parts ? `${parts.start - 1}-${parts.start}` : null;
 }
 
 function sameId(a: unknown, b: unknown) {
@@ -51,6 +61,8 @@ export const bulkUpdateStatus = async (req: Request, res: Response): Promise<Res
     if (invalid.length) throw new BadRequestError('Make Active can only be used on completed classes.');
   }
 
+  // Make Active is deliberately status-only. It must never change the
+  // academic year, student placement, or promotion markers.
   const result = await ClassModel.updateMany({ _id: { $in: ids } }, { $set: { status } });
   return ApiResponse.success(res, { updated: result.modifiedCount, status }, `${result.modifiedCount} class(es) updated to ${status}.`);
 };
@@ -63,22 +75,30 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
 
   const schoolIds = new Set(classes.map((cls) => String(cls.school)));
   if (schoolIds.size !== 1) throw new BadRequestError('Undo Promotion can only process classes from one organization at a time.');
-  const academicYears = new Set(classes.map((cls) => String(cls.academicYear || '')));
-  if (academicYears.size !== 1) throw new BadRequestError('Undo Promotion can only process classes from one academic year at a time.');
 
+  const originalYears = new Map<string, string>();
+  const rollbackYears = new Map<string, string>();
   for (const cls of classes) {
     if (cls.status !== 'completed') throw new BadRequestError(`${cls.title} is not a completed class.`);
     if (!cls.promotedAt) throw new BadRequestError(`${cls.title} was not completed by the promotion workflow. Use Make Active instead.`);
     if (typeof cls.gradeLevel !== 'number') throw new BadRequestError(`${cls.title} has no Grade Level and cannot be safely rolled back.`);
-    if (!nextAcademicYear(cls.academicYear || '')) throw new BadRequestError(`${cls.title} has an invalid academic year and cannot be safely rolled back.`);
+    const originalYear = String(cls.academicYear || '');
+    const previousYear = previousAcademicYear(originalYear);
+    if (!previousYear || !nextAcademicYear(originalYear)) throw new BadRequestError(`${cls.title} has an invalid academic year and cannot be safely rolled back.`);
+    originalYears.set(String(cls._id), originalYear);
+    rollbackYears.set(String(cls._id), previousYear);
   }
 
   const schoolId = classes[0].school;
   const targetIdsBySource = new Map<string, Set<string>>();
   const allTargetIds = new Set<string>();
 
+  // Each source class is evaluated independently. Mixed academic years are
+  // valid: a 2028-2029 class looks only at 2029-2030 targets, while a
+  // 2030-2031 class looks only at 2031-2032 targets in the same request.
   for (const source of classes) {
-    const targetAcademicYear = nextAcademicYear(source.academicYear || '')!;
+    const originalYear = originalYears.get(String(source._id))!;
+    const targetAcademicYear = nextAcademicYear(originalYear)!;
     const targetIds = new Set<string>();
 
     if (source.promotedTo) targetIds.add(String(source.promotedTo));
@@ -151,12 +171,6 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
 
       if (targetEntries.length) {
         const entry: any = targetEntries[0];
-        // Two selected source grades can legitimately share the same next-year
-        // class (for example a Grade 9 promotion and a Grade 10 repeater both
-        // landing in Grade 10). In that case, a target-class match alone does
-        // not identify which source class owns this student. Source enrollment
-        // history is the proof: ignore this source when another selected source
-        // has the matching history, but block truly history-less records.
         if (!sourceEntry) {
           if (!hasSelectedSourceEvidence(history)) conflicts.add(studentId);
           continue;
@@ -185,11 +199,19 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
     throw new BadRequestError(`Undo Promotion cannot continue for ${conflicts.size} student(s) because their source enrollment history is missing or they have progressed after this promotion. Roll back the newest promotion first, or correct those student records before retrying.`);
   }
 
+  // The requested rollback semantics are a one-year rewind per selected
+  // class, not a shared batch year. A mixed-year selection therefore keeps
+  // each class independent: 2028-2029 -> 2027-2028, 2030-2031 -> 2029-2030.
+  const yearChanges: Array<{ classId: string; from: string; to: string }> = [];
   for (const source of classes) {
+    const from = originalYears.get(String(source._id))!;
+    const to = rollbackYears.get(String(source._id))!;
     source.status = 'active';
+    source.academicYear = to;
     source.promotedAt = undefined;
     source.promotedTo = undefined;
     await source.save();
+    yearChanges.push({ classId: String(source._id), from, to });
   }
 
   let studentsRestored = 0;
@@ -210,5 +232,6 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
     classesRestored: classes.length,
     studentsRestored,
     graduatesRestored,
-  }, `Promotion undone for ${classes.length} class(es).`);
+    yearChanges,
+  }, `Promotion undone for ${classes.length} class(es). Each class was moved back one academic year and reactivated.`);
 };

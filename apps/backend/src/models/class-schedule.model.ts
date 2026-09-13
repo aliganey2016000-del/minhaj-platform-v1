@@ -11,11 +11,7 @@
 
 import mongoose, { Schema, Document } from 'mongoose';
 
-// ---------------------------------------------------------------------------
-// TypeScript Interfaces
-// ---------------------------------------------------------------------------
-
-export type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0=Sunday … 6=Saturday
+export type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 const DAY_NAMES: Record<number, string> = {
   0: 'Sunday',
@@ -38,18 +34,17 @@ export interface IClassSchedule extends Document {
   /** ObjectId when stored; populated Course document in populated queries. */
   course: any;
   teacher?: mongoose.Types.ObjectId | null;
+  /** Optional schedule-specific room. Existing rows may leave this blank and
+   * the timetable checker will fall back to the Class.room value. */
+  room?: string;
   dayOfWeek: DayOfWeek;
-  startTime: string; // HH:MM (24h)
-  endTime: string; // HH:MM (24h)
+  startTime: string;
+  endTime: string;
   isActive: boolean;
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
-
-// ---------------------------------------------------------------------------
-// Schema
-// ---------------------------------------------------------------------------
 
 const classScheduleSchema = new Schema<IClassSchedule>(
   {
@@ -77,6 +72,13 @@ const classScheduleSchema = new Schema<IClassSchedule>(
       default: null,
       index: true,
     },
+    room: {
+      type: String,
+      trim: true,
+      maxlength: [80, 'Room cannot exceed 80 characters'],
+      default: '',
+      index: true,
+    },
     dayOfWeek: {
       type: Number,
       required: [true, 'Day of week is required'],
@@ -95,7 +97,7 @@ const classScheduleSchema = new Schema<IClassSchedule>(
       match: [/^([01]\d|2[0-3]):([0-5]\d)$/, 'End time must be HH:MM (24-hour format)'],
       validate: {
         validator(this: IClassSchedule, value: string): boolean {
-          if (!this.startTime) return true; // let required validator handle it
+          if (!this.startTime) return true;
           return value > this.startTime;
         },
         message: 'End time must be after start time',
@@ -123,17 +125,11 @@ const classScheduleSchema = new Schema<IClassSchedule>(
   }
 );
 
-// ---------------------------------------------------------------------------
-// Indexes
-// ---------------------------------------------------------------------------
 classScheduleSchema.index({ school: 1, isActive: 1 });
 classScheduleSchema.index({ course: 1, dayOfWeek: 1 });
 classScheduleSchema.index({ school: 1, class: 1, dayOfWeek: 1, startTime: 1, endTime: 1 });
 classScheduleSchema.index({ school: 1, teacher: 1, dayOfWeek: 1, startTime: 1, endTime: 1 });
-
-// ---------------------------------------------------------------------------
-// Static: Check if a course is currently within its scheduled window
-// ---------------------------------------------------------------------------
+classScheduleSchema.index({ school: 1, room: 1, dayOfWeek: 1, startTime: 1, endTime: 1 });
 
 export interface ScheduleStatus {
   isScheduled: boolean;
@@ -146,30 +142,20 @@ export interface ScheduleStatus {
   } | null;
 }
 
-/**
- * Checks whether a given course is scheduled right now.
- * Returns the schedule status including whether the current time
- * falls within an active schedule window.
- */
 export async function getCourseScheduleStatus(
   courseId: string,
-  timezoneOffset: number = 3 // UTC+3 default (East Africa / Mogadishu)
+  timezoneOffset: number = 3
 ): Promise<ScheduleStatus> {
   const now = new Date();
   const offsetMs = timezoneOffset * 60 * 60 * 1000;
   const localDate = new Date(now.getTime() + offsetMs);
 
   const dayOfWeek = localDate.getUTCDay() as DayOfWeek;
-  const timeStr = localDate.toISOString().slice(11, 16); // HH:MM in UTC
+  const timeStr = localDate.toISOString().slice(11, 16);
 
-  // Get all active schedules for today
   const schedules = await mongoose
     .model<IClassSchedule>('ClassSchedule')
-    .find({
-      course: courseId,
-      dayOfWeek,
-      isActive: true,
-    })
+    .find({ course: courseId, dayOfWeek, isActive: true })
     .select('dayOfWeek startTime endTime')
     .lean();
 
@@ -177,22 +163,15 @@ export async function getCourseScheduleStatus(
     return { isScheduled: false, isWithinWindow: false, schedule: null };
   }
 
-  // Check if current time falls within any schedule window
   let matchingSchedule: typeof schedules[0] | null = null;
-
   for (const s of schedules) {
-    // In production the timezone-adjusted time needs comparison against
-    // the schedule times — here we use the UTC time of the offset-adjusted
-    // date since the schedule times are stored without tz info (they are
-    // "local" to the organization's timezone).
     if (timeStr >= s.startTime && timeStr < s.endTime) {
       matchingSchedule = s;
       break;
     }
   }
 
-  const schedule = schedules[0]; // use first for display even if not within window
-
+  const schedule = schedules[0];
   return {
     isScheduled: true,
     isWithinWindow: !!matchingSchedule,
@@ -205,13 +184,5 @@ export async function getCourseScheduleStatus(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Model
-// ---------------------------------------------------------------------------
-
-const ClassSchedule = mongoose.model<IClassSchedule>(
-  'ClassSchedule',
-  classScheduleSchema
-);
-
+const ClassSchedule = mongoose.model<IClassSchedule>('ClassSchedule', classScheduleSchema);
 export default ClassSchedule;

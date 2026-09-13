@@ -36,6 +36,9 @@ jobs:
       - name: Promotion tests
         run: npm run test:promotion
 
+      - name: AI timetable studio tests
+        run: npm run test:timetable-studio
+
       - name: Teacher promotion tests
         run: npm run test:teacher-promotion
 

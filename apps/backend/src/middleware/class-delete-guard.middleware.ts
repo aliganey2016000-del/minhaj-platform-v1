@@ -5,20 +5,44 @@ import Student from '../models/student.model';
 import { BadRequestError } from '../utils/api-error';
 import { applyOrgFilter } from '../utils/tenant-scope';
 
-async function referencedClassIds(ids: string[]): Promise<Set<string>> {
+async function blockedClassIds(ids: string[]): Promise<Set<string>> {
   const validIds = ids.filter((id) => mongoose.isValidObjectId(id)).map((id) => new mongoose.Types.ObjectId(id));
   if (!validIds.length) return new Set();
 
-  const [currentRefs, historyRefs] = await Promise.all([
-    Student.distinct('class', { class: { $in: validIds } }),
-    Student.distinct('enrollmentHistory.class', { 'enrollmentHistory.class': { $in: validIds } }),
-  ]);
+  const classes = await ClassModel.find({ _id: { $in: validIds } }).select('_id status').lean();
+  const activeIds = classes.filter((cls) => cls.status === 'active').map((cls) => cls._id);
+  const protectedIds = classes.filter((cls) => cls.status !== 'active').map((cls) => cls._id);
+  const blocked = new Set<string>();
 
-  return new Set([...currentRefs, ...historyRefs].filter(Boolean).map((id) => String(id)));
+  // An active class may be deleted when it has no CURRENT live student.
+  // Historical enrollment references (and graduated students that merely
+  // retain the old class id) do not block deletion after an administrator has
+  // explicitly changed the class back to Active. This is the requested
+  // escape hatch for completed -> Make Active -> Delete.
+  if (activeIds.length) {
+    const liveCurrentRefs = await Student.distinct('class', {
+      class: { $in: activeIds },
+      status: { $in: ['active', 'inactive', 'suspended'] },
+    });
+    liveCurrentRefs.filter(Boolean).forEach((id) => blocked.add(String(id)));
+  }
+
+  // Completed/inactive classes remain history-protected until the admin
+  // explicitly chooses Make Active. Both current references and historical
+  // enrollment records block deletion in those states.
+  if (protectedIds.length) {
+    const [currentRefs, historyRefs] = await Promise.all([
+      Student.distinct('class', { class: { $in: protectedIds } }),
+      Student.distinct('enrollmentHistory.class', { 'enrollmentHistory.class': { $in: protectedIds } }),
+    ]);
+    [...currentRefs, ...historyRefs].filter(Boolean).forEach((id) => blocked.add(String(id)));
+  }
+
+  return blocked;
 }
 
 function deletionBlockedMessage(count: number): string {
-  return `Cannot delete ${count} class${count === 1 ? '' : 'es'} because student enrollment records still reference ${count === 1 ? 'it' : 'them'}. Keep the class as Completed/Inactive to preserve academic history.`;
+  return `Cannot delete ${count} class${count === 1 ? '' : 'es'} because current student placement or protected enrollment history still references ${count === 1 ? 'it' : 'them'}. Completed/Inactive classes must be made Active first, and Active classes cannot be deleted while live students are currently assigned.`;
 }
 
 export async function guardSingleClassDelete(req: Request, _res: Response, next: NextFunction): Promise<void> {
@@ -27,7 +51,7 @@ export async function guardSingleClassDelete(req: Request, _res: Response, next:
     next();
     return;
   }
-  const refs = await referencedClassIds([id]);
+  const refs = await blockedClassIds([id]);
   if (refs.size) throw new BadRequestError(deletionBlockedMessage(refs.size));
   next();
 }
@@ -70,7 +94,7 @@ export async function guardBulkClassDelete(req: Request, _res: Response, next: N
     return;
   }
 
-  const refs = await referencedClassIds(ids);
+  const refs = await blockedClassIds(ids);
   if (refs.size) throw new BadRequestError(deletionBlockedMessage(refs.size));
   next();
 }
