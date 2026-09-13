@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import Parent from '../models/parent.model';
 import Attendance from '../models/attendance.model';
 import Result from '../models/result.model';
+import Exam from '../models/exam.model';
 import Event from '../models/event.model';
 import Notification from '../models/notification.model';
 import Course from '../models/course.model';
@@ -27,6 +28,16 @@ async function requireOwnedChild(req: Request, childId: string) {
   if (!owns) throw new NotFoundError('Child linked to this parent');
 }
 
+async function getVisibleEventCreatorIds(schoolId?: unknown) {
+  const clauses: Record<string, unknown>[] = [{ role: 'admin' }];
+  if (schoolId) clauses.push({ organizationId: schoolId });
+  return User.find({ $or: clauses, isActive: true }).distinct('_id');
+}
+
+async function getPublishedExamIds() {
+  return Exam.find({ resultsPublished: true, status: { $ne: 'cancelled' } }).distinct('_id');
+}
+
 export const getOverview = async (req: Request, res: Response): Promise<Response> => {
   const parent = await Parent.findOne({ user: req.user!.userId })
     .populate({
@@ -43,18 +54,27 @@ export const getOverview = async (req: Request, res: Response): Promise<Response
   if (!parent) throw new NotFoundError('Parent record for this account');
 
   const childIds = (parent.children || []).map((c: any) => c._id);
+  const schoolId = (parent as any).school?._id ?? (parent as any).school;
+  const [publishedExamIds, eventCreatorIds] = await Promise.all([
+    getPublishedExamIds(),
+    getVisibleEventCreatorIds(schoolId),
+  ]);
+
   const [recentAttendance, recentResults, unreadNotifications, upcomingEvents] = await Promise.all([
     childIds.length ? Attendance.find({ student: { $in: childIds } })
       .populate('course', 'title courseCode')
       .populate({ path: 'student', select: 'studentId profile', populate: { path: 'profile', select: 'firstName lastName' } })
       .sort({ date: -1 }).limit(8).lean() : [],
-    childIds.length ? Result.find({ student: { $in: childIds } })
+    childIds.length && publishedExamIds.length ? Result.find({ student: { $in: childIds }, exam: { $in: publishedExamIds } })
       .populate({ path: 'exam', select: 'title course examDate', populate: { path: 'course', select: 'title courseCode' } })
       .populate({ path: 'student', select: 'studentId profile', populate: { path: 'profile', select: 'firstName lastName' } })
       .sort({ createdAt: -1 }).limit(8).lean() : [],
     Notification.countDocuments({ user: req.user!.userId, read: false }),
-    Event.find({ eventDate: { $gte: new Date() }, status: { $in: ['upcoming', 'ongoing'] } })
-      .sort({ eventDate: 1 }).limit(5).lean(),
+    eventCreatorIds.length ? Event.find({
+      createdBy: { $in: eventCreatorIds },
+      eventDate: { $gte: new Date() },
+      status: { $in: ['upcoming', 'ongoing'] },
+    }).sort({ eventDate: 1 }).limit(5).lean() : [],
   ]);
 
   const totals = (parent.children || []).reduce((acc: any, child: any) => {
@@ -89,8 +109,10 @@ export const getChildAttendance = async (req: Request, res: Response): Promise<R
 
 export const getChildResults = async (req: Request, res: Response): Promise<Response> => {
   await requireOwnedChild(req, req.params.childId);
-  const results = await Result.find({ student: req.params.childId })
-    .populate({ path: 'exam', select: 'title course examDate totalMarks', populate: { path: 'course', select: 'title courseCode' } })
+  const publishedExamIds = await getPublishedExamIds();
+  if (!publishedExamIds.length) return ApiResponse.success(res, []);
+  const results = await Result.find({ student: req.params.childId, exam: { $in: publishedExamIds } })
+    .populate({ path: 'exam', select: 'title course examDate totalMarks resultsPublished', populate: { path: 'course', select: 'title courseCode' } })
     .sort({ createdAt: -1 }).limit(200).lean();
   return ApiResponse.success(res, results);
 };
@@ -111,8 +133,14 @@ export const getTeachers = async (req: Request, res: Response): Promise<Response
   return ApiResponse.success(res, courses);
 };
 
-export const getEvents = async (_req: Request, res: Response): Promise<Response> => {
-  const events = await Event.find({ status: { $ne: 'cancelled' } }).sort({ eventDate: 1 }).limit(100).lean();
+export const getEvents = async (req: Request, res: Response): Promise<Response> => {
+  const parent = await requireParent(req);
+  const schoolId = parent.school?._id ?? parent.school;
+  const eventCreatorIds = await getVisibleEventCreatorIds(schoolId);
+  const events = eventCreatorIds.length ? await Event.find({
+    createdBy: { $in: eventCreatorIds },
+    status: { $ne: 'cancelled' },
+  }).sort({ eventDate: 1 }).limit(100).lean() : [];
   return ApiResponse.success(res, events);
 };
 
