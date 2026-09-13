@@ -130,6 +130,7 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [courses, setCourses] = useState<CourseAnalytics | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [range, setRange] = useState('last30');
   const [tab, setTab] = useState<'overview' | 'courses' | 'events'>('courses');
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -151,19 +152,25 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     }
   }, [search]);
 
-  useEffect(() => { void loadRoster(); }, [loadRoster]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadRoster(); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [loadRoster]);
 
   // `silent` keeps the background refresh from flashing the whole panel back
   // to its loading state every time the poll fires.
   const loadStudent = useCallback(async (studentId: string, silent = false) => {
     if (!silent) setLoading(true);
+    if (!silent) setError('');
     try {
+      const rangeParams = range === 'all' ? {} : { datePreset: range };
       const [a, s, c, t] = await Promise.all([
         api.get(`/activity/analytics/${studentId}`),
-        api.get(`/activity/session-analytics/${studentId}`),
+        api.get(`/activity/session-analytics/${studentId}`, { params: rangeParams }),
         api.get(`/activity/course-analytics/${studentId}`),
-        api.get(`/activity/timeline/${studentId}`, { params: { limit: 200 } }),
+        api.get(`/activity/timeline/${studentId}`, { params: { limit: 200, ...rangeParams } }),
       ]);
+      if (selectedRef.current !== studentId) return;
       setAnalytics(a.data.data || null);
       setSessions(s.data.data || null);
       setCourses(c.data.data || null);
@@ -171,11 +178,12 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
       // Only on a deliberate load: collapsing an open card underneath the
       // admin every time the background poll fires would be maddening.
       if (!silent) setExpanded(null);
-    } catch {
+    } catch (requestError: any) {
       // A blip during a background poll leaves what is on screen alone —
       // blanking a working view because one refresh failed is worse than
       // showing data a few seconds stale.
       if (!silent) {
+        setError(requestError?.response?.data?.message || 'Could not load this student’s activity. Please try again.');
         setAnalytics(null);
         setSessions(null);
         setCourses(null);
@@ -184,7 +192,7 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [range]);
 
   useEffect(() => { if (selected) void loadStudent(selected); }, [selected, loadStudent]);
 
@@ -496,6 +504,8 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
           <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Course-level learning performance from server-tracked student data.</p>
         </header>
 
+        {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+
         <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5">
           <aside className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card max-h-[78vh] flex flex-col">
             <div className="p-3 border-b border-[var(--color-border-subtle)]">
@@ -511,6 +521,7 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                   <span className="ml-4 text-xs text-[var(--color-text-tertiary)]">{item.online ? 'Online now' : item.lastSeenAt ? `Last seen ${dateTime(item.lastSeenAt)}` : 'Never seen'}</span>
                 </button>
               ))}
+              {roster.length === 0 && <p className="p-6 text-center text-sm text-[var(--color-text-tertiary)]">No students match this search.</p>}
             </div>
           </aside>
 

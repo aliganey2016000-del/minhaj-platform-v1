@@ -88,6 +88,11 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
     socket.on('activity:watch', async (studentId: unknown) => {
       if (typeof studentId !== 'string' || !studentId) return;
       try {
+        // A student may belong to courses taught by several teachers. The
+        // student-wide room cannot safely filter individual course events,
+        // so teachers use the course-scoped HTTP feed (polled by the UI)
+        // instead of receiving potentially cross-course live payloads.
+        if (role === 'teacher') return;
         if (!(await canUserViewStudent(userId, role, studentId, organizationId))) return;
         socket.join(activityRoom(studentId));
         socket.emit('activity:watching', { studentId });

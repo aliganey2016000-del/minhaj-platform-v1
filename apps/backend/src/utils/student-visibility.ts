@@ -21,6 +21,7 @@
  */
 
 import { Request } from 'express';
+import mongoose from 'mongoose';
 import Teacher from '../models/teacher.model';
 import Course from '../models/course.model';
 import Student from '../models/student.model';
@@ -75,6 +76,21 @@ export async function assertCanViewStudent(req: Request, studentId: string): Pro
     studentId,
   );
   if (!ok) throw new ForbiddenError(reason);
+}
+
+/** Course-level scope for analytics after the student-level access check. */
+export async function visibleCourseIdsForStudent(
+  req: Request,
+  studentId: string,
+): Promise<mongoose.Types.ObjectId[] | undefined> {
+  if (req.user?.role !== 'teacher') return undefined;
+  const teacher = await Teacher.findOne({ user: req.user.userId }).select('_id').lean();
+  if (!teacher) return [];
+  const student = await Student.findById(studentId).select('status enrolledCourses enrollmentHistory').lean();
+  if (!student) return [];
+  const enrolledIds = ((student as any).enrolledCourses || []).map((course: any) => course?._id ?? course);
+  if (!enrolledIds.length) return [];
+  return Course.find({ _id: { $in: enrolledIds }, teacher: teacher._id }).distinct('_id');
 }
 
 /** Boolean form for the socket layer, which has no Express request. */
