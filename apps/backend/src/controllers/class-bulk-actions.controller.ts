@@ -69,6 +69,7 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
   for (const cls of classes) {
     if (cls.status !== 'completed') throw new BadRequestError(`${cls.title} is not a completed class.`);
     if (!cls.promotedAt) throw new BadRequestError(`${cls.title} was not completed by the promotion workflow. Use Make Active instead.`);
+    if (typeof cls.gradeLevel !== 'number') throw new BadRequestError(`${cls.title} has no Grade Level and cannot be safely rolled back.`);
     if (!nextAcademicYear(cls.academicYear || '')) throw new BadRequestError(`${cls.title} has an invalid academic year and cannot be safely rolled back.`);
   }
 
@@ -87,7 +88,7 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
       department: source.department,
       academicYear: targetAcademicYear,
       batch: source.batch || '',
-      gradeLevel: { $in: [source.gradeLevel, typeof source.gradeLevel === 'number' ? source.gradeLevel + 1 : null].filter((v) => v !== null) },
+      gradeLevel: { $in: [source.gradeLevel, source.gradeLevel! + 1] },
     };
     if (String(source.section || '').trim()) targetQuery.section = String(source.section).trim();
 
@@ -113,13 +114,13 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
     ],
   })
     .setOptions({ skipCourseNormalization: true })
-    .select('_id class status enrollmentHistory updatedAt');
+    .select('_id class status enrollmentHistory');
 
   type PlannedMove = { studentId: mongoose.Types.ObjectId; sourceId: mongoose.Types.ObjectId; currentClassId: mongoose.Types.ObjectId; kind: 'move' };
   type PlannedGraduate = { studentId: mongoose.Types.ObjectId; sourceId: mongoose.Types.ObjectId; kind: 'graduate' };
   const plans: Array<PlannedMove | PlannedGraduate> = [];
   const plannedStudentIds = new Set<string>();
-  const conflicts: string[] = [];
+  const conflicts = new Set<string>();
 
   for (const source of classes) {
     const sourceId = String(source._id);
@@ -130,6 +131,10 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
       const studentId = String(student._id);
       if (plannedStudentIds.has(studentId)) continue;
       const history = Array.isArray(student.enrollmentHistory) ? student.enrollmentHistory : [];
+      const sourceEntries = history
+        .filter((entry: any) => sameId(entry.class, source._id) && entry.status !== 'active' && withinPromotionWindow(entry.endedAt, promotedAt))
+        .sort((a: any, b: any) => new Date(b.endedAt || 0).getTime() - new Date(a.endedAt || 0).getTime());
+      const sourceEntry: any = sourceEntries[0];
 
       const targetEntries = history
         .filter((entry: any) => targetIds.has(String(entry.class)) && withinPromotionWindow(entry.startedAt, promotedAt))
@@ -137,8 +142,8 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
 
       if (targetEntries.length) {
         const entry: any = targetEntries[0];
-        if (student.status !== 'active' || entry.status !== 'active' || !student.class || !sameId(student.class, entry.class)) {
-          conflicts.push(studentId);
+        if (!sourceEntry || student.status !== 'active' || entry.status !== 'active' || !student.class || !sameId(student.class, entry.class)) {
+          conflicts.add(studentId);
           continue;
         }
         plans.push({ studentId: student._id, sourceId: source._id as mongoose.Types.ObjectId, currentClassId: student.class as mongoose.Types.ObjectId, kind: 'move' });
@@ -147,20 +152,18 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
       }
 
       if (student.status === 'graduated' && student.class && sameId(student.class, source._id)) {
-        const sourceHistoryMatchesPromotion = history.some((entry: any) =>
-          sameId(entry.class, source._id)
-          && entry.status === 'graduated'
-          && withinPromotionWindow(entry.endedAt, promotedAt),
-        );
-        if (history.length > 0 && !sourceHistoryMatchesPromotion) continue;
+        if (!sourceEntry || sourceEntry.status !== 'graduated') {
+          conflicts.add(studentId);
+          continue;
+        }
         plans.push({ studentId: student._id, sourceId: source._id as mongoose.Types.ObjectId, kind: 'graduate' });
         plannedStudentIds.add(studentId);
       }
     }
   }
 
-  if (conflicts.length) {
-    throw new BadRequestError(`Undo Promotion cannot continue because ${conflicts.length} student(s) have moved or progressed after this promotion. Roll back the newest promotion first.`);
+  if (conflicts.size) {
+    throw new BadRequestError(`Undo Promotion cannot continue for ${conflicts.size} student(s) because their source enrollment history is missing or they have progressed after this promotion. Roll back the newest promotion first, or correct those student records before retrying.`);
   }
 
   for (const source of classes) {
