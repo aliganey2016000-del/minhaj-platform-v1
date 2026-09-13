@@ -180,7 +180,11 @@ export const updateProfile = async (req: Request, res: Response): Promise<Respon
   if (phone !== undefined || preferredLanguage !== undefined) {
     const user = await User.findById(parent.user);
     if (!user) throw new NotFoundError('User');
-    if (phone !== undefined) user.phone = String(phone).trim() || undefined;
+    if (phone !== undefined) {
+      const normalizedPhone = String(phone).trim();
+      user.phone = normalizedPhone || undefined;
+      parent.phone = normalizedPhone || undefined;
+    }
     if (preferredLanguage !== undefined) user.preferredLanguage = preferredLanguage;
     await user.save();
   }
