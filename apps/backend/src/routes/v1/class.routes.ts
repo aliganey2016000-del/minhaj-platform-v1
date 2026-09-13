@@ -10,6 +10,7 @@ import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { syncClassExamRoom } from '../../middleware/class-room-sync.middleware';
 import { validateAcademicClass } from '../../middleware/academic-class.middleware';
+import { guardBulkClassDelete, guardSingleClassDelete } from '../../middleware/class-delete-guard.middleware';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const router = Router();
@@ -24,10 +25,10 @@ router.post('/', adminOnly, asyncHandler(validateAcademicClass), syncClassExamRo
 router.post('/import', adminOnly, upload.single('file'), asyncHandler(classController.bulkImport));
 router.get('/export', adminOnly, asyncHandler(classController.exportClasses as any));
 router.get('/template', adminOnly, asyncHandler(classController.downloadTemplate as any));
-router.delete('/bulk', adminOnly, asyncHandler(classController.bulkRemove));
+router.delete('/bulk', adminOnly, asyncHandler(guardBulkClassDelete), asyncHandler(classController.bulkRemove));
 router.post('/:id/duplicate', adminOnly, asyncHandler(classDuplicateController.duplicate));
 router.patch('/:id', adminOnly, asyncHandler(validateAcademicClass), syncClassExamRoom, asyncHandler(classController.update));
-router.delete('/:id', adminOnly, asyncHandler(classController.remove));
+router.delete('/:id', adminOnly, asyncHandler(guardSingleClassDelete), asyncHandler(classController.remove));
 router.patch('/:id/status', adminOnly, asyncHandler(classController.updateStatus));
 router.get('/schedule/:courseId', asyncHandler(classController.getSchedule));
 router.get('/promotion-preview', adminOnly, asyncHandler(curriculumPromotionController.getPromotionPreview));

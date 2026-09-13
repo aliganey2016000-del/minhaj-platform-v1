@@ -27,6 +27,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as studentController from '../../controllers/student.controller';
+import * as studentImportController from '../../controllers/student-import.controller';
 import * as studentDocumentsController from '../../controllers/student-documents.controller';
 import * as studentRegistrationController from '../../controllers/student-registration.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
@@ -92,12 +93,12 @@ router.post(
   asyncHandler(studentController.create)
 );
 
-// POST /api/v1/students/import — Bulk import (admin + org_admin)
+// POST /api/v1/students/import — Cohort-aware bulk import (admin + org_admin)
 router.post(
   '/import',
   adminOnly,
   upload.single('file'),
-  asyncHandler(studentController.bulkImport)
+  asyncHandler(studentImportController.bulkImport)
 );
 
 router.get(
@@ -178,11 +179,11 @@ router.get(
   asyncHandler(studentController.exportStudents as any)
 );
 
-// GET /api/v1/students/template — Download import template
+// GET /api/v1/students/template — Download cohort-aware import template
 router.get(
   '/template',
   adminOnly,
-  asyncHandler(studentController.downloadTemplate as any)
+  asyncHandler(studentImportController.downloadTemplate as any)
 );
 
 // DELETE /api/v1/students/bulk — Bulk delete students (moves each to Trash).
