@@ -12,7 +12,6 @@ import {
 import {
   AlertTriangle,
   ArrowUpRight,
-  BookOpen,
   CalendarCheck,
   ChevronRight,
   DollarSign,
@@ -117,8 +116,9 @@ async function loadActiveClasses(): Promise<ClassItem[]> {
   const collected: ClassItem[] = [];
   const limit = 200;
   let page = 1;
+  let hasMore = true;
 
-  while (true) {
+  while (hasMore) {
     const response = await api.get('/classes', { params: { status: 'active', page, limit } });
     const batch = (response.data?.data || []) as ClassItem[];
     collected.push(...batch);
@@ -126,14 +126,14 @@ async function loadActiveClasses(): Promise<ClassItem[]> {
     const total = Number(meta.total || 0);
     const totalPages = Number(meta.totalPages || 0);
 
-    if (
+    hasMore = !(
       batch.length === 0 ||
       batch.length < limit ||
       (totalPages > 0 && page >= totalPages) ||
       (total > 0 && collected.length >= total)
-    ) break;
+    );
 
-    page += 1;
+    if (hasMore) page += 1;
   }
 
   return collected;
