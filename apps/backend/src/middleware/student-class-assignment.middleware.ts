@@ -51,7 +51,10 @@ export async function validateStudentCreateClass(req: Request, _res: Response, n
 /**
  * Ordinary edits may preserve the student's existing class even after that
  * class becomes completed (for example a graduate's historical final class).
- * Moving to a DIFFERENT class still requires an active class in the same org.
+ * Moving to a DIFFERENT class is a live enrollment operation: the target class
+ * and the student's resulting status must both be active. This prevents a
+ * graduated/inactive student from silently ending up attached to an active
+ * class while enrollment history and course access remain closed.
  */
 export async function validateStudentUpdateClass(req: Request, _res: Response, next: NextFunction): Promise<void> {
   if (req.body?.classId === undefined || req.body?.classId === null || req.body?.classId === '') {
@@ -59,7 +62,7 @@ export async function validateStudentUpdateClass(req: Request, _res: Response, n
     return;
   }
 
-  const student = await Student.findById(req.params.id).select('_id school class');
+  const student = await Student.findById(req.params.id).select('_id school class status');
   if (!student) throw new NotFoundError('Student');
   assertOwnsOrg(req, student, 'school');
 
@@ -67,7 +70,21 @@ export async function validateStudentUpdateClass(req: Request, _res: Response, n
   assertSameOrganization(cls.school, student.school);
 
   const preservingCurrentClass = String(student.class || '') === String(cls._id);
-  if (!preservingCurrentClass) assertAssignableStatus(cls.status);
+  const resultingStatus = req.body?.status === undefined ? student.status : String(req.body.status);
+
+  if (!preservingCurrentClass) {
+    assertAssignableStatus(cls.status);
+    if (resultingStatus !== 'active') {
+      throw new BadRequestError('Reactivate the student before moving them to a different active class.');
+    }
+  }
+
+  // A graduated/inactive student may keep their completed historical class
+  // for profile edits, but cannot be reactivated into that completed class.
+  if (preservingCurrentClass && student.status !== 'active' && resultingStatus === 'active') {
+    assertAssignableStatus(cls.status);
+  }
+
   next();
 }
 
