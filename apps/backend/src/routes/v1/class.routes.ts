@@ -3,6 +3,7 @@ import multer from 'multer';
 import * as classController from '../../controllers/class.controller';
 import * as classDuplicateController from '../../controllers/class-duplicate.controller';
 import * as curriculumPromotionController from '../../controllers/school-year-promotion.controller';
+import * as reviewedPromotionController from '../../controllers/school-promotion-review.controller';
 import * as academicStructureController from '../../controllers/academic-structure.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
@@ -32,5 +33,7 @@ router.get('/schedule/:courseId', asyncHandler(classController.getSchedule));
 router.get('/promotion-preview', adminOnly, asyncHandler(curriculumPromotionController.getPromotionPreview));
 router.post('/promote-all', adminOnly, asyncHandler(curriculumPromotionController.promoteAll));
 router.get('/promotion-target', adminOnly, asyncHandler(curriculumPromotionController.validatePromotionTarget));
+router.get('/promotion-review', adminOnly, asyncHandler(reviewedPromotionController.getPromotionReview));
+router.post('/promote-reviewed', adminOnly, asyncHandler(reviewedPromotionController.promoteReviewed));
 
 export default router;
