@@ -26,6 +26,7 @@ async function main() {
   const { default: ClassModel } = await import('../models/class.model');
   const { default: Teacher } = await import('../models/teacher.model');
   const { default: Course } = await import('../models/course.model');
+  const { default: ClassSchedule } = await import('../models/class-schedule.model');
 
   const admin = await User.create({ email: 'timetable-admin@test.local', password: 'Password123!', role: 'admin' });
   const token = generateAccessToken({ userId: admin._id.toString(), role: 'admin', permissions: [] });
@@ -92,6 +93,25 @@ async function main() {
 
   const rollback = await request(app).post('/api/v1/class-schedules/school/studio/versions/1/rollback').set('Authorization', `Bearer ${token}`).send({ school: school._id.toString() });
   assert(rollback.status === 200 && rollback.body?.data?.version === 1, `published version can be rolled back (got ${rollback.status})`);
+
+  console.log('\n=== LEGACY ORPHANED CLASS REFERENCE RECOVERY ===');
+  const orphanClass = await ClassModel.create({ school: school._id, department: department._id, title: 'Legacy Grade', section: 'Z', room: 'Legacy Room', batch: '2024', gradeLevel: 7, academicYear: '2024-2025', status: 'active', shiftMode: 'Morning' });
+  const orphanCourse = await Course.create({ title: { en: 'Legacy Subject', so: '', ar: '' }, slug: `legacy-${Date.now()}`, description: { en: '', so: '', ar: '' }, category: 'general', level: 'beginner', duration: 10, fee: 0, teacher: teacher._id, school: school._id, class: orphanClass._id, maxStudents: 30, enrolledStudents: 0, syllabus: [], prerequisites: [], status: 'published', isLive: false, accessMode: 'open' });
+  const orphanSchedule = await ClassSchedule.create({ school: school._id, class: orphanClass._id, course: orphanCourse._id, teacher: teacher._id, dayOfWeek: 2, startTime: '08:00', endTime: '08:45', isActive: true, createdBy: admin._id });
+
+  // Simulate data created before class-delete reference guards existed.
+  await ClassModel.deleteOne({ _id: orphanClass._id });
+
+  const recoveredBootstrap = await request(app).get('/api/v1/class-schedules/school/studio/bootstrap').set('Authorization', `Bearer ${token}`).query({ school: school._id.toString() });
+  const recoveredConflicts = recoveredBootstrap.body?.data?.conflicts || [];
+  assert(recoveredBootstrap.status === 200, `Studio opens instead of returning CastError for orphaned schedule references (got ${recoveredBootstrap.status}, ${recoveredBootstrap.body?.message})`);
+  assert(recoveredBootstrap.body?.data?.recoveryMode === true, 'Studio explicitly reports recovery mode for legacy invalid references');
+  assert(recoveredConflicts.some((item: any) => item.type === 'missing_reference' && item.entryIds?.includes(String(orphanSchedule._id))), 'orphaned schedule becomes a visible hard missing_reference conflict');
+  assert(!(recoveredBootstrap.body?.data?.schedules || []).some((item: any) => item.sourceSchedule === String(orphanSchedule._id)), 'orphaned schedule is excluded from editable draft entries instead of poisoning the grid');
+
+  const recoveredConflictCheck = await request(app).post('/api/v1/class-schedules/school/studio/conflicts').set('Authorization', `Bearer ${token}`).send({ school: school._id.toString() });
+  assert(recoveredConflictCheck.status === 200, `current timetable conflict scan also recovers safely (got ${recoveredConflictCheck.status})`);
+  assert((recoveredConflictCheck.body?.data?.conflicts || []).some((item: any) => item.type === 'missing_reference'), 'recovery conflict scan identifies the orphaned reference');
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(failures === 0 ? 'ALL AI TIMETABLE STUDIO FOUNDATION CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);

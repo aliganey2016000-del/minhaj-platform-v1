@@ -6,6 +6,7 @@ import * as schoolListCtrl from '../../controllers/school-class-schedule-list.co
 import * as schoolTemplateCtrl from '../../controllers/school-class-schedule-template.controller';
 import * as dispatchCtrl from '../../controllers/class-schedule-dispatch.controller';
 import * as studioCtrl from '../../controllers/ai-timetable-studio.controller';
+import * as safeStudioCtrl from '../../controllers/ai-timetable-studio-safe.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -23,13 +24,14 @@ router.get('/', adminOrTeacher, asyncHandler(dispatchCtrl.getAllSchedules));
 router.post('/', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.create));
 
 // AI Timetable Studio foundation. All AI/solver operations remain server-side;
-// the browser only submits validated draft/rule changes.
-router.get('/school/studio/bootstrap', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.getBootstrap));
+// the browser only submits validated draft/rule changes. Bootstrap/current
+// conflict scans recover safely from legacy orphaned schedule references.
+router.get('/school/studio/bootstrap', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.getBootstrap));
 router.patch('/school/studio/config', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.updateConfig));
 router.put('/school/studio/teachers/:teacherId/availability', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.upsertTeacherAvailability));
 router.post('/school/studio/constraints', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.createConstraint));
 router.delete('/school/studio/constraints/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.deleteConstraint));
-router.post('/school/studio/conflicts', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.checkConflicts));
+router.post('/school/studio/conflicts', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.checkConflicts));
 router.post('/school/studio/drafts', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.createDraft));
 router.put('/school/studio/drafts/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.saveDraft));
 router.post('/school/studio/drafts/:id/reset', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.resetDraft));
