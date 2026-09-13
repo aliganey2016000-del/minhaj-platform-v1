@@ -13,6 +13,7 @@ import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { validateScheduleRoomConflict } from '../../middleware/timetable-room-conflict.middleware';
+import { preflightTimetableDraft } from '../../middleware/timetable-draft-preflight.middleware';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -52,7 +53,7 @@ router.put('/school/studio/teachers/:teacherId/availability', roleMiddleware(['a
 router.post('/school/studio/constraints', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.createConstraint));
 router.delete('/school/studio/constraints/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.deleteConstraint));
 router.post('/school/studio/conflicts', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.checkConflicts));
-router.post('/school/studio/drafts', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.createDraft));
+router.post('/school/studio/drafts', roleMiddleware(['admin', 'org_admin']), asyncHandler(preflightTimetableDraft), asyncHandler(safeStudioCtrl.createDraft));
 router.put('/school/studio/drafts/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.saveDraft));
 router.post('/school/studio/drafts/:id/reset', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.resetDraft));
 router.post('/school/studio/drafts/:id/publish', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.publishDraft));
