@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
+import rateLimit from 'express-rate-limit';
 import * as ctrl from '../../controllers/class-schedule.controller';
 import * as schoolCtrl from '../../controllers/school-class-schedule.controller';
 import * as schoolListCtrl from '../../controllers/school-class-schedule-list.controller';
@@ -16,6 +17,24 @@ import { validateScheduleRoomConflict } from '../../middleware/timetable-room-co
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+// AI generation can trigger an external DeepSeek request with a long timeout,
+// so protect it with a tighter limit than the app-wide API limiter. Validation
+// and publishing remain unaffected because they are local operations and have
+// their own authorization/confirmation safeguards.
+const aiPlanLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    statusCode: 429,
+    message: 'Too many AI timetable generation requests, please try again later',
+    data: null,
+    errors: null,
+  },
 });
 
 const router = Router();
@@ -46,7 +65,7 @@ router.put('/school/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(v
 router.post('/school/import', roleMiddleware(['admin', 'org_admin']), upload.single('file'), asyncHandler(schoolCtrl.importSchoolSchedules));
 router.get('/school/export', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.exportSchoolSchedules as any));
 router.get('/school/template', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolTemplateCtrl.downloadSchoolTemplate as any));
-router.post('/school/ai-plan', roleMiddleware(['admin', 'org_admin']), asyncHandler(aiTimetableCtrl.generatePlan));
+router.post('/school/ai-plan', roleMiddleware(['admin', 'org_admin']), aiPlanLimiter, asyncHandler(aiTimetableCtrl.generatePlan));
 router.post('/school/ai-validate', roleMiddleware(['admin', 'org_admin']), asyncHandler(aiTimetableCtrl.validatePlan));
 router.post('/school/ai-publish', roleMiddleware(['admin', 'org_admin']), asyncHandler(aiTimetableCtrl.publishPlan));
 
