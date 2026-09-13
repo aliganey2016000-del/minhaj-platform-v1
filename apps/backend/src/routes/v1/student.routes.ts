@@ -56,12 +56,35 @@ const photoUpload = multer({
 
 const router = Router();
 
+// All student routes require at minimum authentication
 router.use(authMiddleware);
 
-router.get('/', adminOrTeacher, asyncHandler(studentController.getAll));
-router.get('/stats', adminOrTeacher, asyncHandler(studentController.getStats));
-router.get('/report/export', adminOnly, asyncHandler(studentController.exportReport as any));
+// ---------------------------------------------------------------------------
+// Admin/Teacher Routes
+// ---------------------------------------------------------------------------
 
+// GET /api/v1/students — List students (admin/teacher)
+router.get(
+  '/',
+  adminOrTeacher,
+  asyncHandler(studentController.getAll)
+);
+
+// GET /api/v1/students/stats — Aggregate counts for the Manage Students dashboard
+router.get(
+  '/stats',
+  adminOrTeacher,
+  asyncHandler(studentController.getStats)
+);
+
+// GET /api/v1/students/report/export — Excel export of the analytics report
+router.get(
+  '/report/export',
+  adminOnly,
+  asyncHandler(studentController.exportReport as any)
+);
+
+// POST /api/v1/students — Create student (admin only)
 router.post(
   '/',
   adminOnly,
@@ -70,8 +93,7 @@ router.post(
   asyncHandler(studentController.create)
 );
 
-// Cohort-aware import: after promotion, two active classes may legitimately
-// share Class Name + Section, so Academic Year / Batch Number disambiguate.
+// POST /api/v1/students/import — Cohort-aware bulk import (admin + org_admin)
 router.post(
   '/import',
   adminOnly,
@@ -79,8 +101,14 @@ router.post(
   asyncHandler(studentImportController.bulkImport)
 );
 
-router.get('/document-types', anyAuthenticatedUser, asyncHandler(studentDocumentsController.getDocumentTypes));
+router.get(
+  '/document-types',
+  anyAuthenticatedUser,
+  asyncHandler(studentDocumentsController.getDocumentTypes)
+);
 
+// Student photos and documents are private subresources. Their controllers
+// perform the final student/organization/role authorization checks.
 router.post(
   '/:studentId/photo',
   adminOnly,
@@ -88,36 +116,184 @@ router.post(
   asyncHandler(studentDocumentsController.uploadPhoto)
 );
 
-router.get('/:studentId/document-types', anyAuthenticatedUser, asyncHandler(studentDocumentsController.getDocumentTypes));
-router.get('/:studentId/documents', anyAuthenticatedUser, asyncHandler(studentDocumentsController.list));
-router.post('/:studentId/documents', adminOnly, upload.single('file'), asyncHandler(studentDocumentsController.upload));
-router.get('/:studentId/documents/:documentId/view', anyAuthenticatedUser, asyncHandler(studentDocumentsController.view));
-router.delete('/:studentId/documents/:documentId', adminOnly, asyncHandler(studentDocumentsController.remove));
-router.patch('/:studentId/documents/:documentId', adminOnly, upload.single('file'), asyncHandler(studentDocumentsController.update));
+router.get(
+  '/:studentId/document-types',
+  anyAuthenticatedUser,
+  asyncHandler(studentDocumentsController.getDocumentTypes)
+);
 
-router.get('/:studentId/registration', anyAuthenticatedUser, asyncHandler(studentRegistrationController.get));
-router.post('/:studentId/registration', adminOnly, asyncHandler(studentRegistrationController.upsert));
-router.patch('/:studentId/registration', adminOnly, asyncHandler(studentRegistrationController.upsert));
+router.get(
+  '/:studentId/documents',
+  anyAuthenticatedUser,
+  asyncHandler(studentDocumentsController.list)
+);
 
-router.get('/export', adminOnly, asyncHandler(studentController.exportStudents as any));
-router.get('/template', adminOnly, asyncHandler(studentImportController.downloadTemplate as any));
+router.post(
+  '/:studentId/documents',
+  adminOnly,
+  upload.single('file'),
+  asyncHandler(studentDocumentsController.upload)
+);
 
-router.delete('/bulk', adminOnly, asyncHandler(studentController.bulkRemove));
+router.get(
+  '/:studentId/documents/:documentId/view',
+  anyAuthenticatedUser,
+  asyncHandler(studentDocumentsController.view)
+);
 
-router.get('/my/dashboard', roleMiddleware(['student']), asyncHandler(studentController.getMyDashboard));
-router.get('/my/courses', roleMiddleware(['student']), asyncHandler(studentController.getMyCourses));
-router.post('/my/progress', roleMiddleware(['student']), asyncHandler(studentController.recordProgress));
+router.delete(
+  '/:studentId/documents/:documentId',
+  adminOnly,
+  asyncHandler(studentDocumentsController.remove)
+);
 
-router.get('/:id', anyAuthenticatedUser, asyncHandler(studentController.getById));
-router.patch('/:id', adminOnly, asyncHandler(validateStudentUpdateClass), asyncHandler(studentController.update));
-router.delete('/:id', adminOnly, asyncHandler(studentController.remove));
+router.patch(
+  '/:studentId/documents/:documentId',
+  adminOnly,
+  upload.single('file'),
+  asyncHandler(studentDocumentsController.update)
+);
 
-router.get('/:id/courses', anyAuthenticatedUser, asyncHandler(studentController.getCourses));
-router.get('/:id/attendance', anyAuthenticatedUser, asyncHandler(studentController.getAttendance));
-router.get('/:id/results', anyAuthenticatedUser, asyncHandler(studentController.getResults));
-router.get('/:id/payments', roleMiddleware(['admin', 'student', 'parent']), asyncHandler(studentController.getPayments));
-router.patch('/:id/approve', adminOnly, asyncHandler(validateStudentApprovalClass), asyncHandler(studentController.approve));
-router.patch('/:id/reject', adminOnly, asyncHandler(studentController.reject));
-router.get('/:id/certificates', roleMiddleware(['admin', 'student', 'parent']), asyncHandler(studentController.getCertificates));
+router.get(
+  '/:studentId/registration',
+  anyAuthenticatedUser,
+  asyncHandler(studentRegistrationController.get)
+);
+
+router.post(
+  '/:studentId/registration',
+  adminOnly,
+  asyncHandler(studentRegistrationController.upsert)
+);
+
+router.patch(
+  '/:studentId/registration',
+  adminOnly,
+  asyncHandler(studentRegistrationController.upsert)
+);
+
+// GET /api/v1/students/export — Export students (admin + org_admin)
+router.get(
+  '/export',
+  adminOnly,
+  asyncHandler(studentController.exportStudents as any)
+);
+
+// GET /api/v1/students/template — Download cohort-aware import template
+router.get(
+  '/template',
+  adminOnly,
+  asyncHandler(studentImportController.downloadTemplate as any)
+);
+
+// DELETE /api/v1/students/bulk — Bulk delete students (moves each to Trash).
+// Registered before /:id so "bulk" is never swallowed as an id param.
+router.delete(
+  '/bulk',
+  adminOnly,
+  asyncHandler(studentController.bulkRemove)
+);
+
+// GET /api/v1/students/my/dashboard — Student self-service dashboard
+router.get(
+  '/my/dashboard',
+  roleMiddleware(['student']),
+  asyncHandler(studentController.getMyDashboard)
+);
+
+// GET /api/v1/students/my/courses — Student self-service courses
+router.get(
+  '/my/courses',
+  roleMiddleware(['student']),
+  asyncHandler(studentController.getMyCourses)
+);
+
+// POST /api/v1/students/my/progress — Record lesson/quiz/assignment completion
+router.post(
+  '/my/progress',
+  roleMiddleware(['student']),
+  asyncHandler(studentController.recordProgress)
+);
+
+// ---------------------------------------------------------------------------
+// Single Student Routes (admin/teacher + self-access)
+// ---------------------------------------------------------------------------
+
+// GET /api/v1/students/:id — Get student by ID
+// Accessible by: admin, teacher, the student themselves, their parent
+router.get(
+  '/:id',
+  anyAuthenticatedUser, // Broad role check; fine-grained access in controller
+  asyncHandler(studentController.getById)
+);
+
+// PATCH /api/v1/students/:id — Update student (admin only)
+router.patch(
+  '/:id',
+  adminOnly,
+  asyncHandler(validateStudentUpdateClass),
+  asyncHandler(studentController.update)
+);
+
+// DELETE /api/v1/students/:id — Delete student, moves to Trash (admin only)
+router.delete(
+  '/:id',
+  adminOnly,
+  asyncHandler(studentController.remove)
+);
+
+// ---------------------------------------------------------------------------
+// Student Related Data (enrolled courses, attendance, results, etc.)
+// ---------------------------------------------------------------------------
+
+// GET /api/v1/students/:id/courses — Get student's enrolled courses
+router.get(
+  '/:id/courses',
+  anyAuthenticatedUser,
+  asyncHandler(studentController.getCourses)
+);
+
+// GET /api/v1/students/:id/attendance — Get student's attendance summary
+router.get(
+  '/:id/attendance',
+  anyAuthenticatedUser,
+  asyncHandler(studentController.getAttendance)
+);
+
+// GET /api/v1/students/:id/results — Get student's results
+router.get(
+  '/:id/results',
+  anyAuthenticatedUser,
+  asyncHandler(studentController.getResults)
+);
+
+// GET /api/v1/students/:id/payments — Get student's payments
+router.get(
+  '/:id/payments',
+  roleMiddleware(['admin', 'student', 'parent']),
+  asyncHandler(studentController.getPayments)
+);
+
+// PATCH /api/v1/students/:id/approve — Approve student (admin only)
+router.patch(
+  '/:id/approve',
+  adminOnly,
+  asyncHandler(validateStudentApprovalClass),
+  asyncHandler(studentController.approve)
+);
+
+// PATCH /api/v1/students/:id/reject — Reject student (admin only)
+router.patch(
+  '/:id/reject',
+  adminOnly,
+  asyncHandler(studentController.reject)
+);
+
+// GET /api/v1/students/:id/certificates — Get student's certificates
+router.get(
+  '/:id/certificates',
+  roleMiddleware(['admin', 'student', 'parent']),
+  asyncHandler(studentController.getCertificates)
+);
 
 export default router;
