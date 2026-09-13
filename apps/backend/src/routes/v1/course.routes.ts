@@ -205,6 +205,9 @@ router.get('/export', authMiddleware, requireModulePermission('courses'), adminO
 // GET /api/v1/courses/template — Download institution-aware import template
 router.get('/template', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseSpreadsheetController.downloadTemplate as any));
 
+// GET /api/v1/courses/generate-template — Pre-fill a course template with this school's classes
+router.get('/generate-template', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseSpreadsheetController.generateTemplate as any));
+
 // GET /api/v1/courses/template-headers — Frontend paste/import columns from same source of truth
 router.get('/template-headers', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseSpreadsheetController.getTemplateHeaders as any));
 

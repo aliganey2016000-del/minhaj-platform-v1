@@ -243,6 +243,37 @@ export const downloadTemplate = async (req: Request, res: Response): Promise<voi
   res.end(buffer);
 };
 
+// GET /courses/generate-template — Create a school-specific workbook. Each
+// existing class is prefilled so admins only need to complete the course data.
+export const generateTemplate = async (req: Request, res: Response): Promise<void> => {
+  const context = await resolveSpreadsheetContext(req);
+  const classes = await ClassModel.find({ school: context.schoolId, status: { $ne: 'completed' } })
+    .select('title name section academicYear')
+    .sort({ academicYear: -1, title: 1, section: 1 })
+    .lean();
+
+  const rows = (classes as any[]).map((cls) => {
+    const title = String(cls.title || cls.name || '').trim();
+    const placement = `${title}${cls.section ? ` — ${cls.section}` : ''}`.trim();
+    const row: Array<string | number> = ['', '', placement, '', ''];
+    if (context.includeCommercialFields) row.push('', '', '');
+    return row;
+  });
+
+  // A school without classes still receives a usable empty row and the
+  // institution-appropriate headers.
+  if (!rows.length) {
+    const row: Array<string | number> = ['', '', '', '', ''];
+    if (context.includeCommercialFields) row.push('', '', '');
+    rows.push(row);
+  }
+
+  const buffer = buildXlsxBuffer(context.headers, rows, 'Course Template');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=courses-generated-template.xlsx');
+  res.end(buffer);
+};
+
 export const exportCourses = async (req: Request, res: Response): Promise<void> => {
   const context = await resolveSpreadsheetContext(req);
   const courses = await Course.find({ school: context.schoolId })

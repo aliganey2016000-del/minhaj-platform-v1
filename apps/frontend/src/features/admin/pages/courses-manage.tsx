@@ -324,8 +324,10 @@ export default function CoursesManage() {
       title="Import Courses"
       description="Download the official course template, upload a completed spreadsheet, or paste rows directly from Excel/Google Sheets."
       templateUrl="/courses/template"
+      generateTemplateUrl="/courses/generate-template"
       importUrl="/courses/import"
       templateName="courses-template.xlsx"
+      generateTemplateName="courses-generated-template.xlsx"
       headers={["Course Title (English)", "Category", "Level", "Organization Name", "Class Title", "Teacher Email", "Duration (weeks)", "Price ($)", "Capacity", "Thumbnail URL"]}
       onClose={() => setShowImportModal(false)}
       onImported={load}

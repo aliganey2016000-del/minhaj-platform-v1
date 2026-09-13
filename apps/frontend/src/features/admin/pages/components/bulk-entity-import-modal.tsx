@@ -1,6 +1,6 @@
 /** Reusable spreadsheet import flow for admin management pages. */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clipboard, Download, FileSpreadsheet, Loader2, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clipboard, Download, FileSpreadsheet, Loader2, Sparkles, UploadCloud, X } from 'lucide-react';
 import api from '../../../../lib/axios';
 
 interface ImportError { row?: number; message?: string; }
@@ -13,6 +13,8 @@ interface Props {
   importUrl: string;
   templateName: string;
   headers: string[];
+  generateTemplateUrl?: string;
+  generateTemplateName?: string;
   onClose: () => void;
   onImported?: () => void | Promise<void>;
 }
@@ -47,7 +49,7 @@ function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-export default function BulkEntityImportModal({ title, description, templateUrl, importUrl, templateName, headers, onClose, onImported }: Props) {
+export default function BulkEntityImportModal({ title, description, templateUrl, importUrl, templateName, headers, generateTemplateUrl, generateTemplateName, onClose, onImported }: Props) {
   const [mode, setMode] = useState<'upload' | 'paste'>('upload');
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -119,6 +121,16 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
     finally { setDownloading(false); }
   };
 
+  const generateTemplate = async () => {
+    if (!generateTemplateUrl) return;
+    setDownloading(true); setError('');
+    try {
+      const response = await api.get(generateTemplateUrl, { responseType: 'blob' });
+      downloadBlob(response.data, generateTemplateName || templateName);
+    } catch (e: any) { setError(e?.response?.data?.message || 'Could not generate the school template.'); }
+    finally { setDownloading(false); }
+  };
+
   const submit = async () => {
     const selected = mode === 'upload' ? file : buildPasteFile();
     if (!selected) return;
@@ -163,11 +175,12 @@ export default function BulkEntityImportModal({ title, description, templateUrl,
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className={`grid gap-3 ${generateTemplateUrl ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             <button type="button" onClick={downloadTemplate} disabled={downloading} className="rounded-xl border border-primary-200 bg-primary-50 p-4 text-left transition hover:bg-primary-100 disabled:opacity-60 dark:border-primary-900/60 dark:bg-primary-950/20 dark:hover:bg-primary-950/40">
               <div className="flex items-start gap-3"><Download className="mt-0.5 h-5 w-5 shrink-0 text-primary-600"/><div><p className="text-sm font-bold text-primary-800 dark:text-primary-300">1. Download Template</p><p className="mt-1 text-xs text-primary-700/70 dark:text-primary-300/70">Use the official columns and sample format.</p></div>{downloading && <Loader2 className="ml-auto h-4 w-4 animate-spin"/>}</div>
             </button>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/50"><p className="text-sm font-bold text-slate-800 dark:text-slate-200">2. Choose a source</p><p className="mt-1 text-xs text-slate-500">Upload your completed spreadsheet or paste rows directly from Excel/Google Sheets.</p></div>
+            {generateTemplateUrl && <button type="button" onClick={generateTemplate} disabled={downloading} className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-left transition hover:bg-violet-100 disabled:opacity-60 dark:border-violet-900/60 dark:bg-violet-950/20 dark:hover:bg-violet-950/40"><div className="flex items-start gap-3"><Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-violet-600"/><div><p className="text-sm font-bold text-violet-800 dark:text-violet-300">3. Generate</p><p className="mt-1 text-xs text-violet-700/70 dark:text-violet-300/70">Create a template pre-filled with this school's classes.</p></div>{downloading && <Loader2 className="ml-auto h-4 w-4 animate-spin"/>}</div></button>}
           </div>
 
           <div className="mt-4 flex rounded-xl bg-slate-100 p-1 dark:bg-slate-900">
