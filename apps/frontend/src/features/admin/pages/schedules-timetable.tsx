@@ -20,8 +20,11 @@ interface PaginatedResponse {
   pagination?: { page?: number; limit?: number; total?: number; totalPages?: number };
 }
 
+// dayOfWeek keeps the JavaScript convention (0 = Sunday ... 6 = Saturday).
+// The timetable tabs intentionally display the school week starting on Saturday.
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5] as const;
 
 function courseName(course?: ScheduleItem['course']) {
   if (!course) return '—';
@@ -212,12 +215,15 @@ export function SchedulesTimetable() {
         <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm print:hidden">
           <div className="flex items-center gap-1 overflow-x-auto">
             <button type="button" onClick={previousDay} className="shrink-0 rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]" aria-label="Previous day"><ChevronLeft className="h-4 w-4" /></button>
-            {DAYS.map((day, index) => (
-              <button key={day} type="button" onClick={() => setSelectedDay(index)} className={`min-w-[82px] flex-1 rounded-lg px-2 py-2 text-center ${selectedDay === index ? 'bg-primary-600 text-white' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
-                <span className="block text-[10px] font-semibold uppercase tracking-wide opacity-75">{DAY_SHORT[index]}</span>
-                <span className="block text-xs font-bold">{day}</span>
-              </button>
-            ))}
+            {DISPLAY_ORDER.map((dayIndex) => {
+              const day = DAYS[dayIndex];
+              return (
+                <button key={day} type="button" onClick={() => setSelectedDay(dayIndex)} className={`min-w-[82px] flex-1 rounded-lg px-2 py-2 text-center ${selectedDay === dayIndex ? 'bg-primary-600 text-white' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide opacity-75">{DAY_SHORT[dayIndex]}</span>
+                  <span className="block text-xs font-bold">{day}</span>
+                </button>
+              );
+            })}
             <button type="button" onClick={nextDay} className="shrink-0 rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]" aria-label="Next day"><ChevronRight className="h-4 w-4" /></button>
           </div>
         </div>
