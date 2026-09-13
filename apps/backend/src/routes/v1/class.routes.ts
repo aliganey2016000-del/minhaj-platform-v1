@@ -3,6 +3,7 @@ import multer from 'multer';
 import * as classController from '../../controllers/class.controller';
 import * as classListController from '../../controllers/class-list.controller';
 import * as classDuplicateController from '../../controllers/class-duplicate.controller';
+import * as classBulkActionsController from '../../controllers/class-bulk-actions.controller';
 import * as curriculumPromotionController from '../../controllers/school-year-promotion.controller';
 import * as reviewedPromotionController from '../../controllers/school-promotion-review.controller';
 import * as academicStructureController from '../../controllers/academic-structure.controller';
@@ -29,6 +30,8 @@ router.get('/template', adminOnly, asyncHandler(classController.downloadTemplate
 router.get('/generate-template', adminOnly, asyncHandler(classController.generateTemplate as any));
 router.post('/generate', adminOnly, asyncHandler(classController.generateClasses as any));
 router.delete('/bulk', adminOnly, asyncHandler(guardBulkClassDelete), asyncHandler(classController.bulkRemove));
+router.patch('/bulk/status', adminOnly, asyncHandler(classBulkActionsController.bulkUpdateStatus));
+router.post('/rollback-promotion', adminOnly, asyncHandler(classBulkActionsController.rollbackPromotion));
 router.post('/:id/duplicate', adminOnly, asyncHandler(classDuplicateController.duplicate));
 router.patch('/:id', adminOnly, asyncHandler(validateAcademicClass), syncClassExamRoom, asyncHandler(classController.update));
 router.delete('/:id', adminOnly, asyncHandler(guardSingleClassDelete), asyncHandler(classController.remove));

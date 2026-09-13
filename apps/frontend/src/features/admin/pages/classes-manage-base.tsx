@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, Download, GraduationCap, MoreVertical, Pencil, Plus, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { CheckCircle2, Copy, Download, GraduationCap, MoreVertical, Pencil, Plus, RefreshCw, RotateCcw, Search, Trash2, Upload, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import BulkEntityImportModal from './components/bulk-entity-import-modal';
 import { useAuth } from '../../../store/auth-context';
@@ -415,6 +415,7 @@ export function ClassesManage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'all' | Status>('all');
   const [schoolTab, setSchoolTab] = useState<SchoolClassTab>('active');
@@ -422,6 +423,7 @@ export function ClassesManage() {
   const [menu, setMenu] = useState(false);
   const [rowMenu, setRowMenu] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [bulkActionRunning, setBulkActionRunning] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showPromotionModal, setShowPromotionModal] = useState(false);
   const [academicSystem, setAcademicSystem] = useState<AcademicSystem>('annual');
@@ -493,6 +495,44 @@ export function ClassesManage() {
     if (!selected.length || !confirm(`Delete ${selected.length} selected class(es)?`)) return;
     try { await api.delete('/classes/bulk', { data: { ids: selected } }); setSelected([]); await refresh(); } catch (e) { setError(errOf(e)); }
   };
+  const activateSelectedCompleted = async () => {
+    if (!selected.length || bulkActionRunning) return;
+    if (!confirm(`Make ${selected.length} completed class(es) active again?\n\nThis only changes the class status. It does not move students back or undo a promotion.`)) return;
+    setBulkActionRunning(true);
+    setError('');
+    setNotice('');
+    try {
+      const response = await api.patch('/classes/bulk/status', { ids: selected, status: 'active' });
+      const updated = Number(dataOf<{ updated?: number }>(response)?.updated || selected.length);
+      setSelected([]);
+      setSchoolTab('active');
+      setNotice(`${updated} class(es) are active again.`);
+      await refresh();
+    } catch (e) {
+      setError(errOf(e));
+    } finally {
+      setBulkActionRunning(false);
+    }
+  };
+  const rollbackSelectedPromotion = async () => {
+    if (!selected.length || bulkActionRunning) return;
+    if (!confirm(`Undo the promotion for ${selected.length} selected completed class(es)?\n\nStudents moved by that promotion will be returned to the source class, graduates will be restored to active, and the source class will reopen. Next-year classes are kept.\n\nFor safety, classes from different academic years cannot be rolled back together.`)) return;
+    setBulkActionRunning(true);
+    setError('');
+    setNotice('');
+    try {
+      const response = await api.post('/classes/rollback-promotion', { classIds: selected });
+      const result = dataOf<{ classesRestored?: number; studentsRestored?: number; graduatesRestored?: number }>(response) || {};
+      setSelected([]);
+      setSchoolTab('active');
+      setNotice(`Promotion undone: ${result.classesRestored || 0} class(es), ${result.studentsRestored || 0} student move(s), ${result.graduatesRestored || 0} graduate(s) restored.`);
+      await refresh();
+    } catch (e) {
+      setError(errOf(e));
+    } finally {
+      setBulkActionRunning(false);
+    }
+  };
   const advanceSemester = async () => {
     if (!semesterMode) return;
     const scope = selected.length ? `${selected.length} selected class(es)` : 'all active classes';
@@ -539,6 +579,7 @@ export function ClassesManage() {
     setSchoolTab(tab);
     setSelected([]);
     setRowMenu(null);
+    setNotice('');
   };
   const toggleSelected = (id: string) => setSelected(x => x.includes(id) ? x.filter(i => i !== id) : [...x, id]);
   const allSelected = filtered.length > 0 && filtered.every(c => selected.includes(c._id));
@@ -569,6 +610,7 @@ export function ClassesManage() {
     </div>
 
     {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+    {notice && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">{notice}</div>}
 
     {institutionType === 'school' && <div className="grid grid-cols-2 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
       <button type="button" onClick={() => switchSchoolTab('active')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${schoolTab === 'active' ? 'bg-white text-emerald-700 shadow-sm dark:bg-slate-950 dark:text-emerald-300' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}><span>Active</span><span className={`rounded-full px-2 py-0.5 text-[11px] ${schoolTab === 'active' ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'bg-slate-200 dark:bg-slate-800'}`}>{schoolActiveCount}</span></button>
@@ -577,7 +619,16 @@ export function ClassesManage() {
 
     <div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17}/><input className={`${inputClass} pl-9`} value={search} onChange={e => setSearch(e.target.value)} placeholder={higherEd ? 'Search class, program, room, semester...' : isTrainingCenter ? 'Search program, batch, room...' : schoolTab === 'completed' ? 'Search completed class, grade, year...' : 'Search active class, grade, room...'}/></div>{institutionType !== 'school' && <select className={`${inputClass} sm:w-44`} value={status} onChange={e => setStatus(e.target.value as 'all' | Status)}><option value="all">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="completed">Completed</option></select>}<button onClick={() => void refresh()} className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700" title="Refresh"><RefreshCw size={17} className={refreshing ? 'animate-spin' : ''}/></button></div>
 
-    {selected.length > 0 && <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-slate-800 dark:bg-slate-900"><span>{selected.length} class(es) selected</span>{semesterMode && <button onClick={() => void advanceSemester()} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white dark:bg-white dark:text-slate-900">Advance Selected Semester</button>}</div>}
+    {selected.length > 0 && <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-slate-800 dark:bg-slate-900">
+      <span className="font-semibold text-slate-700 dark:text-slate-200">{selected.length} class(es) selected</span>
+      <div className="flex flex-wrap gap-2">
+        {institutionType === 'school' && schoolTab === 'completed' && <>
+          <button type="button" disabled={bulkActionRunning} onClick={() => void activateSelectedCompleted()} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"><CheckCircle2 size={15}/>{bulkActionRunning ? 'Working...' : 'Make Active'}</button>
+          <button type="button" disabled={bulkActionRunning} onClick={() => void rollbackSelectedPromotion()} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"><RotateCcw size={15}/>Undo Promotion</button>
+        </>}
+        {semesterMode && <button onClick={() => void advanceSemester()} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white dark:bg-white dark:text-slate-900">Advance Selected Semester</button>}
+      </div>
+    </div>}
 
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
       <div className="hidden overflow-x-auto lg:block"><table className="w-full table-fixed text-left text-sm"><thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900"><tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={allSelected} onChange={toggleAll}/></th><th className="w-[22%] px-4 py-3">{higherEd ? 'Program / Cohort' : isTrainingCenter ? 'Program' : 'Class / Grade'}</th><th className="w-[18%] px-4 py-3">Department</th>{higherEd && <th className="px-4 py-3">Progression</th>}<th className="w-[14%] px-4 py-3">Academic Year</th><th className="w-[17%] px-4 py-3">{institutionType === 'school' ? 'Room / Capacity' : 'Room'}</th><th className="w-[9%] px-4 py-3">Status</th><th className="w-[8%] px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">

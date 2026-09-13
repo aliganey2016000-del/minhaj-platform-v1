@@ -53,6 +53,8 @@ async function main() {
   const graduateMe = await makeStudent('GraduateMe', grade10);
   const repeatTen = await makeStudent('RepeatTen', grade10);
 
+  await syncStudentCourseEnrollment(promoteMe._id, grade9._id);
+  await syncStudentCourseEnrollment(repeatNine._id, grade9._id);
   await syncStudentCourseEnrollment(graduateMe._id, grade10._id);
   await syncStudentCourseEnrollment(repeatTen._id, grade10._id);
   const courseBefore: any = await Course.findById(grade10Course._id).lean();
@@ -108,6 +110,42 @@ async function main() {
 
   const second = await request(app).post('/api/v1/classes/promote-reviewed').set('Authorization', `Bearer ${token}`).send({ schoolId: school._id.toString(), targetAcademicYear: '2027-2028', decisions: [] });
   assert(second.status === 200 && second.body?.data?.classesCompleted === 0, 'second run is idempotent and changes no source classes');
+
+  console.log('\n=== UNDO REVIEWED PROMOTION ===');
+  const rollback = await request(app).post('/api/v1/classes/rollback-promotion').set('Authorization', `Bearer ${token}`).send({
+    classIds: [grade9._id.toString(), grade10._id.toString()],
+  });
+  assert(rollback.status === 200, `promotion rollback succeeds (got ${rollback.status}, ${JSON.stringify(rollback.body)})`);
+  assert(rollback.body?.data?.classesRestored === 2, 'two source classes restored');
+  assert(rollback.body?.data?.studentsRestored === 3, 'promoted/repeating students moved back to source classes');
+  assert(rollback.body?.data?.graduatesRestored === 1, 'graduated student restored to active');
+
+  const restoredPromote: any = await Student.findById(promoteMe._id).lean();
+  const restoredRepeat9: any = await Student.findById(repeatNine._id).lean();
+  const restoredGraduate: any = await Student.findById(graduateMe._id).lean();
+  const restoredRepeat10: any = await Student.findById(repeatTen._id).lean();
+  assert(String(restoredPromote?.class) === String(grade9._id), 'promoted student returns to Grade 9 source class');
+  assert(String(restoredRepeat9?.class) === String(grade9._id), 'Grade 9 repeater returns to Grade 9 source class');
+  assert(String(restoredRepeat10?.class) === String(grade10._id), 'Grade 10 repeater returns to Grade 10 source class');
+  assert(restoredGraduate?.status === 'active' && String(restoredGraduate?.class) === String(grade10._id), 'graduate returns to active status in Grade 10 source class');
+
+  const restored9: any = await ClassModel.findById(grade9._id).lean();
+  const restored10: any = await ClassModel.findById(grade10._id).lean();
+  assert(restored9?.status === 'active' && !restored9?.promotedAt && !restored9?.promotedTo, 'Grade 9 promotion markers cleared and class reopened');
+  assert(restored10?.status === 'active' && !restored10?.promotedAt && !restored10?.promotedTo, 'Grade 10 promotion markers cleared and class reopened');
+
+  const courseAfterRollback: any = await Course.findById(grade10Course._id).lean();
+  assert(courseAfterRollback?.enrolledStudents === 2, `source course count is restored after rollback (got ${courseAfterRollback?.enrolledStudents})`);
+
+  const previewAfterRollback = await request(app).get('/api/v1/classes/promotion-review').set('Authorization', `Bearer ${token}`).query({ schoolId: school._id.toString(), targetAcademicYear: '2027-2028' });
+  assert(previewAfterRollback.status === 200 && (previewAfterRollback.body?.data?.groups || []).length === 2, 'restored classes become eligible for promotion again');
+
+  console.log('\n=== BULK MAKE ACTIVE ===');
+  const manualCompleted = await ClassModel.create({ school: school._id, department: department._id, title: 'Manual Completed', section: 'B', room: 'MB', batch: '2025', gradeLevel: 8, academicYear: '2025-2026', status: 'completed', shiftMode: 'Morning' });
+  const activate = await request(app).patch('/api/v1/classes/bulk/status').set('Authorization', `Bearer ${token}`).send({ ids: [manualCompleted._id.toString()], status: 'active' });
+  assert(activate.status === 200 && activate.body?.data?.updated === 1, 'bulk Make Active succeeds for completed class');
+  const activated: any = await ClassModel.findById(manualCompleted._id).lean();
+  assert(activated?.status === 'active', 'bulk Make Active changes class status to active');
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(failures === 0 ? 'ALL REVIEWED PROMOTION CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
