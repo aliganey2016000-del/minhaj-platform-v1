@@ -59,23 +59,26 @@ async function main() {
     batch: '2026', gradeLevel: 8, academicYear: '2026-2027', status: 'completed', shiftMode: 'Morning',
   });
 
-  console.log('\n=== COHORT-AWARE STUDENT IMPORT ===');
+  console.log('\n=== CANONICAL / COHORT-AWARE STUDENT IMPORT ===');
   const importRows = [
     {
-      'First Name': 'Ambiguous', 'Last Name': 'Student', Gender: 'male',
-      Email: 'ambiguous-cohort@test.local', Password: 'Password123!', Organization: school.name,
+      'First Name': 'AutoCohort', 'Last Name': 'Student', Gender: 'male',
+      Email: 'auto-cohort@test.local', Organization: school.name,
       'Class Name': 'Grade 9', Section: 'A', 'Enrollment Date': '2027-09-01',
+      'Guardian Name': 'Auto Parent', 'Guardian Phone': '+252611100001', Relationship: 'Father',
     },
     {
-      'First Name': 'NewIntake', 'Last Name': 'Student', Gender: 'female',
-      Email: 'new-intake@test.local', Password: 'Password123!', Organization: school.name,
+      'First Name': 'ExplicitCohort', 'Last Name': 'Student', Gender: 'female',
+      Email: 'explicit-cohort@test.local', Organization: school.name,
       'Class Name': 'Grade 9', Section: 'A', 'Academic Year': '2027-2028', 'Batch Number': '2027',
       'Enrollment Date': '2027-09-01',
+      'Guardian Name': 'Explicit Parent', 'Guardian Phone': '+252611100002', Relationship: 'Mother',
     },
     {
       'First Name': 'LegacySheet', 'Last Name': 'Student', Gender: 'male',
-      Email: 'legacy-sheet@test.local', Password: 'Password123!', Organization: school.name,
+      Email: 'legacy-sheet@test.local', Organization: school.name,
       'Class Name': 'Grade 8', Section: 'A', 'Enrollment Date': '2027-09-01',
+      'Guardian Name': 'Legacy Parent', 'Guardian Phone': '+252611100003', Relationship: 'Guardian',
     },
   ];
 
@@ -85,19 +88,21 @@ async function main() {
     .attach('file', workbookBuffer(importRows), { filename: 'students.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
   assert(imported.status === 200, `import request succeeds with per-row results (got ${imported.status})`);
-  assert(imported.body?.data?.created === 2, `two unambiguous rows imported (got ${imported.body?.data?.created})`);
-  assert(imported.body?.data?.failed === 1, `ambiguous row rejected (got ${imported.body?.data?.failed})`);
-  const ambiguityMessage = imported.body?.data?.errors?.[0]?.message || '';
-  assert(ambiguityMessage.includes('Multiple active classes match') && ambiguityMessage.includes('Batch Number'), `ambiguous error explains cohort selector (got ${ambiguityMessage})`);
-  assert((await User.countDocuments({ email: 'ambiguous-cohort@test.local' })) === 0, 'ambiguous row creates no User side effect');
+  assert(imported.body?.data?.created === 3, `all three valid rows are imported (got ${imported.body?.data?.created})`);
+  assert(imported.body?.data?.failed === 0, `no valid row is rejected (got ${imported.body?.data?.failed})`);
 
-  const intakeUser: any = await User.findOne({ email: 'new-intake@test.local' }).lean();
+  const autoUser: any = await User.findOne({ email: 'auto-cohort@test.local' }).lean();
+  const explicitUser: any = await User.findOne({ email: 'explicit-cohort@test.local' }).lean();
   const legacyUser: any = await User.findOne({ email: 'legacy-sheet@test.local' }).lean();
-  const intakeStudent: any = intakeUser ? await Student.findOne({ user: intakeUser._id }).lean() : null;
+  const autoStudent: any = autoUser ? await Student.findOne({ user: autoUser._id }).lean() : null;
+  const explicitStudent: any = explicitUser ? await Student.findOne({ user: explicitUser._id }).lean() : null;
   const legacyStudent: any = legacyUser ? await Student.findOne({ user: legacyUser._id }).lean() : null;
-  assert(String(intakeStudent?.class) === String(intakeGrade9._id), 'Academic Year + Batch select the new intake, not the repeat cohort');
-  assert(String(intakeStudent?.class) !== String(repeatGrade9._id), 'new intake row is not silently assigned to repeat cohort');
-  assert(String(legacyStudent?.class) === String(activeGrade8._id), 'legacy Class Name + Section still works when exactly one ACTIVE class matches');
+
+  assert(String(autoStudent?.class) === String(intakeGrade9._id), 'Class Name + Section deterministically select the newest/current active cohort when duplicates exist');
+  assert(String(autoStudent?.class) !== String(repeatGrade9._id), 'automatic cohort selection does not silently choose the older repeat cohort');
+  assert(String(explicitStudent?.class) === String(intakeGrade9._id), 'legacy Academic Year + Batch selectors still resolve the requested cohort');
+  assert(String(legacyStudent?.class) === String(activeGrade8._id), 'completed duplicate classes are ignored and the active class is selected');
+  assert(!!autoStudent?.parent && !!explicitStudent?.parent && !!legacyStudent?.parent, 'canonical import creates/links required guardian records');
 
   console.log('\n=== CLASS DELETE REFERENCE PROTECTION ===');
   const currentClass = await ClassModel.create({
@@ -145,7 +150,7 @@ async function main() {
   assert(!!(await ClassModel.findById(freeBulkClass._id)), 'unreferenced class also remains because blocked bulk delete is atomic');
 
   console.log(`\n${'='.repeat(60)}`);
-  console.log(failures === 0 ? 'ALL COHORT IMPORT / CLASS DELETE CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
+  console.log(failures === 0 ? 'ALL CANONICAL IMPORT / CLASS DELETE CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
   console.log('='.repeat(60));
 
   await mongoose.disconnect();
