@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as classController from '../../controllers/class.controller';
+import * as classListController from '../../controllers/class-list.controller';
 import * as classDuplicateController from '../../controllers/class-duplicate.controller';
 import * as curriculumPromotionController from '../../controllers/school-year-promotion.controller';
 import * as reviewedPromotionController from '../../controllers/school-promotion-review.controller';
@@ -16,7 +17,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 const router = Router();
 
 router.use(authMiddleware);
-router.get('/', adminOrTeacher, asyncHandler(classController.getAll));
+router.get('/', adminOrTeacher, asyncHandler(classListController.getAll));
 router.get('/browse', roleMiddleware(['admin', 'org_admin', 'teacher', 'student']), asyncHandler(classController.browseClasses));
 router.get('/academic-structure', adminOnly, asyncHandler(academicStructureController.getStructure));
 router.patch('/academic-structure', adminOnly, asyncHandler(academicStructureController.updateStructure));
