@@ -1082,3 +1082,196 @@ function normalizeAiQuestion(raw: any): any {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// AI Timetable Studio — natural-language rule parsing and conflict
+// explanations. The AI only ever proposes structured rules or plain-language
+// advice; it never touches the timetable directly. The admin still approves
+// each rule (via the normal constraint-creation endpoint) before it takes
+// effect, and the deterministic conflict checker in
+// ai-timetable-studio.controller.ts is always the source of truth.
+// ---------------------------------------------------------------------------
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+export interface TimetableRuleContext {
+  workingDays: number[];
+  teachers: { id: string; name: string }[];
+  classes: { id: string; label: string }[];
+  courses: { id: string; title: string; classId?: string | null }[];
+}
+
+export type ParsedTimetableRuleType = 'no_day' | 'teacher_day_off' | 'no_consecutive_lessons' | 'lessons_per_week';
+
+export interface ParsedTimetableRule {
+  type: ParsedTimetableRuleType;
+  priority: 'required' | 'preferred';
+  dayOfWeek?: number;
+  teacherId?: string;
+  classId?: string;
+  courseId?: string;
+  count?: number;
+  description: string;
+}
+
+const TIMETABLE_RULE_SYSTEM_PROMPT = `You convert a school admin's natural-language scheduling request into structured timetable rules for an AI Timetable Studio.
+
+Return ONLY a single JSON object — no markdown, no code fences, no commentary:
+{"rules": [{"type": "no_day" | "teacher_day_off" | "no_consecutive_lessons" | "lessons_per_week", "priority": "required" | "preferred", "dayOfWeek": number (0=Sunday..6=Saturday; only for "no_day" and "teacher_day_off"), "teacherId": string (only for "teacher_day_off"; must be one of the given teacher ids), "classId": string (only for "no_consecutive_lessons" and "lessons_per_week"; must be one of the given class ids), "courseId": string (only for "no_consecutive_lessons" and "lessons_per_week"; must be one of the given course ids and belong to the chosen class), "count": number (only for "lessons_per_week"), "description": string (a short human-readable restatement of the rule)}]}
+
+Rules:
+- Use ONLY the exact teacher/class/course ids given below — never invent ids, never put a name where an id belongs.
+- "no_day": no lessons at all, for the whole school, on a given day.
+- "teacher_day_off": a specific teacher must not teach on a given day.
+- "no_consecutive_lessons": a specific class+course pair must never be scheduled in back-to-back periods.
+- "lessons_per_week": a specific class+course pair must be scheduled exactly "count" times per week.
+- If the request names a teacher/class/course that is not in the provided lists (e.g. a typo or someone who doesn't exist), omit that rule rather than guessing.
+- If the request contains multiple instructions, return one rule object per instruction.
+- Default "priority" to "required" unless the wording clearly signals a soft preference ("prefer", "if possible", "try to", "ideally").
+- If nothing in the request maps to a supported rule type, return {"rules": []} — do not force an unrelated rule.`;
+
+function buildTimetableRuleContextBlock(context: TimetableRuleContext): string {
+  const teacherLines = context.teachers.map((t) => `- ${t.id}: ${t.name}`).join('\n') || '(none)';
+  const classLines = context.classes.map((c) => `- ${c.id}: ${c.label}`).join('\n') || '(none)';
+  const courseLines = context.courses.map((c) => `- ${c.id}: ${c.title}${c.classId ? ` (class ${c.classId})` : ''}`).join('\n') || '(none)';
+  const dayLines = context.workingDays.map((d) => `${d}=${DAY_NAMES[d] ?? d}`).join(', ') || 'none configured';
+  return `Working days in use: ${dayLines}\n\nTeachers:\n${teacherLines}\n\nClasses:\n${classLines}\n\nCourses:\n${courseLines}`;
+}
+
+/** Turns one admin prompt into zero or more structured, id-validated timetable rules. Never writes to the database itself — the caller creates constraints only after the admin approves each proposal. */
+export async function parseTimetableRules(prompt: string, context: TimetableRuleContext): Promise<ParsedTimetableRule[]> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new InternalServerError('AI Assistant is not configured on this server (missing DEEPSEEK_API_KEY).');
+  }
+
+  const trimmed = (prompt || '').trim();
+  if (!trimmed) {
+    throw new BadRequestError('Describe the timetable rule you want in plain language first.');
+  }
+
+  const userContent = `${buildTimetableRuleContextBlock(context)}\n\nAdmin request:\n"""\n${trimmed.slice(0, 2000)}\n"""`;
+
+  let response;
+  try {
+    response = await axios.post(
+      DEEPSEEK_API_URL,
+      {
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: 'system', content: TIMETABLE_RULE_SYSTEM_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+        temperature: 0.2,
+        max_tokens: 1500,
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 45_000,
+      }
+    );
+  } catch (err: any) {
+    const status = err.response?.status;
+    const detail = err.response?.data?.error?.message || err.message;
+    throw new InternalServerError(`DeepSeek request failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+
+  const raw: string = response.data?.choices?.[0]?.message?.content || '{}';
+  let parsed: any;
+  try {
+    parsed = JSON.parse(stripCodeFences(raw));
+  } catch {
+    throw new InternalServerError('DeepSeek returned malformed JSON. Please try rephrasing your request.');
+  }
+
+  const teacherIds = new Set(context.teachers.map((t) => t.id));
+  const classIds = new Set(context.classes.map((c) => c.id));
+  const courseIds = new Set(context.courses.map((c) => c.id));
+  const rawRules = Array.isArray(parsed?.rules) ? parsed.rules : [];
+
+  const rules: ParsedTimetableRule[] = [];
+  for (const item of rawRules) {
+    const type = String(item?.type || '') as ParsedTimetableRuleType;
+    const priority: 'required' | 'preferred' = item?.priority === 'preferred' ? 'preferred' : 'required';
+    const description = String(item?.description || '').trim();
+
+    if (type === 'no_day') {
+      const dayOfWeek = Number(item?.dayOfWeek);
+      if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) continue;
+      rules.push({ type, priority, dayOfWeek, description: description || `No lessons on ${DAY_NAMES[dayOfWeek]}.` });
+    } else if (type === 'teacher_day_off') {
+      const dayOfWeek = Number(item?.dayOfWeek);
+      const teacherId = String(item?.teacherId || '');
+      if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6 || !teacherIds.has(teacherId)) continue;
+      rules.push({ type, priority, dayOfWeek, teacherId, description });
+    } else if (type === 'no_consecutive_lessons') {
+      const classId = String(item?.classId || '');
+      const courseId = String(item?.courseId || '');
+      if (!classIds.has(classId) || !courseIds.has(courseId)) continue;
+      rules.push({ type, priority, classId, courseId, description });
+    } else if (type === 'lessons_per_week') {
+      const classId = String(item?.classId || '');
+      const courseId = String(item?.courseId || '');
+      const count = Number(item?.count);
+      if (!classIds.has(classId) || !courseIds.has(courseId) || !Number.isFinite(count) || count <= 0) continue;
+      rules.push({ type, priority, classId, courseId, count: Math.round(count), description });
+    }
+  }
+  return rules;
+}
+
+export interface TimetableConflictExplainInput {
+  type: string;
+  severity: 'error' | 'warning';
+  message: string;
+  suggestions: string[];
+}
+
+const CONFLICT_EXPLAIN_SYSTEM_PROMPT = `You are a scheduling assistant embedded in a school's AI Timetable Studio. An admin is looking at one timetable conflict. Explain in 2-4 short sentences, in plain friendly language, why this kind of conflict happens and the most practical way to resolve it. Add useful context rather than repeating the raw message verbatim, and end with one concrete next step. Keep it under 80 words. Return plain text only, no markdown.`;
+
+/** Grounded, one-off explanation for a single conflict — used by the "Ask AI" action on a conflict card. Purely advisory text; it never modifies the draft. */
+export async function explainTimetableConflict(conflict: TimetableConflictExplainInput): Promise<string> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    throw new InternalServerError('AI Assistant is not configured on this server (missing DEEPSEEK_API_KEY).');
+  }
+
+  const userContent = `Conflict type: ${conflict.type}\nSeverity: ${conflict.severity}\nMessage: ${conflict.message}\nExisting suggestions: ${conflict.suggestions.join('; ') || 'none'}`;
+
+  let response;
+  try {
+    response = await axios.post(
+      DEEPSEEK_API_URL,
+      {
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: 'system', content: CONFLICT_EXPLAIN_SYSTEM_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+        temperature: 0.4,
+        max_tokens: 300,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30_000,
+      }
+    );
+  } catch (err: any) {
+    const status = err.response?.status;
+    const detail = err.response?.data?.error?.message || err.message;
+    throw new InternalServerError(`DeepSeek request failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+
+  const content: string = response.data?.choices?.[0]?.message?.content || '';
+  if (!content.trim()) {
+    throw new InternalServerError('AI Assistant returned an empty response. Please try again.');
+  }
+  return content.trim();
+}

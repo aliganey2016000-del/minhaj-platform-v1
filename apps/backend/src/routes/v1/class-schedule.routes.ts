@@ -32,6 +32,9 @@ router.put('/school/studio/teachers/:teacherId/availability', roleMiddleware(['a
 router.post('/school/studio/constraints', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.createConstraint));
 router.delete('/school/studio/constraints/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.deleteConstraint));
 router.post('/school/studio/conflicts', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.checkConflicts));
+router.post('/school/studio/conflicts/auto-fix', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.autoFixConflict));
+router.post('/school/studio/ai/parse-rules', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.parseRulesFromPrompt));
+router.post('/school/studio/ai/explain-conflict', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.explainConflict));
 router.post('/school/studio/drafts', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.createDraft));
 router.put('/school/studio/drafts/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(studioCtrl.saveDraft));
 router.post('/school/studio/drafts/:id/reset', roleMiddleware(['admin', 'org_admin']), asyncHandler(safeStudioCtrl.resetDraft));

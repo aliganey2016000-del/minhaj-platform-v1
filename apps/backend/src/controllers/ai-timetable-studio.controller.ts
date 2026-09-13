@@ -13,6 +13,7 @@ import TeacherAvailability from '../models/teacher-availability.model';
 import TimetableConstraint from '../models/timetable-constraint.model';
 import TimetableDraft from '../models/timetable-draft.model';
 import TimetableVersion from '../models/timetable-version.model';
+import { parseTimetableRules, explainTimetableConflict } from '../utils/deepseek';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -181,12 +182,9 @@ async function loadConfig(schoolId: string) {
   return (await TimetableConfig.findOne({ school: schoolId }).lean()) || defaultConfig(schoolId);
 }
 
-async function buildConflicts(schoolId: string, entries: StudioEntry[]): Promise<Conflict[]> {
-  const activeEntries = entries.filter((entry) => entry.isActive);
-  const refs = await validateEntryReferences(schoolId, activeEntries);
-  const config: any = await loadConfig(schoolId);
-  const availability = await TeacherAvailability.find({ school: schoolId }).lean();
-  const constraints = await TimetableConstraint.find({ school: schoolId, isActive: true }).lean();
+type EntryRefs = Awaited<ReturnType<typeof validateEntryReferences>>;
+
+function computeConflicts(activeEntries: StudioEntry[], config: any, availability: any[], constraints: any[], refs: EntryRefs): Conflict[] {
   const availabilityMap = new Map(availability.map((item: any) => [String(item.teacher), item]));
   const conflicts: Conflict[] = [];
   const seen = new Set<string>();
@@ -325,6 +323,15 @@ async function buildConflicts(schoolId: string, entries: StudioEntry[]): Promise
   }
 
   return conflicts.sort((a, b) => (a.severity === b.severity ? a.type.localeCompare(b.type) : a.severity === 'error' ? -1 : 1));
+}
+
+async function buildConflicts(schoolId: string, entries: StudioEntry[]): Promise<Conflict[]> {
+  const activeEntries = entries.filter((entry) => entry.isActive);
+  const refs = await validateEntryReferences(schoolId, activeEntries);
+  const config: any = await loadConfig(schoolId);
+  const availability = await TeacherAvailability.find({ school: schoolId }).lean();
+  const constraints = await TimetableConstraint.find({ school: schoolId, isActive: true }).lean();
+  return computeConflicts(activeEntries, config, availability, constraints, refs);
 }
 
 async function currentScheduleEntries(schoolId: string): Promise<StudioEntry[]> {
@@ -475,6 +482,77 @@ export const checkConflicts = async (req: Request, res: Response): Promise<Respo
   });
 };
 
+/**
+ * Deterministic conflict auto-fix. Tries relocating the offending entry to
+ * every configured working day/period slot (skipping breaks and non-working
+ * days by construction) and accepts the first slot that reduces the total
+ * number of hard conflicts. Reuses one set of DB-backed refs/config/
+ * availability/constraints across every candidate slot so the search stays
+ * in-memory instead of re-querying the database per slot.
+ */
+export const autoFixConflict = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await resolveSchool(req, req.body?.school);
+  const entries = sanitizeEntries(req.body?.entries);
+  const conflictId = String(req.body?.conflictId || '').trim();
+  if (!conflictId) throw new BadRequestError('conflictId is required');
+
+  const activeEntries: StudioEntry[] = [];
+  const activeOriginalIndexes: number[] = [];
+  entries.forEach((entry, index) => {
+    if (entry.isActive) {
+      activeEntries.push(entry);
+      activeOriginalIndexes.push(index);
+    }
+  });
+
+  const refs = await validateEntryReferences(schoolId, activeEntries);
+  const config: any = await loadConfig(schoolId);
+  const availability = await TeacherAvailability.find({ school: schoolId }).lean();
+  const constraints = await TimetableConstraint.find({ school: schoolId, isActive: true }).lean();
+
+  const currentConflicts = computeConflicts(activeEntries, config, availability, constraints, refs);
+  const target = currentConflicts.find((conflict) => conflict.id === conflictId);
+  if (!target) {
+    return ApiResponse.success(res, { fixed: false, entries, conflicts: currentConflicts, message: 'This conflict no longer applies — it may already be resolved.' });
+  }
+  if (target.severity !== 'error') {
+    return ApiResponse.success(res, { fixed: false, entries, conflicts: currentConflicts, message: 'Only hard conflicts can be fixed automatically. Warnings need a manual decision.' });
+  }
+
+  const periods = (config.periods || []).filter((period: any) => !period.isBreak);
+  const workingDays: number[] = config.workingDays || [];
+  const errorsBefore = currentConflicts.filter((conflict) => conflict.severity === 'error').length;
+
+  const indexById = new Map<string, number>();
+  activeEntries.forEach((entry, index) => indexById.set(entryId(entry, index), index));
+
+  for (const candidateEntryKey of target.entryIds) {
+    const idx = indexById.get(candidateEntryKey);
+    if (idx === undefined) continue;
+    const original = activeEntries[idx];
+
+    for (const day of workingDays) {
+      for (const period of periods) {
+        if (day === original.dayOfWeek && period.startTime === original.startTime && period.endTime === original.endTime) continue;
+        const movedEntry: StudioEntry = { ...original, dayOfWeek: day, startTime: period.startTime, endTime: period.endTime };
+        const candidateActiveEntries = activeEntries.map((entry, i) => (i === idx ? movedEntry : entry));
+        const candidateConflicts = computeConflicts(candidateActiveEntries, config, availability, constraints, refs);
+        const errorsAfter = candidateConflicts.filter((conflict) => conflict.severity === 'error').length;
+        if (errorsAfter < errorsBefore) {
+          const finalEntries = entries.map((entry, i) => (i === activeOriginalIndexes[idx] ? movedEntry : entry));
+          return ApiResponse.success(
+            res,
+            { fixed: true, entries: finalEntries, conflicts: candidateConflicts, movedEntryId: candidateEntryKey, movedTo: { dayOfWeek: day, startTime: period.startTime, endTime: period.endTime } },
+            `Moved to ${DAYS[day]} · ${period.label} (${period.startTime}–${period.endTime}) to clear this conflict.`,
+          );
+        }
+      }
+    }
+  }
+
+  return ApiResponse.success(res, { fixed: false, entries, conflicts: currentConflicts, message: 'No automatic fix was found within the current timetable settings — try moving this lesson manually or adjusting rules.' });
+};
+
 export const createDraft = async (req: Request, res: Response): Promise<Response> => {
   const { schoolId } = await resolveSchool(req, req.body?.school);
   await TimetableDraft.updateMany({ school: schoolId, status: 'draft' }, { $set: { status: 'archived' } });
@@ -543,4 +621,46 @@ export const rollbackVersion = async (req: Request, res: Response): Promise<Resp
   if (errors.length) throw new BadRequestError(`Rollback blocked because this version now violates ${errors.length} hard rule(s).`);
   await applyEntries(schoolId, entries, req.user!.userId);
   return ApiResponse.success(res, { version: version.version }, `Rolled back to timetable v${version.version}`);
+};
+
+/**
+ * AI Assistant — turns one natural-language admin request into structured,
+ * id-validated timetable rule proposals. DeepSeek only ever sees the id/name
+ * lists built here; it never receives database write access and nothing is
+ * saved until the admin approves a proposal, which goes through the normal
+ * createConstraint endpoint like any manually-added rule.
+ */
+export const parseRulesFromPrompt = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await resolveSchool(req, req.body?.school);
+  const prompt = String(req.body?.prompt || '').trim();
+  if (!prompt) throw new BadRequestError('Describe the timetable rule you want in plain language first.');
+
+  const config: any = await loadConfig(schoolId);
+  const [classes, teachers, courses] = await Promise.all([
+    ClassModel.find({ school: schoolId }).select('_id title section').lean(),
+    Teacher.find({ school: schoolId }).select('_id teacherId profile user').populate('profile', 'firstName lastName').populate('user', 'email').lean(),
+    Course.find({ school: schoolId }).select('_id title class').lean(),
+  ]);
+
+  const rules = await parseTimetableRules(prompt, {
+    workingDays: config.workingDays || [],
+    teachers: (teachers as any[]).map((teacher) => ({ id: String(teacher._id), name: teacherLabel(teacher) })),
+    classes: (classes as any[]).map((cls) => ({ id: String(cls._id), label: classLabel(cls) })),
+    courses: (courses as any[]).map((course) => ({ id: String(course._id), title: course.title?.en || 'Course', classId: course.class ? String(course.class) : null })),
+  });
+
+  return ApiResponse.success(res, { rules }, rules.length ? `${rules.length} rule(s) proposed — review and add the ones you want.` : 'No supported rule could be parsed from that request. Try describing one instruction at a time.');
+};
+
+/** Plain-language explanation for one conflict card, shown by the "Ask AI" action. Advisory only — never modifies the draft. */
+export const explainConflict = async (req: Request, res: Response): Promise<Response> => {
+  await resolveSchool(req, req.body?.school);
+  const type = String(req.body?.type || '').trim();
+  const severity: 'error' | 'warning' = req.body?.severity === 'warning' ? 'warning' : 'error';
+  const message = String(req.body?.message || '').trim();
+  const suggestions = Array.isArray(req.body?.suggestions) ? req.body.suggestions.map((item: unknown) => String(item)) : [];
+  if (!message) throw new BadRequestError('Conflict message is required');
+
+  const explanation = await explainTimetableConflict({ type, severity, message, suggestions });
+  return ApiResponse.success(res, { explanation });
 };

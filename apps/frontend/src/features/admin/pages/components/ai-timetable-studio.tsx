@@ -13,6 +13,7 @@ type Conflict = { id: string; type: string; severity: 'error' | 'warning'; messa
 type Availability = { _id?: string; teacher: Teacher | string; dayOffs: number[]; unavailableWindows: Array<{ dayOfWeek: number; startTime: string; endTime: string }>; maxLessonsPerDay: number; maxConsecutiveLessons: number };
 type Version = { version: number; label: string; publishedAt: string };
 type Constraint = { _id: string; type: string; priority: 'required' | 'preferred'; description?: string; teacher?: string; class?: string; course?: string; dayOfWeek?: number; payload?: Record<string, unknown> };
+type ProposedRule = { type: string; priority: 'required' | 'preferred'; dayOfWeek?: number; teacherId?: string; classId?: string; courseId?: string; count?: number; description: string };
 type View = 'grid' | 'conflicts' | 'settings' | 'ai';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -70,6 +71,13 @@ export default function AITimetableStudio({ organizationId, classes, teachers, i
   const [redoStack, setRedoStack] = useState<DraftEntry[][]>([]);
   const [ignoredWarnings, setIgnoredWarnings] = useState<Set<string>>(new Set());
   const [ruleForm, setRuleForm] = useState({ type: 'no_day', priority: 'required', dayOfWeek: 5, teacher: '', class: '', course: '', count: 5, description: '' });
+  const [aiExplanations, setAiExplanations] = useState<Record<string, string>>({});
+  const [aiBusyConflictId, setAiBusyConflictId] = useState<string | null>(null);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiRuleBusy, setAiRuleBusy] = useState(false);
+  const [aiRuleError, setAiRuleError] = useState('');
+  const [proposedRules, setProposedRules] = useState<ProposedRule[]>([]);
+  const [addedRuleKeys, setAddedRuleKeys] = useState<Set<number>>(new Set());
 
   const loadCourses = useCallback(async () => {
     if (!organizationId) return;
@@ -271,6 +279,56 @@ export default function AITimetableStudio({ organizationId, classes, teachers, i
     } catch (err: any) { setError(err.response?.data?.message || 'Unable to add timetable rule'); }
     finally { setBusy(false); }
   };
+  const applySuggestedFix = async (conflict: Conflict) => {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const { data } = await api.post('/class-schedules/school/studio/conflicts/auto-fix', { school: organizationId, entries, conflictId: conflict.id });
+      const payload = data.data || data;
+      setConflicts(payload.conflicts || []);
+      if (payload.fixed) { remember(payload.entries); setNotice(data.message || 'Automatic fix applied.'); }
+      else { setNotice(payload.message || 'No automatic fix was found for this conflict.'); }
+    } catch (err: any) { setError(err.response?.data?.message || 'Unable to apply an automatic fix'); }
+    finally { setBusy(false); }
+  };
+
+  const askAiAboutConflict = async (conflict: Conflict) => {
+    setAiBusyConflictId(conflict.id); setError('');
+    try {
+      const { data } = await api.post('/class-schedules/school/studio/ai/explain-conflict', { school: organizationId, type: conflict.type, severity: conflict.severity, message: conflict.message, suggestions: conflict.suggestions });
+      const payload = data.data || data;
+      setAiExplanations(current => ({ ...current, [conflict.id]: payload.explanation }));
+    } catch (err: any) { setError(err.response?.data?.message || 'Unable to reach the AI Assistant'); }
+    finally { setAiBusyConflictId(null); }
+  };
+
+  const generateAiRules = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiRuleBusy(true); setAiRuleError(''); setProposedRules([]); setAddedRuleKeys(new Set());
+    try {
+      const { data } = await api.post('/class-schedules/school/studio/ai/parse-rules', { school: organizationId, prompt: aiPrompt });
+      const payload = data.data || data;
+      setProposedRules(payload.rules || []);
+      if (!payload.rules?.length) setAiRuleError('No supported rule could be understood from that request. Try describing one instruction at a time, e.g. "Ahmed should be off on Friday".');
+    } catch (err: any) { setAiRuleError(err.response?.data?.message || 'Unable to reach the AI Assistant'); }
+    finally { setAiRuleBusy(false); }
+  };
+
+  const addProposedRule = async (rule: ProposedRule, index: number) => {
+    setAiRuleBusy(true); setAiRuleError('');
+    try {
+      const payload: Record<string, unknown> = { school: organizationId, type: rule.type, priority: rule.priority, description: rule.description, source: 'ai' };
+      if (rule.type === 'no_day') payload.dayOfWeek = rule.dayOfWeek;
+      if (rule.type === 'teacher_day_off') { payload.teacher = rule.teacherId; payload.dayOfWeek = rule.dayOfWeek; }
+      if (rule.type === 'no_consecutive_lessons') { payload.class = rule.classId; payload.course = rule.courseId; }
+      if (rule.type === 'lessons_per_week') { payload.class = rule.classId; payload.course = rule.courseId; payload.payload = { count: rule.count }; }
+      const { data } = await api.post('/class-schedules/school/studio/constraints', payload);
+      setConstraints(list => [data.data || data, ...list]);
+      setAddedRuleKeys(current => new Set([...current, index]));
+      await checkCandidate(entries);
+    } catch (err: any) { setAiRuleError(err.response?.data?.message || 'Unable to add this rule'); }
+    finally { setAiRuleBusy(false); }
+  };
+
   const removeConstraint = async (id: string) => {
     setBusy(true); setError('');
     try {
@@ -327,7 +385,26 @@ export default function AITimetableStudio({ organizationId, classes, teachers, i
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-200">Drag a lesson to another period. The backend checks class, teacher, room, working-day, break and availability constraints before accepting the move. Nothing is published until you choose Publish.</div>
       </div>}
 
-      {!loading && view === 'conflicts' && <div className="mx-auto max-w-4xl space-y-4"><div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-bold">Conflicts & Suggestions</h2><p className="text-xs text-[var(--color-text-tertiary)]">Hard constraints block publishing. Warnings may be reviewed or ignored.</p></div><ActionButton disabled={busy} onClick={() => void checkCandidate(entries)}><ShieldAlert className="h-4 w-4" />Check Again</ActionButton></div>{!visibleConflicts.length ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center dark:border-emerald-900/50 dark:bg-emerald-950/20"><CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" /><div className="mt-2 font-bold text-emerald-800 dark:text-emerald-200">No timetable conflicts found</div></div> : visibleConflicts.map(conflict => <div key={conflict.id} className={`rounded-2xl border p-4 ${conflict.severity === 'error' ? 'border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20' : 'border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20'}`}><div className="flex items-start gap-3">{conflict.severity === 'error' ? <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}<div className="min-w-0 flex-1"><div className="text-xs font-bold uppercase tracking-wide">{prettyRule(conflict.type)}</div><p className="mt-1 text-sm">{conflict.message}</p>{conflict.suggestions.length > 0 && <div className="mt-3 space-y-1">{conflict.suggestions.map(suggestion => <div key={suggestion} className="text-xs">• {suggestion}</div>)}</div>}<div className="mt-3 flex flex-wrap gap-2"><ActionButton disabled title="Automatic fixes arrive with the deterministic solver in Phase 2">Apply Suggested Fix</ActionButton><ActionButton onClick={() => setNotice(conflict.suggestions.join(' · ') || 'No alternatives available.')}>Show Alternatives</ActionButton>{conflict.severity === 'warning' && <ActionButton onClick={() => setIgnoredWarnings(current => new Set([...current, conflict.id]))}>Ignore Warning</ActionButton>}<ActionButton disabled title="DeepSeek chat is connected only after the deterministic solver">Ask AI</ActionButton></div></div></div></div>)}</div>}
+      {!loading && view === 'conflicts' && <div className="mx-auto max-w-4xl space-y-4">
+        <div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-bold">Conflicts & Suggestions</h2><p className="text-xs text-[var(--color-text-tertiary)]">Hard constraints block publishing. Warnings may be reviewed or ignored.</p></div><ActionButton disabled={busy} onClick={() => void checkCandidate(entries)}><ShieldAlert className="h-4 w-4" />Check Again</ActionButton></div>
+        {!visibleConflicts.length ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center dark:border-emerald-900/50 dark:bg-emerald-950/20"><CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" /><div className="mt-2 font-bold text-emerald-800 dark:text-emerald-200">No timetable conflicts found</div></div> : visibleConflicts.map(conflict => <div key={conflict.id} className={`rounded-2xl border p-4 ${conflict.severity === 'error' ? 'border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20' : 'border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20'}`}>
+          <div className="flex items-start gap-3">
+            {conflict.severity === 'error' ? <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-bold uppercase tracking-wide">{prettyRule(conflict.type)}</div>
+              <p className="mt-1 text-sm">{conflict.message}</p>
+              {conflict.suggestions.length > 0 && <div className="mt-3 space-y-1">{conflict.suggestions.map(suggestion => <div key={suggestion} className="text-xs">• {suggestion}</div>)}</div>}
+              {aiExplanations[conflict.id] && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-200"><div className="mb-1 flex items-center gap-1 font-bold"><Bot className="h-3.5 w-3.5" />AI Assistant</div>{aiExplanations[conflict.id]}</div>}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <ActionButton disabled={busy || conflict.severity !== 'error'} title={conflict.severity !== 'error' ? 'Automatic fixes apply to hard conflicts only' : 'Move this lesson to the first free slot that resolves the conflict'} onClick={() => void applySuggestedFix(conflict)}>Apply Suggested Fix</ActionButton>
+                <ActionButton onClick={() => setNotice(conflict.suggestions.join(' · ') || 'No alternatives available.')}>Show Alternatives</ActionButton>
+                {conflict.severity === 'warning' && <ActionButton onClick={() => setIgnoredWarnings(current => new Set([...current, conflict.id]))}>Ignore Warning</ActionButton>}
+                <ActionButton disabled={busy || aiBusyConflictId === conflict.id} onClick={() => void askAiAboutConflict(conflict)}><Bot className="h-4 w-4" />{aiBusyConflictId === conflict.id ? 'Asking AI…' : 'Ask AI'}</ActionButton>
+              </div>
+            </div>
+          </div>
+        </div>)}
+      </div>}
 
       {!loading && view === 'settings' && config && <div className="grid gap-5 xl:grid-cols-2">
         <section className="space-y-4 rounded-2xl border border-[var(--color-border-default)] p-4"><div><h2 className="font-bold">Timetable Settings</h2><p className="text-xs text-[var(--color-text-tertiary)]">Working days, periods, breaks and strict period enforcement.</p></div><div><div className="mb-2 text-xs font-semibold">Working days</div><div className="flex flex-wrap gap-2">{DAYS.map((day, index) => <label key={day} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${config.workingDays.includes(index) ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/20' : 'border-[var(--color-border-default)]'}`}><input type="checkbox" checked={config.workingDays.includes(index)} onChange={() => dayToggle(index)} />{day}</label>)}</div></div><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.strictPeriods} onChange={event => setConfig({ ...config, strictPeriods: event.target.checked })} />Require each lesson to match a configured teaching period exactly</label><label className="block text-xs font-semibold">Timezone<input value={config.timezone} onChange={event => setConfig({ ...config, timezone: event.target.value })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /></label><div className="space-y-2"><div className="text-xs font-semibold">Periods & breaks</div>{config.periods.map((period, index) => <div key={period.key} className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--color-border-default)] p-2 sm:grid-cols-[1fr_110px_110px_auto_auto]"><input value={period.label} onChange={event => setConfig({ ...config, periods: config.periods.map((item, i) => i === index ? { ...item, label: event.target.value } : item) })} className="rounded-lg border border-[var(--color-border-default)] bg-transparent px-2 py-2 text-xs" /><input type="time" value={period.startTime} onChange={event => setConfig({ ...config, periods: config.periods.map((item, i) => i === index ? { ...item, startTime: event.target.value } : item) })} className="rounded-lg border border-[var(--color-border-default)] bg-transparent px-2 py-2 text-xs" /><input type="time" value={period.endTime} onChange={event => setConfig({ ...config, periods: config.periods.map((item, i) => i === index ? { ...item, endTime: event.target.value } : item) })} className="rounded-lg border border-[var(--color-border-default)] bg-transparent px-2 py-2 text-xs" /><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={period.isBreak} onChange={event => setConfig({ ...config, periods: config.periods.map((item, i) => i === index ? { ...item, isBreak: event.target.checked } : item) })} />Break</label><button type="button" onClick={() => setConfig({ ...config, periods: config.periods.filter((_, i) => i !== index) })} className="rounded-lg px-2 text-red-600 hover:bg-red-50"><X className="h-4 w-4" /></button></div>)}<ActionButton onClick={() => setConfig({ ...config, periods: [...config.periods, { key: `period-${Date.now()}`, label: `Period ${config.periods.filter(item => !item.isBreak).length + 1}`, startTime: '13:00', endTime: '13:45', isBreak: false }] })}>+ Add Period</ActionButton></div><ActionButton variant="primary" disabled={busy} onClick={() => void saveConfig()}><Save className="h-4 w-4" />Save Settings</ActionButton></section>
@@ -339,7 +416,42 @@ export default function AITimetableStudio({ organizationId, classes, teachers, i
         {!!versions.length && <section className="space-y-3 rounded-2xl border border-[var(--color-border-default)] p-4 xl:col-span-2"><h2 className="font-bold">Published Versions & Rollback</h2><div className="flex flex-wrap gap-2">{versions.map(version => <button type="button" key={version.version} disabled={busy} onClick={() => void rollbackVersion(version.version)} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-left text-xs hover:bg-[var(--color-surface-tertiary)]"><div className="font-semibold">v{version.version} · {version.label}</div><div className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">{new Date(version.publishedAt).toLocaleString()}</div></button>)}</div></section>}
       </div>}
 
-      {!loading && view === 'ai' && <div className="mx-auto max-w-3xl space-y-4"><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20"><div className="flex items-center gap-2 font-bold text-emerald-800 dark:text-emerald-200"><Bot className="h-5 w-5" />AI Assistant foundation is ready</div><p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">The Studio now stores validated rules, teacher availability, drafts, conflict reports and published versions. DeepSeek will be connected only as a prompt parser; it will never receive direct database write access.</p></div><div className="rounded-2xl border border-[var(--color-border-default)] p-5"><h3 className="font-bold">Next AI layer</h3><p className="mt-2 text-sm text-[var(--color-text-secondary)]">A prompt such as “Ahmed Monday day off, Grade 12 Mathematics no consecutive periods” will become structured rules. The deterministic solver will generate a draft, the conflict checker will verify it, and an admin will review before publishing.</p><textarea disabled rows={5} placeholder="DeepSeek chat is enabled after the deterministic generator is connected in the next phase." className="mt-4 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-3 text-sm opacity-70" /></div></div>}
+      {!loading && view === 'ai' && <div className="mx-auto max-w-3xl space-y-4">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+          <div className="flex items-center gap-2 font-bold text-emerald-800 dark:text-emerald-200"><Bot className="h-5 w-5" />Describe a scheduling rule in plain language</div>
+          <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">The AI Assistant only ever proposes structured rules — it never edits the timetable directly. Review each proposal and add the ones you want; they are checked by the same conflict engine as manually-added rules.</p>
+        </div>
+        <div className="rounded-2xl border border-[var(--color-border-default)] p-5">
+          <h3 className="font-bold">Ask the AI Assistant</h3>
+          <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Example: "Ahmed should be off on Friday" or "Grade 8 Mathematics must not run in consecutive periods".</p>
+          <textarea value={aiPrompt} onChange={event => setAiPrompt(event.target.value)} rows={4} placeholder="Describe the rule you want..." className="mt-3 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-3 text-sm" />
+          {aiRuleError && <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">{aiRuleError}</div>}
+          <div className="mt-3"><ActionButton variant="primary" disabled={aiRuleBusy || !aiPrompt.trim()} onClick={() => void generateAiRules()}><Sparkles className="h-4 w-4" />{aiRuleBusy ? 'Thinking…' : 'Generate Rules'}</ActionButton></div>
+        </div>
+        {proposedRules.length > 0 && <div className="space-y-3">
+          <h3 className="font-bold">Proposed rules</h3>
+          {proposedRules.map((rule, index) => {
+            const teacher = rule.teacherId ? teacherMap.get(rule.teacherId) : null;
+            const cls = rule.classId ? classMap.get(rule.classId) : null;
+            const course = rule.courseId ? courseMap.get(rule.courseId) : null;
+            const added = addedRuleKeys.has(index);
+            return <div key={`${rule.type}-${index}`} className="flex items-start justify-between gap-3 rounded-xl border border-[var(--color-border-default)] p-3">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wide">{prettyRule(rule.type)} · {rule.priority}</div>
+                <p className="mt-1 text-sm">{rule.description}</p>
+                <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-[var(--color-text-tertiary)]">
+                  {typeof rule.dayOfWeek === 'number' && <span>{DAYS[rule.dayOfWeek]}</span>}
+                  {teacher && <span>{teacherName(teacher)}</span>}
+                  {cls && <span>{classLabel(cls)}</span>}
+                  {course && <span>{course.title?.en}</span>}
+                  {typeof rule.count === 'number' && <span>{rule.count}/week</span>}
+                </div>
+              </div>
+              <ActionButton variant={added ? 'default' : 'primary'} disabled={aiRuleBusy || added} onClick={() => void addProposedRule(rule, index)}>{added ? <><CheckCircle2 className="h-4 w-4" />Added</> : '+ Add Rule'}</ActionButton>
+            </div>;
+          })}
+        </div>}
+      </div>}
     </main>
   </div>;
 }
