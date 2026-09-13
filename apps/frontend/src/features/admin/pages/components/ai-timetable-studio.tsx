@@ -14,6 +14,7 @@ type Availability = { _id?: string; teacher: Teacher | string; dayOffs: number[]
 type Version = { version: number; label: string; publishedAt: string };
 type Constraint = { _id: string; type: string; priority: 'required' | 'preferred'; description?: string; teacher?: string; class?: string; course?: string; dayOfWeek?: number; payload?: Record<string, unknown> };
 type ProposedRule = { type: string; priority: 'required' | 'preferred'; dayOfWeek?: number; teacherId?: string; classId?: string; courseId?: string; count?: number; description: string };
+type GenerateResult = { totalRequested: number; totalPlaced: number; unplacedCount: number; unplacedSummary: { classId: string; courseId: string; count: number }[] };
 type View = 'grid' | 'conflicts' | 'settings' | 'ai';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -78,6 +79,9 @@ export default function AITimetableStudio({ organizationId, classes, teachers, i
   const [aiRuleError, setAiRuleError] = useState('');
   const [proposedRules, setProposedRules] = useState<ProposedRule[]>([]);
   const [addedRuleKeys, setAddedRuleKeys] = useState<Set<number>>(new Set());
+  const [defaultLessonsPerWeek, setDefaultLessonsPerWeek] = useState(3);
+  const [generateBusy, setGenerateBusy] = useState(false);
+  const [generateResult, setGenerateResult] = useState<GenerateResult | null>(null);
 
   const loadCourses = useCallback(async () => {
     if (!organizationId) return;
@@ -233,6 +237,19 @@ export default function AITimetableStudio({ organizationId, classes, teachers, i
       await refreshBootstrap();
     } catch (err: any) { setError(err.response?.data?.message || 'Unable to publish timetable'); }
     finally { setBusy(false); }
+  };
+
+  const generateTimetable = async () => {
+    if (!window.confirm('This replaces the current working draft with a freshly generated timetable based on your rules. Continue?')) return;
+    setGenerateBusy(true); setError(''); setNotice(''); setGenerateResult(null);
+    try {
+      const { data } = await api.post('/class-schedules/school/studio/generate', { school: organizationId, defaultLessonsPerWeek });
+      const payload = data.data || data;
+      setDraft(payload.draft); setEntries(cloneEntries(payload.draft.entries || []));
+      setConflicts(payload.conflicts || []); setUndoStack([]); setRedoStack([]);
+      setGenerateResult(payload.generated); setNotice(data.message || 'Timetable generated.'); setView('grid');
+    } catch (err: any) { setError(err.response?.data?.message || 'Unable to generate a timetable'); }
+    finally { setGenerateBusy(false); }
   };
 
   const saveConfig = async () => {
@@ -407,6 +424,18 @@ export default function AITimetableStudio({ organizationId, classes, teachers, i
       </div>}
 
       {!loading && view === 'settings' && config && <div className="grid gap-5 xl:grid-cols-2">
+        <section className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/10 xl:col-span-2">
+          <div className="flex items-center gap-2 font-bold text-emerald-800 dark:text-emerald-200"><Sparkles className="h-5 w-5" />Generate Full Timetable</div>
+          <p className="text-xs text-[var(--color-text-secondary)]">Once your working days, periods, teacher availability and rules are set, generate a complete draft in one step. Every class's courses are placed automatically, respecting day-offs, no-day and no-consecutive rules, and "Lessons per week" targets. Replaces the current working draft.</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-xs font-semibold">Default lessons/week (courses without a rule)<input type="number" min="1" max="10" value={defaultLessonsPerWeek} onChange={event => setDefaultLessonsPerWeek(Number(event.target.value))} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /></label>
+            <ActionButton variant="primary" disabled={generateBusy || busy} onClick={() => void generateTimetable()}><Sparkles className="h-4 w-4" />{generateBusy ? 'Generating…' : 'Generate Timetable'}</ActionButton>
+          </div>
+          {generateResult && <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 text-xs">
+            <div className="font-semibold">{generateResult.totalPlaced}/{generateResult.totalRequested} lesson(s) placed automatically{generateResult.unplacedCount > 0 ? ` · ${generateResult.unplacedCount} left for manual placement` : ' · zero hard conflicts'}</div>
+            {generateResult.unplacedSummary.length > 0 && <div className="mt-2 space-y-1 text-[var(--color-text-tertiary)]">{generateResult.unplacedSummary.map(item => <div key={`${item.classId}-${item.courseId}`}>• {classLabel(classMap.get(item.classId))} — {courseMap.get(item.courseId)?.title?.en || 'Course'}: {item.count} lesson(s) not placed</div>)}</div>}
+          </div>}
+        </section>
         <section className="space-y-4 rounded-2xl border border-[var(--color-border-default)] p-4"><div><h2 className="font-bold">Timetable Settings</h2><p className="text-xs text-[var(--color-text-tertiary)]">Working days, periods, breaks and strict period enforcement.</p></div><div><div className="mb-2 text-xs font-semibold">Working days</div><div className="flex flex-wrap gap-2">{DAYS.map((day, index) => <label key={day} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${config.workingDays.includes(index) ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/20' : 'border-[var(--color-border-default)]'}`}><input type="checkbox" checked={config.workingDays.includes(index)} onChange={() => dayToggle(index)} />{day}</label>)}</div></div><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.strictPeriods} onChange={event => setConfig({ ...config, strictPeriods: event.target.checked })} />Require each lesson to match a configured teaching period exactly</label><label className="block text-xs font-semibold">Timezone<input value={config.timezone} onChange={event => setConfig({ ...config, timezone: event.target.value })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /></label><div className="space-y-2"><div className="text-xs font-semibold">Periods & breaks</div>{config.periods.map((period, index) => <div key={period.key} className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--color-border-default)] p-2 sm:grid-cols-[1fr_110px_110px_auto_auto]"><input value={period.label} onChange={event => setConfig({ ...config, periods: config.periods.map((item, i) => i === index ? { ...item, label: event.target.value } : item) })} className="rounded-lg border border-[var(--color-border-default)] bg-transparent px-2 py-2 text-xs" /><input type="time" value={period.startTime} onChange={event => setConfig({ ...config, periods: config.periods.map((item, i) => i === index ? { ...item, startTime: event.target.value } : item) })} className="rounded-lg border border-[var(--color-border-default)] bg-transparent px-2 py-2 text-xs" /><input type="time" value={period.endTime} onChange={event => setConfig({ ...config, periods: config.periods.map((item, i) => i === index ? { ...item, endTime: event.target.value } : item) })} className="rounded-lg border border-[var(--color-border-default)] bg-transparent px-2 py-2 text-xs" /><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={period.isBreak} onChange={event => setConfig({ ...config, periods: config.periods.map((item, i) => i === index ? { ...item, isBreak: event.target.checked } : item) })} />Break</label><button type="button" onClick={() => setConfig({ ...config, periods: config.periods.filter((_, i) => i !== index) })} className="rounded-lg px-2 text-red-600 hover:bg-red-50"><X className="h-4 w-4" /></button></div>)}<ActionButton onClick={() => setConfig({ ...config, periods: [...config.periods, { key: `period-${Date.now()}`, label: `Period ${config.periods.filter(item => !item.isBreak).length + 1}`, startTime: '13:00', endTime: '13:45', isBreak: false }] })}>+ Add Period</ActionButton></div><ActionButton variant="primary" disabled={busy} onClick={() => void saveConfig()}><Save className="h-4 w-4" />Save Settings</ActionButton></section>
 
         <section className="space-y-4 rounded-2xl border border-[var(--color-border-default)] p-4"><div><h2 className="font-bold">Teacher Availability</h2><p className="text-xs text-[var(--color-text-tertiary)]">Day-offs are hard constraints; lesson limits are warnings.</p></div><select value={selectedTeacherId} onChange={event => setSelectedTeacherId(event.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm"><option value="">Select teacher</option>{teachers.map(teacher => <option key={teacher._id} value={teacher._id}>{teacherName(teacher)}</option>)}</select>{selectedTeacherId && <><div><div className="mb-2 text-xs font-semibold">Day off</div><div className="flex flex-wrap gap-2">{DAYS.map((day, index) => <label key={day} className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs"><input type="checkbox" checked={selectedAvailability.dayOffs.includes(index)} onChange={() => updateSelectedAvailability({ dayOffs: selectedAvailability.dayOffs.includes(index) ? selectedAvailability.dayOffs.filter(value => value !== index) : [...selectedAvailability.dayOffs, index] })} />{day}</label>)}</div></div><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold">Max lessons/day<input type="number" min="1" max="20" value={selectedAvailability.maxLessonsPerDay} onChange={event => updateSelectedAvailability({ maxLessonsPerDay: Number(event.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /></label><label className="text-xs font-semibold">Max consecutive<input type="number" min="1" max="12" value={selectedAvailability.maxConsecutiveLessons} onChange={event => updateSelectedAvailability({ maxConsecutiveLessons: Number(event.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /></label></div><ActionButton variant="primary" disabled={busy} onClick={() => void saveTeacherAvailability()}><Save className="h-4 w-4" />Save Availability</ActionButton></>}</section>

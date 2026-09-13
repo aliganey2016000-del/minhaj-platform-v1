@@ -334,6 +334,220 @@ async function buildConflicts(schoolId: string, entries: StudioEntry[]): Promise
   return computeConflicts(activeEntries, config, availability, constraints, refs);
 }
 
+// ---------------------------------------------------------------------------
+// Automatic timetable generator. Given the school's configured working
+// days/periods, teacher availability and rules, fills a complete draft by
+// placing every class's courses into slots with zero hard conflicts where
+// possible. This is a randomized greedy placer with restarts, not a full
+// constraint solver: it is deliberately simple so it stays fast and
+// predictable for typical school-sized timetables (dozens of classes,
+// hundreds of lessons), and any lesson it cannot place is reported back
+// instead of silently dropped or forced into a conflicting slot.
+// ---------------------------------------------------------------------------
+
+interface GeneratorSlot {
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+}
+
+interface GeneratorJob {
+  classId: string;
+  courseId: string;
+  teacherId: string | null;
+  count: number;
+}
+
+interface GeneratorOptions {
+  teacherDayOff: Map<string, Set<number>>;
+  teacherUnavailable: Map<string, { dayOfWeek: number; startTime: string; endTime: string }[]>;
+  teacherMaxPerDay: Map<string, number>;
+  noConsecutiveRequired: Set<string>;
+  classRoom: Map<string, string>;
+}
+
+/** Deterministic PRNG (seeded) so each restart explores a different but reproducible ordering. */
+function mulberry32(seed: number) {
+  let state = seed | 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffle<T>(items: T[], rand: () => number): T[] {
+  const arr = items.slice();
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rand() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function attemptGeneration(jobs: GeneratorJob[], slots: GeneratorSlot[], rand: () => number, opts: GeneratorOptions): { entries: StudioEntry[]; unplaced: { classId: string; courseId: string }[] } {
+  const orderedJobs = shuffle(jobs, rand).sort((a, b) => b.count - a.count);
+
+  const classSlotUsed = new Set<string>();
+  const teacherSlotUsed = new Set<string>();
+  const roomSlotUsed = new Set<string>();
+  const classCourseSlots = new Map<string, GeneratorSlot[]>();
+  const teacherDayCount = new Map<string, Map<number, number>>();
+  const classDayCount = new Map<string, Map<number, number>>();
+
+  const bump = (map: Map<string, Map<number, number>>, key: string, day: number) => {
+    const inner = map.get(key) || new Map<number, number>();
+    inner.set(day, (inner.get(day) || 0) + 1);
+    map.set(key, inner);
+  };
+  const countOf = (map: Map<string, Map<number, number>>, key: string, day: number) => map.get(key)?.get(day) || 0;
+
+  const entries: StudioEntry[] = [];
+  const unplaced: { classId: string; courseId: string }[] = [];
+
+  for (const job of orderedJobs) {
+    const roomKey = normalizeRoom(opts.classRoom.get(job.classId) || '');
+    const ccKey = `${job.classId}|${job.courseId}`;
+
+    for (let i = 0; i < job.count; i += 1) {
+      const usedDays = new Set((classCourseSlots.get(ccKey) || []).map((slot) => slot.dayOfWeek));
+      const orderedSlots = shuffle(slots, rand).sort((a, b) => {
+        const aUsed = usedDays.has(a.dayOfWeek) ? 1 : 0;
+        const bUsed = usedDays.has(b.dayOfWeek) ? 1 : 0;
+        if (aUsed !== bUsed) return aUsed - bUsed;
+        return countOf(classDayCount, job.classId, a.dayOfWeek) - countOf(classDayCount, job.classId, b.dayOfWeek);
+      });
+
+      let placed = false;
+      for (const relaxSoftCaps of [false, true]) {
+        for (const slot of orderedSlots) {
+          const classKey = `${job.classId}|${slot.dayOfWeek}|${slot.startTime}`;
+          if (classSlotUsed.has(classKey)) continue;
+          if (roomKey && roomSlotUsed.has(`${roomKey}|${slot.dayOfWeek}|${slot.startTime}`)) continue;
+          if (job.teacherId) {
+            if (teacherSlotUsed.has(`${job.teacherId}|${slot.dayOfWeek}|${slot.startTime}`)) continue;
+            if (opts.teacherDayOff.get(job.teacherId)?.has(slot.dayOfWeek)) continue;
+            const windows = opts.teacherUnavailable.get(job.teacherId) || [];
+            if (windows.some((w) => w.dayOfWeek === slot.dayOfWeek && overlaps(slot.startTime, slot.endTime, w.startTime, w.endTime))) continue;
+            if (!relaxSoftCaps) {
+              const maxPerDay = opts.teacherMaxPerDay.get(job.teacherId);
+              if (maxPerDay && countOf(teacherDayCount, job.teacherId, slot.dayOfWeek) >= maxPerDay) continue;
+            }
+          }
+          if (opts.noConsecutiveRequired.has(ccKey)) {
+            const placedForCC = classCourseSlots.get(ccKey) || [];
+            const adjacent = placedForCC.some((s) => s.dayOfWeek === slot.dayOfWeek && (s.endTime === slot.startTime || slot.endTime === s.startTime));
+            if (adjacent) continue;
+          }
+
+          entries.push({ class: job.classId, course: job.courseId, teacher: job.teacherId, dayOfWeek: slot.dayOfWeek, startTime: slot.startTime, endTime: slot.endTime, room: opts.classRoom.get(job.classId) || '', isActive: true });
+          classSlotUsed.add(classKey);
+          if (roomKey) roomSlotUsed.add(`${roomKey}|${slot.dayOfWeek}|${slot.startTime}`);
+          if (job.teacherId) {
+            teacherSlotUsed.add(`${job.teacherId}|${slot.dayOfWeek}|${slot.startTime}`);
+            bump(teacherDayCount, job.teacherId, slot.dayOfWeek);
+          }
+          bump(classDayCount, job.classId, slot.dayOfWeek);
+          classCourseSlots.set(ccKey, [...(classCourseSlots.get(ccKey) || []), slot]);
+          placed = true;
+          break;
+        }
+        if (placed) break;
+      }
+      if (!placed) unplaced.push({ classId: job.classId, courseId: job.courseId });
+    }
+  }
+
+  return { entries, unplaced };
+}
+
+async function generateTimetableEntries(schoolId: string, defaultLessonsPerWeek: number) {
+  const config: any = await loadConfig(schoolId);
+  const workingDays: number[] = config.workingDays || [];
+  const periods = (config.periods || []).filter((period: any) => !period.isBreak);
+
+  const [classes, courses, availability, constraints] = await Promise.all([
+    ClassModel.find({ school: schoolId }).select('_id room').lean(),
+    Course.find({ school: schoolId, status: { $ne: 'archived' } }).select('_id class teacher').lean(),
+    TeacherAvailability.find({ school: schoolId }).lean(),
+    TimetableConstraint.find({ school: schoolId, isActive: true }).lean(),
+  ]);
+
+  const noDayBanned = new Set<number>();
+  for (const constraint of constraints as any[]) {
+    if (constraint.type === 'no_day' && Number.isInteger(constraint.dayOfWeek)) noDayBanned.add(constraint.dayOfWeek);
+  }
+  const slots: GeneratorSlot[] = [];
+  for (const day of workingDays) {
+    if (noDayBanned.has(day)) continue;
+    for (const period of periods) slots.push({ dayOfWeek: day, startTime: period.startTime, endTime: period.endTime });
+  }
+  if (!slots.length) throw new BadRequestError('Configure at least one working day and teaching period (not banned by a rule) in Timetable Settings before generating.');
+
+  const classIds = new Set((classes as any[]).map((cls) => String(cls._id)));
+  const classRoom = new Map<string, string>((classes as any[]).map((cls) => [String(cls._id), String(cls.room || '')]));
+
+  const teacherDayOff = new Map<string, Set<number>>();
+  const teacherUnavailable = new Map<string, { dayOfWeek: number; startTime: string; endTime: string }[]>();
+  const teacherMaxPerDay = new Map<string, number>();
+  for (const item of availability as any[]) {
+    const teacherId = String(item.teacher);
+    teacherDayOff.set(teacherId, new Set(item.dayOffs || []));
+    teacherUnavailable.set(teacherId, item.unavailableWindows || []);
+    teacherMaxPerDay.set(teacherId, Number(item.maxLessonsPerDay || 5));
+  }
+
+  const noConsecutiveRequired = new Set<string>();
+  const lessonsPerWeekTarget = new Map<string, number>();
+  for (const constraint of constraints as any[]) {
+    if (constraint.type === 'teacher_day_off' && constraint.teacher && Number.isInteger(constraint.dayOfWeek)) {
+      const teacherId = String(constraint.teacher);
+      teacherDayOff.set(teacherId, new Set([...(teacherDayOff.get(teacherId) || []), constraint.dayOfWeek]));
+    }
+    if (constraint.type === 'no_consecutive_lessons' && constraint.priority === 'required' && constraint.class && constraint.course) {
+      noConsecutiveRequired.add(`${String(constraint.class)}|${String(constraint.course)}`);
+    }
+    if (constraint.type === 'lessons_per_week' && constraint.class && constraint.course) {
+      const count = Number((constraint.payload as any)?.count || 0);
+      if (count > 0) lessonsPerWeekTarget.set(`${String(constraint.class)}|${String(constraint.course)}`, count);
+    }
+  }
+
+  const jobs: GeneratorJob[] = [];
+  for (const course of courses as any[]) {
+    if (!course.class || !classIds.has(String(course.class))) continue;
+    const classId = String(course.class);
+    const courseId = String(course._id);
+    const count = lessonsPerWeekTarget.get(`${classId}|${courseId}`) ?? defaultLessonsPerWeek;
+    if (count <= 0) continue;
+    jobs.push({ classId, courseId, teacherId: course.teacher ? String(course.teacher) : null, count: Math.min(count, slots.length) });
+  }
+  if (!jobs.length) throw new BadRequestError('No courses are assigned to a class yet — assign courses to classes before generating a timetable.');
+
+  const opts: GeneratorOptions = { teacherDayOff, teacherUnavailable, teacherMaxPerDay, noConsecutiveRequired, classRoom };
+
+  let best: { entries: StudioEntry[]; unplaced: { classId: string; courseId: string }[] } | null = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const result = attemptGeneration(jobs, slots, mulberry32(attempt * 2654435761 + 1), opts);
+    if (!best || result.unplaced.length < best.unplaced.length) best = result;
+    if (best.unplaced.length === 0) break;
+  }
+
+  const totalRequested = jobs.reduce((sum, job) => sum + job.count, 0);
+  const unplacedCounts = new Map<string, number>();
+  for (const item of best!.unplaced) {
+    const key = `${item.classId}|${item.courseId}`;
+    unplacedCounts.set(key, (unplacedCounts.get(key) || 0) + 1);
+  }
+  const unplacedSummary = [...unplacedCounts.entries()].map(([key, count]) => {
+    const [classId, courseId] = key.split('|');
+    return { classId, courseId, count };
+  });
+
+  return { entries: best!.entries, totalRequested, unplacedSummary };
+}
+
 async function currentScheduleEntries(schoolId: string): Promise<StudioEntry[]> {
   const schedules = await ClassSchedule.find({ school: schoolId, isActive: true }).populate('class', 'room').lean();
   return schedules.map((schedule: any) => ({
@@ -551,6 +765,41 @@ export const autoFixConflict = async (req: Request, res: Response): Promise<Resp
   }
 
   return ApiResponse.success(res, { fixed: false, entries, conflicts: currentConflicts, message: 'No automatic fix was found within the current timetable settings — try moving this lesson manually or adjusting rules.' });
+};
+
+/**
+ * Generates a complete working draft from the school's configured working
+ * days/periods, teacher availability and rules — one lesson-count target per
+ * class+course (from a "lessons_per_week" rule, or defaultLessonsPerWeek for
+ * courses without one). Replaces the current draft like createDraft does.
+ * Any lesson that could not be placed without a hard conflict is reported
+ * back instead of forced in, so the admin can add it manually or adjust
+ * rules/availability first.
+ */
+export const generateDraft = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await resolveSchool(req, req.body?.school);
+  const defaultLessonsPerWeek = Math.max(1, Math.min(10, Number(req.body?.defaultLessonsPerWeek) || 3));
+
+  const { entries, totalRequested, unplacedSummary } = await generateTimetableEntries(schoolId, defaultLessonsPerWeek);
+
+  await TimetableDraft.updateMany({ school: schoolId, status: 'draft' }, { $set: { status: 'archived' } });
+  const draft = await TimetableDraft.create({
+    school: schoolId,
+    name: String(req.body?.name || 'AI Generated Draft').trim(),
+    entries,
+    status: 'draft',
+    createdBy: req.user!.userId,
+    updatedBy: req.user!.userId,
+  });
+
+  const conflicts = await buildConflicts(schoolId, entries);
+  const totalPlaced = entries.length;
+  const unplacedCount = totalRequested - totalPlaced;
+  const message = unplacedCount > 0
+    ? `Draft generated: ${totalPlaced}/${totalRequested} lesson(s) placed automatically. ${unplacedCount} lesson(s) could not be placed without a conflict — add them manually or adjust rules/availability.`
+    : `Draft generated: all ${totalPlaced} lesson(s) placed with zero hard conflicts.`;
+
+  return ApiResponse.success(res, { draft, conflicts, generated: { totalRequested, totalPlaced, unplacedCount, unplacedSummary } }, message);
 };
 
 export const createDraft = async (req: Request, res: Response): Promise<Response> => {
