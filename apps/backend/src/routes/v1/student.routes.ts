@@ -37,7 +37,10 @@ import {
   validateStudentCreateClass,
   validateStudentUpdateClass,
 } from '../../middleware/student-class-assignment.middleware';
-import { prepareStudentCreateDefaults } from '../../middleware/student-registration-defaults.middleware';
+import {
+  prepareStudentCreateDefaults,
+  prepareStudentUpdateDefaults,
+} from '../../middleware/student-registration-defaults.middleware';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -225,6 +228,7 @@ router.get(
 router.patch(
   '/:id',
   adminOnly,
+  asyncHandler(prepareStudentUpdateDefaults),
   asyncHandler(validateStudentUpdateClass),
   asyncHandler(studentController.update)
 );
