@@ -21,15 +21,23 @@ async function syncEnrollmentHistory(
   newClassId: mongoose.Types.ObjectId | string,
   newCourseIds: string[],
 ): Promise<void> {
-  const newClass: any = await ClassModel.findById(newClassId).select('_id title gradeLevel academicYear studyYear semesterNumber semesterInYear');
+  const newClass: any = await ClassModel.findById(newClassId)
+    .select('_id title gradeLevel academicYear studyYear semesterNumber semesterInYear department shiftMode')
+    .populate('department', 'name');
   if (!newClass || !newClass.academicYear) return;
 
-  // Keep the denormalized student grade synchronized with the selected class.
-  // The Manage Students list reads Student.grade directly, while the source
-  // of truth for school grade level is Class.gradeLevel.
+  // Keep all denormalized placement fields synchronized with Class. Manage
+  // Students and reporting read these directly, so changing only `class`
+  // during promotion otherwise leaves the student showing the old shift or
+  // department until somebody manually edits them later.
   if (newClass.gradeLevel !== null && newClass.gradeLevel !== undefined) {
     student.grade = String(newClass.gradeLevel);
+  } else {
+    student.grade = String(newClass.title || '').trim() || undefined;
   }
+  const department = newClass.department;
+  student.department = typeof department === 'string' ? department : department?.name || undefined;
+  student.shiftMode = newClass.shiftMode || undefined;
 
   const history = Array.isArray(student.enrollmentHistory) ? student.enrollmentHistory : [];
   const sameCurrent = history.find(
@@ -81,7 +89,9 @@ async function syncEnrollmentHistory(
 export async function refreshStudentCoursesForCurrentClass(
   studentId: mongoose.Types.ObjectId | string,
 ): Promise<void> {
-  const student = await Student.findById(studentId).select('class status enrolledCourses enrollmentHistory');
+  const student = await Student.findById(studentId)
+    .setOptions({ skipCourseNormalization: true })
+    .select('class status enrolledCourses enrollmentHistory grade department shiftMode');
   if (!student?.class || student.status !== 'active') return;
 
   const [oldCourses, newCourses] = await Promise.all([
@@ -102,13 +112,21 @@ export async function refreshStudentCoursesForCurrentClass(
   await recalcEnrolledStudents(new Set([...currentClassCourseIds, ...newCourseIds]));
 }
 
-/** Closes the student's current academic enrollment without deleting it. */
+/**
+ * Closes the student's current academic enrollment without deleting it.
+ * Course.enrolledStudents is a cached count of ACTIVE students, so closing a
+ * student's enrollment after graduation must refresh those course counters.
+ */
 export async function completeStudentEnrollmentHistory(
   studentId: mongoose.Types.ObjectId | string,
   status: 'completed' | 'graduated' = 'completed',
 ): Promise<void> {
-  const student = await Student.findById(studentId).select('enrollmentHistory');
+  const student = await Student.findById(studentId)
+    .setOptions({ skipCourseNormalization: true })
+    .select('enrollmentHistory enrolledCourses');
   if (!student) return;
+
+  const affectedCourseIds = new Set((student.enrolledCourses || []).map((id) => id.toString()));
   const now = new Date();
   let changed = false;
   for (const entry of student.enrollmentHistory || []) {
@@ -119,6 +137,7 @@ export async function completeStudentEnrollmentHistory(
     }
   }
   if (changed) await student.save();
+  if (affectedCourseIds.size > 0) await recalcEnrolledStudents(affectedCourseIds);
 }
 
 export async function reassignStudentClassCourses(
@@ -128,15 +147,39 @@ export async function reassignStudentClassCourses(
 ): Promise<void> {
   if (String(oldClassId || '') === String(newClassId || '')) return;
 
-  const student = await Student.findById(studentId).select('class status enrolledCourses enrollmentHistory grade');
-  if (!student || !newClassId || student.status !== 'active') return;
+  const student = await Student.findById(studentId)
+    .setOptions({ skipCourseNormalization: true })
+    .select('class status enrolledCourses enrollmentHistory grade department shiftMode');
+  if (!student || student.status !== 'active') return;
 
-  const [oldCourses, newCourses] = await Promise.all([
-    oldClassId ? Course.find({ class: oldClassId }).select('_id') : Promise.resolve([]),
-    Course.find({ class: newClassId, status: 'published' }).select('_id'),
-  ]);
-
+  const oldCourses = oldClassId ? await Course.find({ class: oldClassId }).select('_id') : [];
   const oldCourseIds = new Set(oldCourses.map((c) => c._id.toString()));
+
+  // A deliberate unassignment should not leave the student enrolled in all
+  // courses from the old class. Preserve individually assigned courses,
+  // close the active history entry, and clear denormalized placement fields.
+  if (!newClassId) {
+    const keptIds = (student.enrolledCourses || [])
+      .map((id) => id.toString())
+      .filter((id) => !oldCourseIds.has(id));
+    const now = new Date();
+    for (const entry of student.enrollmentHistory || []) {
+      if (entry.status === 'active') {
+        entry.status = 'completed';
+        entry.endedAt = now;
+      }
+    }
+    student.class = undefined;
+    student.grade = undefined;
+    student.department = undefined;
+    student.shiftMode = undefined;
+    student.enrolledCourses = keptIds.map((id) => new mongoose.Types.ObjectId(id));
+    await student.save();
+    await recalcEnrolledStudents(oldCourseIds);
+    return;
+  }
+
+  const newCourses = await Course.find({ class: newClassId, status: 'published' }).select('_id');
   const keptIds = (student.enrolledCourses || []).map((id) => id.toString()).filter((id) => !oldCourseIds.has(id));
   const newCourseIds = newCourses.map((c) => c._id.toString());
   const nextIds = Array.from(new Set([...keptIds, ...newCourseIds]));

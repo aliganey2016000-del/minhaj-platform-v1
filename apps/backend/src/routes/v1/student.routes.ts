@@ -37,6 +37,11 @@ import {
   anyAuthenticatedUser,
 } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
+import {
+  validateStudentApprovalClass,
+  validateStudentCreateClass,
+  validateStudentUpdateClass,
+} from '../../middleware/student-class-assignment.middleware';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -83,6 +88,7 @@ router.post(
   '/',
   adminOnly,
   photoUpload.single('photo'),
+  asyncHandler(validateStudentCreateClass),
   asyncHandler(studentController.create)
 );
 
@@ -224,6 +230,7 @@ router.get(
 router.patch(
   '/:id',
   adminOnly,
+  asyncHandler(validateStudentUpdateClass),
   asyncHandler(studentController.update)
 );
 
@@ -270,6 +277,7 @@ router.get(
 router.patch(
   '/:id/approve',
   adminOnly,
+  asyncHandler(validateStudentApprovalClass),
   asyncHandler(studentController.approve)
 );
 
