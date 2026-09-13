@@ -8,7 +8,7 @@ import LessonBlockProgress from '../models/lesson-block-progress.model';
 import LearningSession from '../models/learning-session.model';
 import { NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
-import { assertCanViewStudent } from '../utils/student-visibility';
+import { assertCanViewStudent, visibleCourseIdsForStudent } from '../utils/student-visibility';
 
 
 
@@ -21,7 +21,11 @@ export const getStudentCourseAnalytics = async (req: Request, res: Response): Pr
   const student = await Student.findById(studentId).select('status enrolledCourses enrollmentHistory').lean();
   if (!student) throw new NotFoundError('Student');
 
-  const courseIds = (student.enrolledCourses || []).map((id) => new mongoose.Types.ObjectId(id));
+  const teacherCourseIds = await visibleCourseIdsForStudent(req, studentId);
+  const enrolledCourseIds = (student.enrolledCourses || []).map((id) => new mongoose.Types.ObjectId(id));
+  const courseIds = teacherCourseIds
+    ? enrolledCourseIds.filter((id) => teacherCourseIds.some((visibleId) => visibleId.toString() === id.toString()))
+    : enrolledCourseIds;
   if (!courseIds.length) {
     return ApiResponse.success(res, { totalCourses: 0, totalDurationSeconds: 0, totalActiveSeconds: 0, averageScore: null, correctAnswers: 0, totalQuestions: 0, totalQuizAttempts: 0, totalGateQuestions: 0, totalScoredUnits: 0, completedCourses: 0, inProgressCourses: 0, notStartedCourses: 0, courses: [] });
   }

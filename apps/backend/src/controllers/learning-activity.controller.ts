@@ -21,7 +21,7 @@ import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { logActivityFromRequest } from '../utils/learning-activity-logger';
 import { escapeRegex } from '../utils/escape-regex';
-import { assertCanViewStudent } from '../utils/student-visibility';
+import { assertCanViewStudent, visibleCourseIdsForStudent } from '../utils/student-visibility';
 import { isUserOnline } from '../realtime/socket';
 
 // ---------------------------------------------------------------------------
@@ -29,11 +29,16 @@ import { isUserOnline } from '../realtime/socket';
 // Returns undefined for admin/org_admin (no restriction beyond org filter,
 // already applied separately); an array of ids for teacher.
 // ---------------------------------------------------------------------------
-async function visibleStudentIds(req: Request): Promise<mongoose.Types.ObjectId[] | undefined> {
+async function visibleTeacherCourseIds(req: Request): Promise<mongoose.Types.ObjectId[] | undefined> {
   if (req.user?.role !== 'teacher') return undefined;
   const teacher = await getOwnTeacherRecord(req);
-  const courseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
-  const students = await Student.find({ enrolledCourses: { $in: courseIds } }).distinct('_id');
+  return teacher ? Course.find({ teacher: teacher._id }).distinct('_id') : [];
+}
+
+async function visibleStudentIds(req: Request, courseIds?: mongoose.Types.ObjectId[]): Promise<mongoose.Types.ObjectId[] | undefined> {
+  if (req.user?.role !== 'teacher') return undefined;
+  const resolvedCourseIds = courseIds || await visibleTeacherCourseIds(req) || [];
+  const students = await Student.find({ enrolledCourses: { $in: resolvedCourseIds } }).distinct('_id');
   return students;
 }
 
@@ -47,10 +52,10 @@ async function visibleStudentIds(req: Request): Promise<mongoose.Types.ObjectId[
 // (LearningActivity), which would double-count retries and skew the score
 // upward, since a gate block can always be retried until correct.
 // ---------------------------------------------------------------------------
-async function gateFirstAttemptStats(studentIds: mongoose.Types.ObjectId[]): Promise<Map<string, { avgScore: number; attempts: number }>> {
+async function gateFirstAttemptStats(studentIds: mongoose.Types.ObjectId[], courseIds?: mongoose.Types.ObjectId[]): Promise<Map<string, { avgScore: number; attempts: number }>> {
   if (studentIds.length === 0) return new Map();
   const rows = await LessonBlockProgress.aggregate([
-    { $match: { student: { $in: studentIds } } },
+    { $match: { student: { $in: studentIds }, ...(courseIds ? { course: { $in: courseIds } } : {}) } },
     { $unwind: '$attempts' },
     { $sort: { 'attempts.attemptedAt': 1 } },
     {
@@ -153,7 +158,8 @@ export const getRoster = async (req: Request, res: Response): Promise<Response> 
   const courseId = req.query.courseId as string | undefined;
 
   const filter: Record<string, unknown> = {};
-  const ids = await visibleStudentIds(req);
+  const teacherCourseIds = await visibleTeacherCourseIds(req);
+  const ids = await visibleStudentIds(req, teacherCourseIds);
   if (ids) filter._id = { $in: ids };
   if (courseId) filter.enrolledCourses = courseId;
 
@@ -195,15 +201,15 @@ export const getRoster = async (req: Request, res: Response): Promise<Response> 
   const studentIds = students.map((s: any) => s._id);
   const [lastActivities, avgScores, gateStats] = await Promise.all([
     LearningActivity.aggregate([
-      { $match: { student: { $in: studentIds } } },
+      { $match: { student: { $in: studentIds }, ...(teacherCourseIds ? { course: { $in: teacherCourseIds } } : {}) } },
       { $sort: { createdAt: -1 } },
       { $group: { _id: '$student', lastActivityAt: { $first: '$createdAt' }, lastActivityType: { $first: '$type' } } },
     ]),
     QuizAttempt.aggregate([
-      { $match: { student: { $in: studentIds } } },
+      { $match: { student: { $in: studentIds }, ...(teacherCourseIds ? { course: { $in: teacherCourseIds } } : {}) } },
       { $group: { _id: '$student', avgScore: { $avg: '$percentage' }, attempts: { $sum: 1 } } },
     ]),
-    gateFirstAttemptStats(studentIds),
+    gateFirstAttemptStats(studentIds, teacherCourseIds),
   ]);
   const lastActivityMap = new Map(lastActivities.map((a: any) => [a._id.toString(), a]));
   const avgScoreMap = new Map(avgScores.map((a: any) => [a._id.toString(), a]));
@@ -249,12 +255,18 @@ export const getTimeline = async (req: Request, res: Response): Promise<Response
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.max(1, Math.min(200, parseInt(req.query.limit as string) || 50));
   const { from, to } = resolveDateRange(req.query);
+  const visibleCourseIds = await visibleCourseIdsForStudent(req, studentId);
 
   const filter: Record<string, unknown> = { student: studentId };
+  if (visibleCourseIds) filter.course = { $in: visibleCourseIds };
   if (from || to) {
     filter.createdAt = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
   }
-  if (req.query.course) filter.course = req.query.course;
+  if (req.query.course) {
+    filter.course = !visibleCourseIds || visibleCourseIds.some((id) => id.toString() === String(req.query.course))
+      ? req.query.course
+      : { $in: [] };
+  }
   if (req.query.type) filter.type = req.query.type;
   if (req.query.status) filter.status = req.query.status;
   if (req.query.lessonId) filter.lessonId = req.query.lessonId;
@@ -306,34 +318,36 @@ export const getAnalytics = async (req: Request, res: Response): Promise<Respons
   if (!student) throw new NotFoundError('Student');
 
   const sid = new mongoose.Types.ObjectId(studentId);
+  const visibleCourseIds = await visibleCourseIdsForStudent(req, studentId);
+  const courseScope = visibleCourseIds ? { course: { $in: visibleCourseIds } } : {};
 
   const [durationAgg, dailyAgg, progressDocs, quizAgg, lastEvent, videoAgg, gateStatsMap] = await Promise.all([
     LearningActivity.aggregate([
-      { $match: { student: sid, durationSeconds: { $gt: 0 } } },
+      { $match: { student: sid, ...courseScope, durationSeconds: { $gt: 0 } } },
       { $group: { _id: null, totalSeconds: { $sum: '$durationSeconds' } } },
     ]),
     LearningActivity.aggregate([
-      { $match: { student: sid, durationSeconds: { $gt: 0 }, createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } } },
+      { $match: { student: sid, ...courseScope, durationSeconds: { $gt: 0 }, createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } } },
       { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, seconds: { $sum: '$durationSeconds' } } },
       { $sort: { _id: 1 } },
     ]),
-    Progress.find({ student: studentId }).lean(),
+    Progress.find({ student: studentId, ...courseScope }).lean(),
     QuizAttempt.aggregate([
-      { $match: { student: sid } },
+      { $match: { student: sid, ...courseScope } },
       { $group: { _id: null, avgScore: { $avg: '$percentage' }, attempts: { $sum: 1 }, passed: { $sum: { $cond: ['$passed', 1, 0] } } } },
     ]),
-    LearningActivity.findOne({ student: sid }).sort({ createdAt: -1 }).lean(),
+    LearningActivity.findOne({ student: sid, ...courseScope }).sort({ createdAt: -1 }).lean(),
     LearningActivity.aggregate([
-      { $match: { student: sid, type: 'video_progress' } },
+      { $match: { student: sid, ...courseScope, type: 'video_progress' } },
       { $group: { _id: null, avgPercent: { $avg: '$percent' } } },
     ]),
-    gateFirstAttemptStats([sid]),
+    gateFirstAttemptStats([sid], visibleCourseIds),
   ]);
   const blendedQuiz = blendScores(quizAgg[0] ? { avgScore: quizAgg[0].avgScore, attempts: quizAgg[0].attempts } : undefined, gateStatsMap.get(studentId));
 
   // Learning streak — consecutive days (ending today or yesterday) with at least one activity.
   const activeDays = await LearningActivity.aggregate([
-    { $match: { student: sid } },
+    { $match: { student: sid, ...courseScope } },
     { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } } } },
     { $sort: { _id: -1 } },
     { $limit: 400 },
@@ -399,11 +413,17 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
   if (!student) throw new NotFoundError('Student');
 
   const { from, to } = resolveDateRange(req.query);
+  const visibleCourseIds = await visibleCourseIdsForStudent(req, studentId);
   const filter: Record<string, unknown> = { student: studentId };
+  if (visibleCourseIds) filter.course = { $in: visibleCourseIds };
   if (from || to) {
     filter.createdAt = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
   }
-  if (req.query.course) filter.course = req.query.course;
+  if (req.query.course) {
+    filter.course = !visibleCourseIds || visibleCourseIds.some((id) => id.toString() === String(req.query.course))
+      ? req.query.course
+      : { $in: [] };
+  }
   if (req.query.type) filter.type = req.query.type;
   if (req.query.status) filter.status = req.query.status;
 
@@ -416,7 +436,8 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
   const exportCourseById = new Map(exportCourses.map((c: any) => [c._id.toString(), c]));
 
   const format = (req.query.format as string) === 'csv' ? 'csv' : 'xlsx';
-  const headers = ['Date', 'Activity Type', 'Resource', 'Course', 'Status', 'Start', 'End', 'Duration (s)', 'Percent', 'Device', 'Browser', 'OS', 'IP'];
+  const includeSensitiveDeviceData = req.user?.role === 'admin' || req.user?.role === 'org_admin';
+  const headers = ['Date', 'Activity Type', 'Resource', 'Course', 'Status', 'Start', 'End', 'Duration (s)', 'Percent', ...(includeSensitiveDeviceData ? ['Device', 'Browser', 'OS', 'IP'] : [])];
   const rows = events.map((e: any) => {
     const end = new Date(e.createdAt);
     const start = e.durationSeconds ? new Date(end.getTime() - e.durationSeconds * 1000) : end;
@@ -430,10 +451,7 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
       end.toLocaleTimeString(),
       e.durationSeconds ?? '',
       e.percent ?? '',
-      e.device || '',
-      e.browser || '',
-      e.os || '',
-      e.ip || '',
+      ...(includeSensitiveDeviceData ? [e.device || '', e.browser || '', e.os || '', e.ip || ''] : []),
     ];
   });
 

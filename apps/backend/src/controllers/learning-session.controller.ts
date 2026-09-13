@@ -5,7 +5,7 @@ import Student from '../models/student.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { parseUserAgent } from '../utils/parse-user-agent';
-import { assertCanViewStudent } from '../utils/student-visibility';
+import { assertCanViewStudent, visibleCourseIdsForStudent } from '../utils/student-visibility';
 import { emitToStudentWatchers, hasActivityWatchers } from '../realtime/socket';
 
 const MAX_HEARTBEAT_SECONDS = 60;
@@ -169,9 +169,15 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
   const student = await Student.findById(studentId).select('_id').lean();
   if (!student) throw new NotFoundError('Student');
   const sid = new mongoose.Types.ObjectId(studentId);
-  const from = req.query.from ? new Date(String(req.query.from)) : undefined;
+  const preset = String(req.query.datePreset || '');
+  const presetDays = preset === 'last7' ? 7 : preset === 'last30' ? 30 : 0;
+  const presetFrom = presetDays ? new Date(Date.now() - (presetDays - 1) * 86400000) : undefined;
+  if (presetFrom) presetFrom.setUTCHours(0, 0, 0, 0);
+  const from = req.query.from ? new Date(String(req.query.from)) : presetFrom;
   const to = req.query.to ? new Date(String(req.query.to)) : undefined;
   const match: Record<string, unknown> = { student: sid };
+  const visibleCourseIds = await visibleCourseIdsForStudent(req, studentId);
+  if (visibleCourseIds) match.course = { $in: visibleCourseIds };
   if (from || to) match.startedAt = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
   const timezone = safeTimezone(req.headers['x-timezone']);
 
@@ -186,7 +192,7 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
       { $sort: { activeSeconds: -1 } },
     ]),
     LearningSession.aggregate([
-      { $match: { ...match, startedAt: { $gte: new Date(Date.now() - 30 * 86400000) } } },
+      { $match: match },
       { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$startedAt', timezone } }, activeSeconds: { $sum: '$activeSeconds' }, watchSeconds: { $sum: '$watchSeconds' } } },
       { $sort: { _id: 1 } },
     ]),
