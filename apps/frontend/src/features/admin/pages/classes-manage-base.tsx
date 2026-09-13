@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Copy, Download, GraduationCap, MoreVertical, Pencil, Plus, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import BulkEntityImportModal from './components/bulk-entity-import-modal';
@@ -90,6 +91,17 @@ interface PromotionResult {
   coursesCopied: number;
 }
 
+interface RowActionsProps {
+  item: ClassItem;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onToggleStatus: () => void;
+  onDelete: () => void;
+}
+
 const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-slate-500 dark:focus:ring-slate-800';
 const years = Array.from({ length: 8 }, (_, i) => { const y = new Date().getFullYear() - 3 + i; return `${y}-${y + 1}`; });
 const dataOf = <T,>(r: any): T => r?.data?.data ?? r?.data ?? r;
@@ -101,6 +113,49 @@ const semesterInYear = (semester: number, perYear: number) => ((semester - 1) % 
 
 function Field({ label, required, children, className = '' }: { label: string; required?: boolean; children: ReactNode; className?: string }) {
   return <label className={`block ${className}`}><span className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200">{label}{required ? ' *' : ''}</span>{children}</label>;
+}
+
+function RowActions({ item, open, onToggle, onClose, onEdit, onDuplicate, onToggleStatus, onDelete }: RowActionsProps) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  onCloseRef.current = onClose;
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) return;
+    const placeMenu = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const menuWidth = 192;
+      const estimatedHeight = item.status === 'completed' ? 142 : 184;
+      const top = window.innerHeight - rect.bottom >= estimatedHeight + 8
+        ? rect.bottom + 4
+        : Math.max(8, rect.top - estimatedHeight - 4);
+      setPosition({ top, left: Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8)) });
+    };
+    placeMenu();
+    window.addEventListener('resize', placeMenu);
+    const closeOnScroll = () => onCloseRef.current();
+    window.addEventListener('scroll', closeOnScroll, true);
+    return () => {
+      window.removeEventListener('resize', placeMenu);
+      window.removeEventListener('scroll', closeOnScroll, true);
+    };
+  }, [item.status, open]);
+
+  return <div className="inline-flex">
+    <button ref={buttonRef} type="button" aria-label={`Actions for ${item.title}`} aria-haspopup="menu" aria-expanded={open} onClick={onToggle} className="rounded-lg border border-transparent p-2 text-slate-600 hover:border-slate-200 hover:bg-slate-100 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800"><MoreVertical size={17}/></button>
+    {open && createPortal(<>
+      <button type="button" className="fixed inset-0 z-[190] cursor-default" aria-label="Close class actions" onClick={onClose}/>
+      <div role="menu" style={{ top: position.top, left: position.left }} className="fixed z-[200] w-48 rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <button type="button" role="menuitem" onClick={onEdit} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"><Pencil size={15}/> Edit</button>
+        <button type="button" role="menuitem" onClick={onDuplicate} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"><Copy size={15}/> Duplicate / Copy</button>
+        {item.status !== 'completed' && <button type="button" role="menuitem" onClick={onToggleStatus} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800">{item.status === 'active' ? <RefreshCw size={15}/> : <Plus size={15}/>} {item.status === 'active' ? 'Deactivate' : 'Activate'}</button>}
+        <div className="my-1 border-t border-slate-100 dark:border-slate-800"/>
+        <button type="button" role="menuitem" onClick={onDelete} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><Trash2 size={15}/> Delete</button>
+      </div>
+    </>, document.body)}
+  </div>;
 }
 
 function ClassModal({ cls, organization, structure, faculties, departments, programs, onClose, onSaved }: {
@@ -487,16 +542,7 @@ export function ClassesManage() {
   const rowMenuFor = (c: ClassItem) => rowMenu === c._id ? null : c._id;
   const emptyText = institutionType === 'school' ? (schoolTab === 'active' ? 'No active classes found.' : 'No completed classes found.') : 'No classes found.';
 
-  const rowActions = (c: ClassItem) => <div className="relative inline-flex">
-    <button type="button" aria-label={`Actions for ${c.title}`} aria-haspopup="menu" aria-expanded={rowMenu === c._id} onClick={() => setRowMenu(rowMenuFor(c))} className="rounded-lg border border-transparent p-2 text-slate-600 hover:border-slate-200 hover:bg-slate-100 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800"><MoreVertical size={17}/></button>
-    {rowMenu === c._id && <div role="menu" className="absolute right-0 top-full z-50 mt-1 w-48 rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-xl dark:border-slate-700 dark:bg-slate-900">
-      <button type="button" role="menuitem" onClick={() => { setRowMenu(null); setModal({ open: true, cls: c }); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"><Pencil size={15}/> Edit</button>
-      <button type="button" role="menuitem" onClick={() => void duplicateClass(c)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"><Copy size={15}/> Duplicate / Copy</button>
-      {c.status !== 'completed' && <button type="button" role="menuitem" onClick={() => void toggleStatus(c)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800">{c.status === 'active' ? <RefreshCw size={15}/> : <Plus size={15}/>} {c.status === 'active' ? 'Deactivate' : 'Activate'}</button>}
-      <div className="my-1 border-t border-slate-100 dark:border-slate-800"/>
-      <button type="button" role="menuitem" onClick={() => void remove(c)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><Trash2 size={15}/> Delete</button>
-    </div>}
-  </div>;
+  const rowActions = (c: ClassItem) => <RowActions item={c} open={rowMenu === c._id} onToggle={() => setRowMenu(rowMenuFor(c))} onClose={() => setRowMenu(null)} onEdit={() => { setRowMenu(null); setModal({ open: true, cls: c }); }} onDuplicate={() => void duplicateClass(c)} onToggleStatus={() => void toggleStatus(c)} onDelete={() => void remove(c)}/>;
 
   const statusBadge = (c: ClassItem) => {
     const cls = `rounded-full px-2.5 py-1 text-xs font-semibold ${c.status === 'active' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : c.status === 'completed' ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`;
@@ -533,7 +579,7 @@ export function ClassesManage() {
       <div className="hidden overflow-x-auto lg:block"><table className="w-full table-fixed text-left text-sm"><thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900"><tr><th className="w-10 px-4 py-3"><input type="checkbox" checked={allSelected} onChange={toggleAll}/></th><th className="w-[22%] px-4 py-3">{higherEd ? 'Program / Cohort' : isTrainingCenter ? 'Program' : 'Class / Grade'}</th><th className="w-[18%] px-4 py-3">Department</th>{higherEd && <th className="px-4 py-3">Progression</th>}<th className="w-[14%] px-4 py-3">Academic Year</th><th className="w-[17%] px-4 py-3">{institutionType === 'school' ? 'Room / Capacity' : 'Room'}</th><th className="w-[9%] px-4 py-3">Status</th><th className="w-[8%] px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">
         {loading ? <tr><td colSpan={higherEd ? 8 : 7} className="px-4 py-10 text-center text-slate-500">Loading...</td></tr> : filtered.length === 0 ? <tr><td colSpan={higherEd ? 8 : 7} className="px-4 py-10 text-center text-slate-500">{emptyText}</td></tr> : filtered.map(c => <tr key={c._id} className="hover:bg-slate-50 dark:hover:bg-slate-900/60"><td className="px-4 py-3"><input type="checkbox" checked={selected.includes(c._id)} onChange={() => toggleSelected(c._id)}/></td><td className="px-4 py-3"><div className="font-semibold text-slate-900 dark:text-white">{c.title}</div><div className="text-xs text-slate-500">{institutionType === 'school' && c.batch ? `Batch ${c.batch}` : ''}{c.section ? `${institutionType === 'school' && c.batch ? ' · ' : ''}Section ${c.section}` : ''}{institutionType === 'school' && c.gradeLevel != null ? ` · Grade ${c.gradeLevel}` : ''}{isTrainingCenter && c.batch ? ` · Batch ${c.batch}` : ''}</div></td><td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.department || '—'}{c.program ? <span className="block text-xs text-slate-400">{c.program}</span> : null}</td>{higherEd && <td className="px-4 py-3">{c.semesterNumber ? <><span className="font-semibold">Y{c.studyYear || semesterYear(c.semesterNumber, semestersPerYear)} S{c.semesterNumber}</span><span className="ml-2 text-xs text-slate-500">({c.semesterInYear || semesterInYear(c.semesterNumber, semestersPerYear)}/{semestersPerYear})</span></> : `Year ${c.studyYear || '—'}`}</td>}<td className="px-4 py-3">{c.academicYear || '—'}</td><td className="px-4 py-3">{c.room}{c.capacity ? <span className="block text-xs text-slate-400">Cap. {c.capacity}</span> : null}{institutionType === 'school' && c.shiftMode ? <span className="block text-xs text-slate-400">{c.shiftMode}</span> : null}</td><td className="px-4 py-3">{statusBadge(c)}</td><td className="px-4 py-3 text-right">{rowActions(c)}</td></tr>)}
       </tbody></table></div>
-      <div className="divide-y divide-slate-100 lg:hidden dark:divide-slate-800">{loading ? <div className="px-4 py-10 text-center text-slate-500">Loading...</div> : filtered.length === 0 ? <div className="px-4 py-10 text-center text-slate-500">{emptyText}</div> : filtered.map(c => <div key={c._id} className="p-4"><div className="flex items-start gap-3"><input type="checkbox" className="mt-1" checked={selected.includes(c._id)} onChange={() => toggleSelected(c._id)}/><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="font-semibold text-slate-900 dark:text-white">{c.title}</div><div className="mt-1 text-xs text-slate-500">{c.department || 'No department'} · {c.room}{c.section ? ` · ${c.section}` : ''}</div></div>{rowActions(c)}</div>{higherEd && <div className="mt-2 text-xs font-medium">{c.semesterNumber ? `Year ${c.studyYear || semesterYear(c.semesterNumber, semestersPerYear)} · Semester ${c.semesterNumber}` : `Year ${c.studyYear || '—'}`}</div>}<div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-slate-800">{c.academicYear || 'No academic year'}</span>{statusBadge(c)}</div></div></div></div>)}</div>
+      <div className="divide-y divide-slate-100 lg:hidden dark:divide-slate-800">{loading ? <div className="px-4 py-10 text-center text-slate-500">Loading...</div> : filtered.length === 0 ? <div className="px-4 py-10 text-center text-slate-500">{emptyText}</div> : filtered.map(c => <div key={c._id} className="p-4"><div className="flex items-start gap-3"><input type="checkbox" className="mt-1" checked={selected.includes(c._id)} onChange={() => toggleSelected(c._id)}/><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-slate-900 dark:text-white"><span className="font-semibold">{c.title}</span>{c.section && <span className="text-xs text-slate-500">· Section {c.section}</span>}<span className="text-xs text-slate-500">· Room {c.room}</span></div><div className="mt-1.5 text-xs text-slate-500"><span>{c.department || 'No department'}</span>{c.batch && <span> · Batch {c.batch}</span>}</div></div>{rowActions(c)}</div>{higherEd && <div className="mt-2 text-xs font-medium">{c.semesterNumber ? `Year ${c.studyYear || semesterYear(c.semesterNumber, semestersPerYear)} · Semester ${c.semesterNumber}` : `Year ${c.studyYear || '—'}`}</div>}<div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span className="rounded-full bg-slate-100 px-2 py-1 dark:bg-slate-800">{c.academicYear || 'No academic year'}</span>{statusBadge(c)}</div></div></div></div>)}</div>
     </div>
 
     {semesterMode && selected.length === 0 && filtered.length > 0 && <button onClick={() => void advanceSemester()} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900">Advance All Active Classes to Next Semester</button>}
