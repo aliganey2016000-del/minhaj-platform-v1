@@ -338,16 +338,11 @@ async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise
         if (conflictingUser) throw new Error(`Email "${email}" is already used by another account`);
       }
 
-      // New 12-column templates intentionally require a guardian name + phone.
-      // Older SAHAL import sheets had no guardian columns at all, so those are
-      // still accepted for backward compatibility. Existing legacy students
-      // exported with blank guardian fields can also be imported back safely.
-      if (hasGuardianColumns) {
-        if (guardianName && !guardianPhone) throw new Error('Guardian Phone is required when Guardian Name is provided');
-        if (guardianPhone && !guardianName) throw new Error('Guardian Name is required when Guardian Phone is provided');
-        if (!existingStudent && !guardianName && !guardianPhone) {
-          throw new Error('Guardian Name and Guardian Phone are required');
-        }
+      // Guardian information is optional. If one side of the guardian pair is
+      // supplied, keep the row valid; a guardian account is linked only when
+      // both Guardian Name and Guardian Phone are available.
+      if (hasGuardianColumns && guardianName && guardianPhone) {
+        // Complete guardian details are handled by linkGuardian during import.
       }
 
       let classCandidate: ClassCandidate;
