@@ -9,25 +9,19 @@
  *   POST   /                 — Create student
  *   PATCH  /:id              — Update student
  *   DELETE /:id              — Delete student (moves to Trash)
- *   DELETE /bulk              — Bulk delete students (moves to Trash)
- *   POST   /import           — Bulk import students (transactional)
- *   GET    /export           — Export students (XLSX)
- *   GET    /template         — Download student import template (XLSX)
+ *   DELETE /bulk             — Bulk delete students (moves to Trash)
+ *   POST   /import/preview   — Validate/classify an import before writing
+ *   POST   /import           — Bulk create/update students
+ *   GET    /export           — Round-trip-safe student export (XLSX)
+ *   GET    /template         — Download simplified student template (XLSX)
  *   GET    /stats            — Aggregate breakdowns for reporting
  *   GET    /report/export    — Export the analytics report (XLSX)
- *
- * Student (own data) + Parent (children data) + Admin/Teacher:
- *   GET    /:id/courses       — Get student's enrolled courses
- *   GET    /:id/attendance    — Get student's attendance summary
- *   GET    /:id/results       — Get student's results summary
- *   GET    /:id/payments      — Get student's payments summary
- *   GET    /:id/certificates  — Get student's certificates
  */
 
 import { Router } from 'express';
 import multer from 'multer';
 import * as studentController from '../../controllers/student.controller';
-import * as studentImportController from '../../controllers/student-import.controller';
+import * as studentRegistrationIoController from '../../controllers/student-registration-io.controller';
 import * as studentDocumentsController from '../../controllers/student-documents.controller';
 import * as studentRegistrationController from '../../controllers/student-registration.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
@@ -43,6 +37,7 @@ import {
   validateStudentCreateClass,
   validateStudentUpdateClass,
 } from '../../middleware/student-class-assignment.middleware';
+import { prepareStudentCreateDefaults } from '../../middleware/student-registration-defaults.middleware';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -56,49 +51,56 @@ const photoUpload = multer({
 
 const router = Router();
 
-// All student routes require at minimum authentication
 router.use(authMiddleware);
 
 // ---------------------------------------------------------------------------
 // Admin/Teacher Routes
 // ---------------------------------------------------------------------------
 
-// GET /api/v1/students — List students (admin/teacher)
 router.get(
   '/',
   adminOrTeacher,
   asyncHandler(studentController.getAll)
 );
 
-// GET /api/v1/students/stats — Aggregate counts for the Manage Students dashboard
 router.get(
   '/stats',
   adminOrTeacher,
   asyncHandler(studentController.getStats)
 );
 
-// GET /api/v1/students/report/export — Excel export of the analytics report
 router.get(
   '/report/export',
   adminOnly,
   asyncHandler(studentController.exportReport as any)
 );
 
-// POST /api/v1/students — Create student (admin only)
+// Add Student uses the same core registration contract as Import. Missing
+// IDs/emails/passwords are system-generated before the existing controller
+// runs, while class-derived academic fields remain owned by the backend.
 router.post(
   '/',
   adminOnly,
   photoUpload.single('photo'),
+  asyncHandler(prepareStudentCreateDefaults),
   asyncHandler(validateStudentCreateClass),
   asyncHandler(studentController.create)
 );
 
-// POST /api/v1/students/import — Cohort-aware bulk import (admin + org_admin)
+// Preview and commit use the exact same parser/validation path. Register the
+// preview route before /import and all dynamic /:id routes.
+router.post(
+  '/import/preview',
+  adminOnly,
+  upload.single('file'),
+  asyncHandler(studentRegistrationIoController.previewImport)
+);
+
 router.post(
   '/import',
   adminOnly,
   upload.single('file'),
-  asyncHandler(studentImportController.bulkImport)
+  asyncHandler(studentRegistrationIoController.bulkImport)
 );
 
 router.get(
@@ -172,43 +174,38 @@ router.patch(
   asyncHandler(studentRegistrationController.upsert)
 );
 
-// GET /api/v1/students/export — Export students (admin + org_admin)
+// Export uses the same editable columns as Import plus Student ID and
+// Organization metadata, so an exported workbook can be re-imported safely.
 router.get(
   '/export',
   adminOnly,
-  asyncHandler(studentController.exportStudents as any)
+  asyncHandler(studentRegistrationIoController.exportStudents as any)
 );
 
-// GET /api/v1/students/template — Download cohort-aware import template
 router.get(
   '/template',
   adminOnly,
-  asyncHandler(studentImportController.downloadTemplate as any)
+  asyncHandler(studentRegistrationIoController.downloadTemplate as any)
 );
 
-// DELETE /api/v1/students/bulk — Bulk delete students (moves each to Trash).
-// Registered before /:id so "bulk" is never swallowed as an id param.
 router.delete(
   '/bulk',
   adminOnly,
   asyncHandler(studentController.bulkRemove)
 );
 
-// GET /api/v1/students/my/dashboard — Student self-service dashboard
 router.get(
   '/my/dashboard',
   roleMiddleware(['student']),
   asyncHandler(studentController.getMyDashboard)
 );
 
-// GET /api/v1/students/my/courses — Student self-service courses
 router.get(
   '/my/courses',
   roleMiddleware(['student']),
   asyncHandler(studentController.getMyCourses)
 );
 
-// POST /api/v1/students/my/progress — Record lesson/quiz/assignment completion
 router.post(
   '/my/progress',
   roleMiddleware(['student']),
@@ -219,15 +216,12 @@ router.post(
 // Single Student Routes (admin/teacher + self-access)
 // ---------------------------------------------------------------------------
 
-// GET /api/v1/students/:id — Get student by ID
-// Accessible by: admin, teacher, the student themselves, their parent
 router.get(
   '/:id',
-  anyAuthenticatedUser, // Broad role check; fine-grained access in controller
+  anyAuthenticatedUser,
   asyncHandler(studentController.getById)
 );
 
-// PATCH /api/v1/students/:id — Update student (admin only)
 router.patch(
   '/:id',
   adminOnly,
@@ -235,7 +229,6 @@ router.patch(
   asyncHandler(studentController.update)
 );
 
-// DELETE /api/v1/students/:id — Delete student, moves to Trash (admin only)
 router.delete(
   '/:id',
   adminOnly,
@@ -243,38 +236,33 @@ router.delete(
 );
 
 // ---------------------------------------------------------------------------
-// Student Related Data (enrolled courses, attendance, results, etc.)
+// Student Related Data
 // ---------------------------------------------------------------------------
 
-// GET /api/v1/students/:id/courses — Get student's enrolled courses
 router.get(
   '/:id/courses',
   anyAuthenticatedUser,
   asyncHandler(studentController.getCourses)
 );
 
-// GET /api/v1/students/:id/attendance — Get student's attendance summary
 router.get(
   '/:id/attendance',
   anyAuthenticatedUser,
   asyncHandler(studentController.getAttendance)
 );
 
-// GET /api/v1/students/:id/results — Get student's results
 router.get(
   '/:id/results',
   anyAuthenticatedUser,
   asyncHandler(studentController.getResults)
 );
 
-// GET /api/v1/students/:id/payments — Get student's payments
 router.get(
   '/:id/payments',
   roleMiddleware(['admin', 'student', 'parent']),
   asyncHandler(studentController.getPayments)
 );
 
-// PATCH /api/v1/students/:id/approve — Approve student (admin only)
 router.patch(
   '/:id/approve',
   adminOnly,
@@ -282,14 +270,12 @@ router.patch(
   asyncHandler(studentController.approve)
 );
 
-// PATCH /api/v1/students/:id/reject — Reject student (admin only)
 router.patch(
   '/:id/reject',
   adminOnly,
   asyncHandler(studentController.reject)
 );
 
-// GET /api/v1/students/:id/certificates — Get student's certificates
 router.get(
   '/:id/certificates',
   roleMiddleware(['admin', 'student', 'parent']),
