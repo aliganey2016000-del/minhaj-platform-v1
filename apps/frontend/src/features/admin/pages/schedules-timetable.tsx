@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Printer, RefreshCw } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
@@ -13,6 +13,22 @@ interface ScheduleItem {
   startTime: string;
   endTime: string;
   isActive: boolean;
+}
+
+interface ClassItem {
+  _id: string;
+  title?: string;
+  name?: string;
+  section?: string;
+  gradeLevel?: number;
+}
+
+interface TimetablePeriod {
+  key?: string;
+  label?: string;
+  startTime: string;
+  endTime: string;
+  isBreak?: boolean;
 }
 
 interface PaginatedResponse {
@@ -35,9 +51,11 @@ function courseName(course?: ScheduleItem['course']) {
   return typeof firstTitle === 'string' ? firstTitle : '—';
 }
 
-function className(item?: ScheduleItem['class']) {
+function className(item?: ScheduleItem['class'] | ClassItem) {
   if (!item) return 'Class';
-  return `${item.title || 'Class'}${item.section ? ` ${item.section}` : ''}`.trim();
+  const title = 'title' in item ? item.title : undefined;
+  const name = 'name' in item ? item.name : undefined;
+  return `${title || name || 'Class'}${item.section ? ` ${item.section}` : ''}`.trim();
 }
 
 function schoolName(school?: ScheduleItem['school']) {
@@ -65,20 +83,25 @@ function normalizeDay(value: unknown) {
 export function SchedulesTimetable() {
   const { user } = useAuth();
   const isOrgAdmin = user?.role === 'org_admin';
+  const organizationId = String((user as any)?.organizationId || (user as any)?.schoolId || '');
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [classes, setClasses] = useState<ClassItem[]>([]);
+  const [configuredPeriods, setConfiguredPeriods] = useState<TimetablePeriod[]>([]);
   const [schools, setSchools] = useState<{ _id: string; name: string }[]>([]);
-  const [schoolId, setSchoolId] = useState('');
+  const [schoolId, setSchoolId] = useState(isOrgAdmin ? organizationId : '');
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const loadAllSchedules = async () => {
+  const effectiveSchoolId = schoolId || (isOrgAdmin ? organizationId : '');
+
+  const loadAllSchedules = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const limit = 100;
       const firstParams: Record<string, string> = { page: '1', limit: String(limit) };
-      if (schoolId) firstParams.school = schoolId;
+      if (effectiveSchoolId) firstParams.school = effectiveSchoolId;
 
       const first = await api.get<PaginatedResponse>('/class-schedules', { params: firstParams });
       const firstData = first.data?.data || [];
@@ -86,32 +109,65 @@ export function SchedulesTimetable() {
       const total = Number(pagination?.total || firstData.length);
       const totalPages = Math.max(1, Number(pagination?.totalPages || Math.ceil(total / limit)));
 
-      if (totalPages === 1) {
-        setSchedules(firstData);
-        return;
-      }
+      const remaining = totalPages > 1
+        ? await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => {
+            const params: Record<string, string> = { page: String(index + 2), limit: String(limit) };
+            if (effectiveSchoolId) params.school = effectiveSchoolId;
+            return api.get<PaginatedResponse>('/class-schedules', { params });
+          }))
+        : [];
 
-      const requests = Array.from({ length: totalPages - 1 }, (_, index) => {
-        const params: Record<string, string> = { page: String(index + 2), limit: String(limit) };
-        if (schoolId) params.school = schoolId;
-        return api.get<PaginatedResponse>('/class-schedules', { params });
-      });
-
-      const remaining = await Promise.all(requests);
-      const all = [
-        ...firstData,
-        ...remaining.flatMap((response) => response.data?.data || []),
-      ];
-
-      const unique = Array.from(new Map(all.map((item) => [item._id, item])).values());
-      setSchedules(unique);
+      const all = [firstData, ...remaining.map((response) => response.data?.data || [])].flat();
+      setSchedules(Array.from(new Map(all.map((item) => [item._id, item])).values()));
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load class schedules.');
       setSchedules([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [effectiveSchoolId]);
+
+  const loadGridMeta = useCallback(async () => {
+    if (!effectiveSchoolId) {
+      setClasses([]);
+      setConfiguredPeriods([]);
+      return;
+    }
+
+    try {
+      const allClasses: ClassItem[] = [];
+      let page = 1;
+      let hasMore = true;
+      while (hasMore && page <= 25) {
+        const response = await api.get('/classes', { params: { schoolId: effectiveSchoolId, status: 'active', page, limit: 200 } });
+        const batch: ClassItem[] = response.data?.data || [];
+        allClasses.push(...batch);
+        const pagination = response.data?.pagination || response.data?.meta || {};
+        const total = Number(pagination.total || 0);
+        const totalPages = Number(pagination.totalPages || pagination.pages || 0);
+        hasMore = totalPages > 0 ? page < totalPages : total > 0 ? allClasses.length < total : batch.length === 200;
+        page += 1;
+      }
+      const uniqueClasses = Array.from(new Map(allClasses.map((item) => [item._id, item])).values());
+      uniqueClasses.sort((a, b) => {
+        const gradeA = Number(a.gradeLevel ?? Number.MAX_SAFE_INTEGER);
+        const gradeB = Number(b.gradeLevel ?? Number.MAX_SAFE_INTEGER);
+        if (gradeA !== gradeB) return gradeA - gradeB;
+        return className(a).localeCompare(className(b), undefined, { numeric: true, sensitivity: 'base' });
+      });
+      setClasses(uniqueClasses);
+    } catch {
+      setClasses([]);
+    }
+
+    try {
+      const response = await api.get('/class-schedules/school/studio/bootstrap', { params: { school: effectiveSchoolId } });
+      const payload = response.data?.data || response.data || {};
+      setConfiguredPeriods(Array.isArray(payload.config?.periods) ? payload.config.periods : []);
+    } catch {
+      setConfiguredPeriods([]);
+    }
+  }, [effectiveSchoolId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,18 +177,21 @@ export function SchedulesTimetable() {
         if (cancelled) return;
         const list = data?.data || [];
         setSchools(list);
-        if (isOrgAdmin && list[0]?._id) setSchoolId(list[0]._id);
+        if (isOrgAdmin) {
+          const preferred = organizationId || list[0]?._id || '';
+          if (preferred) setSchoolId(preferred);
+        }
       } catch {
-        // The schedules endpoint may already be scoped to the current organization.
+        // Schedule endpoints may already be scoped to the current organization.
       }
     })();
     return () => { cancelled = true; };
-  }, [isOrgAdmin]);
+  }, [isOrgAdmin, organizationId]);
 
   useEffect(() => {
-    loadAllSchedules();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schoolId]);
+    void loadAllSchedules();
+    void loadGridMeta();
+  }, [loadAllSchedules, loadGridMeta]);
 
   const daySchedules = useMemo(
     () => schedules
@@ -142,25 +201,40 @@ export function SchedulesTimetable() {
   );
 
   const columns = useMemo(() => {
+    if (classes.length > 0) return classes.map((item) => ({ id: item._id, label: className(item) }));
     const map = new Map<string, string>();
-    daySchedules.forEach((item) => {
+    schedules.filter((item) => item.isActive).forEach((item) => {
       const id = item.class?._id || className(item.class);
       if (!map.has(id)) map.set(id, className(item.class));
     });
     return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
-  }, [daySchedules]);
+  }, [classes, schedules]);
 
   const periods = useMemo(() => {
-    const groups = new Map<string, { start: string; end: string }>();
+    let lessonNumber = 0;
+    if (configuredPeriods.length > 0) {
+      return configuredPeriods
+        .slice()
+        .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
+        .map((period, index) => ({
+          ...period,
+          key: period.key || `${period.startTime}-${period.endTime}-${index}`,
+          lessonNumber: period.isBreak ? null : ++lessonNumber,
+        }));
+    }
+
+    const groups = new Map<string, TimetablePeriod>();
     daySchedules.forEach((item) => {
-      const start = String(item.startTime || '').slice(0, 5);
-      const end = String(item.endTime || '').slice(0, 5);
-      if (!start || !end) return;
-      const key = `${start}-${end}`;
-      if (!groups.has(key)) groups.set(key, { start, end });
+      const startTime = String(item.startTime || '').slice(0, 5);
+      const endTime = String(item.endTime || '').slice(0, 5);
+      if (!startTime || !endTime) return;
+      const key = `${startTime}-${endTime}`;
+      if (!groups.has(key)) groups.set(key, { key, label: '', startTime, endTime, isBreak: false });
     });
-    return Array.from(groups.values()).sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));
-  }, [daySchedules]);
+    return Array.from(groups.values())
+      .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
+      .map((period) => ({ ...period, lessonNumber: ++lessonNumber }));
+  }, [configuredPeriods, daySchedules]);
 
   const getCellCourses = (classId: string, start: string, end: string) => {
     const matches = daySchedules.filter((item) => {
@@ -169,15 +243,14 @@ export function SchedulesTimetable() {
         && String(item.startTime || '').slice(0, 5) === start
         && String(item.endTime || '').slice(0, 5) === end;
     });
-
     const names = matches.map((item) => courseName(item.course)).filter((name) => name && name !== '—');
     return Array.from(new Set(names));
   };
 
   const activeCount = daySchedules.length;
   const schoolTitle = schoolName(daySchedules[0]?.school)
-    || schools.find((school) => school._id === schoolId)?.name
-    || (schoolId ? 'Class Timetable' : 'All Organizations');
+    || schools.find((school) => school._id === effectiveSchoolId)?.name
+    || (effectiveSchoolId ? 'Class Timetable' : 'All Organizations');
 
   const moveSelectedDay = (offset: number) => setSelectedDay((day) => {
     const currentIndex = DISPLAY_ORDER.indexOf(day as (typeof DISPLAY_ORDER)[number]);
@@ -186,6 +259,10 @@ export function SchedulesTimetable() {
   });
   const previousDay = () => moveSelectedDay(-1);
   const nextDay = () => moveSelectedDay(1);
+  const refreshAll = () => {
+    void loadAllSchedules();
+    void loadGridMeta();
+  };
 
   return (
     <div className="min-h-full bg-[var(--color-surface-primary)] p-4 pt-20 sm:p-6 lg:pt-8">
@@ -208,7 +285,7 @@ export function SchedulesTimetable() {
                 {schools.map((school) => <option key={school._id} value={school._id}>{school.name}</option>)}
               </select>
             )}
-            <button type="button" onClick={loadAllSchedules} disabled={loading} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)] disabled:opacity-50">
+            <button type="button" onClick={refreshAll} disabled={loading} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)] disabled:opacity-50">
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </button>
             <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-700">
@@ -247,49 +324,63 @@ export function SchedulesTimetable() {
           ) : columns.length === 0 ? (
             <div className="flex min-h-[300px] flex-col items-center justify-center px-6 text-center">
               <CalendarDays className="h-10 w-10 text-[var(--color-text-tertiary)]" />
-              <p className="mt-3 font-semibold text-[var(--color-text-primary)]">No classes scheduled for {DAYS[selectedDay]}</p>
-              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose another day or change the organization.</p>
+              <p className="mt-3 font-semibold text-[var(--color-text-primary)]">No active classes found</p>
+              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Create or activate classes before building the timetable.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse table-fixed">
+              <table className="w-full min-w-[920px] border-collapse table-fixed">
                 <thead>
                   <tr>
-                    <th className="w-[82px] border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-[10px] font-extrabold uppercase tracking-wide text-[var(--color-text-primary)] sm:w-[96px]">Period</th>
+                    <th className="w-[105px] border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-[10px] font-extrabold uppercase tracking-wide text-[var(--color-text-primary)]">Period</th>
                     {columns.map((column) => (
-                      <th key={column.id} className="border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs font-extrabold text-[var(--color-text-primary)] sm:text-sm">{column.label}</th>
+                      <th key={column.id} className="min-w-[130px] border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs font-extrabold text-[var(--color-text-primary)] sm:text-sm">{column.label}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {periods.map((period, index) => (
-                    <tr key={`${period.start}-${period.end}`} className="min-h-[76px]">
-                      <td className="border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2 py-3 text-center align-middle">
-                        <div className="text-base font-extrabold text-[var(--color-text-primary)]">{index + 1}</div>
-                        <div className="mt-1 text-[9px] font-medium leading-tight text-[var(--color-text-tertiary)]">{formatTime(period.start)}</div>
-                        <div className="text-[9px] font-medium leading-tight text-[var(--color-text-tertiary)]">– {formatTime(period.end)}</div>
-                      </td>
-                      {columns.map((column) => {
-                        const courses = getCellCourses(column.id, period.start, period.end);
-                        return (
-                          <td key={column.id} className="border border-[var(--color-border-default)] px-2 py-2 text-center align-middle">
-                            {courses.length > 0 ? (
-                              <div className="mx-auto flex min-h-[56px] flex-col items-center justify-center rounded-md px-1 py-1">
-                                {courses.map((course, courseIndex) => (
-                                  <div key={`${course}-${courseIndex}`} className="text-xs font-bold leading-tight text-[var(--color-text-primary)] sm:text-sm">{course}</div>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-xs text-[var(--color-text-tertiary)]">—</span>
-                            )}
+                  {periods.map((period) => {
+                    if (period.isBreak) {
+                      return (
+                        <tr key={period.key} className="bg-amber-50/70 dark:bg-amber-950/10">
+                          <td className="border border-[var(--color-border-default)] px-2 py-3 text-center align-middle">
+                            <div className="text-sm font-extrabold uppercase text-amber-700 dark:text-amber-300">Break</div>
+                            <div className="mt-1 text-[9px] font-medium text-[var(--color-text-tertiary)]">{formatTime(period.startTime)} – {formatTime(period.endTime)}</div>
                           </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                          <td colSpan={columns.length} className="border border-[var(--color-border-default)] px-3 py-4 text-center text-sm font-bold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">{period.label || 'Break'}</td>
+                        </tr>
+                      );
+                    }
+
+                    return (
+                      <tr key={period.key} className="min-h-[76px]">
+                        <td className="border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2 py-3 text-center align-middle">
+                          <div className="text-sm font-extrabold text-[var(--color-text-primary)]">{period.label || `Period ${period.lessonNumber}`}</div>
+                          <div className="mt-1 text-[9px] font-medium leading-tight text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}</div>
+                          <div className="text-[9px] font-medium leading-tight text-[var(--color-text-tertiary)]">– {formatTime(period.endTime)}</div>
+                        </td>
+                        {columns.map((column) => {
+                          const courses = getCellCourses(column.id, period.startTime, period.endTime);
+                          return (
+                            <td key={column.id} className="border border-[var(--color-border-default)] px-2 py-2 text-center align-middle">
+                              {courses.length > 0 ? (
+                                <div className="mx-auto flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-lg bg-primary-50/70 px-2 py-2 dark:bg-primary-950/20">
+                                  {courses.map((course, courseIndex) => (
+                                    <div key={`${course}-${courseIndex}`} className="text-xs font-bold leading-tight text-[var(--color-text-primary)] sm:text-sm">{course}</div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-[var(--color-text-tertiary)]">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                   {periods.length === 0 && (
                     <tr>
-                      <td colSpan={columns.length + 1} className="border border-[var(--color-border-default)] px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No period times found for this day.</td>
+                      <td colSpan={columns.length + 1} className="border border-[var(--color-border-default)] px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No timetable periods configured. Open Timetable Settings to add periods and breaks.</td>
                     </tr>
                   )}
                 </tbody>
@@ -298,8 +389,8 @@ export function SchedulesTimetable() {
           )}
 
           <div className="flex flex-col gap-1 border-t border-[var(--color-border-default)] px-4 py-3 text-[9px] text-[var(--color-text-tertiary)] sm:flex-row sm:items-center sm:justify-between">
-            <span>Only active class schedules are shown.</span>
-            <span>Each cell displays the course name only.</span>
+            <span>Rows follow Timetable Settings periods and breaks.</span>
+            <span>Columns show all active classes; cells show course names.</span>
           </div>
         </div>
       </div>
