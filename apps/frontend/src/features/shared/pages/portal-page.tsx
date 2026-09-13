@@ -1,83 +1,78 @@
-/**
- * Portal Page — Shared generic page for Admin & Parent portals.
- * Displays the correct icon, title, and description based on the current route.
- */
-
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import api from '../../../lib/axios';
 
-// Admin pages
+type Child = {
+  _id: string; studentId: string; status?: string; attendancePercentage?: number; gpa?: number;
+  totalFeesPaid?: number; totalFeesDue?: number;
+  profile?: { firstName?: string; lastName?: string; avatar?: string };
+  enrolledCourses?: any[];
+};
+
 const adminPages: Record<string, { title: string; icon: string; desc: string }> = {
-  '/admin':              { title: 'Admin Dashboard',      icon: '🏠', desc: 'System overview and quick actions' },
-  '/admin/students':     { title: 'Manage Students',      icon: '🎓', desc: 'View, create, update, and manage all students' },
-  '/admin/parents':      { title: 'Manage Parents',       icon: '👨‍👩‍👧‍👦', desc: 'Manage parent accounts and child links' },
-  '/admin/teachers':     { title: 'Manage Teachers',      icon: '👨‍🏫', desc: 'Manage teacher profiles and assignments' },
-  '/admin/courses':      { title: 'Manage Courses',       icon: '📚', desc: 'Create and manage course catalog' },
-  '/admin/classes':      { title: 'Manage Classes',       icon: '🏫', desc: 'Schedule and manage class sessions' },
-  '/admin/attendance':   { title: 'Attendance',           icon: '📅', desc: 'Track and manage student attendance' },
-  '/admin/exams/papers': { title: 'Papers & Approval',    icon: '📄', desc: 'Instructor paper submission with admin proofreading and approval — coming soon' },
-  '/admin/exams/compliance': { title: 'Compliances & Issues', icon: '⚠️', desc: 'Log exam violations, cheating, or special accommodations — coming soon' },
-  '/admin/payments':     { title: 'Payments',             icon: '💰', desc: 'Manage fees, payments, and invoices' },
-  '/admin/certificates': { title: 'Certificates',         icon: '🏆', desc: 'Generate and manage certificates' },
-  '/admin/announcements':{ title: 'Announcements',        icon: '📢', desc: 'Create and manage announcements' },
-  '/admin/news':         { title: 'News',                 icon: '📰', desc: 'Publish and manage news articles' },
-  '/admin/events':       { title: 'Events',               icon: '🎉', desc: 'Manage events and registrations' },
-  '/admin/gallery':      { title: 'Gallery',              icon: '🖼️', desc: 'Manage photo and video galleries' },
-  '/admin/roles':        { title: 'Roles & Permissions',  icon: '🔐', desc: 'Manage user roles and access control' },
-  '/admin/settings':     { title: 'Settings',             icon: '⚙️', desc: 'System and website configuration' },
-  '/admin/analytics':    { title: 'Analytics',            icon: '📈', desc: 'View system analytics and reports' },
-  '/admin/logs':         { title: 'Activity Logs',        icon: '📋', desc: 'View system activity and audit logs' },
-  '/admin/profile':      { title: 'Admin Profile',        icon: '👤', desc: 'Manage your admin account' },
+  '/admin': { title: 'Admin Dashboard', icon: '🏠', desc: 'System overview and quick actions' },
+  '/admin/students': { title: 'Manage Students', icon: '🎓', desc: 'View, create, update, and manage all students' },
+  '/admin/parents': { title: 'Manage Parents', icon: '👨‍👩‍👧‍👦', desc: 'Manage parent accounts and child links' },
+  '/admin/teachers': { title: 'Manage Teachers', icon: '👨‍🏫', desc: 'Manage teacher profiles and assignments' },
+  '/admin/courses': { title: 'Manage Courses', icon: '📚', desc: 'Create and manage course catalog' },
+  '/admin/classes': { title: 'Manage Classes', icon: '🏫', desc: 'Schedule and manage class sessions' },
+  '/admin/attendance': { title: 'Attendance', icon: '📅', desc: 'Track and manage student attendance' },
+  '/admin/payments': { title: 'Payments', icon: '💰', desc: 'Manage fees, payments, and invoices' },
+  '/admin/certificates': { title: 'Certificates', icon: '🏆', desc: 'Generate and manage certificates' },
+  '/admin/announcements': { title: 'Announcements', icon: '📢', desc: 'Create and manage announcements' },
+  '/admin/news': { title: 'News', icon: '📰', desc: 'Publish and manage news articles' },
+  '/admin/events': { title: 'Events', icon: '🎉', desc: 'Manage events and registrations' },
+  '/admin/gallery': { title: 'Gallery', icon: '🖼️', desc: 'Manage photo and video galleries' },
+  '/admin/roles': { title: 'Roles & Permissions', icon: '🔐', desc: 'Manage user roles and access control' },
+  '/admin/settings': { title: 'Settings', icon: '⚙️', desc: 'System and website configuration' },
+  '/admin/analytics': { title: 'Analytics', icon: '📈', desc: 'View system analytics and reports' },
+  '/admin/logs': { title: 'Activity Logs', icon: '📋', desc: 'View system activity and audit logs' },
+  '/admin/profile': { title: 'Admin Profile', icon: '👤', desc: 'Manage your admin account' },
 };
 
-// Parent pages
-const parentPages: Record<string, { title: string; icon: string; desc: string }> = {
-  '/parent':              { title: 'Parent Dashboard',     icon: '🏠', desc: 'Overview of your children\'s progress' },
-  '/parent/children':     { title: 'My Children',         icon: '👨‍👩‍👧‍👦', desc: 'View and manage your children' },
-  '/parent/attendance':   { title: 'Attendance',          icon: '📅', desc: 'View your children\'s attendance records' },
-  '/parent/results':      { title: 'Results & Grades',    icon: '📊', desc: 'View academic results and grades' },
-  '/parent/fees':         { title: 'Fees & Payments',     icon: '💰', desc: 'View fee status and payment history' },
-  '/parent/teachers':     { title: 'Teachers',            icon: '👨‍🏫', desc: 'View your children\'s teachers' },
-  '/parent/events':       { title: 'Events',       icon: '🎉', desc: 'Upcoming events and activities' },
-  '/parent/notifications':{ title: 'Notifications',       icon: '🔔', desc: 'Your alerts and notifications' },
-  '/parent/messages':     { title: 'Messages',            icon: '💬', desc: 'Communicate with teachers and staff' },
-  '/parent/profile':      { title: 'Profile',             icon: '👤', desc: 'Manage your parent profile' },
-  '/parent/settings':     { title: 'Settings',            icon: '⚙️', desc: 'Account and notification settings' },
-};
+const childName = (c?: Child) => `${c?.profile?.firstName || ''} ${c?.profile?.lastName || ''}`.trim() || c?.studentId || 'Student';
+const courseTitle = (v: any) => typeof v === 'string' ? v : v?.en || v?.so || v?.ar || 'Course';
+const money = (v: any) => `$${Number(v || 0).toLocaleString()}`;
 
-const allPages: Record<string, Record<string, { title: string; icon: string; desc: string }>> = {
-  admin: adminPages,
-  parent: parentPages,
-};
+function Loader() { return <div className="flex justify-center py-20"><div className="h-9 w-9 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" /></div>; }
+function ErrorBox({ message }: { message: string }) { return message ? <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300">{message}</div> : null; }
+function Card({ children, className = '' }: { children: ReactNode; className?: string }) { return <div className={`rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card ${className}`}>{children}</div>; }
+function Empty({ icon='📭', title, text }: { icon?: string; title: string; text?: string }) { return <Card className="text-center"><div className="text-4xl">{icon}</div><p className="mt-3 font-semibold">{title}</p>{text && <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{text}</p>}</Card>; }
+function Head({ icon, title, desc, action }: { icon:string; title:string; desc:string; action?:ReactNode }) { return <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-2xl font-bold sm:text-3xl">{icon} {title}</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{desc}</p></div>{action}</div>; }
 
-export function PortalPage() {
-  const location = useLocation();
-  const path = location.pathname;
+function useChildren() {
+  const [children,setChildren]=useState<Child[]>([]); const [loading,setLoading]=useState(true); const [error,setError]=useState('');
+  useEffect(()=>{ void api.get('/parents/me/children').then(r=>setChildren(r.data.data||[])).catch(e=>setError(e.response?.data?.message||'Failed to load children')).finally(()=>setLoading(false)); },[]);
+  return {children,loading,error};
+}
+function Picker({children,value,onChange}:{children:Child[];value:string;onChange:(v:string)=>void}) { return <select value={value} onChange={e=>onChange(e.target.value)} className="min-w-[220px] rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm">{children.map(c=><option key={c._id} value={c._id}>{childName(c)} · {c.studentId}</option>)}</select>; }
 
-  // Determine which portal (admin or parent)
-  const portal = path.startsWith('/admin') ? 'admin' : 'parent';
-  const pages = allPages[portal] || {};
-  const data = pages[path] || pages[`/${portal}`] || { title: 'Page', icon: '📄', desc: 'Content coming soon' };
-
-  return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-5xl">
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 lg:p-12 shadow-card text-center">
-          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 text-white shadow-gold-sm text-3xl">
-            {data.icon}
-          </div>
-          <h1 className="text-2xl font-bold text-[var(--color-text-primary)] lg:text-3xl">
-            {data.title}
-          </h1>
-          <p className="mt-3 text-[var(--color-text-secondary)] max-w-md mx-auto">
-            {data.desc}
-          </p>
-          <div className="mt-8 inline-flex items-center gap-2 rounded-full border border-gold-200 dark:border-gold-800 bg-gold-50 dark:bg-gold-950/30 px-4 py-2 text-sm text-gold-700 dark:text-gold-300">
-            🏗️ Full features coming soon
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function ParentDashboard(){
+  const[data,setData]=useState<any>(null);const[error,setError]=useState('');
+  useEffect(()=>{ void api.get('/parents/me/overview').then(r=>setData(r.data.data)).catch(e=>setError(e.response?.data?.message||'Failed to load dashboard')); },[]);
+  if(!data&&!error)return <Loader/>; const children:Child[]=data?.children||[];
+  return <div className="space-y-6"><Head icon="🏠" title={`Welcome${data?.parent?.name?`, ${data.parent.name}`:''}`} desc={data?.parent?.school||'Parent Portal'}/><ErrorBox message={error}/>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[['👨‍👩‍👧‍👦','Children',children.length],['💳','Outstanding',money(data?.totals?.due)],['✅','Fees paid',money(data?.totals?.paid)],['🔔','Unread alerts',data?.unreadNotifications||0]].map(([i,l,v])=><Card key={String(l)}><div className="text-2xl">{i}</div><p className="mt-3 text-xs uppercase text-[var(--color-text-tertiary)]">{l}</p><p className="mt-1 text-2xl font-bold">{v}</p></Card>)}</div>
+    {children.length?<div className="grid gap-3 md:grid-cols-2">{children.map(c=><Card key={c._id}><div className="flex justify-between"><div><b>{childName(c)}</b><p className="text-xs text-[var(--color-text-tertiary)]">{c.studentId}</p></div><span className="text-xs font-semibold text-green-600">{c.status||'active'}</span></div><div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-xl bg-[var(--color-surface-secondary)] p-2"><b>{Number(c.attendancePercentage||0).toFixed(0)}%</b><br/>Attendance</div><div className="rounded-xl bg-[var(--color-surface-secondary)] p-2"><b>{Number(c.gpa||0).toFixed(2)}</b><br/>GPA</div><div className="rounded-xl bg-[var(--color-surface-secondary)] p-2"><b>{money(c.totalFeesDue)}</b><br/>Due</div></div></Card>)}</div>:<Empty icon="👨‍👩‍👧‍👦" title="No children linked" text="Ask the school administrator to link your child."/>}
+    <div className="grid gap-4 lg:grid-cols-2"><Card><h2 className="font-bold">Recent attendance</h2><div className="mt-3 space-y-2">{(data?.recentAttendance||[]).map((r:any)=><div key={r._id} className="flex justify-between rounded-xl bg-[var(--color-surface-secondary)] p-3 text-sm"><div><b>{childName(r.student)}</b><p className="text-xs text-[var(--color-text-tertiary)]">{courseTitle(r.course?.title)} · {new Date(r.date).toLocaleDateString()}</p></div><span className={r.status==='absent'?'text-red-600':r.status==='late'?'text-amber-600':'text-green-600'}>{r.status}</span></div>)}{!data?.recentAttendance?.length&&<p className="text-sm text-[var(--color-text-tertiary)]">No attendance records yet.</p>}</div></Card><Card><h2 className="font-bold">Recent results</h2><div className="mt-3 space-y-2">{(data?.recentResults||[]).map((r:any)=><div key={r._id} className="flex justify-between rounded-xl bg-[var(--color-surface-secondary)] p-3 text-sm"><div><b>{childName(r.student)}</b><p className="text-xs text-[var(--color-text-tertiary)]">{r.exam?.title||courseTitle(r.exam?.course?.title)}</p></div><b>{r.percentage}% · {r.grade}</b></div>)}{!data?.recentResults?.length&&<p className="text-sm text-[var(--color-text-tertiary)]">No results yet.</p>}</div></Card></div>
+  </div>;
 }
 
+function ChildrenPage(){const{children,loading,error}=useChildren();if(loading)return<Loader/>;return <div className="space-y-5"><Head icon="👨‍👩‍👧‍👦" title="My Children" desc="Academic and fee snapshot for linked children"/><ErrorBox message={error}/>{children.length?<div className="grid gap-4 md:grid-cols-2">{children.map(c=><Card key={c._id}><h2 className="font-bold">{childName(c)}</h2><p className="text-xs text-[var(--color-text-tertiary)]">{c.studentId}</p><div className="mt-4 grid grid-cols-2 gap-2 text-sm"><div className="rounded-xl bg-[var(--color-surface-secondary)] p-3">Attendance<br/><b>{Number(c.attendancePercentage||0).toFixed(0)}%</b></div><div className="rounded-xl bg-[var(--color-surface-secondary)] p-3">GPA<br/><b>{Number(c.gpa||0).toFixed(2)}</b></div><div className="rounded-xl bg-[var(--color-surface-secondary)] p-3">Paid<br/><b className="text-green-600">{money(c.totalFeesPaid)}</b></div><div className="rounded-xl bg-[var(--color-surface-secondary)] p-3">Due<br/><b className="text-red-600">{money(c.totalFeesDue)}</b></div></div><p className="mt-4 text-xs font-semibold uppercase text-[var(--color-text-tertiary)]">Courses</p><div className="mt-2 flex flex-wrap gap-2">{c.enrolledCourses?.length?c.enrolledCourses.map((x:any)=><span key={x._id} className="rounded-full bg-primary-50 px-2 py-1 text-xs text-primary-700">{courseTitle(x.title)}</span>):<span className="text-sm text-[var(--color-text-tertiary)]">No courses listed</span>}</div></Card>)}</div>:<Empty title="No linked children"/>}</div>}
+
+function AttendancePage(){const{children,loading,error}=useChildren();const[selected,setSelected]=useState('');const[data,setData]=useState<any>(null);const[busy,setBusy]=useState(false);const[loadError,setLoadError]=useState('');useEffect(()=>{if(children.length&&!selected)setSelected(children[0]._id)},[children,selected]);useEffect(()=>{if(!selected)return;setBusy(true);setLoadError('');void api.get(`/parents/me/children/${selected}/attendance`).then(r=>setData(r.data.data)).catch(e=>setLoadError(e.response?.data?.message||'Failed to load attendance')).finally(()=>setBusy(false))},[selected]);if(loading)return<Loader/>;const s=data?.summary||{};return <div className="space-y-5"><Head icon="📅" title="Attendance" desc="Daily attendance history" action={children.length?<Picker children={children} value={selected} onChange={setSelected}/>:undefined}/><ErrorBox message={error||loadError}/>{!children.length?<Empty title="No linked children"/>:busy?<Loader/>:<><div className="grid grid-cols-2 gap-3 sm:grid-cols-5">{[['Total',s.total],['Present',s.present],['Absent',s.absent],['Late',s.late],['Excused',s.excused]].map(([l,v])=><Card key={String(l)} className="text-center"><p className="text-xs text-[var(--color-text-tertiary)]">{l}</p><p className="text-2xl font-bold">{v||0}</p></Card>)}</div><Card><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead><tr className="border-b text-xs uppercase text-[var(--color-text-tertiary)]"><th className="py-3">Date</th><th>Course</th><th>Status</th><th>Arrival</th><th>Notes</th></tr></thead><tbody>{(data?.records||[]).map((r:any)=><tr key={r._id} className="border-b border-[var(--color-border-subtle)]"><td className="py-3">{new Date(r.date).toLocaleDateString()}</td><td>{courseTitle(r.course?.title)}</td><td className={r.status==='absent'?'text-red-600':r.status==='late'?'text-amber-600':'text-green-600'}>{r.status}</td><td>{r.arrivalTime||'—'}</td><td>{r.notes||r.reasonCode||'—'}</td></tr>)}</tbody></table>{!data?.records?.length&&<p className="py-8 text-center text-[var(--color-text-tertiary)]">No attendance records yet.</p>}</div></Card></>}</div>}
+
+function ResultsPage(){const{children,loading,error}=useChildren();const[selected,setSelected]=useState('');const[rows,setRows]=useState<any[]>([]);const[busy,setBusy]=useState(false);const[loadError,setLoadError]=useState('');useEffect(()=>{if(children.length&&!selected)setSelected(children[0]._id)},[children,selected]);useEffect(()=>{if(!selected)return;setBusy(true);void api.get(`/parents/me/children/${selected}/results`).then(r=>setRows(r.data.data||[])).catch(e=>setLoadError(e.response?.data?.message||'Failed to load results')).finally(()=>setBusy(false))},[selected]);const avg=rows.length?Math.round(rows.reduce((a,r)=>a+Number(r.percentage||0),0)/rows.length):0;if(loading)return<Loader/>;return <div className="space-y-5"><Head icon="📊" title="Results & Grades" desc="Published examination performance" action={children.length?<Picker children={children} value={selected} onChange={setSelected}/>:undefined}/><ErrorBox message={error||loadError}/>{!children.length?<Empty title="No linked children"/>:busy?<Loader/>:<><div className="grid gap-3 sm:grid-cols-3"><Card>Average<br/><b className="text-2xl">{avg}%</b></Card><Card>Assessments<br/><b className="text-2xl">{rows.length}</b></Card><Card>Passed<br/><b className="text-2xl text-green-600">{rows.filter(r=>r.status==='passed').length}</b></Card></div><div className="grid gap-3 md:grid-cols-2">{rows.map(r=><Card key={r._id}><div className="flex justify-between"><div><b>{r.exam?.title||'Assessment'}</b><p className="text-xs text-[var(--color-text-tertiary)]">{courseTitle(r.exam?.course?.title)}</p></div><div className="text-right"><b className="text-xl">{r.grade}</b><p className="text-xs">{r.percentage}%</p></div></div><div className="mt-3 h-2 rounded-full bg-[var(--color-surface-tertiary)]"><div className="h-2 rounded-full bg-primary-600" style={{width:`${Math.min(100,Math.max(0,r.percentage||0))}%`}}/></div><p className="mt-2 text-xs">{r.marksObtained}/{r.totalMarks} · <span className={r.status==='passed'?'text-green-600':'text-red-600'}>{r.status}</span></p>{r.feedback&&<p className="mt-2 text-sm">{r.feedback}</p>}</Card>)}{!rows.length&&<Empty icon="📊" title="No results published yet"/>}</div></>}</div>}
+
+function TeachersPage({contact=false}:{contact?:boolean}){const[rows,setRows]=useState<any[]>([]);const[loading,setLoading]=useState(true);const[error,setError]=useState('');useEffect(()=>{void api.get('/parents/me/teachers').then(r=>setRows(r.data.data||[])).catch(e=>setError(e.response?.data?.message||'Failed to load teachers')).finally(()=>setLoading(false))},[]);if(loading)return<Loader/>;return <div className="space-y-5"><Head icon={contact?'💬':'👨‍🏫'} title={contact?'Contact Teachers':'Teachers'} desc={contact?'Use verified school contact details':'Teachers assigned to your children’s courses'}/><ErrorBox message={error}/><div className="grid gap-3 md:grid-cols-2">{rows.map((c:any)=>{const t=c.teacher;return <Card key={c._id}><p className="text-xs font-semibold uppercase text-primary-600">{courseTitle(c.title)}</p><h2 className="mt-1 font-bold">{t?.profile?.firstName} {t?.profile?.lastName}</h2><p className="text-sm text-[var(--color-text-tertiary)]">{t?.qualification||t?.teacherId||'Teacher'}</p><div className="mt-3 flex flex-wrap gap-2">{t?.user?.email&&<a href={`mailto:${t.user.email}`} className="rounded-lg border px-3 py-2 text-xs">✉️ {t.user.email}</a>}{t?.user?.phone&&<a href={`tel:${t.user.phone}`} className="rounded-lg border px-3 py-2 text-xs">📞 {t.user.phone}</a>}</div></Card>})}</div>{!rows.length&&<Empty icon="👨‍🏫" title="No assigned teachers found"/>}</div>}
+
+function EventsPage(){const[rows,setRows]=useState<any[]>([]);const[loading,setLoading]=useState(true);const[error,setError]=useState('');useEffect(()=>{void api.get('/parents/me/events').then(r=>setRows(r.data.data||[])).catch(e=>setError(e.response?.data?.message||'Failed to load events')).finally(()=>setLoading(false))},[]);if(loading)return<Loader/>;return <div className="space-y-5"><Head icon="🎉" title="Events" desc="School events, activities and important dates"/><ErrorBox message={error}/><div className="space-y-3">{rows.map((e:any)=><Card key={e._id}><div className="flex justify-between gap-4"><div><b>{e.title}</b><p className="mt-1 text-sm text-[var(--color-text-secondary)]">{e.description}</p><p className="mt-2 text-xs text-[var(--color-text-tertiary)]">📍 {e.location||'School'}{e.startTime?` · ${e.startTime}`:''}</p></div><div className="text-right text-primary-700"><b>{new Date(e.eventDate).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</b><p className="text-xs">{e.status}</p></div></div></Card>)}</div>{!rows.length&&<Empty icon="🎉" title="No events available"/>}</div>}
+
+function NotificationsPage(){const[rows,setRows]=useState<any[]>([]);const[loading,setLoading]=useState(true);const[error,setError]=useState('');useEffect(()=>{void api.get('/parents/me/notifications').then(r=>setRows(r.data.data||[])).catch(e=>setError(e.response?.data?.message||'Failed to load notifications')).finally(()=>setLoading(false))},[]);const read=async(id:string)=>{await api.patch(`/parents/me/notifications/${id}/read`);setRows(x=>x.map(n=>n._id===id?{...n,read:true}:n))};const readAll=async()=>{await api.patch('/parents/me/notifications/read-all');setRows(x=>x.map(n=>({...n,read:true})));};if(loading)return<Loader/>;return <div className="space-y-5"><Head icon="🔔" title="Notifications" desc="Attendance, academic, finance and school alerts" action={rows.some(n=>!n.read)?<button onClick={readAll} className="rounded-xl border px-3 py-2 text-sm">Mark all read</button>:undefined}/><ErrorBox message={error}/><div className="space-y-2">{rows.map((n:any)=><button key={n._id} onClick={()=>{if(!n.read)void read(n._id)}} className={`w-full rounded-2xl border p-4 text-left ${n.read?'bg-[var(--color-surface-primary)]':'border-primary-200 bg-primary-50/50 dark:bg-primary-950/20'}`}><div className="flex justify-between"><div><b>{n.title}</b><p className="mt-1 text-sm">{n.message}</p><p className="mt-2 text-xs text-[var(--color-text-tertiary)]">{new Date(n.createdAt).toLocaleString()}</p></div>{!n.read&&<span className="h-2.5 w-2.5 rounded-full bg-primary-600"/>}</div></button>)}</div>{!rows.length&&<Empty icon="🔔" title="You're all caught up"/>}</div>}
+
+function ProfilePage({settings=false}:{settings?:boolean}){const[data,setData]=useState<any>(null);const[form,setForm]=useState<any>({});const[loading,setLoading]=useState(true);const[error,setError]=useState('');const[saved,setSaved]=useState('');useEffect(()=>{void api.get('/parents/me/profile').then(r=>{const d=r.data.data;setData(d);setForm({firstName:d.profile?.firstName||'',lastName:d.profile?.lastName||'',phone:d.user?.phone||'',occupation:d.occupation||'',address:d.address||'',preferredLanguage:d.user?.preferredLanguage||'en'})}).catch(e=>setError(e.response?.data?.message||'Failed to load profile')).finally(()=>setLoading(false))},[]);const submit=async(e:FormEvent)=>{e.preventDefault();setError('');setSaved('');try{await api.patch('/parents/me/profile',form);setSaved('Changes saved successfully.')}catch(err:any){setError(err.response?.data?.message||'Unable to save changes')}};if(loading)return<Loader/>;const field='mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2';return <div className="space-y-5"><Head icon={settings?'⚙️':'👤'} title={settings?'Settings':'Profile'} desc={settings?'Language and account preferences':'Keep your parent contact information up to date'}/><ErrorBox message={error}/>{saved&&<div className="rounded-xl bg-green-50 p-4 text-sm text-green-700">✓ {saved}</div>}<form onSubmit={submit}><Card><div className="grid gap-4 sm:grid-cols-2">{!settings&&<><label className="text-sm">First name<input value={form.firstName||''} onChange={e=>setForm({...form,firstName:e.target.value})} className={field}/></label><label className="text-sm">Last name<input value={form.lastName||''} onChange={e=>setForm({...form,lastName:e.target.value})} className={field}/></label><label className="text-sm">Email<input disabled value={data?.user?.email||''} className={field}/></label><label className="text-sm">Phone<input value={form.phone||''} onChange={e=>setForm({...form,phone:e.target.value})} className={field}/></label><label className="text-sm">Occupation<input value={form.occupation||''} onChange={e=>setForm({...form,occupation:e.target.value})} className={field}/></label><label className="text-sm">Address<input value={form.address||''} onChange={e=>setForm({...form,address:e.target.value})} className={field}/></label></>}{settings&&<><label className="text-sm sm:col-span-2">Preferred language<select value={form.preferredLanguage||'en'} onChange={e=>setForm({...form,preferredLanguage:e.target.value})} className={field}><option value="en">English</option><option value="so">Somali</option><option value="ar">Arabic</option></select></label><div className="sm:col-span-2 rounded-xl bg-[var(--color-surface-secondary)] p-4 text-sm"><b>Account security</b><p className="mt-1 text-[var(--color-text-tertiary)]">Login email changes are managed by the school administration.</p></div></>}</div><button className="mt-5 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white">Save changes</button></Card></form></div>}
+
+function AdminPlaceholder({path}:{path:string}){const d=adminPages[path]||{title:'Page',icon:'📄',desc:'Content coming soon'};return <Card className="text-center"><div className="text-4xl">{d.icon}</div><h1 className="mt-4 text-2xl font-bold">{d.title}</h1><p className="mt-2 text-[var(--color-text-secondary)]">{d.desc}</p></Card>}
+
+export function PortalPage(){const{pathname}=useLocation();const content=useMemo(()=>{if(pathname.startsWith('/admin'))return <AdminPlaceholder path={pathname}/>;switch(pathname){case'/parent':case'/parent/':return <ParentDashboard/>;case'/parent/children':return <ChildrenPage/>;case'/parent/attendance':return <AttendancePage/>;case'/parent/results':return <ResultsPage/>;case'/parent/teachers':return <TeachersPage/>;case'/parent/events':return <EventsPage/>;case'/parent/notifications':return <NotificationsPage/>;case'/parent/messages':return <TeachersPage contact/>;case'/parent/profile':return <ProfilePage/>;case'/parent/settings':return <ProfilePage settings/>;default:return <Empty title="Page not found"/>}},[pathname]);return <div className="p-4 pt-20 sm:p-6 sm:pt-20 lg:p-10"><div className="mx-auto max-w-6xl">{content}</div></div>}
 export default PortalPage;

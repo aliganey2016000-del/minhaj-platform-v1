@@ -45,6 +45,9 @@ jobs:
       - name: Financial core payment tests
         run: npm run test:financial-core
 
+      - name: Parent portal privacy and authorization tests
+        run: npm run test:parent-portal
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
