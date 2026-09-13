@@ -387,22 +387,46 @@ export const exportClasses = async (req: Request, res: Response): Promise<void> 
 // ---------------------------------------------------------------------------
 
 const TEMPLATE_EXAMPLE_ROWS: Record<string, (string | number)[]> = {
-  school: ['10026', '2026-2027', '3', 'Primary', 'Grade 3', 'A', 'Room 5', '35', 'Morning', 'No', 'No'],
   college: ['', '', 'Business', 'BA Accounting', '', '', '2026-2027', '1', '', '', '', '', 'Cohort 2026', 'A', 'Hall 2', '60', 'Morning'],
   university: ['', 'Faculty of Science', 'Computer Science', 'BSc Computer Science', '', '', '2026-2027', '', '1', '1', '', '', 'Cohort 2026', 'A', 'Hall 204', '80', 'Morning'],
   training_center: ['', '', '', 'Web Development', 'B12', '', '2026-2027', '', '', '', '', '', 'Web Development Bootcamp', '', 'Lab 1', '20', 'Evening'],
 };
+const TEMPLATE_INSTITUTION_TYPES = new Set(['school', ...Object.keys(TEMPLATE_EXAMPLE_ROWS)]);
+
+// School templates intentionally include the complete reference data set used
+// by the institution. Keeping the values here (rather than a single example
+// row) means "Download Template" produces the exact spreadsheet admins expect.
+const SCHOOL_TEMPLATE_ROWS: (string | number)[][] = [
+  ['10026', '2026-2027', '3', 'Primary', 'Grade 3', 'A', 'Room 5', '35', 'Morning', 'No', 'No'],
+  ['2030', '2030-2031', '9', 'Secondary', 'Grade 9', 'a', '12', '50', 'Morning', 'No', 'Yes'],
+  ['2029', '2029-2030', '9', 'Secondary', 'Grade 9', 'a', '12', '50', 'Morning', 'No', 'Yes'],
+  ['dufcada 4', '2029-2030', '12', 'Secondary', 'Grade 12', 'a', '5', '45', 'Morning', 'No', 'No'],
+  ['2028', '2028-2029', '9', 'Secondary', 'Grade 9', 'a', '12', '50', 'Morning', 'No', 'Yes'],
+  ['Dufcada 3', '2028-2029', '12', 'Secondary', 'Grade 12', 'a', '5', '45', 'Morning', 'No', 'No'],
+  ['dufcada 4', '2028-2029', '11', 'Secondary', 'Grade11', 'a', '7', '45', 'Morning', 'No', 'No'],
+  ['2027', '2028-2029', '10', 'Secondary', 'Grade 10', 'a', '1', '45', 'Morning', 'No', 'No'],
+  ['2027', '2027-2028', '9', 'Secondary', 'Grade 9', 'a', '12', '50', 'Morning', 'No', 'Yes'],
+  ['balcad02', '2027-2028', '12', 'Secondary', 'Grade 12', 'a', '5', '45', 'Morning', 'No', 'No'],
+  ['Dufcada 3', '2027-2028', '11', 'Secondary', 'Grade11', 'a', '7', '45', 'Morning', 'No', 'No'],
+  ['dufcada 4', '2027-2028', '10', 'Secondary', 'Grade 10', 'a', '1', '45', 'Morning', 'No', 'No'],
+  ['dufcada 4', '2026-2027', '9', 'Secondary', 'Grade 9', 'a', '12', '50', 'Morning', 'No', 'No'],
+  ['balcad02', '2026-2027', '11', 'Secondary', 'Grade11', 'a', '7', '45', 'Morning', 'No', 'No'],
+  ['Dufcada 3', '2026-2027', '10', 'Secondary', 'Grade 10', 'a', '1', '45', 'Morning', 'No', 'No'],
+  ['dufcada 1', '2026-2027', '12', 'Secondary', 'Grade 12', 'a', '5', '45', 'Morning', 'No', 'No'],
+];
 
 export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
   let institutionType = String(req.query.institutionType || '').trim();
-  if (!TEMPLATE_EXAMPLE_ROWS[institutionType]) {
+  if (!TEMPLATE_INSTITUTION_TYPES.has(institutionType)) {
     const schoolId = resolveOrgIdForCreate(req);
     const org = schoolId ? await School.findById(schoolId).select('institutionType organizationType').lean() : null;
     institutionType = org ? resolveInstitutionType(org) : 'school';
   }
-  const rows = [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.school];
+  const rows = institutionType === 'school'
+    ? SCHOOL_TEMPLATE_ROWS
+    : [TEMPLATE_EXAMPLE_ROWS[institutionType] || TEMPLATE_EXAMPLE_ROWS.college];
   const headers = institutionType === 'school' ? SCHOOL_CLASS_EXPORT_HEADERS : CLASS_EXPORT_HEADERS;
-  const buffer = buildXlsxBuffer(headers, rows, 'Class Template');
+  const buffer = buildXlsxBuffer(headers, rows, institutionType === 'school' ? 'Classes' : 'Class Template');
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=classes-template.xlsx');
