@@ -198,7 +198,7 @@ function generateGreedy(courses: any[], teachers: any[], rules: Rule[]): { items
 async function references(schoolId: string) {
   const [classes, courses, teachers] = await Promise.all([
     ClassModel.find({ school: schoolId, status: 'active' }).select('title name section').sort({ gradeLevel: 1, section: 1 }).lean(),
-    Course.find({ school: schoolId, class: { $ne: null } }).select('title courseCode class teacher').populate('teacher', 'teacherId profile user').sort({ courseCode: 1 }).lean(),
+    Course.find({ school: schoolId, class: { $ne: null }, status: 'published' }).select('title courseCode class teacher').populate('teacher', 'teacherId profile user').sort({ courseCode: 1 }).lean(),
     Teacher.find({ school: schoolId, status: 'active' }).select('teacherId profile user').populate('profile', 'firstName lastName').populate('user', 'email').lean(),
   ]);
   return { classes: classes as any[], courses: courses as any[], teachers: teachers as any[] };
