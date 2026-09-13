@@ -122,6 +122,15 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
   const plannedStudentIds = new Set<string>();
   const conflicts = new Set<string>();
 
+  const hasSelectedSourceEvidence = (history: any[]) => classes.some((source) => {
+    const promotedAt = new Date(source.promotedAt!);
+    return history.some((entry: any) =>
+      sameId(entry.class, source._id)
+      && entry.status !== 'active'
+      && withinPromotionWindow(entry.endedAt, promotedAt),
+    );
+  });
+
   for (const source of classes) {
     const sourceId = String(source._id);
     const promotedAt = new Date(source.promotedAt!);
@@ -142,7 +151,17 @@ export const rollbackPromotion = async (req: Request, res: Response): Promise<Re
 
       if (targetEntries.length) {
         const entry: any = targetEntries[0];
-        if (!sourceEntry || student.status !== 'active' || entry.status !== 'active' || !student.class || !sameId(student.class, entry.class)) {
+        // Two selected source grades can legitimately share the same next-year
+        // class (for example a Grade 9 promotion and a Grade 10 repeater both
+        // landing in Grade 10). In that case, a target-class match alone does
+        // not identify which source class owns this student. Source enrollment
+        // history is the proof: ignore this source when another selected source
+        // has the matching history, but block truly history-less records.
+        if (!sourceEntry) {
+          if (!hasSelectedSourceEvidence(history)) conflicts.add(studentId);
+          continue;
+        }
+        if (student.status !== 'active' || entry.status !== 'active' || !student.class || !sameId(student.class, entry.class)) {
           conflicts.add(studentId);
           continue;
         }
