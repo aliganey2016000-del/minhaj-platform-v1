@@ -62,10 +62,10 @@ async function main() {
   console.log('\n=== CANONICAL / COHORT-AWARE STUDENT IMPORT ===');
   const importRows = [
     {
-      'First Name': 'AutoCohort', 'Last Name': 'Student', Gender: 'male',
-      Email: 'auto-cohort@test.local', Organization: school.name,
+      'First Name': 'Ambiguous', 'Last Name': 'Student', Gender: 'male',
+      Email: 'ambiguous-cohort@test.local', Organization: school.name,
       'Class Name': 'Grade 9', Section: 'A', 'Enrollment Date': '2027-09-01',
-      'Guardian Name': 'Auto Parent', 'Guardian Phone': '+252611100001', Relationship: 'Father',
+      'Guardian Name': 'Ambiguous Parent', 'Guardian Phone': '+252611100001', Relationship: 'Father',
     },
     {
       'First Name': 'ExplicitCohort', 'Last Name': 'Student', Gender: 'female',
@@ -88,21 +88,27 @@ async function main() {
     .attach('file', workbookBuffer(importRows), { filename: 'students.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
   assert(imported.status === 200, `import request succeeds with per-row results (got ${imported.status})`);
-  assert(imported.body?.data?.created === 3, `all three valid rows are imported (got ${imported.body?.data?.created})`);
-  assert(imported.body?.data?.failed === 0, `no valid row is rejected (got ${imported.body?.data?.failed})`);
+  assert(imported.body?.data?.created === 2, `two unambiguous rows are imported (got ${imported.body?.data?.created})`);
+  assert(imported.body?.data?.failed === 1, `ambiguous cohort row is rejected (got ${imported.body?.data?.failed})`);
+  const ambiguity = (imported.body?.data?.errors || []).find((item: any) => item.row === 2) || imported.body?.data?.errors?.[0];
+  const ambiguityMessage = String(ambiguity?.message || '');
+  assert(
+    ambiguityMessage.includes('Multiple active classes match')
+      && ambiguityMessage.includes('Academic Year')
+      && ambiguityMessage.includes('Batch Number'),
+    `ambiguous error requires explicit cohort selectors (got ${ambiguityMessage})`,
+  );
+  assert((await User.countDocuments({ email: 'ambiguous-cohort@test.local' })) === 0, 'ambiguous row creates no User side effect');
 
-  const autoUser: any = await User.findOne({ email: 'auto-cohort@test.local' }).lean();
   const explicitUser: any = await User.findOne({ email: 'explicit-cohort@test.local' }).lean();
   const legacyUser: any = await User.findOne({ email: 'legacy-sheet@test.local' }).lean();
-  const autoStudent: any = autoUser ? await Student.findOne({ user: autoUser._id }).lean() : null;
   const explicitStudent: any = explicitUser ? await Student.findOne({ user: explicitUser._id }).lean() : null;
   const legacyStudent: any = legacyUser ? await Student.findOne({ user: legacyUser._id }).lean() : null;
 
-  assert(String(autoStudent?.class) === String(intakeGrade9._id), 'Class Name + Section deterministically select the newest/current active cohort when duplicates exist');
-  assert(String(autoStudent?.class) !== String(repeatGrade9._id), 'automatic cohort selection does not silently choose the older repeat cohort');
-  assert(String(explicitStudent?.class) === String(intakeGrade9._id), 'legacy Academic Year + Batch selectors still resolve the requested cohort');
-  assert(String(legacyStudent?.class) === String(activeGrade8._id), 'completed duplicate classes are ignored and the active class is selected');
-  assert(!!autoStudent?.parent && !!explicitStudent?.parent && !!legacyStudent?.parent, 'canonical import creates/links required guardian records');
+  assert(String(explicitStudent?.class) === String(intakeGrade9._id), 'Academic Year + Batch resolve the requested new-intake cohort');
+  assert(String(explicitStudent?.class) !== String(repeatGrade9._id), 'explicit new-intake row is not assigned to the repeat cohort');
+  assert(String(legacyStudent?.class) === String(activeGrade8._id), 'completed duplicate classes are ignored and the only active class is selected');
+  assert(!!explicitStudent?.parent && !!legacyStudent?.parent, 'successful canonical imports create/link required guardian records');
 
   console.log('\n=== CLASS DELETE REFERENCE PROTECTION ===');
   const currentClass = await ClassModel.create({
