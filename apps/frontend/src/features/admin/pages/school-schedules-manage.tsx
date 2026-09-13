@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, Download, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { Bot, CalendarDays, Download, MoreVertical, Pencil, Plus, Search, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import BulkEntityImportModal from './components/bulk-entity-import-modal';
+import AiTimetableStudio from './components/ai-timetable-studio';
 
 type Ref = { _id: string; title?: string; name?: string; section?: string };
 type Teacher = { _id: string; teacherId?: string; profile?: { firstName?: string; lastName?: string }; user?: { email?: string } };
@@ -210,6 +211,7 @@ export function SchoolSchedulesManage() {
   const [modal, setModal] = useState<Schedule | 'new' | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [aiStudioPrompt, setAiStudioPrompt] = useState<string | null>(null);
 
   const loadReferences = useCallback(async () => {
     if (!organizationId) return;
@@ -273,7 +275,7 @@ export function SchoolSchedulesManage() {
   return <div className="space-y-4 p-4 sm:p-6">
     <div className="flex items-start justify-between gap-3">
       <div><h1 className="flex items-center gap-2 text-xl font-bold"><CalendarDays className="h-5 w-5 text-primary-600" /> Class Schedules</h1><p className="mt-1 text-sm text-[var(--color-text-secondary)]">{schedules.length} schedule{schedules.length === 1 ? '' : 's'} · School timetable</p></div>
-      <div className="relative"><button onClick={() => setMenuOpen(v => !v)} className="rounded-xl border border-[var(--color-border-default)] p-2.5 hover:bg-[var(--color-surface-tertiary)]" aria-label="Schedule actions"><MoreVertical className="h-5 w-5" /></button>{menuOpen && <div className="absolute right-0 top-11 z-30 w-56 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl"><button onClick={() => { setModal('new'); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Plus className="h-4 w-4" /> Add Schedule</button><button onClick={() => { setShowImport(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Upload className="h-4 w-4" /> Import Schedules</button><button onClick={() => { exportSchedules(); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Download className="h-4 w-4" /> Export Schedules</button></div>}</div>
+      <div className="relative"><button onClick={() => setMenuOpen(v => !v)} className="rounded-xl border border-[var(--color-border-default)] p-2.5 hover:bg-[var(--color-surface-tertiary)]" aria-label="Schedule actions"><MoreVertical className="h-5 w-5" /></button>{menuOpen && <div className="absolute right-0 top-11 z-30 w-64 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl"><button onClick={() => { setModal('new'); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Plus className="h-4 w-4" /> Add Schedule</button><button onClick={() => { setAiStudioPrompt('Create a balanced, conflict-free weekly timetable for all classes and courses.'); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/20"><Bot className="h-4 w-4" /> AI Generate Timetable</button><button onClick={() => { setAiStudioPrompt('Check the timetable for class and teacher conflicts, then suggest the safest fixes.'); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><ShieldCheck className="h-4 w-4" /> Check Conflicts</button><button onClick={() => { setShowImport(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Upload className="h-4 w-4" /> Import Schedules</button><button onClick={() => { exportSchedules(); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Download className="h-4 w-4" /> Export Schedules</button></div>}</div>
     </div>
 
     {error && <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/20">{error}</div>}
@@ -294,6 +296,7 @@ export function SchoolSchedulesManage() {
 
     {modal && <ScheduleModal schedule={modal === 'new' ? undefined : modal} organizationId={organizationId} classes={classes} teachers={teachers} onClose={() => setModal(null)} onSaved={load} />}
     {showImport && <BulkEntityImportModal title="Import Class Schedules" description="School schedule template, import and export use the same simple columns. Teacher can be blank for Unassigned." templateUrl="/class-schedules/school/template" importUrl="/class-schedules/school/import" templateName="school-class-schedules-template.xlsx" headers={IMPORT_HEADERS} onClose={() => setShowImport(false)} onImported={load} />}
+    {aiStudioPrompt !== null && <AiTimetableStudio school={organizationId} initialPrompt={aiStudioPrompt} onClose={() => setAiStudioPrompt(null)} onPublished={load} />}
   </div>;
 }
 
