@@ -277,6 +277,18 @@ function StudentProfileModal({ student, organization, classLabel, onClose }: { s
   const navigate = useNavigate();
   const fullName = `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || 'Student';
   const initials = `${student.profile?.firstName?.[0] || ''}${student.profile?.lastName?.[0] || ''}`.toUpperCase();
+  // Preserve the profile modal's existing privacy behavior: list rows can show
+  // admin contact data, but opening the compact profile card does not expose
+  // student or guardian email addresses.
+  const profileStudent = {
+    ...student,
+    user: student.user ? { ...student.user, email: undefined } : student.user,
+    parent: student.parent ? {
+      ...student.parent,
+      user: student.parent.user ? { ...student.parent.user, email: undefined } : student.parent.user,
+    } : student.parent,
+  };
+  student = profileStudent;
   const openReport = (metric: string) => {
     if (metric === 'balance') navigate(`/admin/payments/balances/${student._id}`);
     else navigate(`/admin/students/${student._id}/personal-report`, { state: { section: metric === 'gpa' ? 'exams' : 'attendance' } });
@@ -340,10 +352,37 @@ function ResponsiveStudentsManage() {
       const org = dataOf<Organization>(orgResponse);
       const orgType = resolveInstitutionType(org);
       const higherEducation = isHigherEdInstitutionType(orgType);
-      // Load active + historical classes. New assignments are filtered to
-      // active classes in the UI, while a graduate's own completed class must
-      // remain available when editing their non-academic profile fields.
-      const requests: Promise<any>[] = [api.get('/classes', { params: { schoolId: organizationId, limit: 500 } })];
+
+      // GET /classes caps a single page at 200. Fetch every page so completed
+      // historical classes remain available even in large institutions; new
+      // placement still uses activeClasses/filteredClasses below.
+      const loadAllClasses = async (): Promise<ClassItem[]> => {
+        const collected: ClassItem[] = [];
+        const classLimit = 200;
+        let classPage = 1;
+        let hasMore = true;
+
+        while (hasMore) {
+          const response = await api.get('/classes', { params: { schoolId: organizationId, page: classPage, limit: classLimit } });
+          const batch = dataOf<ClassItem[]>(response) || [];
+          collected.push(...batch);
+
+          const payload = response.data;
+          const reportedTotal = Number(payload.pagination?.total ?? payload.meta?.total ?? 0);
+          const reportedPages = Number(payload.pagination?.pages ?? payload.pagination?.totalPages ?? payload.meta?.pages ?? 0);
+          hasMore = !(
+            batch.length === 0 ||
+            batch.length < classLimit ||
+            (reportedPages > 0 && classPage >= reportedPages) ||
+            (reportedTotal > 0 && collected.length >= reportedTotal)
+          );
+          if (hasMore) classPage += 1;
+        }
+
+        return collected;
+      };
+
+      const requests: Promise<any>[] = [loadAllClasses()];
       if (higherEducation || orgType === 'training_center') requests.push(api.get('/programs', { params: { school: organizationId } }));
       if (higherEducation) {
         requests.push(api.get('/departments', { params: { school: organizationId } }));
@@ -352,7 +391,7 @@ function ResponsiveStudentsManage() {
       }
       const results = await Promise.all(requests);
       setOrganization(org);
-      setClasses(dataOf<ClassItem[]>(results[0]) || []);
+      setClasses((results[0] as ClassItem[]) || []);
       setPrograms(higherEducation || orgType === 'training_center' ? dataOf<Program[]>(results[1]) || [] : []);
       if (higherEducation) {
         setDepartments(dataOf<Department[]>(results[2]) || []);
