@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import AcademicStructure from '../models/academic-structure.model';
 import ClassModel from '../models/class.model';
 import School from '../models/school.model';
@@ -7,6 +8,8 @@ import Program from '../models/program.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { resolveInstitutionType, isHigherEdInstitutionType } from '../utils/academic-config';
+
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // ---------------------------------------------------------------------------
 // Validates and normalizes a Class/Cohort/Batch write (POST or PATCH) against
@@ -48,6 +51,26 @@ export async function validateAcademicClass(req: Request, _res: Response, next: 
       throw new BadRequestError('Capacity must be a whole number between 1 and 5000');
     }
   }
+
+  // A class can introduce a new department without requiring the admin to
+  // leave this form. Resolve by name case-insensitively first; otherwise add
+  // it to this organization and use its id. This keeps the department list
+  // clean when a matching department already exists.
+  const departmentName = String(req.body?.departmentName || '').trim();
+  if (departmentName) {
+    if (higherEd && structure?.usesFaculty) {
+      throw new BadRequestError('Create the department from Institution Structure so it can be assigned to a faculty');
+    }
+    const tenantId = new mongoose.Types.ObjectId(String(schoolId));
+    const department = await Department.findOneAndUpdate(
+      { tenantId, name: new RegExp(`^${escapeRegex(departmentName)}$`, 'i') },
+      { $setOnInsert: { tenantId, name: departmentName } },
+      { upsert: true, new: true, lean: true },
+    );
+    if (!department) throw new BadRequestError(`Could not resolve department "${departmentName}"`);
+    req.body.department = String(department._id);
+  }
+  delete req.body.departmentName;
 
   // ── Cross-tenant reference checks — a Department/Program id supplied by
   // the client must actually belong to this same organization. ──

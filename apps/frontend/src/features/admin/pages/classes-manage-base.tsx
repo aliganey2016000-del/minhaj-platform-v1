@@ -193,6 +193,7 @@ function ClassModal({ cls, organization, structure, faculties, departments, prog
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [newDepartmentName, setNewDepartmentName] = useState('');
   const availableDepartments = useMemo(() => usesFaculty ? (form.faculty ? departments.filter(d => fid(d) === form.faculty) : []) : departments, [departments, form.faculty, usesFaculty]);
   const availablePrograms = useMemo(() => programs.filter(p => !pid(p) || pid(p) === form.department), [programs, form.department]);
   const set = <K extends keyof ClassForm>(key: K, value: ClassForm[K]) => setForm(x => ({ ...x, [key]: value }));
@@ -203,7 +204,9 @@ function ClassModal({ cls, organization, structure, faculties, departments, prog
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    const isNewDepartment = form.department === '__new_department__';
     if (!isTrainingCenter && !form.department) return setError('Department is required.');
+    if (isNewDepartment && !newDepartmentName.trim()) return setError('Enter the new department name.');
     if (higherEd && !form.program) return setError('Program is required for college and university classes.');
     if (!form.title.trim()) return setError(higherEd ? 'Program / Cohort Name is required.' : isTrainingCenter ? 'Program / Course Name is required.' : 'Class Name is required.');
     if (!form.room.trim()) return setError('Room is required.');
@@ -217,7 +220,8 @@ function ClassModal({ cls, organization, structure, faculties, departments, prog
     setSaving(true);
     try {
       const payload: Record<string, unknown> = {
-        department: form.department || null,
+        department: isNewDepartment ? null : form.department || null,
+        departmentName: isNewDepartment ? newDepartmentName.trim() : undefined,
         program: form.program || null,
         capacity: form.capacity ? Number(form.capacity) : null,
         title: form.title.trim(),
@@ -292,7 +296,7 @@ function ClassModal({ cls, organization, structure, faculties, departments, prog
           <Field label="Batch Number" required><input className={inputClass} value={form.batch} onChange={e => set('batch', e.target.value)} placeholder="e.g. SCH26"/></Field>
           <Field label="Academic Year" required><select className={inputClass} value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>{years.map(y => <option key={y}>{y}</option>)}</select></Field>
           <Field label="Grade Level" required><input type="number" min="0" max="30" className={inputClass} value={form.gradeLevel} onChange={e => set('gradeLevel', e.target.value)} placeholder="e.g. 8"/></Field>
-          <Field label="Department" required><select className={inputClass} value={form.department} onChange={e => set('department', e.target.value)}><option value="">Select Department</option>{departments.map(d => <option key={d._id} value={d._id}>{d.name}{d.code ? ` (${d.code})` : ''}</option>)}</select></Field>
+          <Field label="Department" required><select className={inputClass} value={form.department} onChange={e => { set('department', e.target.value); if (e.target.value !== '__new_department__') setNewDepartmentName(''); }}><option value="">Select Department</option>{departments.map(d => <option key={d._id} value={d._id}>{d.name}{d.code ? ` (${d.code})` : ''}</option>)}<option value="__new_department__">+ Create new department</option></select>{form.department === '__new_department__' && <input autoFocus className={`${inputClass} mt-2`} value={newDepartmentName} onChange={e => setNewDepartmentName(e.target.value)} placeholder="New department name" />}</Field>
           <Field label="Class Name" required className="sm:col-span-2"><input className={inputClass} value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Grade 8"/></Field>
           <Field label="Section"><input className={inputClass} value={form.section} onChange={e => set('section', e.target.value)} placeholder="e.g. A"/></Field>
           <Field label="Room" required><input className={inputClass} value={form.room} onChange={e => set('room', e.target.value)} placeholder="e.g. Room 8"/></Field>
