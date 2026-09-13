@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Printer, RefreshCw } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Columns3, Printer, RefreshCw, RotateCcw } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -15,12 +15,19 @@ interface ScheduleItem {
   isActive: boolean;
 }
 
+interface Department {
+  _id: string;
+  name: string;
+}
+
 interface ClassItem {
   _id: string;
   title?: string;
   name?: string;
   section?: string;
   gradeLevel?: number;
+  department?: { _id?: string; name?: string } | string | null;
+  departmentId?: string;
 }
 
 interface TimetablePeriod {
@@ -41,6 +48,8 @@ interface PaginatedResponse {
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5] as const;
+const ALL_DEPARTMENTS = '__all__';
+const UNASSIGNED_DEPARTMENT = '__unassigned__';
 
 function courseName(course?: ScheduleItem['course']) {
   if (!course) return '—';
@@ -56,6 +65,12 @@ function className(item?: ScheduleItem['class'] | ClassItem) {
   const title = 'title' in item ? item.title : undefined;
   const name = 'name' in item ? item.name : undefined;
   return `${title || name || 'Class'}${item.section ? ` ${item.section}` : ''}`.trim();
+}
+
+function classDepartmentId(item: ClassItem) {
+  if (item.departmentId) return String(item.departmentId);
+  if (typeof item.department === 'string') return item.department;
+  return item.department?._id ? String(item.department._id) : UNASSIGNED_DEPARTMENT;
 }
 
 function schoolName(school?: ScheduleItem['school']) {
@@ -86,10 +101,14 @@ export function SchedulesTimetable() {
   const organizationId = String((user as any)?.organizationId || (user as any)?.schoolId || '');
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [configuredPeriods, setConfiguredPeriods] = useState<TimetablePeriod[]>([]);
   const [schools, setSchools] = useState<{ _id: string; name: string }[]>([]);
   const [schoolId, setSchoolId] = useState(isOrgAdmin ? organizationId : '');
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
+  const [departmentFilter, setDepartmentFilter] = useState(ALL_DEPARTMENTS);
+  const [hiddenClassIds, setHiddenClassIds] = useState<Set<string>>(() => new Set());
+  const [classPickerOpen, setClassPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -130,6 +149,7 @@ export function SchedulesTimetable() {
   const loadGridMeta = useCallback(async () => {
     if (!effectiveSchoolId) {
       setClasses([]);
+      setDepartments([]);
       setConfiguredPeriods([]);
       return;
     }
@@ -161,6 +181,14 @@ export function SchedulesTimetable() {
     }
 
     try {
+      const response = await api.get('/departments', { params: { school: effectiveSchoolId, limit: 200 } });
+      const list: Department[] = response.data?.data || [];
+      setDepartments(Array.from(new Map(list.map((department) => [department._id, department])).values()));
+    } catch {
+      setDepartments([]);
+    }
+
+    try {
       const response = await api.get('/class-schedules/school/studio/bootstrap', { params: { school: effectiveSchoolId } });
       const payload = response.data?.data || response.data || {};
       setConfiguredPeriods(Array.isArray(payload.config?.periods) ? payload.config.periods : []);
@@ -189,6 +217,12 @@ export function SchedulesTimetable() {
   }, [isOrgAdmin, organizationId]);
 
   useEffect(() => {
+    setDepartmentFilter(ALL_DEPARTMENTS);
+    setHiddenClassIds(new Set());
+    setClassPickerOpen(false);
+  }, [effectiveSchoolId]);
+
+  useEffect(() => {
     void loadAllSchedules();
     void loadGridMeta();
   }, [loadAllSchedules, loadGridMeta]);
@@ -200,15 +234,46 @@ export function SchedulesTimetable() {
     [schedules, selectedDay],
   );
 
-  const columns = useMemo(() => {
-    if (classes.length > 0) return classes.map((item) => ({ id: item._id, label: className(item) }));
+  const departmentOptions = useMemo(() => {
+    if (classes.length === 0) return [] as Department[];
+    const names = new Map(departments.map((department) => [department._id, department.name]));
+    const options = new Map<string, string>();
+    classes.forEach((item) => {
+      const id = classDepartmentId(item);
+      if (id === UNASSIGNED_DEPARTMENT) {
+        options.set(id, 'Unassigned Department');
+        return;
+      }
+      const embeddedName = typeof item.department === 'object' && item.department ? item.department.name : undefined;
+      options.set(id, embeddedName || names.get(id) || 'Department');
+    });
+    return Array.from(options.entries())
+      .map(([_id, name]) => ({ _id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [classes, departments]);
+
+  const departmentClasses = useMemo(
+    () => classes.filter((item) => departmentFilter === ALL_DEPARTMENTS || classDepartmentId(item) === departmentFilter),
+    [classes, departmentFilter],
+  );
+
+  const allColumns = useMemo(() => {
+    if (classes.length > 0) return classes.map((item) => ({ id: item._id, label: className(item), departmentId: classDepartmentId(item) }));
     const map = new Map<string, string>();
     schedules.filter((item) => item.isActive).forEach((item) => {
       const id = item.class?._id || className(item.class);
       if (!map.has(id)) map.set(id, className(item.class));
     });
-    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
+    return Array.from(map.entries()).map(([id, label]) => ({ id, label, departmentId: UNASSIGNED_DEPARTMENT }));
   }, [classes, schedules]);
+
+  const columns = useMemo(
+    () => allColumns.filter((column) => {
+      const matchesDepartment = departmentFilter === ALL_DEPARTMENTS || column.departmentId === departmentFilter;
+      return matchesDepartment && !hiddenClassIds.has(column.id);
+    }),
+    [allColumns, departmentFilter, hiddenClassIds],
+  );
 
   const periods = useMemo(() => {
     let lessonNumber = 0;
@@ -247,7 +312,17 @@ export function SchedulesTimetable() {
     return Array.from(new Set(names));
   };
 
-  const activeCount = daySchedules.length;
+  const visibleColumnIds = useMemo(() => new Set(columns.map((column) => column.id)), [columns]);
+  const activeCount = daySchedules.filter((item) => {
+    const classId = item.class?._id || className(item.class);
+    return visibleColumnIds.has(classId);
+  }).length;
+  const visibleClassCount = columns.length;
+  const filterClassCount = departmentClasses.length || (classes.length === 0 ? allColumns.length : 0);
+  const selectedFilterClassCount = classes.length > 0
+    ? departmentClasses.filter((item) => !hiddenClassIds.has(item._id)).length
+    : allColumns.filter((item) => !hiddenClassIds.has(item.id)).length;
+
   const schoolTitle = schoolName(daySchedules[0]?.school)
     || schools.find((school) => school._id === effectiveSchoolId)?.name
     || (effectiveSchoolId ? 'Class Timetable' : 'All Organizations');
@@ -264,6 +339,43 @@ export function SchedulesTimetable() {
     void loadGridMeta();
   };
 
+  const toggleClassColumn = (classId: string) => {
+    setHiddenClassIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(classId)) next.delete(classId);
+      else next.add(classId);
+      return next;
+    });
+  };
+
+  const selectAllFilteredClasses = () => {
+    const ids = (classes.length > 0 ? departmentClasses.map((item) => item._id) : allColumns.map((item) => item.id));
+    setHiddenClassIds((previous) => {
+      const next = new Set(previous);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+  };
+
+  const hideAllFilteredClasses = () => {
+    const ids = (classes.length > 0 ? departmentClasses.map((item) => item._id) : allColumns.map((item) => item.id));
+    setHiddenClassIds((previous) => {
+      const next = new Set(previous);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const resetColumnFilters = () => {
+    setDepartmentFilter(ALL_DEPARTMENTS);
+    setHiddenClassIds(new Set());
+    setClassPickerOpen(false);
+  };
+
+  const classPickerItems = classes.length > 0
+    ? departmentClasses.map((item) => ({ id: item._id, label: className(item) }))
+    : allColumns.map((item) => ({ id: item.id, label: item.label }));
+
   return (
     <div className="min-h-full bg-[var(--color-surface-primary)] p-4 pt-20 sm:p-6 lg:pt-8">
       <div className="mx-auto w-full max-w-screen-2xl space-y-4">
@@ -274,7 +386,7 @@ export function SchedulesTimetable() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">Class Timetable</h1>
-              <p className="text-xs text-[var(--color-text-tertiary)]">{activeCount} active sessions · {schoolTitle}</p>
+              <p className="text-xs text-[var(--color-text-tertiary)]">{activeCount} visible sessions · {visibleClassCount} class columns · {schoolTitle}</p>
             </div>
           </div>
 
@@ -310,22 +422,100 @@ export function SchedulesTimetable() {
           </div>
         </div>
 
+        <div className="relative z-20 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm print:hidden">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="min-w-[210px] text-xs font-semibold text-[var(--color-text-secondary)]">
+                <span className="mb-1.5 block">Department</span>
+                <select
+                  value={departmentFilter}
+                  onChange={(event) => {
+                    setDepartmentFilter(event.target.value);
+                    setClassPickerOpen(false);
+                  }}
+                  className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-medium text-[var(--color-text-primary)]"
+                >
+                  <option value={ALL_DEPARTMENTS}>All Departments</option>
+                  {departmentOptions.map((department) => (
+                    <option key={department._id} value={department._id}>{department.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="relative min-w-[230px]">
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Class Columns</span>
+                <button
+                  type="button"
+                  onClick={() => setClassPickerOpen((open) => !open)}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-secondary)]"
+                >
+                  <span className="inline-flex items-center gap-2"><Columns3 className="h-4 w-4 text-primary-600" /> {selectedFilterClassCount} of {filterClassCount} shown</span>
+                  <ChevronDown className={`h-4 w-4 transition ${classPickerOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {classPickerOpen && (
+                  <div className="absolute left-0 top-full z-40 mt-2 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-xl">
+                    <div className="flex items-center justify-between gap-2 border-b border-[var(--color-border-default)] px-3 py-2.5">
+                      <div>
+                        <div className="text-xs font-bold text-[var(--color-text-primary)]">Choose class columns</div>
+                        <div className="text-[10px] text-[var(--color-text-tertiary)]">Unchecked classes are hidden from the grid and print view.</div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 border-b border-[var(--color-border-default)] px-3 py-2">
+                      <button type="button" onClick={selectAllFilteredClasses} className="rounded-md bg-primary-50 px-2.5 py-1.5 text-[10px] font-bold text-primary-700 hover:bg-primary-100 dark:bg-primary-950/30 dark:text-primary-300">Select All</button>
+                      <button type="button" onClick={hideAllFilteredClasses} className="rounded-md border border-[var(--color-border-default)] px-2.5 py-1.5 text-[10px] font-bold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">Clear All</button>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto p-2">
+                      {classPickerItems.length === 0 ? (
+                        <div className="px-2 py-6 text-center text-xs text-[var(--color-text-tertiary)]">No classes in this department.</div>
+                      ) : classPickerItems.map((item) => (
+                        <label key={item.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-surface-secondary)]">
+                          <input
+                            type="checkbox"
+                            checked={!hiddenClassIds.has(item.id)}
+                            onChange={() => toggleClassColumn(item.id)}
+                            className="h-4 w-4 rounded border-[var(--color-border-default)] accent-emerald-600"
+                          />
+                          <span className="font-medium">{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {(departmentFilter !== ALL_DEPARTMENTS || hiddenClassIds.size > 0) && (
+              <button type="button" onClick={resetColumnFilters} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
+                <RotateCcw className="h-3.5 w-3.5" /> Reset Filters
+              </button>
+            )}
+          </div>
+        </div>
+
         {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
 
         <div className="overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-white shadow-sm print:rounded-none print:border-black print:shadow-none dark:bg-[var(--color-surface-primary)]">
           <div className="border-b border-[var(--color-border-default)] px-4 py-4 text-center print:py-3">
             <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--color-text-tertiary)]">{schoolTitle}</div>
             <h2 className="mt-1 text-xl font-extrabold uppercase tracking-wide text-[var(--color-text-primary)] sm:text-2xl">{DAYS[selectedDay]} — Class Time Table</h2>
-            <div className="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{activeCount} scheduled sessions</div>
+            <div className="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{activeCount} visible sessions · {visibleClassCount} class columns</div>
           </div>
 
           {loading ? (
             <div className="flex min-h-[360px] items-center justify-center"><RefreshCw className="h-7 w-7 animate-spin text-primary-600" /></div>
-          ) : columns.length === 0 ? (
+          ) : allColumns.length === 0 ? (
             <div className="flex min-h-[300px] flex-col items-center justify-center px-6 text-center">
               <CalendarDays className="h-10 w-10 text-[var(--color-text-tertiary)]" />
               <p className="mt-3 font-semibold text-[var(--color-text-primary)]">No active classes found</p>
               <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Create or activate classes before building the timetable.</p>
+            </div>
+          ) : columns.length === 0 ? (
+            <div className="flex min-h-[260px] flex-col items-center justify-center px-6 text-center">
+              <Columns3 className="h-10 w-10 text-[var(--color-text-tertiary)]" />
+              <p className="mt-3 font-semibold text-[var(--color-text-primary)]">No class columns selected</p>
+              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose a department or enable one or more classes from Class Columns.</p>
+              <button type="button" onClick={resetColumnFilters} className="mt-4 rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-700 print:hidden">Show All Classes</button>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -390,7 +580,7 @@ export function SchedulesTimetable() {
 
           <div className="flex flex-col gap-1 border-t border-[var(--color-border-default)] px-4 py-3 text-[9px] text-[var(--color-text-tertiary)] sm:flex-row sm:items-center sm:justify-between">
             <span>Rows follow Timetable Settings periods and breaks.</span>
-            <span>Columns show all active classes; cells show course names.</span>
+            <span>Department and class filters control visible columns and print output.</span>
           </div>
         </div>
       </div>
