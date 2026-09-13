@@ -4,6 +4,8 @@ import Department from '../models/department.model';
 import Faculty from '../models/faculty.model';
 import AcademicStructure from '../models/academic-structure.model';
 import ClassModel from '../models/class.model';
+import Student from '../models/student.model';
+import mongoose from 'mongoose';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
@@ -67,7 +69,19 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     .limit(DEPARTMENT_LIMIT)
     .lean();
 
-  return ApiResponse.success(res, departments);
+  const studentCounts = await Student.aggregate([
+    { $match: { school: new mongoose.Types.ObjectId(String(tenantId)), status: 'active' } },
+    { $lookup: { from: ClassModel.collection.name, localField: 'class', foreignField: '_id', as: 'currentClass' } },
+    { $unwind: '$currentClass' },
+    { $match: { 'currentClass.department': { $ne: null } } },
+    { $group: { _id: '$currentClass.department', numberOfStudents: { $sum: 1 } } },
+  ]);
+  const studentsByDepartment = new Map(studentCounts.map((entry: any) => [String(entry._id), entry.numberOfStudents]));
+
+  return ApiResponse.success(res, departments.map((department: any) => ({
+    ...department,
+    numberOfStudents: studentsByDepartment.get(String(department._id)) || 0,
+  })));
 };
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
