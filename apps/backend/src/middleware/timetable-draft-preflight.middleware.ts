@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { BadRequestError } from '../utils/api-error';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
 import ClassModel from '../models/class.model';
+import ClassSchedule from '../models/class-schedule.model';
 import Course from '../models/course.model';
 import Teacher from '../models/teacher.model';
 
@@ -15,13 +16,17 @@ function objectIdString(value: unknown): string {
 }
 
 export async function preflightTimetableDraft(req: Request, _res: Response, next: NextFunction) {
-  const raw = req.body?.entries;
-  if (raw === undefined) return next();
-  if (!Array.isArray(raw)) throw new BadRequestError('entries must be an array');
-  if (raw.length > 5000) throw new BadRequestError('A timetable draft cannot contain more than 5000 entries');
-
   const schoolId = String(resolveOrgIdForCreate(req, req.body?.school ? String(req.body.school) : undefined) || '');
   if (!schoolId || !mongoose.isValidObjectId(schoolId)) throw new BadRequestError('School is required');
+
+  let raw = req.body?.entries;
+  if (raw === undefined) {
+    raw = await ClassSchedule.find({ school: schoolId, isActive: true })
+      .select('class course teacher dayOfWeek startTime endTime')
+      .lean();
+  }
+  if (!Array.isArray(raw)) throw new BadRequestError('entries must be an array');
+  if (raw.length > 5000) throw new BadRequestError('A timetable draft cannot contain more than 5000 entries');
 
   const entries = raw.map((item: any, index: number) => {
     const cls = objectIdString(item?.class);
