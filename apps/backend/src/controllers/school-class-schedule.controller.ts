@@ -41,7 +41,7 @@ const TEACHER_POPULATE = {
   ],
 };
 
-const CLASS_POPULATE = { path: 'class', select: 'title section' };
+const CLASS_POPULATE = { path: 'class', select: 'title section room' };
 
 function normalize(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -220,6 +220,7 @@ async function assertNoConflicts(params: {
   classId: string;
   courseId: string;
   teacherId?: string | null;
+  room?: string | null;
   dayOfWeek: number;
   startTime: string;
   endTime: string;
@@ -254,6 +255,14 @@ async function assertNoConflicts(params: {
   if (classConflict) {
     const title = classConflict.course?.title?.en || 'another subject';
     throw new BadRequestError(`Class conflict: ${classLabel(classConflict.class)} already has ${title} from ${classConflict.startTime} to ${classConflict.endTime}`);
+  }
+
+  const room = normalize(params.room);
+  if (room) {
+    const roomConflict = overlaps.find((item: any) => normalize(item.room || item.class?.room) === room);
+    if (roomConflict) {
+      throw new BadRequestError(`Room conflict: ${params.room} is already used by ${classLabel(roomConflict.class) || 'another class'} from ${roomConflict.startTime} to ${roomConflict.endTime}`);
+    }
   }
 
   if (params.teacherId) {
@@ -296,7 +305,7 @@ export const createSchoolSchedule = async (req: Request, res: Response): Promise
   const refs = await validateReferences(schoolId, classId, courseId, teacherId);
   if (!teacherId && (refs.course as any).teacher) teacherId = String((refs.course as any).teacher);
 
-  await assertNoConflicts({ schoolId, classId, courseId, teacherId, dayOfWeek, startTime, endTime, active: isActive });
+  await assertNoConflicts({ schoolId, classId, courseId, teacherId, room: (refs.cls as any).room, dayOfWeek, startTime, endTime, active: isActive });
 
   if (teacherId && !(refs.course as any).teacher) {
     await Course.findByIdAndUpdate(courseId, { teacher: teacherId });
@@ -344,6 +353,7 @@ export const updateSchoolSchedule = async (req: Request, res: Response): Promise
     classId,
     courseId,
     teacherId,
+    room: (refs.cls as any).room,
     dayOfWeek,
     startTime,
     endTime,
@@ -460,6 +470,7 @@ export const importSchoolSchedules = async (req: Request, res: Response): Promis
         classId: String(cls._id),
         courseId: String(course._id),
         teacherId,
+        room: (cls as any).room,
         dayOfWeek,
         startTime: range.startTime,
         endTime: range.endTime,
