@@ -17,7 +17,7 @@ import { restoreFromTrash, logTrashActivity } from '../utils/trash';
 // ---------------------------------------------------------------------------
 
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const { entityType, page = '1', limit = '20' } = req.query;
+  const { entityType, page = '1', limit = '20', view } = req.query;
 
   const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
   if (entityType && typeof entityType === 'string') filter.entityType = entityType;
@@ -27,6 +27,75 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 20));
+
+  if (view === 'bulk') {
+    const pipeline: any[] = [
+      { $match: filter },
+      { $addFields: {
+        _groupKey: {
+          $cond: [
+            { $ne: [{ $ifNull: ['$batchId', null] }, null] },
+            { $concat: ['batch:', { $toString: '$batchId' }] },
+            { $concat: [
+              'legacy:', '$entityType', ':', { $ifNull: [{ $toString: '$school' }, 'none'] }, ':',
+              { $ifNull: [{ $toString: '$deletedBy' }, 'none'] }, ':',
+              { $dateToString: { date: '$deletedAt', format: '%Y-%m-%dT%H:%M:%S' } },
+            ] },
+          ],
+        },
+      } },
+      { $sort: { deletedAt: -1 } },
+      { $group: {
+        _id: '$_groupKey', ids: { $push: '$_id' }, count: { $sum: 1 },
+        entityType: { $first: '$entityType' }, batchLabel: { $first: '$batchLabel' },
+        school: { $first: '$school' }, deletedBy: { $first: '$deletedBy' },
+        deletedAt: { $first: '$deletedAt' }, sampleLabels: { $push: '$label' },
+        explicitBatch: { $max: { $cond: [{ $ne: [{ $ifNull: ['$batchId', null] }, null] }, 1, 0] } },
+      } },
+      { $match: { $or: [{ explicitBatch: 1 }, { count: { $gt: 1 } }] } },
+      { $sort: { deletedAt: -1 } },
+      { $facet: {
+        items: [
+          { $skip: (pageNum - 1) * limitNum }, { $limit: limitNum },
+          { $lookup: { from: 'schools', localField: 'school', foreignField: '_id', as: 'schoolDoc' } },
+          { $lookup: { from: 'users', localField: 'deletedBy', foreignField: '_id', as: 'deletedByDoc' } },
+          { $project: {
+            ids: 1, count: 1, entityType: 1, deletedAt: 1,
+            label: { $cond: [{ $gt: [{ $strLenCP: { $ifNull: ['$batchLabel', ''] } }, 0] }, '$batchLabel', { $concat: [{ $toString: '$count' }, ' ', '$entityType', 's deleted together'] }] },
+            sampleLabels: { $slice: ['$sampleLabels', 3] },
+            school: { $let: { vars: { row: { $arrayElemAt: ['$schoolDoc', 0] } }, in: { _id: '$$row._id', name: '$$row.name' } } },
+            deletedBy: { $let: { vars: { row: { $arrayElemAt: ['$deletedByDoc', 0] } }, in: { _id: '$$row._id', email: '$$row.email' } } },
+          } },
+        ],
+        meta: [{ $count: 'total' }],
+      } },
+    ];
+    const [result] = await Trash.aggregate(pipeline);
+    const items = result?.items || [];
+    const total = result?.meta?.[0]?.total || 0;
+    return ApiResponse.paginated(res, items, { page: pageNum, limit: limitNum, total });
+  }
+
+  if (view === 'individual') {
+    const legacyGroups = await Trash.aggregate([
+      { $match: { ...filter, batchId: null } },
+      { $group: {
+        _id: {
+          entityType: '$entityType', school: '$school', deletedBy: '$deletedBy',
+          second: { $dateToString: { date: '$deletedAt', format: '%Y-%m-%dT%H:%M:%S' } },
+        },
+        ids: { $push: '$_id' }, count: { $sum: 1 },
+      } },
+      { $match: { count: { $gt: 1 } } },
+      { $unwind: '$ids' },
+      { $project: { _id: 0, id: '$ids' } },
+    ]);
+    const groupedLegacyIds = legacyGroups.map((row) => row.id);
+    filter.$and = [
+      { $or: [{ batchId: null }, { batchId: { $exists: false } }] },
+      ...(groupedLegacyIds.length > 0 ? [{ _id: { $nin: groupedLegacyIds } }] : []),
+    ];
+  }
 
   const [items, total] = await Promise.all([
     Trash.find(filter)

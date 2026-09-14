@@ -84,6 +84,13 @@ export async function moveManyToTrash(
   req: Request
 ): Promise<void> {
   if (entries.length === 0) return;
+  const batchId = entries.length > 1 ? new mongoose.Types.ObjectId() : null;
+  const deletedAt = new Date();
+  const entityTypes = [...new Set(entries.map((entry) => entry.entityType))];
+  const pluralNames: Record<string, string> = { Class: 'Classes' };
+  const batchLabel = entries.length > 1
+    ? `${entries.length} ${entityTypes.length === 1 ? (pluralNames[entityTypes[0]] || `${entityTypes[0]}s`) : 'items'} deleted together`
+    : '';
   await Trash.insertMany(entries.map((e) => ({
     entityType: e.entityType,
     label: e.label,
@@ -91,6 +98,10 @@ export async function moveManyToTrash(
     snapshots: e.snapshots,
     restoreMeta: e.restoreMeta || null,
     deletedBy: req.user?.userId || null,
+    deletedAt,
+    batchId,
+    batchLabel,
+    batchSize: entries.length > 1 ? entries.length : null,
   })));
 }
 
