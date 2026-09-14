@@ -120,7 +120,6 @@ export function SchedulesTimetable() {
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [configuredPeriods, setConfiguredPeriods] = useState<TimetablePeriod[]>([]);
   const [schools, setSchools] = useState<{ _id: string; name: string }[]>([]);
   const [schoolId, setSchoolId] = useState(isOrgAdmin ? organizationId : '');
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
@@ -169,7 +168,6 @@ export function SchedulesTimetable() {
     if (!effectiveSchoolId) {
       setClasses([]);
       setDepartments([]);
-      setConfiguredPeriods([]);
       return;
     }
 
@@ -207,13 +205,6 @@ export function SchedulesTimetable() {
       setDepartments([]);
     }
 
-    try {
-      const response = await api.get('/class-schedules/school/studio/bootstrap', { params: { school: effectiveSchoolId } });
-      const payload = response.data?.data || response.data || {};
-      setConfiguredPeriods(Array.isArray(payload.config?.periods) ? payload.config.periods : []);
-    } catch {
-      setConfiguredPeriods([]);
-    }
   }, [effectiveSchoolId]);
 
   useEffect(() => {
@@ -322,17 +313,6 @@ export function SchedulesTimetable() {
 
   const periods = useMemo(() => {
     let lessonNumber = 0;
-    if (configuredPeriods.length > 0) {
-      return configuredPeriods
-        .slice()
-        .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
-        .map((period, index) => ({
-          ...period,
-          key: period.key || `${period.startTime}-${period.endTime}-${index}`,
-          lessonNumber: period.isBreak ? null : ++lessonNumber,
-        }));
-    }
-
     const groups = new Map<string, TimetablePeriod>();
     daySchedules.forEach((item) => {
       const startTime = String(item.startTime || '').slice(0, 5);
@@ -344,7 +324,7 @@ export function SchedulesTimetable() {
     return Array.from(groups.values())
       .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
       .map((period) => ({ ...period, lessonNumber: ++lessonNumber }));
-  }, [configuredPeriods, daySchedules]);
+  }, [daySchedules]);
 
   const getCellCourses = (classId: string, start: string, end: string) => {
     const matches = daySchedules.filter((item) => {
@@ -634,7 +614,7 @@ export function SchedulesTimetable() {
                   })}
                   {periods.length === 0 && (
                     <tr>
-                      <td colSpan={columns.length + 1} className="border border-[var(--color-border-default)] px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No timetable periods configured. Open Timetable Settings to add periods and breaks.</td>
+                      <td colSpan={columns.length + 1} className="border border-[var(--color-border-default)] px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No lessons are scheduled for this day.</td>
                     </tr>
                   )}
                 </tbody>
@@ -643,7 +623,7 @@ export function SchedulesTimetable() {
           )}
 
           <div className="flex flex-col gap-1 border-t border-[var(--color-border-default)] px-4 py-3 text-[9px] text-[var(--color-text-tertiary)] sm:flex-row sm:items-center sm:justify-between">
-            <span>Rows follow Timetable Settings periods and breaks.</span>
+            <span>Rows are generated from the scheduled lesson times.</span>
             <span>Department, shift, and class filters control visible columns and print output.</span>
           </div>
         </div>
