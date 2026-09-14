@@ -487,12 +487,13 @@ export const exportTeachers = async (req: Request, res: Response): Promise<void>
 export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
   const schoolId = resolveOrgIdForCreate(req, req.query.school);
   const school = schoolId ? await School.findById(schoolId).select('name').lean() : null;
-  // A real 8+ character sample password (not blank) so a raw, unmodified
-  // download imports successfully — exportTeachers intentionally leaves this
-  // column blank instead, since a real teacher's password can't be recovered.
+  // Password is left blank, like exportTeachers: bulkImport now generates a
+  // random one for any blank cell, so a raw unmodified download still
+  // imports successfully — without shipping every fresh-downloaded template
+  // with the same known, guessable sample credential.
   const rows = [[
     'Ahmed', 'Hassan', 'male', '2026-01-15', 'ahmed.hassan@example.com', '+252612345678',
-    'ChangeMe123', 'Bachelor of Islamic Studies', 5, 'Tajweed, Fiqh',
+    '', 'Bachelor of Islamic Studies', 5, 'Tajweed, Fiqh',
     'Experienced Quran teacher.', school?.name || '',
   ]];
   const buffer = buildXlsxBuffer(TEACHER_COLUMNS, rows, 'Teacher Template');
