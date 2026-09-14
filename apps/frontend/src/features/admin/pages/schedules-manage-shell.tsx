@@ -15,7 +15,6 @@ export function SchedulesManageShell() {
   const [resolvingMode, setResolvingMode] = useState(user?.role === 'org_admin');
   const [listToolbarHost, setListToolbarHost] = useState<HTMLElement | null>(null);
   const [listRefreshKey, setListRefreshKey] = useState(0);
-  const [timetableRefreshKey, setTimetableRefreshKey] = useState(0);
 
   useEffect(() => {
     if (user?.role !== 'org_admin') {
@@ -137,7 +136,7 @@ export function SchedulesManageShell() {
       if (actionArea) actionArea.style.display = previousDisplay;
       if (timetableRoot) timetableRoot.style.paddingTop = previousPaddingTop;
     };
-  }, [schoolMode, view, timetableRefreshKey]);
+  }, [schoolMode, view]);
 
   if (resolvingMode) {
     return <div className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">Loading schedule workspace...</div>;
@@ -165,8 +164,19 @@ export function SchedulesManageShell() {
   };
 
   const refreshCurrentView = () => {
-    if (view === 'table') setListRefreshKey((key) => key + 1);
-    else setTimetableRefreshKey((key) => key + 1);
+    if (view === 'table') {
+      setListRefreshKey((key) => key + 1);
+      return;
+    }
+
+    const heading = Array.from(document.querySelectorAll<HTMLHeadingElement>('h1')).find((item) =>
+      item.textContent?.trim().toLowerCase() === 'class timetable'
+    );
+    const headerRow = heading?.parentElement?.parentElement;
+    const button = headerRow
+      ? Array.from(headerRow.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent?.trim() === 'Refresh')
+      : undefined;
+    button?.click();
   };
 
   const viewSwitcher = (
@@ -258,7 +268,7 @@ export function SchedulesManageShell() {
 
       {view === 'table'
         ? (schoolMode ? <SchoolSchedulesManage key={listRefreshKey} /> : <SchedulesManage />)
-        : <SchedulesTimetable key={timetableRefreshKey} />}
+        : <SchedulesTimetable />}
     </div>
   );
 }
