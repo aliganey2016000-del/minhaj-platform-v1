@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import ClassSchedule from '../models/class-schedule.model';
 import ApiResponse from '../utils/api-response';
-import { NotFoundError } from '../utils/api-error';
+import { ForbiddenError, NotFoundError } from '../utils/api-error';
 import { getOwnTeacherRecord, resolveViewableOrgId } from '../utils/tenant-scope';
 
 /**
@@ -39,9 +39,10 @@ export const getMyScheduleAsTeacher = async (req: Request, res: Response): Promi
   const teacher = await getOwnTeacherRecord(req);
   if (!teacher) throw new NotFoundError('Teacher record');
   const schoolId = resolveViewableOrgId(req);
+  if (!schoolId) throw new ForbiddenError('Your account is not assigned to an organization.');
 
   const schedules = await ClassSchedule.find({
-    ...(schoolId ? { school: schoolId } : {}),
+    school: schoolId,
     teacher: teacher._id,
     isActive: true,
   })
