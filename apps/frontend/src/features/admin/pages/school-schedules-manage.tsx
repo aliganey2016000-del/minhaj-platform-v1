@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, Download, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { CalendarDays, Download, MoreVertical, Pencil, Plus, Search, Settings, Trash2, Upload, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import BulkEntityImportModal from './components/bulk-entity-import-modal';
@@ -30,6 +30,57 @@ const teacherName = (teacher?: Teacher | null) => {
 };
 
 const className = (cls?: Ref | null) => cls ? `${cls.title || cls.name || ''}${cls.section ? ` (${cls.section})` : ''}`.trim() : '—';
+
+type PeriodRow = { label: string; startTime: string; endTime: string; isBreak: boolean };
+const plusMinutes = (time: string, minutes: number) => {
+  const [hours, mins] = time.split(':').map(Number);
+  const total = Math.min(23 * 60 + 59, (hours || 0) * 60 + (mins || 0) + minutes);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+};
+
+function PeriodSettingsModal({ organizationId, onClose }: { organizationId: string; onClose: () => void }) {
+  const [periods, setPeriods] = useState<PeriodRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/class-schedules/school/period-settings', { params: { school: organizationId } })
+      .then(({ data }) => setPeriods(data.data?.periods || []))
+      .catch((err) => setError(err.response?.data?.message || 'Could not load period settings'))
+      .finally(() => setLoading(false));
+  }, [organizationId]);
+
+  const update = (index: number, patch: Partial<PeriodRow>) => setPeriods(current => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
+  const add = () => {
+    const previous = periods[periods.length - 1];
+    const startTime = previous?.endTime || '08:00';
+    setPeriods(current => [...current, { label: `Period ${current.filter(row => !row.isBreak).length + 1}`, startTime, endTime: plusMinutes(startTime, 45), isBreak: false }]);
+  };
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      await api.put('/class-schedules/school/period-settings', { school: organizationId, periods });
+      onClose();
+    } catch (err: any) { setError(err.response?.data?.message || 'Could not save period settings'); }
+    finally { setSaving(false); }
+  };
+
+  return <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm" onClick={onClose}><div className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl" onClick={event => event.stopPropagation()}>
+    <div className="sticky top-0 z-10 flex items-start justify-between border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] px-4 py-4 sm:px-6"><div><h2 className="flex items-center gap-2 text-lg font-bold"><Settings className="h-5 w-5 text-primary-600" />Timetable Period Settings</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Define lesson periods and breaks. These rows build the Class Timetable.</p></div><button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-[var(--color-surface-tertiary)]"><X className="h-5 w-5" /></button></div>
+    <div className="space-y-4 p-4 sm:p-6">{error && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}{loading ? <p className="py-10 text-center text-sm text-[var(--color-text-tertiary)]">Loading settings...</p> : <>
+      <div className="space-y-3">{periods.map((period, index) => <div key={index} className={`grid gap-3 rounded-xl border p-3 sm:grid-cols-[minmax(130px,1fr)_130px_130px_auto_auto] sm:items-end ${period.isBreak ? 'border-amber-200 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/20' : 'border-[var(--color-border-default)]'}`}>
+        <label className="text-xs font-semibold">Name<input value={period.label} onChange={event => update(index, { label: event.target.value })} placeholder={period.isBreak ? 'Break' : `Period ${index + 1}`} className="mt-1 w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" /></label>
+        <label className="text-xs font-semibold">Start<input type="time" value={period.startTime} onChange={event => update(index, { startTime: event.target.value })} className="mt-1 w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" /></label>
+        <label className="text-xs font-semibold">End<input type="time" value={period.endTime} onChange={event => update(index, { endTime: event.target.value })} className="mt-1 w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" /></label>
+        <label className="flex min-h-10 items-center gap-2 rounded-lg border border-[var(--color-border-default)] px-3 text-xs font-semibold"><input type="checkbox" checked={period.isBreak} onChange={event => update(index, { isBreak: event.target.checked, label: event.target.checked && /^Period /i.test(period.label) ? 'Break' : period.label })} />Break</label>
+        <button type="button" onClick={() => setPeriods(current => current.filter((_, rowIndex) => rowIndex !== index))} disabled={periods.length === 1} className="min-h-10 rounded-lg px-3 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40">Remove</button>
+      </div>)}</div>
+      <button type="button" onClick={add} className="inline-flex items-center gap-2 rounded-xl border border-dashed border-primary-400 px-4 py-2.5 text-sm font-semibold text-primary-700"><Plus className="h-4 w-4" />Add Period or Break</button>
+      <div className="flex flex-col-reverse gap-2 border-t border-[var(--color-border-subtle)] pt-4 sm:flex-row sm:justify-end"><button type="button" onClick={onClose} className="rounded-xl border border-[var(--color-border-default)] px-5 py-2.5 text-sm font-semibold">Cancel</button><button type="button" onClick={() => void save()} disabled={saving || !periods.length} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving...' : 'Save Period Settings'}</button></div>
+    </>}</div>
+  </div></div>;
+}
 
 function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
@@ -153,6 +204,7 @@ export function SchoolSchedulesManage() {
   const [dayFilter, setDayFilter] = useState('');
   const [modal, setModal] = useState<Schedule | 'new' | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [showPeriodSettings, setShowPeriodSettings] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const loadReferences = useCallback(async () => {
@@ -211,6 +263,8 @@ export function SchoolSchedulesManage() {
       <button type="button" onClick={() => { setMenuOpen(false); setModal('new'); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)]"><Plus className="h-4 w-4" />Add Schedule</button>
       <button type="button" onClick={() => { setMenuOpen(false); setShowImport(true); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Upload className="h-4 w-4" />Import Schedules</button>
       <button type="button" onClick={() => void exportSchedules()} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Download className="h-4 w-4" />Export Schedules</button>
+      <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+      <button type="button" onClick={() => { setMenuOpen(false); setShowPeriodSettings(true); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Settings className="h-4 w-4" />Period &amp; Break Settings</button>
     </div>}</div></div>
 
     {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
@@ -225,6 +279,7 @@ export function SchoolSchedulesManage() {
 
     {modal && <ScheduleModal schedule={modal === 'new' ? undefined : modal} organizationId={organizationId} classes={classes} teachers={teachers} onClose={() => setModal(null)} onSaved={() => void load()} />}
     {showImport && <BulkEntityImportModal title="Import Class Schedules" description="School schedule template, import and export use the same simple columns. Teacher can be blank for Unassigned." templateUrl="/class-schedules/school/template" importUrl="/class-schedules/school/import" templateName="school-class-schedules-template.xlsx" headers={IMPORT_HEADERS} onClose={() => setShowImport(false)} onImported={() => void load()} />}
+    {showPeriodSettings && <PeriodSettingsModal organizationId={organizationId} onClose={() => setShowPeriodSettings(false)} />}
   </div>;
 }
 

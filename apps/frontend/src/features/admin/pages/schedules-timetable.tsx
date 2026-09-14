@@ -121,6 +121,7 @@ export function SchedulesTimetable() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [schools, setSchools] = useState<{ _id: string; name: string }[]>([]);
+  const [configuredPeriods, setConfiguredPeriods] = useState<TimetablePeriod[]>([]);
   const [schoolId, setSchoolId] = useState(isOrgAdmin ? organizationId : '');
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
   const [departmentFilter, setDepartmentFilter] = useState(ALL_DEPARTMENTS);
@@ -207,6 +208,16 @@ export function SchedulesTimetable() {
 
   }, [effectiveSchoolId]);
 
+  const loadPeriodSettings = useCallback(async () => {
+    if (!effectiveSchoolId) { setConfiguredPeriods([]); return; }
+    try {
+      const { data } = await api.get('/class-schedules/school/period-settings', { params: { school: effectiveSchoolId } });
+      setConfiguredPeriods(data.data?.periods || []);
+    } catch {
+      setConfiguredPeriods([]);
+    }
+  }, [effectiveSchoolId]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -236,7 +247,8 @@ export function SchedulesTimetable() {
   useEffect(() => {
     void loadAllSchedules();
     void loadGridMeta();
-  }, [loadAllSchedules, loadGridMeta]);
+    void loadPeriodSettings();
+  }, [loadAllSchedules, loadGridMeta, loadPeriodSettings]);
 
   const daySchedules = useMemo(
     () => schedules
@@ -312,6 +324,13 @@ export function SchedulesTimetable() {
   );
 
   const periods = useMemo(() => {
+    if (configuredPeriods.length) {
+      let lessonNumber = 0;
+      return configuredPeriods
+        .map((period, index) => ({ ...period, key: `${period.startTime}-${period.endTime}-${index}` }))
+        .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
+        .map((period) => ({ ...period, lessonNumber: period.isBreak ? undefined : ++lessonNumber }));
+    }
     let lessonNumber = 0;
     const groups = new Map<string, TimetablePeriod>();
     daySchedules.forEach((item) => {
@@ -324,7 +343,7 @@ export function SchedulesTimetable() {
     return Array.from(groups.values())
       .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
       .map((period) => ({ ...period, lessonNumber: ++lessonNumber }));
-  }, [daySchedules]);
+  }, [configuredPeriods, daySchedules]);
 
   const getCellCourses = (classId: string, start: string, end: string) => {
     const matches = daySchedules.filter((item) => {
@@ -362,6 +381,7 @@ export function SchedulesTimetable() {
   const refreshAll = () => {
     void loadAllSchedules();
     void loadGridMeta();
+    void loadPeriodSettings();
   };
 
   const toggleClassColumn = (classId: string) => {
@@ -623,7 +643,7 @@ export function SchedulesTimetable() {
           )}
 
           <div className="flex flex-col gap-1 border-t border-[var(--color-border-default)] px-4 py-3 text-[9px] text-[var(--color-text-tertiary)] sm:flex-row sm:items-center sm:justify-between">
-            <span>Rows are generated from the scheduled lesson times.</span>
+            <span>Rows follow the saved Period &amp; Break Settings.</span>
             <span>Department, shift, and class filters control visible columns and print output.</span>
           </div>
         </div>

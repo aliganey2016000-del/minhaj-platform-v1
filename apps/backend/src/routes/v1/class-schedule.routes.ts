@@ -5,6 +5,7 @@ import * as schoolCtrl from '../../controllers/school-class-schedule.controller'
 import * as schoolListCtrl from '../../controllers/school-class-schedule-list.controller';
 import * as schoolTemplateCtrl from '../../controllers/school-class-schedule-template.controller';
 import * as dispatchCtrl from '../../controllers/class-schedule-dispatch.controller';
+import * as periodSettingsCtrl from '../../controllers/timetable-period-settings.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -28,6 +29,8 @@ router.put('/school/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(v
 router.post('/school/import', roleMiddleware(['admin', 'org_admin']), upload.single('file'), asyncHandler(schoolCtrl.importSchoolSchedules));
 router.get('/school/export', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.exportSchoolSchedules as any));
 router.get('/school/template', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolTemplateCtrl.downloadSchoolTemplate as any));
+router.get('/school/period-settings', roleMiddleware(['admin', 'org_admin']), asyncHandler(periodSettingsCtrl.getPeriodSettings));
+router.put('/school/period-settings', roleMiddleware(['admin', 'org_admin']), asyncHandler(periodSettingsCtrl.savePeriodSettings));
 
 // Legacy/comprehensive workflow retained for university, college, training
 // center and super-admin use.
