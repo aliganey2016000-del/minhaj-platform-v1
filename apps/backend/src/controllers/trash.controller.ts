@@ -38,7 +38,11 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
   if (entityType && typeof entityType === 'string') filter.entityType = entityType;
   if (req.user?.role === 'org_admin') {
-    filter.entityType = filter.entityType ? filter.entityType : { $ne: 'School' };
+    // School trash is platform-admin-only. A direct ?entityType=School query
+    // must not override that exclusion. Keep valid non-School filters intact,
+    // but make an explicit School request match nothing.
+    if (filter.entityType === 'School') filter.entityType = { $in: [] };
+    else if (!filter.entityType) filter.entityType = { $ne: 'School' };
   }
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
