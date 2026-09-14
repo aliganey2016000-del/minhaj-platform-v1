@@ -206,6 +206,9 @@ export function SchoolSchedulesManage() {
   const [showImport, setShowImport] = useState(false);
   const [showPeriodSettings, setShowPeriodSettings] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement>(null);
 
   const loadReferences = useCallback(async () => {
     if (!organizationId) return;
@@ -225,15 +228,26 @@ export function SchoolSchedulesManage() {
     if (!organizationId) return;
     setLoading(true); setError('');
     try {
-      const { data } = await api.get('/class-schedules', { params: { school: organizationId, limit: 500 } });
-      setSchedules(data.data || []);
+      const limit = 100;
+      const first = await api.get('/class-schedules', { params: { school: organizationId, page: 1, limit } });
+      const firstItems: Schedule[] = first.data.data || [];
+      const total = Number(first.data.meta?.total || firstItems.length);
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const rest = totalPages > 1
+        ? await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => api.get('/class-schedules', { params: { school: organizationId, page: index + 2, limit } })))
+        : [];
+      const all = [firstItems, ...rest.map(response => response.data.data || [])].flat();
+      setSchedules(Array.from(new Map(all.map(item => [item._id, item])).values()));
+      setSelected(new Set());
     } catch (err: any) {
       setError(err.response?.data?.message || 'Unable to load class schedules');
       setSchedules([]);
+      setSelected(new Set());
     } finally { setLoading(false); }
   }, [organizationId]);
 
   useEffect(() => { void loadReferences(); void load(); }, [loadReferences, load]);
+  useEffect(() => { setSelected(new Set()); }, [search, classFilter, teacherFilter, dayFilter]);
 
   const filtered = useMemo(() => schedules.filter(schedule => {
     const q = search.trim().toLowerCase();
@@ -241,10 +255,68 @@ export function SchoolSchedulesManage() {
     return (!q || searchable.includes(q)) && (!classFilter || schedule.class?._id === classFilter) && (!teacherFilter || schedule.teacher?._id === teacherFilter) && (!dayFilter || String(schedule.dayOfWeek) === dayFilter);
   }), [schedules, search, classFilter, teacherFilter, dayFilter]);
 
+  const selectedVisibleCount = filtered.reduce((count, schedule) => count + (selected.has(schedule._id) ? 1 : 0), 0);
+  const allFilteredSelected = filtered.length > 0 && selectedVisibleCount === filtered.length;
+
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = selectedVisibleCount > 0 && !allFilteredSelected;
+  }, [selectedVisibleCount, allFilteredSelected]);
+
+  const toggleSelectAll = () => {
+    setSelected(current => {
+      const next = new Set(current);
+      if (allFilteredSelected) filtered.forEach(schedule => next.delete(schedule._id));
+      else filtered.forEach(schedule => next.add(schedule._id));
+      return next;
+    });
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelected(current => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const remove = async (schedule: Schedule) => {
     if (!window.confirm(`Delete ${schedule.course?.title?.en || 'this'} schedule?`)) return;
     try { await api.delete(`/class-schedules/${schedule._id}`); await load(); }
     catch (err: any) { setError(err.response?.data?.message || 'Delete failed'); }
+  };
+
+  const deleteSelected = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} selected schedule${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    setBulkDeleting(true); setError(''); setMenuOpen(false);
+    try {
+      await api.post('/class-schedules/bulk-delete', { ids });
+      await load();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Bulk delete failed');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const deleteAllSchedules = async () => {
+    if (schedules.length === 0) return;
+    const confirmed = window.confirm(`Delete ALL class schedules for this school?\n\nThis removes every timetable lesson, including schedules not currently visible because of filters. Period & Break Settings, classes, courses and teachers are NOT deleted.\n\nThis cannot be undone.`);
+    if (!confirmed) return;
+    setBulkDeleting(true); setError(''); setMenuOpen(false);
+    try {
+      await api.post('/class-schedules/bulk-delete', {
+        selectAllMatching: true,
+        filters: { school: organizationId },
+      });
+      await load();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Delete all schedules failed');
+    } finally {
+      setBulkDeleting(false);
+    }
   };
 
   const exportSchedules = async () => {
@@ -257,7 +329,6 @@ export function SchoolSchedulesManage() {
     } catch (err: any) { setError(err.response?.data?.message || 'Export failed'); }
   };
 
-
   return <div className="space-y-4 p-4 sm:p-6">
     <div className="flex items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-xl font-bold"><CalendarDays className="h-5 w-5 text-emerald-600" />Class Schedules</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Build, validate and publish the weekly school timetable.</p></div><div className="relative"><button type="button" onClick={() => setMenuOpen(value => !value)} className="rounded-xl border border-[var(--color-border-default)] p-2.5 hover:bg-[var(--color-surface-tertiary)]" aria-label="Schedule page actions"><MoreVertical className="h-5 w-5" /></button>{menuOpen && <div className="absolute right-0 z-40 mt-2 w-64 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl">
       <button type="button" onClick={() => { setMenuOpen(false); setModal('new'); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)]"><Plus className="h-4 w-4" />Add Schedule</button>
@@ -265,17 +336,21 @@ export function SchoolSchedulesManage() {
       <button type="button" onClick={() => void exportSchedules()} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Download className="h-4 w-4" />Export Schedules</button>
       <div className="my-1 border-t border-[var(--color-border-subtle)]" />
       <button type="button" onClick={() => { setMenuOpen(false); setShowPeriodSettings(true); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Settings className="h-4 w-4" />Period &amp; Break Settings</button>
+      <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+      <button type="button" onClick={() => void deleteSelected()} disabled={selected.size === 0 || bulkDeleting} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-400 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Delete Selected{selected.size > 0 ? ` (${selected.size})` : ''}</button>
+      <button type="button" onClick={() => void deleteAllSchedules()} disabled={schedules.length === 0 || bulkDeleting} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-300 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />{bulkDeleting ? 'Deleting...' : 'Delete All Schedules'}</button>
     </div>}</div></div>
 
     {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
 
-
-    <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold">{schedules.filter(item => item.isActive).length}</div><div className="text-xs text-[var(--color-text-tertiary)]">Active lessons</div></div><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold">{new Set(schedules.map(item => item.class?._id).filter(Boolean)).size}</div><div className="text-xs text-[var(--color-text-tertiary)]">Classes scheduled</div></div><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold text-amber-600">{schedules.filter(item => !item.teacher).length}</div><div className="text-xs text-[var(--color-text-tertiary)]">Unassigned teacher slots</div></div></div>
+    <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold text-[var(--color-text-primary)]">{schedules.filter(item => item.isActive).length}</div><div className="text-xs text-[var(--color-text-tertiary)]">Active lessons</div></div><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold text-[var(--color-text-primary)]">{new Set(schedules.map(item => item.class?._id).filter(Boolean)).size}</div><div className="text-xs text-[var(--color-text-tertiary)]">Classes scheduled</div></div><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold text-amber-600 dark:text-amber-300">{schedules.filter(item => !item.teacher).length}</div><div className="text-xs text-[var(--color-text-tertiary)]">Unassigned teacher slots</div></div></div>
 
     <div className="grid gap-2 sm:grid-cols-4"><div className="relative sm:col-span-2"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search class, subject, teacher, day, room..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent py-2.5 pl-9 pr-3 text-sm" /></div><select value={classFilter} onChange={event => setClassFilter(event.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm"><option value="">All classes</option>{classes.map(cls => <option key={cls._id} value={cls._id}>{className(cls)}</option>)}</select><select value={dayFilter} onChange={event => setDayFilter(event.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm"><option value="">All days</option>{DAYS.map((day, index) => <option key={day} value={index}>{day}</option>)}</select></div>
     <select value={teacherFilter} onChange={event => setTeacherFilter(event.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm sm:max-w-sm"><option value="">All teachers</option>{teachers.map(teacher => <option key={teacher._id} value={teacher._id}>{teacherName(teacher)}</option>)}</select>
 
-    <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]"><div className="overflow-x-auto"><table className="min-w-[900px] w-full text-left text-sm"><thead className="bg-[var(--color-surface-secondary)] text-xs text-[var(--color-text-tertiary)]"><tr><th className="px-4 py-3">Class / Section</th><th className="px-4 py-3">Course / Subject</th><th className="px-4 py-3">Teacher</th><th className="px-4 py-3">Day</th><th className="px-4 py-3">Time</th><th className="px-4 py-3">Room</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-[var(--color-border-subtle)]">{loading ? <tr><td colSpan={8} className="px-4 py-12 text-center text-[var(--color-text-tertiary)]">Loading schedules...</td></tr> : filtered.length === 0 ? <tr><td colSpan={8} className="px-4 py-12 text-center text-[var(--color-text-tertiary)]">No schedules found.</td></tr> : filtered.map(schedule => <tr key={schedule._id} className="hover:bg-[var(--color-surface-secondary)]"><td className="px-4 py-3 font-semibold">{className(schedule.class)}</td><td className="px-4 py-3"><div className="font-medium">{schedule.course?.title?.en || 'Course'}</div>{schedule.course?.courseCode && <div className="text-[10px] text-[var(--color-text-tertiary)]">{schedule.course.courseCode}</div>}</td><td className="px-4 py-3"><span className={schedule.teacher ? '' : 'font-medium text-amber-600'}>{teacherName(schedule.teacher)}</span></td><td className="px-4 py-3">{DAYS[schedule.dayOfWeek] || '—'}</td><td className="px-4 py-3">{schedule.startTime}–{schedule.endTime}</td><td className="px-4 py-3">{schedule.room || schedule.class?.room || '—'}</td><td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${schedule.isActive ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>{schedule.isActive ? 'Active' : 'Inactive'}</span></td><td className="px-4 py-3 text-right"><RowActions onEdit={() => setModal(schedule)} onDelete={() => void remove(schedule)} /></td></tr>)}</tbody></table></div></div>
+    {selected.size > 0 && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary-200 bg-primary-50/70 px-3 py-2 text-xs font-semibold text-primary-800 dark:border-primary-900/50 dark:bg-primary-950/20 dark:text-primary-200"><span>{selected.size} schedule{selected.size === 1 ? '' : 's'} selected</span><button type="button" onClick={() => void deleteSelected()} disabled={bulkDeleting} className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" />Delete Selected</button></div>}
+
+    <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]"><div className="overflow-x-auto"><table className="min-w-[940px] w-full text-left text-sm"><thead className="bg-[var(--color-surface-secondary)] text-xs text-[var(--color-text-tertiary)]"><tr><th className="w-12 px-4 py-3 text-center"><input ref={selectAllRef} type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} disabled={filtered.length === 0 || loading} className="h-4 w-4 rounded border-[var(--color-border-default)] accent-emerald-600" aria-label="Select all visible schedules" title="Select all" /></th><th className="px-4 py-3">Class / Section</th><th className="px-4 py-3">Course / Subject</th><th className="px-4 py-3">Teacher</th><th className="px-4 py-3">Day</th><th className="px-4 py-3">Time</th><th className="px-4 py-3">Room</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-[var(--color-border-subtle)]">{loading ? <tr><td colSpan={9} className="px-4 py-12 text-center text-[var(--color-text-tertiary)]">Loading schedules...</td></tr> : filtered.length === 0 ? <tr><td colSpan={9} className="px-4 py-12 text-center text-[var(--color-text-tertiary)]">No schedules found.</td></tr> : filtered.map(schedule => <tr key={schedule._id} className={`hover:bg-[var(--color-surface-secondary)] ${selected.has(schedule._id) ? 'bg-primary-50/50 dark:bg-primary-950/10' : ''}`}><td className="px-4 py-3 text-center"><input type="checkbox" checked={selected.has(schedule._id)} onChange={() => toggleSelected(schedule._id)} className="h-4 w-4 rounded border-[var(--color-border-default)] accent-emerald-600" aria-label={`Select ${schedule.course?.title?.en || 'schedule'}`} /></td><td className="px-4 py-3 font-semibold text-[var(--color-text-primary)]">{className(schedule.class)}</td><td className="px-4 py-3"><div className="font-medium text-[var(--color-text-primary)]">{schedule.course?.title?.en || 'Course'}</div>{schedule.course?.courseCode && <div className="text-[10px] text-[var(--color-text-tertiary)]">{schedule.course.courseCode}</div>}</td><td className="px-4 py-3"><span className={schedule.teacher ? 'text-[var(--color-text-primary)]' : 'font-medium text-amber-600 dark:text-amber-300'}>{teacherName(schedule.teacher)}</span></td><td className="px-4 py-3 text-[var(--color-text-primary)]">{DAYS[schedule.dayOfWeek] || '—'}</td><td className="px-4 py-3 text-[var(--color-text-primary)]">{schedule.startTime}–{schedule.endTime}</td><td className="px-4 py-3 text-[var(--color-text-primary)]">{schedule.room || schedule.class?.room || '—'}</td><td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${schedule.isActive ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}>{schedule.isActive ? 'Active' : 'Inactive'}</span></td><td className="px-4 py-3 text-right"><RowActions onEdit={() => setModal(schedule)} onDelete={() => void remove(schedule)} /></td></tr>)}</tbody></table></div></div>
 
     {modal && <ScheduleModal schedule={modal === 'new' ? undefined : modal} organizationId={organizationId} classes={classes} teachers={teachers} onClose={() => setModal(null)} onSaved={() => void load()} />}
     {showImport && <BulkEntityImportModal title="Import Class Schedules" description="School schedule template, import and export use the same simple columns. Teacher can be blank for Unassigned." templateUrl="/class-schedules/school/template" importUrl="/class-schedules/school/import" templateName="school-class-schedules-template.xlsx" headers={IMPORT_HEADERS} onClose={() => setShowImport(false)} onImported={() => void load()} />}
