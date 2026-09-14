@@ -36,6 +36,9 @@ jobs:
       - name: Class Schedule & Timetable A-Z QA
         run: npm run test:schedule-qa
 
+      - name: Class Schedule edge-case regressions
+        run: npx ts-node src/__tests__/class-schedule-edge-cases.e2e.ts
+
       - name: Promotion tests
         run: npm run test:promotion
 
