@@ -8,12 +8,134 @@ import mongoose from 'mongoose';
 import Student from '../models/student.model';
 import Course from '../models/course.model';
 import ClassModel from '../models/class.model';
+import ClassSchedule from '../models/class-schedule.model';
 
 async function recalcEnrolledStudents(courseIds: Iterable<string>): Promise<void> {
   for (const courseId of courseIds) {
     const enrolledStudents = await Student.countDocuments({ enrolledCourses: courseId, status: 'active' });
     await Course.updateOne({ _id: courseId }, { $set: { enrolledStudents } });
   }
+}
+
+function previousAcademicYear(value: string | null | undefined): string | null {
+  const match = String(value || '').trim().match(/^(\d{4})-(\d{4})$/);
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (!Number.isFinite(start) || end !== start + 1) return null;
+  return `${start - 1}-${start}`;
+}
+
+function normalizedTitle(value: unknown): string {
+  if (typeof value === 'string') return value.trim().toLowerCase();
+  if (!value || typeof value !== 'object') return '';
+  const record = value as Record<string, unknown>;
+  const english = typeof record.en === 'string' ? record.en : '';
+  if (english.trim()) return english.trim().toLowerCase();
+  const first = Object.values(record).find((item) => typeof item === 'string' && item.trim());
+  return typeof first === 'string' ? first.trim().toLowerCase() : '';
+}
+
+/**
+ * Promotion creates a fresh class record for the new academic year. Courses
+ * are cloned to that new class, but the timetable is a separate collection
+ * and therefore must also be inherited. This helper copies the previous
+ * year's schedule for the same grade/section into the new class and remaps
+ * each schedule row to the new class's cloned course.
+ *
+ * It is intentionally idempotent: if the target class already has any
+ * schedule rows, nothing is copied. That prevents one timetable copy per
+ * student while promotion moves students sequentially.
+ */
+async function ensurePromotedClassSchedule(newClassId: mongoose.Types.ObjectId | string): Promise<void> {
+  const targetClass: any = await ClassModel.findById(newClassId)
+    .select('_id school department gradeLevel section academicYear room')
+    .lean();
+  if (!targetClass) return;
+
+  const existingTargetSchedule = await ClassSchedule.exists({ class: targetClass._id });
+  if (existingTargetSchedule) return;
+
+  const priorYear = previousAcademicYear(targetClass.academicYear);
+  if (!priorYear || targetClass.gradeLevel === null || targetClass.gradeLevel === undefined) return;
+
+  const templateQuery: Record<string, unknown> = {
+    school: targetClass.school,
+    gradeLevel: targetClass.gradeLevel,
+    academicYear: priorYear,
+    status: { $in: ['active', 'completed'] },
+  };
+  if (targetClass.department) templateQuery.department = targetClass.department;
+  if (String(targetClass.section || '').trim()) templateQuery.section = String(targetClass.section).trim();
+
+  let templateClass: any = await ClassModel.findOne(templateQuery).sort({ createdAt: 1 }).lean();
+
+  // Section names sometimes change between academic years. Fall back to the
+  // same grade/department so a valid grade timetable is still inherited.
+  if (!templateClass) {
+    delete templateQuery.section;
+    templateClass = await ClassModel.findOne(templateQuery).sort({ createdAt: 1 }).lean();
+  }
+  if (!templateClass) return;
+
+  const templateSchedules: any[] = await ClassSchedule.find({ class: templateClass._id, isActive: true })
+    .populate('course', 'title courseCode')
+    .lean();
+  if (!templateSchedules.length) return;
+
+  const targetCourses: any[] = await Course.find({
+    school: targetClass.school,
+    class: targetClass._id,
+    status: 'published',
+  }).select('_id title courseCode teacher').lean();
+  if (!targetCourses.length) return;
+
+  const byCode = new Map<string, any>();
+  const byTitle = new Map<string, any>();
+  for (const course of targetCourses) {
+    const code = String(course.courseCode || '').trim().toLowerCase();
+    if (code && !byCode.has(code)) byCode.set(code, course);
+    const title = normalizedTitle(course.title);
+    if (title && !byTitle.has(title)) byTitle.set(title, course);
+  }
+
+  const rows: any[] = [];
+  const seen = new Set<string>();
+  for (const schedule of templateSchedules) {
+    const sourceCourse: any = schedule.course;
+    if (!sourceCourse) continue;
+    const code = String(sourceCourse.courseCode || '').trim().toLowerCase();
+    const title = normalizedTitle(sourceCourse.title);
+    const targetCourse = (code && byCode.get(code)) || (title && byTitle.get(title));
+    if (!targetCourse) continue;
+
+    const dayOfWeek = Number(schedule.dayOfWeek);
+    const startTime = String(schedule.startTime || '').slice(0, 5);
+    const endTime = String(schedule.endTime || '').slice(0, 5);
+    const duplicateKey = `${dayOfWeek}|${startTime}|${endTime}|${targetCourse._id}`;
+    if (seen.has(duplicateKey)) continue;
+    seen.add(duplicateKey);
+
+    rows.push({
+      school: targetClass.school,
+      class: targetClass._id,
+      course: targetCourse._id,
+      teacher: targetCourse.teacher || null,
+      room: targetClass.room || schedule.room || '',
+      dayOfWeek,
+      startTime,
+      endTime,
+      isActive: true,
+      createdBy: schedule.createdBy,
+    });
+  }
+
+  if (!rows.length) return;
+
+  // Re-check immediately before insert so sequential promotion calls cannot
+  // duplicate the timetable after the first student has created it.
+  const alreadyCopied = await ClassSchedule.exists({ class: targetClass._id });
+  if (!alreadyCopied) await ClassSchedule.insertMany(rows, { ordered: true });
 }
 
 async function syncEnrollmentHistory(
@@ -183,6 +305,12 @@ export async function reassignStudentClassCourses(
   const keptIds = (student.enrolledCourses || []).map((id) => id.toString()).filter((id) => !oldCourseIds.has(id));
   const newCourseIds = newCourses.map((c) => c._id.toString());
   const nextIds = Array.from(new Set([...keptIds, ...newCourseIds]));
+
+  // Ensure the promoted/new academic-year class inherits the correct timetable
+  // before the student's class pointer changes. Student Portal reads schedules
+  // directly from student.class, so this guarantees the new class timetable is
+  // available immediately after promotion.
+  await ensurePromotedClassSchedule(newClassId);
 
   await syncEnrollmentHistory(student, newClassId, newCourseIds);
   student.class = new mongoose.Types.ObjectId(String(newClassId));

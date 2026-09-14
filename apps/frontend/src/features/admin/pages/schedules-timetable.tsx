@@ -1,24 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Columns3, Pencil, Printer, RefreshCw, RotateCcw } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Pencil, Printer, RefreshCw, RotateCcw, Save, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
 interface ScheduleItem {
   _id: string;
   school?: { _id: string; name: string } | string;
-  class?: { _id: string; title?: string; section?: string };
+  class?: { _id: string; title?: string; section?: string } | string;
   course?: { _id: string; title?: { en?: string; [key: string]: unknown } | string } | string;
   teacher?: unknown;
+  room?: string;
   dayOfWeek: number | string;
   startTime: string;
   endTime: string;
   isActive: boolean;
 }
 
-interface Department {
-  _id: string;
-  name: string;
-}
+interface Department { _id: string; name: string }
 
 interface ClassItem {
   _id: string;
@@ -47,62 +45,20 @@ interface TimetablePeriod {
   startTime: string;
   endTime: string;
   isBreak?: boolean;
+  lessonNumber?: number;
 }
 
-interface PaginatedResponse {
-  data?: ScheduleItem[];
-  pagination?: { page?: number; limit?: number; total?: number; totalPages?: number };
-}
-
-// dayOfWeek keeps the JavaScript convention (0 = Sunday ... 6 = Saturday).
-// The timetable tabs intentionally display the school week starting on Saturday.
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5] as const;
 const ALL_DEPARTMENTS = '__all__';
-const UNASSIGNED_DEPARTMENT = '__unassigned__';
 const ALL_SHIFTS = '__all_shifts__';
+const UNASSIGNED_DEPARTMENT = '__unassigned__';
 const UNASSIGNED_SHIFT = '__unassigned_shift__';
 
-function courseName(course?: ScheduleItem['course']) {
-  if (!course) return '—';
-  if (typeof course === 'string') return course;
-  if (typeof course.title === 'string') return course.title;
-  if (course.title?.en) return course.title.en;
-  const firstTitle = course.title && Object.values(course.title).find((value) => typeof value === 'string' && value.trim());
-  return typeof firstTitle === 'string' ? firstTitle : '—';
-}
-
-function className(item?: ScheduleItem['class'] | ClassItem) {
-  if (!item) return 'Class';
-  const title = 'title' in item ? item.title : undefined;
-  const name = 'name' in item ? item.name : undefined;
-  return `${title || name || 'Class'}${item.section ? ` ${item.section}` : ''}`.trim();
-}
-
-function classDepartmentId(item: ClassItem) {
-  if (item.departmentId) return String(item.departmentId);
-  if (typeof item.department === 'string') return item.department;
-  return item.department?._id ? String(item.department._id) : UNASSIGNED_DEPARTMENT;
-}
-
-function classShiftValue(item: ClassItem) {
-  const raw = String(item.shiftMode || item.shift || '').trim();
-  return raw ? raw.toLowerCase() : UNASSIGNED_SHIFT;
-}
-
-function shiftLabel(value: string) {
-  if (value === UNASSIGNED_SHIFT) return 'Unassigned Shift';
-  return value
-    .split(/[_\s-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(' ');
-}
-
-function schoolName(school?: ScheduleItem['school']) {
-  if (!school) return '';
-  return typeof school === 'string' ? school : school.name;
+function normalizeDay(value: unknown) {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 6 ? n : -1;
 }
 
 function timeToMinutes(value: string) {
@@ -117,15 +73,59 @@ function formatTime(value: string) {
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
 
-function normalizeDay(value: unknown) {
-  const n = Number(value);
-  return Number.isInteger(n) && n >= 0 && n <= 6 ? n : -1;
+function classLabel(item?: ScheduleItem['class'] | ClassItem) {
+  if (!item) return 'Class';
+  if (typeof item === 'string') return item;
+  const title = 'title' in item ? item.title : undefined;
+  const name = 'name' in item ? item.name : undefined;
+  return `${title || name || 'Class'}${item.section ? ` ${item.section}` : ''}`.trim();
+}
+
+function classIdOf(item?: ScheduleItem['class']) {
+  if (!item) return '';
+  return typeof item === 'string' ? item : item._id;
+}
+
+function courseIdOf(item?: ScheduleItem['course']) {
+  if (!item) return '';
+  return typeof item === 'string' ? item : item._id;
+}
+
+function courseLabel(item?: ScheduleItem['course'] | CourseItem) {
+  if (!item) return '—';
+  if (typeof item === 'string') return item;
+  if (typeof item.title === 'string') return item.title;
+  if (item.title?.en) return item.title.en;
+  const first = item.title && Object.values(item.title).find((value) => typeof value === 'string' && value.trim());
+  return typeof first === 'string' ? first : '—';
+}
+
+function departmentId(item: ClassItem) {
+  if (item.departmentId) return String(item.departmentId);
+  if (typeof item.department === 'string') return item.department;
+  return item.department?._id ? String(item.department._id) : UNASSIGNED_DEPARTMENT;
+}
+
+function shiftValue(item: ClassItem) {
+  const raw = String(item.shiftMode || item.shift || '').trim();
+  return raw ? raw.toLowerCase() : UNASSIGNED_SHIFT;
+}
+
+function shiftLabel(value: string) {
+  if (value === UNASSIGNED_SHIFT) return 'Unassigned Shift';
+  return value.split(/[_\s-]+/).filter(Boolean).map(part => part[0].toUpperCase() + part.slice(1).toLowerCase()).join(' ');
+}
+
+function responseList(response: any): ScheduleItem[] {
+  const raw = response?.data?.data ?? response?.data ?? [];
+  return Array.isArray(raw) ? raw : [];
 }
 
 export function SchedulesTimetable() {
   const { user } = useAuth();
   const isOrgAdmin = user?.role === 'org_admin';
   const organizationId = String((user as any)?.organizationId || (user as any)?.schoolId || '');
+
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -135,601 +135,307 @@ export function SchedulesTimetable() {
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
   const [departmentFilter, setDepartmentFilter] = useState(ALL_DEPARTMENTS);
   const [shiftFilter, setShiftFilter] = useState(ALL_SHIFTS);
-  const [hiddenClassIds, setHiddenClassIds] = useState<Set<string>>(() => new Set());
-  const [classPickerOpen, setClassPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [coursesByClass, setCoursesByClass] = useState<Record<string, CourseItem[]>>({});
-  const [loadingCourseClassIds, setLoadingCourseClassIds] = useState<Set<string>>(() => new Set());
-  const [savingCells, setSavingCells] = useState<Set<string>>(() => new Set());
+  const [loadingCourses, setLoadingCourses] = useState<Set<string>>(() => new Set());
+  const [draft, setDraft] = useState<Record<string, string>>({});
 
   const effectiveSchoolId = schoolId || (isOrgAdmin ? organizationId : '');
+  const draftStorageKey = `timetable-draft:${effectiveSchoolId || 'none'}`;
 
   const loadAllSchedules = useCallback(async () => {
+    if (!effectiveSchoolId && isOrgAdmin) return;
     setLoading(true);
     setError('');
     try {
-      const limit = 100;
-      const firstParams: Record<string, string> = { page: '1', limit: String(limit) };
-      if (effectiveSchoolId) firstParams.school = effectiveSchoolId;
-
-      const first = await api.get<PaginatedResponse>('/class-schedules', { params: firstParams });
-      const firstData = first.data?.data || [];
-      const pagination = first.data?.pagination;
-      const total = Number(pagination?.total || firstData.length);
-      const totalPages = Math.max(1, Number(pagination?.totalPages || Math.ceil(total / limit)));
-
-      const remaining = totalPages > 1
-        ? await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => {
-            const params: Record<string, string> = { page: String(index + 2), limit: String(limit) };
-            if (effectiveSchoolId) params.school = effectiveSchoolId;
-            return api.get<PaginatedResponse>('/class-schedules', { params });
-          }))
-        : [];
-
-      const all = [firstData, ...remaining.map((response) => response.data?.data || [])].flat();
-      setSchedules(Array.from(new Map(all.map((item) => [item._id, item])).values()));
+      const first = await api.get('/class-schedules', { params: { school: effectiveSchoolId || undefined, page: 1, limit: 500 } });
+      let all = responseList(first);
+      const pagination = first.data?.pagination || first.data?.meta;
+      const totalPages = Number(pagination?.totalPages || pagination?.pages || 1);
+      if (totalPages > 1) {
+        const rest = await Promise.all(Array.from({ length: totalPages - 1 }, (_, i) => api.get('/class-schedules', {
+          params: { school: effectiveSchoolId || undefined, page: i + 2, limit: 500 },
+        })));
+        all = all.concat(...rest.map(responseList));
+      }
+      setSchedules(Array.from(new Map(all.map(item => [item._id, item])).values()));
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load class schedules.');
       setSchedules([]);
+      setError(err?.response?.data?.message || 'Failed to load class schedules.');
     } finally {
       setLoading(false);
     }
-  }, [effectiveSchoolId]);
+  }, [effectiveSchoolId, isOrgAdmin]);
 
   const loadGridMeta = useCallback(async () => {
-    if (!effectiveSchoolId) {
-      setClasses([]);
-      setDepartments([]);
-      return;
-    }
-
+    if (!effectiveSchoolId) { setClasses([]); setDepartments([]); return; }
     try {
-      const allClasses: ClassItem[] = [];
-      let page = 1;
-      let hasMore = true;
-      while (hasMore && page <= 25) {
+      const all: ClassItem[] = [];
+      for (let page = 1; page <= 25; page += 1) {
         const response = await api.get('/classes', { params: { schoolId: effectiveSchoolId, status: 'active', page, limit: 200 } });
         const batch: ClassItem[] = response.data?.data || [];
-        allClasses.push(...batch);
-        const pagination = response.data?.pagination || response.data?.meta || {};
-        const total = Number(pagination.total || 0);
-        const totalPages = Number(pagination.totalPages || pagination.pages || 0);
-        hasMore = totalPages > 0 ? page < totalPages : total > 0 ? allClasses.length < total : batch.length === 200;
-        page += 1;
+        all.push(...batch);
+        const meta = response.data?.pagination || response.data?.meta || {};
+        const pages = Number(meta.totalPages || meta.pages || 0);
+        const total = Number(meta.total || 0);
+        if (!batch.length || batch.length < 200 || (pages && page >= pages) || (total && all.length >= total)) break;
       }
-      const uniqueClasses = Array.from(new Map(allClasses.map((item) => [item._id, item])).values());
-      uniqueClasses.sort((a, b) => {
-        const gradeA = Number(a.gradeLevel ?? Number.MAX_SAFE_INTEGER);
-        const gradeB = Number(b.gradeLevel ?? Number.MAX_SAFE_INTEGER);
-        if (gradeA !== gradeB) return gradeA - gradeB;
-        return className(a).localeCompare(className(b), undefined, { numeric: true, sensitivity: 'base' });
-      });
-      setClasses(uniqueClasses);
-    } catch {
-      setClasses([]);
-    }
+      const unique = Array.from(new Map(all.map(item => [item._id, item])).values());
+      unique.sort((a, b) => Number(a.gradeLevel ?? 9999) - Number(b.gradeLevel ?? 9999) || classLabel(a).localeCompare(classLabel(b), undefined, { numeric: true }));
+      setClasses(unique);
+    } catch { setClasses([]); }
 
     try {
-      const response = await api.get('/departments', { params: { school: effectiveSchoolId, limit: 200 } });
-      const list: Department[] = response.data?.data || [];
-      setDepartments(Array.from(new Map(list.map((department) => [department._id, department])).values()));
-    } catch {
-      setDepartments([]);
-    }
-
+      const response = await api.get('/departments', { params: { school: effectiveSchoolId, limit: 300 } });
+      setDepartments(response.data?.data || []);
+    } catch { setDepartments([]); }
   }, [effectiveSchoolId]);
 
-  const loadPeriodSettings = useCallback(async () => {
+  const loadPeriods = useCallback(async () => {
     if (!effectiveSchoolId) { setConfiguredPeriods([]); return; }
     try {
-      const { data } = await api.get('/class-schedules/school/period-settings', { params: { school: effectiveSchoolId } });
-      setConfiguredPeriods(data.data?.periods || []);
-    } catch {
-      setConfiguredPeriods([]);
-    }
+      const response = await api.get('/class-schedules/school/period-settings', { params: { school: effectiveSchoolId } });
+      setConfiguredPeriods(response.data?.data?.periods || []);
+    } catch { setConfiguredPeriods([]); }
   }, [effectiveSchoolId]);
 
   useEffect(() => {
-    let cancelled = false;
     (async () => {
       try {
-        const { data } = await api.get('/schools');
-        if (cancelled) return;
-        const list = data?.data || [];
+        const response = await api.get('/schools');
+        const list = response.data?.data || [];
         setSchools(list);
-        if (isOrgAdmin) {
-          const preferred = organizationId || list[0]?._id || '';
-          if (preferred) setSchoolId(preferred);
-        }
-      } catch {
-        // Schedule endpoints may already be scoped to the current organization.
-      }
+        if (isOrgAdmin && !schoolId) setSchoolId(organizationId || list[0]?._id || '');
+      } catch { /* scoped users can still use timetable */ }
     })();
-    return () => { cancelled = true; };
-  }, [isOrgAdmin, organizationId]);
+  }, [isOrgAdmin, organizationId, schoolId]);
 
   useEffect(() => {
     setDepartmentFilter(ALL_DEPARTMENTS);
     setShiftFilter(ALL_SHIFTS);
-    setHiddenClassIds(new Set());
-    setClassPickerOpen(false);
-  }, [effectiveSchoolId]);
-
-  useEffect(() => {
+    setCoursesByClass({});
+    setDraft({});
+    setEditMode(false);
     void loadAllSchedules();
     void loadGridMeta();
-    void loadPeriodSettings();
-  }, [loadAllSchedules, loadGridMeta, loadPeriodSettings]);
+    void loadPeriods();
+  }, [effectiveSchoolId, loadAllSchedules, loadGridMeta, loadPeriods]);
 
-  const daySchedules = useMemo(
-    () => schedules
-      .filter((item) => item.isActive && normalizeDay(item.dayOfWeek) === selectedDay)
-      .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)),
-    [schedules, selectedDay],
-  );
-
-  const departmentOptions = useMemo(() => {
-    if (classes.length === 0) return [] as Department[];
-    const names = new Map(departments.map((department) => [department._id, department.name]));
-    const options = new Map<string, string>();
-    classes.forEach((item) => {
-      const id = classDepartmentId(item);
-      if (id === UNASSIGNED_DEPARTMENT) {
-        options.set(id, 'Unassigned Department');
-        return;
+  useEffect(() => {
+    if (!effectiveSchoolId) return;
+    try {
+      const saved = window.localStorage.getItem(draftStorageKey);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === 'object' && Object.keys(parsed).length) {
+        setDraft(parsed);
+        setEditMode(true);
       }
-      const embeddedName = typeof item.department === 'object' && item.department ? item.department.name : undefined;
-      options.set(id, embeddedName || names.get(id) || 'Department');
-    });
-    return Array.from(options.entries())
-      .map(([_id, name]) => ({ _id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-  }, [classes, departments]);
+    } catch { /* ignore invalid browser storage */ }
+  }, [draftStorageKey, effectiveSchoolId]);
 
-  const departmentClasses = useMemo(
-    () => classes.filter((item) => departmentFilter === ALL_DEPARTMENTS || classDepartmentId(item) === departmentFilter),
-    [classes, departmentFilter],
-  );
+  useEffect(() => {
+    if (!effectiveSchoolId) return;
+    if (Object.keys(draft).length) window.localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+    else window.localStorage.removeItem(draftStorageKey);
+  }, [draft, draftStorageKey, effectiveSchoolId]);
 
-  const shiftOptions = useMemo(() => {
-    const values = new Set(departmentClasses.map((item) => classShiftValue(item)));
-    return Array.from(values)
-      .map((value) => ({ value, label: shiftLabel(value) }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
-  }, [departmentClasses]);
-
-  const filteredClasses = useMemo(
-    () => departmentClasses.filter((item) => shiftFilter === ALL_SHIFTS || classShiftValue(item) === shiftFilter),
-    [departmentClasses, shiftFilter],
-  );
-
-  const allColumns = useMemo(() => {
-    if (classes.length > 0) {
-      return classes.map((item) => ({
-        id: item._id,
-        label: className(item),
-        departmentId: classDepartmentId(item),
-        shift: classShiftValue(item),
-      }));
-    }
-    const map = new Map<string, string>();
-    schedules.filter((item) => item.isActive).forEach((item) => {
-      const id = item.class?._id || className(item.class);
-      if (!map.has(id)) map.set(id, className(item.class));
-    });
-    return Array.from(map.entries()).map(([id, label]) => ({
-      id,
-      label,
-      departmentId: UNASSIGNED_DEPARTMENT,
-      shift: UNASSIGNED_SHIFT,
-    }));
-  }, [classes, schedules]);
-
-  const columns = useMemo(
-    () => allColumns.filter((column) => {
-      const matchesDepartment = departmentFilter === ALL_DEPARTMENTS || column.departmentId === departmentFilter;
-      const matchesShift = shiftFilter === ALL_SHIFTS || column.shift === shiftFilter;
-      return matchesDepartment && matchesShift && !hiddenClassIds.has(column.id);
-    }),
-    [allColumns, departmentFilter, shiftFilter, hiddenClassIds],
-  );
+  const daySchedules = useMemo(() => schedules
+    .filter(item => item.isActive && normalizeDay(item.dayOfWeek) === selectedDay)
+    .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)), [schedules, selectedDay]);
 
   const periods = useMemo(() => {
     if (configuredPeriods.length) {
-      let lessonNumber = 0;
+      let lesson = 0;
       return configuredPeriods
         .map((period, index) => ({ ...period, key: `${period.startTime}-${period.endTime}-${index}` }))
         .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
-        .map((period) => ({ ...period, lessonNumber: period.isBreak ? undefined : ++lessonNumber }));
+        .map(period => ({ ...period, lessonNumber: period.isBreak ? undefined : ++lesson }));
     }
-    let lessonNumber = 0;
-    const groups = new Map<string, TimetablePeriod>();
-    daySchedules.forEach((item) => {
-      const startTime = String(item.startTime || '').slice(0, 5);
-      const endTime = String(item.endTime || '').slice(0, 5);
-      if (!startTime || !endTime) return;
-      const key = `${startTime}-${endTime}`;
-      if (!groups.has(key)) groups.set(key, { key, label: '', startTime, endTime, isBreak: false });
+    const map = new Map<string, TimetablePeriod>();
+    daySchedules.forEach(item => {
+      const startTime = String(item.startTime).slice(0, 5);
+      const endTime = String(item.endTime).slice(0, 5);
+      map.set(`${startTime}-${endTime}`, { key: `${startTime}-${endTime}`, startTime, endTime, isBreak: false });
     });
-    return Array.from(groups.values())
-      .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
-      .map((period) => ({ ...period, lessonNumber: ++lessonNumber }));
+    let lesson = 0;
+    return Array.from(map.values()).sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)).map(period => ({ ...period, lessonNumber: ++lesson }));
   }, [configuredPeriods, daySchedules]);
 
-  const getCellCourses = (classId: string, start: string, end: string) => {
-    const matches = daySchedules.filter((item) => {
-      const itemClassId = item.class?._id || className(item.class);
-      return itemClassId === classId
-        && String(item.startTime || '').slice(0, 5) === start
-        && String(item.endTime || '').slice(0, 5) === end;
+  const departmentOptions = useMemo(() => {
+    const names = new Map(departments.map(d => [d._id, d.name]));
+    const map = new Map<string, string>();
+    classes.forEach(cls => {
+      const id = departmentId(cls);
+      const embedded = typeof cls.department === 'object' && cls.department ? cls.department.name : undefined;
+      map.set(id, embedded || names.get(id) || (id === UNASSIGNED_DEPARTMENT ? 'Unassigned Department' : 'Department'));
     });
-    const names = matches.map((item) => courseName(item.course)).filter((name) => name && name !== '—');
-    return Array.from(new Set(names));
-  };
+    return Array.from(map.entries()).map(([_id, name]) => ({ _id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [classes, departments]);
 
-  const getCellSchedules = (classId: string, start: string, end: string) => daySchedules.filter((item) => {
-    const itemClassId = item.class?._id || className(item.class);
-    return itemClassId === classId
-      && String(item.startTime || '').slice(0, 5) === start
-      && String(item.endTime || '').slice(0, 5) === end;
-  });
+  const departmentClasses = useMemo(() => classes.filter(cls => departmentFilter === ALL_DEPARTMENTS || departmentId(cls) === departmentFilter), [classes, departmentFilter]);
+  const shiftOptions = useMemo(() => Array.from(new Set(departmentClasses.map(shiftValue))).map(value => ({ value, label: shiftLabel(value) })).sort((a, b) => a.label.localeCompare(b.label)), [departmentClasses]);
+  const columns = useMemo(() => departmentClasses.filter(cls => shiftFilter === ALL_SHIFTS || shiftValue(cls) === shiftFilter), [departmentClasses, shiftFilter]);
 
   const loadClassCourses = useCallback(async (classId: string) => {
-    if (!effectiveSchoolId || coursesByClass[classId] || loadingCourseClassIds.has(classId)) return;
-    setLoadingCourseClassIds(current => new Set(current).add(classId));
+    if (!effectiveSchoolId || coursesByClass[classId] || loadingCourses.has(classId)) return;
+    setLoadingCourses(current => new Set(current).add(classId));
     try {
-      const { data } = await api.get('/courses/admin', { params: { school: effectiveSchoolId, classId, limit: 300 } });
-      const available = (data.data || []).filter((course: CourseItem) => course.status !== 'archived');
+      const response = await api.get('/courses/admin', { params: { school: effectiveSchoolId, classId, limit: 300 } });
+      const available = (response.data?.data || []).filter((course: CourseItem) => course.status !== 'archived');
       setCoursesByClass(current => ({ ...current, [classId]: available }));
     } catch (err: any) {
-      setError(err.response?.data?.message || `Could not load courses for ${className(classes.find(item => item._id === classId))}.`);
+      setError(err?.response?.data?.message || `Could not load courses for ${classLabel(classes.find(item => item._id === classId))}.`);
     } finally {
-      setLoadingCourseClassIds(current => { const next = new Set(current); next.delete(classId); return next; });
+      setLoadingCourses(current => { const next = new Set(current); next.delete(classId); return next; });
     }
-  }, [classes, coursesByClass, effectiveSchoolId, loadingCourseClassIds]);
+  }, [classes, coursesByClass, effectiveSchoolId, loadingCourses]);
 
-  const toggleEditMode = () => {
-    const next = !editMode;
-    setEditMode(next);
-    setError('');
-    if (next) columns.forEach(column => void loadClassCourses(column.id));
+  const cellSchedules = useCallback((classId: string, period: TimetablePeriod) => {
+    const sameClass = daySchedules.filter(item => classIdOf(item.class) === classId);
+    const exact = sameClass.filter(item => String(item.startTime).slice(0, 5) === period.startTime && String(item.endTime).slice(0, 5) === period.endTime);
+    if (exact.length) return exact;
+    const pStart = timeToMinutes(period.startTime);
+    const pEnd = timeToMinutes(period.endTime);
+    return sameClass.filter(item => timeToMinutes(item.startTime) < pEnd && timeToMinutes(item.endTime) > pStart);
+  }, [daySchedules]);
+
+  const draftKey = (classId: string, period: TimetablePeriod) => `${selectedDay}|${classId}|${period.startTime}|${period.endTime}`;
+
+  const currentCourseId = (classId: string, period: TimetablePeriod) => {
+    const key = draftKey(classId, period);
+    if (Object.prototype.hasOwnProperty.call(draft, key)) return draft[key];
+    return courseIdOf(cellSchedules(classId, period)[0]?.course);
   };
 
-  const updateCell = async (classId: string, period: TimetablePeriod, courseId: string) => {
-    const key = `${selectedDay}-${classId}-${period.startTime}-${period.endTime}`;
-    if (savingCells.has(key)) return;
-    setSavingCells(current => new Set(current).add(key));
+  const beginEdit = () => {
+    setEditMode(true);
     setError('');
+    setSuccess('');
+    columns.forEach(cls => void loadClassCourses(cls._id));
+  };
+
+  const cancelEdit = () => {
+    if (Object.keys(draft).length && !window.confirm('Discard unsaved timetable changes?')) return;
+    setDraft({});
+    setEditMode(false);
+    setError('');
+    setSuccess('');
+  };
+
+  const saveTimetable = async () => {
+    const entries = Object.entries(draft);
+    if (!entries.length) { setEditMode(false); return; }
+    setSaving(true);
+    setError('');
+    setSuccess('');
     try {
-      const existing = getCellSchedules(classId, period.startTime, period.endTime)[0];
-      if (!courseId) {
-        if (existing) await api.delete(`/class-schedules/${existing._id}`);
-      } else {
+      for (const [key, courseId] of entries) {
+        const [dayRaw, classId, startTime, endTime] = key.split('|');
+        const day = Number(dayRaw);
+        const existing = schedules.filter(item => item.isActive && normalizeDay(item.dayOfWeek) === day && classIdOf(item.class) === classId && (
+          (String(item.startTime).slice(0, 5) === startTime && String(item.endTime).slice(0, 5) === endTime)
+          || (timeToMinutes(item.startTime) < timeToMinutes(endTime) && timeToMinutes(item.endTime) > timeToMinutes(startTime))
+        ));
+
+        if (!courseId) {
+          await Promise.all(existing.map(item => api.delete(`/class-schedules/${item._id}`)));
+          continue;
+        }
+
         const course = (coursesByClass[classId] || []).find(item => item._id === courseId);
         const teacher = typeof course?.teacher === 'string' ? course.teacher : course?.teacher?._id || null;
-        const selectedClass = classes.find(item => item._id === classId);
-        const payload = { school: effectiveSchoolId, class: classId, course: courseId, teacher, room: selectedClass?.room || '', dayOfWeek: selectedDay, startTime: period.startTime, endTime: period.endTime, isActive: true };
-        if (existing) await api.put(`/class-schedules/school/${existing._id}`, payload);
+        const cls = classes.find(item => item._id === classId);
+        const payload = {
+          school: effectiveSchoolId,
+          class: classId,
+          course: courseId,
+          teacher,
+          room: cls?.room || '',
+          dayOfWeek: day,
+          startTime,
+          endTime,
+          isActive: true,
+        };
+
+        if (existing[0]) await api.put(`/class-schedules/school/${existing[0]._id}`, payload);
         else await api.post('/class-schedules/school', payload);
+        if (existing.length > 1) await Promise.all(existing.slice(1).map(item => api.delete(`/class-schedules/${item._id}`)));
       }
+
+      setDraft({});
       await loadAllSchedules();
+      setEditMode(false);
+      setSuccess('Timetable saved successfully.');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Could not update this timetable cell.');
+      setError(err?.response?.data?.message || 'Could not save timetable changes.');
     } finally {
-      setSavingCells(current => { const next = new Set(current); next.delete(key); return next; });
+      setSaving(false);
     }
   };
 
-  const visibleColumnIds = useMemo(() => new Set(columns.map((column) => column.id)), [columns]);
-  const activeCount = daySchedules.filter((item) => {
-    const classId = item.class?._id || className(item.class);
-    return visibleColumnIds.has(classId);
-  }).length;
-  const visibleClassCount = columns.length;
-  const filterClassCount = filteredClasses.length || (classes.length === 0 ? allColumns.length : 0);
-  const selectedFilterClassCount = classes.length > 0
-    ? filteredClasses.filter((item) => !hiddenClassIds.has(item._id)).length
-    : allColumns.filter((item) => !hiddenClassIds.has(item.id)).length;
-
-  const schoolTitle = schoolName(daySchedules[0]?.school)
-    || schools.find((school) => school._id === effectiveSchoolId)?.name
-    || (effectiveSchoolId ? 'Class Timetable' : 'All Organizations');
-
-  const moveSelectedDay = (offset: number) => setSelectedDay((day) => {
-    const currentIndex = DISPLAY_ORDER.indexOf(day as (typeof DISPLAY_ORDER)[number]);
-    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
-    return DISPLAY_ORDER[(safeIndex + offset + DISPLAY_ORDER.length) % DISPLAY_ORDER.length];
-  });
-  const previousDay = () => moveSelectedDay(-1);
-  const nextDay = () => moveSelectedDay(1);
   const refreshAll = () => {
     void loadAllSchedules();
     void loadGridMeta();
-    void loadPeriodSettings();
+    void loadPeriods();
   };
 
-  const toggleClassColumn = (classId: string) => {
-    setHiddenClassIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(classId)) next.delete(classId);
-      else next.add(classId);
-      return next;
-    });
-  };
+  const moveDay = (offset: number) => setSelectedDay(day => {
+    const idx = DISPLAY_ORDER.indexOf(day as (typeof DISPLAY_ORDER)[number]);
+    return DISPLAY_ORDER[((idx < 0 ? 0 : idx) + offset + DISPLAY_ORDER.length) % DISPLAY_ORDER.length];
+  });
 
-  const selectAllFilteredClasses = () => {
-    const ids = classes.length > 0 ? filteredClasses.map((item) => item._id) : allColumns.map((item) => item.id);
-    setHiddenClassIds((previous) => {
-      const next = new Set(previous);
-      ids.forEach((id) => next.delete(id));
-      return next;
-    });
-  };
-
-  const hideAllFilteredClasses = () => {
-    const ids = classes.length > 0 ? filteredClasses.map((item) => item._id) : allColumns.map((item) => item.id);
-    setHiddenClassIds((previous) => {
-      const next = new Set(previous);
-      ids.forEach((id) => next.add(id));
-      return next;
-    });
-  };
-
-  const resetColumnFilters = () => {
-    setDepartmentFilter(ALL_DEPARTMENTS);
-    setShiftFilter(ALL_SHIFTS);
-    setHiddenClassIds(new Set());
-    setClassPickerOpen(false);
-  };
-
-  const classPickerItems = classes.length > 0
-    ? filteredClasses.map((item) => ({ id: item._id, label: className(item) }))
-    : allColumns.map((item) => ({ id: item.id, label: item.label }));
+  const visibleSessionCount = daySchedules.filter(item => columns.some(cls => cls._id === classIdOf(item.class))).length;
 
   return (
     <div className="min-h-full bg-[var(--color-surface-primary)] p-4 pt-20 sm:p-6 lg:pt-8">
       <div className="mx-auto w-full max-w-screen-2xl space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30">
-              <CalendarDays className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">Class Timetable</h1>
-              <p className="text-xs text-[var(--color-text-tertiary)]">{activeCount} visible sessions · {visibleClassCount} class columns · {schoolTitle}</p>
-            </div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30"><CalendarDays className="h-5 w-5" /></div>
+            <div><h1 className="text-2xl font-bold">Class Timetable</h1><p className="text-xs text-[var(--color-text-tertiary)]">{visibleSessionCount} visible sessions · {columns.length} classes</p></div>
           </div>
-
           <div className="flex flex-wrap items-center gap-2">
-            {!isOrgAdmin && (
-              <select value={schoolId} onChange={(event) => setSchoolId(event.target.value)} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs text-[var(--color-text-primary)]">
-                <option value="">All Organizations</option>
-                {schools.map((school) => <option key={school._id} value={school._id}>{school.name}</option>)}
-              </select>
-            )}
-            <button type="button" onClick={refreshAll} disabled={loading} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)] disabled:opacity-50">
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
-            </button>
-            <button type="button" onClick={toggleEditMode} disabled={!effectiveSchoolId} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50 ${editMode ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
-              {editMode ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />} {editMode ? 'Finish Editing' : 'Edit Timetable'}
-            </button>
-            <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-700">
-              <Printer className="h-3.5 w-3.5" /> Print
-            </button>
+            {!isOrgAdmin && <select value={schoolId} onChange={e => setSchoolId(e.target.value)} className="rounded-lg border bg-[var(--color-surface-primary)] px-3 py-2 text-xs"><option value="">Select Organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>}
+            <button onClick={refreshAll} disabled={loading || saving} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
+            {!editMode ? <button onClick={beginEdit} disabled={!effectiveSchoolId} className="inline-flex items-center gap-1.5 rounded-lg border border-primary-600 bg-primary-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><Pencil className="h-3.5 w-3.5" />Edit Timetable</button> : <>
+              <button onClick={cancelEdit} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold"><X className="h-3.5 w-3.5" />Cancel</button>
+              <button onClick={() => void saveTimetable()} disabled={saving || Object.keys(draft).length === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"><Save className="h-3.5 w-3.5" />{saving ? 'Saving...' : `Save Timetable${Object.keys(draft).length ? ` (${Object.keys(draft).length})` : ''}`}</button>
+            </>}
+            <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"><Printer className="h-3.5 w-3.5" />Print</button>
           </div>
         </div>
 
-        <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm print:hidden">
-          <div className="flex items-center gap-1 overflow-x-auto">
-            <button type="button" onClick={previousDay} className="shrink-0 rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]" aria-label="Previous day"><ChevronLeft className="h-4 w-4" /></button>
-            {DISPLAY_ORDER.map((dayIndex) => {
-              const day = DAYS[dayIndex];
-              return (
-                <button key={day} type="button" onClick={() => setSelectedDay(dayIndex)} className={`min-w-[82px] flex-1 rounded-lg px-2 py-2 text-center ${selectedDay === dayIndex ? 'bg-primary-600 text-white' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
-                  <span className="block text-[10px] font-semibold uppercase tracking-wide opacity-75">{DAY_SHORT[dayIndex]}</span>
-                  <span className="block text-xs font-bold">{day}</span>
-                </button>
-              );
-            })}
-            <button type="button" onClick={nextDay} className="shrink-0 rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]" aria-label="Next day"><ChevronRight className="h-4 w-4" /></button>
-          </div>
+        {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+        {success && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{success}</div>}
+        {editMode && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><strong>Edit mode:</strong> choose courses in the table, then press <strong>Save Timetable</strong>. Unsaved selections are kept in this browser even if the page is refreshed.</div>}
+
+        <div className="flex flex-col gap-3 rounded-2xl border bg-[var(--color-surface-primary)] p-3 lg:flex-row lg:items-center">
+          <select value={departmentFilter} onChange={e => { setDepartmentFilter(e.target.value); setShiftFilter(ALL_SHIFTS); }} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value={ALL_DEPARTMENTS}>All Departments</option>{departmentOptions.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}</select>
+          <select value={shiftFilter} onChange={e => setShiftFilter(e.target.value)} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value={ALL_SHIFTS}>All Shifts</option>{shiftOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
+          <button onClick={() => { setDepartmentFilter(ALL_DEPARTMENTS); setShiftFilter(ALL_SHIFTS); }} className="inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm"><RotateCcw className="h-4 w-4" />Reset Filters</button>
+          <div className="flex flex-1 items-center justify-center gap-2 lg:justify-end"><button onClick={() => moveDay(-1)} className="rounded-lg border p-2"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-36 text-center"><div className="text-xs text-[var(--color-text-tertiary)]">Selected day</div><div className="font-bold">{DAYS[selectedDay]}</div></div><button onClick={() => moveDay(1)} className="rounded-lg border p-2"><ChevronRight className="h-4 w-4" /></button></div>
         </div>
 
-        <div className="relative z-20 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm print:hidden">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-              <label className="min-w-[200px] text-xs font-semibold text-[var(--color-text-secondary)]">
-                <span className="mb-1.5 block">Department</span>
-                <select
-                  value={departmentFilter}
-                  onChange={(event) => {
-                    setDepartmentFilter(event.target.value);
-                    setShiftFilter(ALL_SHIFTS);
-                    setClassPickerOpen(false);
-                  }}
-                  className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-medium text-[var(--color-text-primary)]"
-                >
-                  <option value={ALL_DEPARTMENTS}>All Departments</option>
-                  {departmentOptions.map((department) => (
-                    <option key={department._id} value={department._id}>{department.name}</option>
-                  ))}
-                </select>
-              </label>
+        <div className="flex gap-1 overflow-x-auto rounded-xl border bg-[var(--color-surface-primary)] p-1.5">{DISPLAY_ORDER.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-20 flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${selectedDay === day ? 'bg-primary-600 text-white' : 'hover:bg-[var(--color-surface-secondary)]'}`}>{DAY_SHORT[day]}</button>)}</div>
 
-              <label className="min-w-[170px] text-xs font-semibold text-[var(--color-text-secondary)]">
-                <span className="mb-1.5 block">Shift</span>
-                <select
-                  value={shiftFilter}
-                  onChange={(event) => {
-                    setShiftFilter(event.target.value);
-                    setClassPickerOpen(false);
-                  }}
-                  className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-medium text-[var(--color-text-primary)]"
-                >
-                  <option value={ALL_SHIFTS}>All Shifts</option>
-                  {shiftOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="relative min-w-[230px]">
-                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Class Columns</span>
-                <button
-                  type="button"
-                  onClick={() => setClassPickerOpen((open) => !open)}
-                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-secondary)]"
-                >
-                  <span className="inline-flex items-center gap-2"><Columns3 className="h-4 w-4 text-primary-600" /> {selectedFilterClassCount} of {filterClassCount} shown</span>
-                  <ChevronDown className={`h-4 w-4 transition ${classPickerOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {classPickerOpen && (
-                  <div className="absolute left-0 top-full z-40 mt-2 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-xl">
-                    <div className="flex items-center justify-between gap-2 border-b border-[var(--color-border-default)] px-3 py-2.5">
-                      <div>
-                        <div className="text-xs font-bold text-[var(--color-text-primary)]">Choose class columns</div>
-                        <div className="text-[10px] text-[var(--color-text-tertiary)]">Unchecked classes are hidden from the grid and print view.</div>
-                      </div>
-                    </div>
-                    <div className="flex gap-2 border-b border-[var(--color-border-default)] px-3 py-2">
-                      <button type="button" onClick={selectAllFilteredClasses} className="rounded-md bg-primary-50 px-2.5 py-1.5 text-[10px] font-bold text-primary-700 hover:bg-primary-100 dark:bg-primary-950/30 dark:text-primary-300">Select All</button>
-                      <button type="button" onClick={hideAllFilteredClasses} className="rounded-md border border-[var(--color-border-default)] px-2.5 py-1.5 text-[10px] font-bold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">Clear All</button>
-                    </div>
-                    <div className="max-h-72 overflow-y-auto p-2">
-                      {classPickerItems.length === 0 ? (
-                        <div className="px-2 py-6 text-center text-xs text-[var(--color-text-tertiary)]">No classes match this department and shift.</div>
-                      ) : classPickerItems.map((item) => (
-                        <label key={item.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-surface-secondary)]">
-                          <input
-                            type="checkbox"
-                            checked={!hiddenClassIds.has(item.id)}
-                            onChange={() => toggleClassColumn(item.id)}
-                            className="h-4 w-4 rounded border-[var(--color-border-default)] accent-emerald-600"
-                          />
-                          <span className="font-medium">{item.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {(departmentFilter !== ALL_DEPARTMENTS || shiftFilter !== ALL_SHIFTS || hiddenClassIds.size > 0) && (
-              <button type="button" onClick={resetColumnFilters} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
-                <RotateCcw className="h-3.5 w-3.5" /> Reset Filters
-              </button>
-            )}
-          </div>
+        <div className="overflow-hidden rounded-2xl border bg-[var(--color-surface-primary)] shadow-sm">
+          {loading ? <div className="flex min-h-72 items-center justify-center"><RefreshCw className="mr-2 h-5 w-5 animate-spin" />Loading timetable...</div> : !effectiveSchoolId ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Select an organization to view the timetable.</div> : periods.length === 0 ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{columns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, columns.length + 1)} className="border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} · {formatTime(period.startTime)}–{formatTime(period.endTime)}</td> : <><td className="border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />{formatTime(period.endTime)}</div></td>{columns.map(cls => {
+                    const existing = cellSchedules(cls._id, period);
+                    const selected = currentCourseId(cls._id, period);
+                    const hasDraft = Object.prototype.hasOwnProperty.call(draft, draftKey(cls._id, period));
+                    return <td key={`${cls._id}-${period.key}`} className={`border p-2 align-top ${hasDraft ? 'bg-amber-50/70' : ''}`}>
+                      {editMode ? <select value={selected} onFocus={() => void loadClassCourses(cls._id)} onChange={e => setDraft(current => ({ ...current, [draftKey(cls._id, period)]: e.target.value }))} className="min-h-11 w-full rounded-lg border bg-[var(--color-surface-primary)] px-2 py-2 text-xs"><option value="">— No course —</option>{loadingCourses.has(cls._id) && <option disabled>Loading...</option>}{(coursesByClass[cls._id] || []).map(course => <option key={course._id} value={course._id}>{courseLabel(course)}{course.courseCode ? ` · ${course.courseCode}` : ''}</option>)}</select> : existing.length ? <div className="space-y-1">{existing.map(item => <div key={item._id} className="rounded-lg bg-primary-50 px-2 py-2 text-center text-xs text-primary-900 dark:bg-primary-950/30 dark:text-primary-100"><div className="font-bold">{courseLabel(item.course)}</div>{item.room && <div className="mt-1 text-[10px] opacity-70">Room {item.room}</div>}</div>)}</div> : <div className="py-3 text-center text-xs text-[var(--color-text-tertiary)]">—</div>}
+                    </td>;
+                  })}</>}</tr>)}</tbody></table></div>}
         </div>
 
-        {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
-
-        <div className="overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-white shadow-sm print:rounded-none print:border-black print:shadow-none dark:bg-[var(--color-surface-primary)]">
-          <div className="border-b border-[var(--color-border-default)] px-4 py-4 text-center print:py-3">
-            <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--color-text-tertiary)]">{schoolTitle}</div>
-            <h2 className="mt-1 text-xl font-extrabold uppercase tracking-wide text-[var(--color-text-primary)] sm:text-2xl">{DAYS[selectedDay]} — Class Time Table</h2>
-            <div className="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{activeCount} visible sessions · {visibleClassCount} class columns</div>
-          </div>
-
-          {loading ? (
-            <div className="flex min-h-[360px] items-center justify-center"><RefreshCw className="h-7 w-7 animate-spin text-primary-600" /></div>
-          ) : allColumns.length === 0 ? (
-            <div className="flex min-h-[300px] flex-col items-center justify-center px-6 text-center">
-              <CalendarDays className="h-10 w-10 text-[var(--color-text-tertiary)]" />
-              <p className="mt-3 font-semibold text-[var(--color-text-primary)]">No active classes found</p>
-              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Create or activate classes before building the timetable.</p>
-            </div>
-          ) : columns.length === 0 ? (
-            <div className="flex min-h-[260px] flex-col items-center justify-center px-6 text-center">
-              <Columns3 className="h-10 w-10 text-[var(--color-text-tertiary)]" />
-              <p className="mt-3 font-semibold text-[var(--color-text-primary)]">No class columns selected</p>
-              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose a department, shift, or enable one or more classes from Class Columns.</p>
-              <button type="button" onClick={resetColumnFilters} className="mt-4 rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white hover:bg-primary-700 print:hidden">Show All Classes</button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] border-collapse table-fixed">
-                <thead>
-                  <tr>
-                    <th className="w-[105px] border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-[10px] font-extrabold uppercase tracking-wide text-[var(--color-text-primary)]">Period</th>
-                    {columns.map((column) => (
-                      <th key={column.id} className="min-w-[130px] border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs font-extrabold text-[var(--color-text-primary)] sm:text-sm">{column.label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {periods.map((period) => {
-                    if (period.isBreak) {
-                      return (
-                        <tr key={period.key} className="bg-amber-50/70 dark:bg-amber-950/10">
-                          <td className="border border-[var(--color-border-default)] px-2 py-3 text-center align-middle">
-                            <div className="text-sm font-extrabold uppercase text-amber-700 dark:text-amber-300">Break</div>
-                            <div className="mt-1 text-[9px] font-medium text-[var(--color-text-tertiary)]">{formatTime(period.startTime)} – {formatTime(period.endTime)}</div>
-                          </td>
-                          <td colSpan={columns.length} className="border border-[var(--color-border-default)] px-3 py-4 text-center text-sm font-bold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">{period.label || 'Break'}</td>
-                        </tr>
-                      );
-                    }
-
-                    return (
-                      <tr key={period.key} className="min-h-[76px]">
-                        <td className="border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2 py-3 text-center align-middle">
-                          <div className="text-sm font-extrabold text-[var(--color-text-primary)]">{period.label || `Period ${period.lessonNumber}`}</div>
-                          <div className="mt-1 text-[9px] font-medium leading-tight text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}</div>
-                          <div className="text-[9px] font-medium leading-tight text-[var(--color-text-tertiary)]">– {formatTime(period.endTime)}</div>
-                        </td>
-                        {columns.map((column) => {
-                          const courses = getCellCourses(column.id, period.startTime, period.endTime);
-                          const cellSchedules = getCellSchedules(column.id, period.startTime, period.endTime);
-                          const existingCourse = cellSchedules[0]?.course;
-                          const selectedCourseId = typeof existingCourse === 'string' ? existingCourse : existingCourse?._id || '';
-                          const cellKey = `${selectedDay}-${column.id}-${period.startTime}-${period.endTime}`;
-                          const classCourses = coursesByClass[column.id] || [];
-                          return (
-                            <td key={column.id} className="border border-[var(--color-border-default)] px-2 py-2 text-center align-middle">
-                              {editMode ? (
-                                <select value={selectedCourseId} disabled={savingCells.has(cellKey) || loadingCourseClassIds.has(column.id)} onFocus={() => void loadClassCourses(column.id)} onChange={(event) => void updateCell(column.id, period, event.target.value)} className="min-h-[44px] w-full rounded-lg border border-primary-300 bg-[var(--color-surface-primary)] px-2 py-2 text-xs font-semibold text-[var(--color-text-primary)] outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-60">
-                                  <option value="">{loadingCourseClassIds.has(column.id) ? 'Loading courses...' : savingCells.has(cellKey) ? 'Saving...' : '— Empty cell —'}</option>
-                                  {classCourses.map(course => <option key={course._id} value={course._id}>{typeof course.title === 'string' ? course.title : course.title?.en || 'Untitled course'}{course.courseCode ? ` — ${course.courseCode}` : ''}{course.status ? ` (${course.status})` : ''}</option>)}
-                                  {selectedCourseId && !classCourses.some(course => course._id === selectedCourseId) && <option value={selectedCourseId}>{courses[0] || 'Current course'}</option>}
-                                </select>
-                              ) : courses.length > 0 ? (
-                                <div className="mx-auto flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-lg bg-primary-50/70 px-2 py-2 dark:bg-primary-950/20">
-                                  {courses.map((course, courseIndex) => (
-                                    <div key={`${course}-${courseIndex}`} className="text-xs font-bold leading-tight text-[var(--color-text-primary)] sm:text-sm">{course}</div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="text-xs text-[var(--color-text-tertiary)]">—</span>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                  {periods.length === 0 && (
-                    <tr>
-                      <td colSpan={columns.length + 1} className="border border-[var(--color-border-default)] px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No lessons are scheduled for this day.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-1 border-t border-[var(--color-border-default)] px-4 py-3 text-[9px] text-[var(--color-text-tertiary)] sm:flex-row sm:items-center sm:justify-between">
-            <span>Rows follow the saved Period &amp; Break Settings.</span>
-            <span>Department, shift, and class filters control visible columns and print output.</span>
-          </div>
-        </div>
+        {editMode && <div className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-white/95 p-3 shadow-xl backdrop-blur dark:bg-slate-950/95"><div className="text-xs"><strong>{Object.keys(draft).length}</strong> unsaved timetable change(s)</div><div className="flex gap-2"><button onClick={cancelEdit} disabled={saving} className="rounded-xl border px-4 py-2 text-sm font-semibold">Cancel</button><button onClick={() => void saveTimetable()} disabled={saving || Object.keys(draft).length === 0} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-50"><Check className="h-4 w-4" />{saving ? 'Saving...' : 'Save Timetable'}</button></div></div>}
       </div>
-
-      <style>{`@media print { .print\\:hidden { display: none !important; } body { background: white !important; } @page { size: landscape; margin: 10mm; } }`}</style>
     </div>
   );
 }
