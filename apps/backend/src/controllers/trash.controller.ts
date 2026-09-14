@@ -10,6 +10,22 @@ import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/api-err
 import { applyOrgFilter } from '../utils/tenant-scope';
 import { restoreFromTrash, logTrashActivity } from '../utils/trash';
 
+// Before batch metadata existed, the UI implemented "bulk delete" as many
+// parallel single-delete requests. Those records have no batchId, so recover
+// the old operation by grouping same-tenant/same-actor/same-type records in a
+// short time bucket. The cutoff prevents future intentional single deletes
+// from ever being inferred as a batch.
+const LEGACY_BATCH_CUTOFF = new Date('2026-09-14T13:20:00.000Z');
+const LEGACY_BATCH_WINDOW_MS = 10 * 60 * 1000;
+const legacyBatchBucket = {
+  $toString: {
+    $subtract: [
+      { $toLong: '$deletedAt' },
+      { $mod: [{ $toLong: '$deletedAt' }, LEGACY_BATCH_WINDOW_MS] },
+    ],
+  },
+};
+
 // ---------------------------------------------------------------------------
 // GET /trash — list, tenant-scoped like everything else in the admin app.
 // Organization-level (School) trash entries are super-admin-only end to
@@ -36,10 +52,13 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
           $cond: [
             { $ne: [{ $ifNull: ['$batchId', null] }, null] },
             { $concat: ['batch:', { $toString: '$batchId' }] },
-            { $concat: [
-              'legacy:', '$entityType', ':', { $ifNull: [{ $toString: '$school' }, 'none'] }, ':',
-              { $ifNull: [{ $toString: '$deletedBy' }, 'none'] }, ':',
-              { $dateToString: { date: '$deletedAt', format: '%Y-%m-%dT%H:%M:%S' } },
+            { $cond: [
+              { $lt: ['$deletedAt', LEGACY_BATCH_CUTOFF] },
+              { $concat: [
+                'legacy:', '$entityType', ':', { $ifNull: [{ $toString: '$school' }, 'none'] }, ':',
+                { $ifNull: [{ $toString: '$deletedBy' }, 'none'] }, ':', legacyBatchBucket,
+              ] },
+              { $concat: ['single:', { $toString: '$_id' }] },
             ] },
           ],
         },
@@ -78,11 +97,11 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   if (view === 'individual') {
     const legacyGroups = await Trash.aggregate([
-      { $match: { ...filter, batchId: null } },
+      { $match: { ...filter, batchId: null, deletedAt: { $lt: LEGACY_BATCH_CUTOFF } } },
       { $group: {
         _id: {
           entityType: '$entityType', school: '$school', deletedBy: '$deletedBy',
-          second: { $dateToString: { date: '$deletedAt', format: '%Y-%m-%dT%H:%M:%S' } },
+          timeBucket: legacyBatchBucket,
         },
         ids: { $push: '$_id' }, count: { $sum: 1 },
       } },
