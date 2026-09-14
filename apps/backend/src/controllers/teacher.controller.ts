@@ -487,9 +487,12 @@ export const exportTeachers = async (req: Request, res: Response): Promise<void>
 export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
   const schoolId = resolveOrgIdForCreate(req, req.query.school);
   const school = schoolId ? await School.findById(schoolId).select('name').lean() : null;
+  // A real 8+ character sample password (not blank) so a raw, unmodified
+  // download imports successfully — exportTeachers intentionally leaves this
+  // column blank instead, since a real teacher's password can't be recovered.
   const rows = [[
     'Ahmed', 'Hassan', 'male', '2026-01-15', 'ahmed.hassan@example.com', '+252612345678',
-    '', 'Bachelor of Islamic Studies', 5, 'Tajweed, Fiqh',
+    'ChangeMe123', 'Bachelor of Islamic Studies', 5, 'Tajweed, Fiqh',
     'Experienced Quran teacher.', school?.name || '',
   ]];
   const buffer = buildXlsxBuffer(TEACHER_COLUMNS, rows, 'Teacher Template');
@@ -558,6 +561,13 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       if (!firstName || !lastName) throw new Error('First Name and Last Name are required');
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('A valid Email is required');
       if (!['male', 'female'].includes(gender)) throw new Error('Gender must be male or female');
+
+      // Check for an already-registered email before requiring a password —
+      // re-importing an exported file (which never carries real passwords,
+      // see exportTeachers) is the common case here, and "already registered"
+      // is the actionable message for that row, not a confusing password error.
+      const existingUser = await User.findOne({ email }).lean();
+      if (existingUser) throw new Error(`Email "${email}" is already registered`);
       if (password.length < 8) throw new Error('Password is required and must be at least 8 characters');
 
       const specialization = specializationRaw
@@ -568,8 +578,6 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const joiningDate = joiningDateRaw instanceof Date ? joiningDateRaw
         : joiningDateRaw ? new Date(String(joiningDateRaw)) : new Date();
       if (isNaN(joiningDate.getTime())) throw new Error('Joining Date must be a valid date (YYYY-MM-DD)');
-      const existingUser = await User.findOne({ email }).lean();
-      if (existingUser) throw new Error(`Email "${email}" is already registered`);
 
       // Resolve organization
       let schoolId: string | undefined = ownOrgId;
