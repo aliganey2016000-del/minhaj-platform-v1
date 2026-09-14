@@ -150,9 +150,44 @@ interface CourseActionHandlers {
 
 interface CourseCardProps extends CourseActionHandlers {
   course: Course;
+  teachers: Teacher[];
   selected: boolean;
   onToggleSelect: (id: string) => void;
+  onChangeTeacher: (courseId: string, teacherId: string) => Promise<void>;
+  onChangeStatus: (courseId: string, status: Status) => Promise<void>;
   type: InstitutionType;
+}
+
+function InlineTeacherSelect({ course, teachers, onChange }: { course: Course; teachers: Teacher[]; onChange: (courseId: string, teacherId: string) => Promise<void> }) {
+  const [saving, setSaving] = useState(false);
+
+  const handleChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    setSaving(true);
+    try { await onChange(course._id, event.target.value); }
+    finally { setSaving(false); }
+  };
+
+  return <select aria-label={`Change teacher for ${course.title.en}`} title="Click to change teacher" value={course.teacher?._id || ''} disabled={saving} onClick={e => e.stopPropagation()} onChange={handleChange} className="w-full min-w-32 cursor-pointer rounded-lg border border-transparent bg-[var(--color-surface-tertiary)] px-2 py-1 text-xs font-medium outline-none hover:border-[var(--color-border-default)] focus:border-primary-500 disabled:cursor-wait disabled:opacity-60">
+    <option value="">Unassigned</option>
+    {teachers.map(teacher => <option key={teacher._id} value={teacher._id}>{teacherName(teacher)}</option>)}
+  </select>;
+}
+
+function InlineStatusSelect({ course, onChange, compact = false }: { course: Course; onChange: (courseId: string, status: Status) => Promise<void>; compact?: boolean }) {
+  const [saving, setSaving] = useState(false);
+  const colour = course.status === 'published' ? 'bg-green-100 text-green-700' : course.status === 'archived' ? 'bg-gray-100 text-gray-600' : 'bg-amber-100 text-amber-700';
+
+  const handleChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    setSaving(true);
+    try { await onChange(course._id, event.target.value as Status); }
+    finally { setSaving(false); }
+  };
+
+  return <select aria-label={`Change status for ${course.title.en}`} title="Click to change status" value={course.status} disabled={saving} onClick={e => e.stopPropagation()} onChange={handleChange} className={`cursor-pointer rounded-full border-0 font-semibold capitalize outline-none ring-1 ring-transparent hover:ring-current focus:ring-primary-500 disabled:cursor-wait disabled:opacity-60 ${compact ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-xs shadow-sm'} ${colour}`}>
+    <option value="draft">Draft</option>
+    <option value="published">Published</option>
+    <option value="archived">Archived</option>
+  </select>;
 }
 
 // Shared per-course "..." actions menu — used by both the card and table
@@ -210,10 +245,8 @@ function CourseActionsButton({ course: c, onEdit, onDelete, onDuplicate, onToggl
   );
 }
 
-function CourseCard({ course: c, selected, onToggleSelect, type, ...actions }: CourseCardProps) {
+function CourseCard({ course: c, teachers, selected, onToggleSelect, onChangeTeacher, onChangeStatus, type, ...actions }: CourseCardProps) {
   const [thumbnailBroken, setThumbnailBroken] = useState(false);
-  const isPublished = c.status === 'published';
-  const isArchived = c.status === 'archived';
   const className = c.class ? `${c.class.title || c.class.name}${c.class.section ? ` (${c.class.section})` : ''}` : '—';
 
   return (
@@ -224,7 +257,7 @@ function CourseCard({ course: c, selected, onToggleSelect, type, ...actions }: C
         ) : (
           <BookOpen className="h-10 w-10 text-primary-400" strokeWidth={1.5} />
         )}
-        <span className={`absolute top-3 right-3 rounded-full px-2.5 py-0.5 text-xs font-semibold shadow-sm ${isPublished ? 'bg-green-100 text-green-700' : isArchived ? 'bg-gray-100 text-gray-600' : 'bg-amber-100 text-amber-700'}`}>{c.status}</span>
+        <div className="absolute right-3 top-3"><InlineStatusSelect course={c} onChange={onChangeStatus} /></div>
         <input type="checkbox" checked={selected} onChange={() => onToggleSelect(c._id)} onClick={(e) => e.stopPropagation()} className="absolute top-3 left-3 h-4 w-4" />
       </div>
 
@@ -235,7 +268,7 @@ function CourseCard({ course: c, selected, onToggleSelect, type, ...actions }: C
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="rounded-lg bg-[var(--color-surface-tertiary)] p-2"><span className="text-[var(--color-text-tertiary)]">Teacher</span><p className="mt-0.5 truncate font-medium">{teacherName(c.teacher)}</p></div>
+          <div className="rounded-lg bg-[var(--color-surface-tertiary)] p-2"><span className="text-[var(--color-text-tertiary)]">Teacher</span><div className="mt-0.5"><InlineTeacherSelect course={c} teachers={teachers} onChange={onChangeTeacher} /></div></div>
           <div className="rounded-lg bg-[var(--color-surface-tertiary)] p-2"><span className="text-[var(--color-text-tertiary)]">Students</span><p className="mt-0.5 font-medium">{c.enrolledStudents || 0} / {c.maxStudents || '∞'}</p></div>
         </div>
 
@@ -257,9 +290,7 @@ function CourseCard({ course: c, selected, onToggleSelect, type, ...actions }: C
 // Course Table Row — same data + actions as the card, in a compact row
 // ---------------------------------------------------------------------------
 
-function CourseTableRow({ course: c, selected, onToggleSelect, type, ...actions }: CourseCardProps) {
-  const isPublished = c.status === 'published';
-  const isArchived = c.status === 'archived';
+function CourseTableRow({ course: c, teachers, selected, onToggleSelect, onChangeTeacher, onChangeStatus, type, ...actions }: CourseCardProps) {
   const className = c.class ? `${c.class.title || c.class.name}${c.class.section ? ` (${c.class.section})` : ''}` : '—';
 
   return (
@@ -272,10 +303,10 @@ function CourseTableRow({ course: c, selected, onToggleSelect, type, ...actions 
         </div>
       </td>
       <td className="px-3 py-2.5 text-[var(--color-text-tertiary)]">{c.courseCode || '—'}</td>
-      <td className="px-3 py-2.5 truncate">{teacherName(c.teacher)}</td>
+      <td className="px-3 py-2.5"><InlineTeacherSelect course={c} teachers={teachers} onChange={onChangeTeacher} /></td>
       <td className="px-3 py-2.5 truncate">{className}</td>
       <td className="px-3 py-2.5 whitespace-nowrap">{c.enrolledStudents || 0} / {c.maxStudents || '∞'}</td>
-      <td className="px-3 py-2.5"><span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${isPublished ? 'bg-green-100 text-green-700' : isArchived ? 'bg-gray-100 text-gray-600' : 'bg-amber-100 text-amber-700'}`}>{c.status}</span></td>
+      <td className="px-3 py-2.5"><InlineStatusSelect course={c} onChange={onChangeStatus} compact /></td>
       <td className="px-3 py-2.5 text-right"><CourseActionsButton course={c} {...actions} /></td>
     </tr>
   );
@@ -287,6 +318,7 @@ export default function CoursesManage() {
   const organizationId = user?.organizationId || (user as any)?.schoolId || '';
   const [org, setOrg] = useState<Org | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [loading, setLoading] = useState(true);
@@ -308,7 +340,7 @@ export default function CoursesManage() {
     try { localStorage.setItem('courses-view-mode', mode); } catch { /* ignore */ }
   };
 
-  const load = useCallback(async () => { if (!organizationId) return; setLoading(true); try { const [o, c] = await Promise.all([api.get(`/schools/${organizationId}`), api.get('/courses/admin', { params: { school: organizationId, limit: 300 } })]); const raw = o.data.data || o.data; setOrg(raw); setCourses(c.data.data || []); } catch (err: any) { setError(err.response?.data?.message || 'Unable to load courses'); setCourses([]); } finally { setLoading(false); } }, [organizationId]);
+  const load = useCallback(async () => { if (!organizationId) return; setLoading(true); try { const [o, c, t] = await Promise.all([api.get(`/schools/${organizationId}`), api.get('/courses/admin', { params: { school: organizationId, limit: 300 } }), api.get('/teachers', { params: { school: organizationId, status: 'active', limit: 500 } })]); const raw = o.data.data || o.data; setOrg(raw); setCourses(c.data.data || []); setTeachers(t.data.data || []); } catch (err: any) { setError(err.response?.data?.message || 'Unable to load courses'); setCourses([]); setTeachers([]); } finally { setLoading(false); } }, [organizationId]);
   useEffect(() => { load(); }, [load]);
 
   const filtered = useMemo(() => courses.filter(c => { const q = search.toLowerCase().trim(); return (!q || c.title?.en?.toLowerCase().includes(q) || c.courseCode?.toLowerCase().includes(q) || c.category?.toLowerCase().includes(q) || teacherName(c.teacher).toLowerCase().includes(q)) && (status === 'all' || c.status === status); }), [courses, search, status]);
@@ -343,6 +375,23 @@ export default function CoursesManage() {
   const handleToggleStatus = async (id: string, currentStatus: Status) => {
     const newStatus: Status = currentStatus === 'published' ? 'draft' : 'published';
     try { await api.patch(`/courses/${id}`, { status: newStatus }); setCourses(prev => prev.map(c => c._id === id ? { ...c, status: newStatus } : c)); } catch (err: any) { setError(err.response?.data?.message || 'Failed to update course'); }
+  };
+  const handleChangeStatus = async (id: string, nextStatus: Status) => {
+    const previous = courses.find(course => course._id === id)?.status;
+    if (!previous || previous === nextStatus) return;
+    setError('');
+    setCourses(current => current.map(course => course._id === id ? { ...course, status: nextStatus } : course));
+    try { await api.patch(`/courses/${id}`, { status: nextStatus }); }
+    catch (err: any) { setCourses(current => current.map(course => course._id === id ? { ...course, status: previous } : course)); setError(err.response?.data?.message || 'Failed to update course status'); throw err; }
+  };
+  const handleChangeTeacher = async (id: string, teacherId: string) => {
+    const previous = courses.find(course => course._id === id)?.teacher || null;
+    const nextTeacher = teachers.find(teacher => teacher._id === teacherId) || null;
+    if ((previous?._id || '') === teacherId) return;
+    setError('');
+    setCourses(current => current.map(course => course._id === id ? { ...course, teacher: nextTeacher } : course));
+    try { await api.patch(`/courses/${id}`, { teacher: teacherId || null }); }
+    catch (err: any) { setCourses(current => current.map(course => course._id === id ? { ...course, teacher: previous } : course)); setError(err.response?.data?.message || 'Failed to change course teacher'); throw err; }
   };
   const handleArchiveRestore = async (id: string, currentStatus: Status) => {
     const newStatus: Status = currentStatus === 'archived' ? 'draft' : 'archived';
@@ -379,8 +428,11 @@ export default function CoursesManage() {
             <CourseTableRow
               key={c._id}
               course={c}
+              teachers={teachers}
               selected={selected.includes(c._id)}
               onToggleSelect={(id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])}
+              onChangeTeacher={handleChangeTeacher}
+              onChangeStatus={handleChangeStatus}
               onEdit={setModal}
               onDelete={(id) => { if (window.confirm('Delete this course permanently? This action cannot be undone.')) remove(id); }}
               onDuplicate={handleDuplicate}
@@ -401,8 +453,11 @@ export default function CoursesManage() {
       <CourseCard
         key={c._id}
         course={c}
+        teachers={teachers}
         selected={selected.includes(c._id)}
         onToggleSelect={(id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])}
+        onChangeTeacher={handleChangeTeacher}
+        onChangeStatus={handleChangeStatus}
         onEdit={setModal}
         onDelete={(id) => { if (window.confirm('Delete this course permanently? This action cannot be undone.')) remove(id); }}
         onDuplicate={handleDuplicate}
