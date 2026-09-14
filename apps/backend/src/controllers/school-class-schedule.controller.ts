@@ -288,6 +288,29 @@ async function validateReferences(schoolId: string, classId: string, courseId: s
   return { cls, course, teacher };
 }
 
+async function assertSchedulableReferences(params: {
+  schoolId: string;
+  cls: any;
+  course: any;
+  teacherId?: string | null;
+  active: boolean;
+}) {
+  if (!params.active) return;
+  if (params.cls?.status !== 'active') {
+    throw new BadRequestError('Only active classes can be added to the active timetable');
+  }
+  if (params.course?.status !== 'published') {
+    throw new BadRequestError('Only published courses / subjects can be added to the active timetable');
+  }
+  if (params.teacherId) {
+    const teacher = await Teacher.findOne({ _id: params.teacherId, school: params.schoolId }).select('status').lean();
+    if (!teacher) throw new BadRequestError('Selected teacher does not belong to this school');
+    if ((teacher as any).status !== 'active') {
+      throw new BadRequestError('Only active teachers can be assigned to the active timetable');
+    }
+  }
+}
+
 export const createSchoolSchedule = async (req: Request, res: Response): Promise<Response> => {
   const { schoolId } = await resolveSchoolContext(req, req.body?.school);
   const classId = String(req.body?.class || '');
@@ -304,6 +327,7 @@ export const createSchoolSchedule = async (req: Request, res: Response): Promise
 
   const refs = await validateReferences(schoolId, classId, courseId, teacherId);
   if (!teacherId && (refs.course as any).teacher) teacherId = String((refs.course as any).teacher);
+  await assertSchedulableReferences({ schoolId, cls: refs.cls, course: refs.course, teacherId, active: isActive });
 
   await assertNoConflicts({ schoolId, classId, courseId, teacherId, room: (refs.cls as any).room, dayOfWeek, startTime, endTime, active: isActive });
 
@@ -347,6 +371,7 @@ export const updateSchoolSchedule = async (req: Request, res: Response): Promise
   if (!startTime || !endTime || endTime <= startTime) throw new BadRequestError('A valid start and end time are required');
   const refs = await validateReferences(schoolId, classId, courseId, teacherId);
   if (!teacherId && req.body?.teacher === undefined && (refs.course as any).teacher) teacherId = String((refs.course as any).teacher);
+  await assertSchedulableReferences({ schoolId, cls: refs.cls, course: refs.course, teacherId, active: isActive });
 
   await assertNoConflicts({
     schoolId,
@@ -455,6 +480,7 @@ export const importSchoolSchedules = async (req: Request, res: Response): Promis
       const course = await resolveCourse(schoolId, cls._id, courseValue);
       const teacher = teacherValue ? await resolveTeacher(schoolId, teacherValue) : null;
       const teacherId = teacher?._id ? String(teacher._id) : (course as any).teacher ? String((course as any).teacher) : null;
+      await assertSchedulableReferences({ schoolId, cls, course, teacherId, active: isActive });
 
       const exact = await ClassSchedule.findOne({
         school: schoolId,
