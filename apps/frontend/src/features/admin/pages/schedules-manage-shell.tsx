@@ -9,7 +9,7 @@ import { SchedulesTimetable } from './schedules-timetable';
 
 export function SchedulesManageShell() {
   const { user } = useAuth();
-  const [view, setView] = useState<'table' | 'timetable'>('table');
+  const [view, setView] = useState<'table' | 'timetable'>('timetable');
   const [schoolMode, setSchoolMode] = useState(false);
   const [resolvingMode, setResolvingMode] = useState(user?.role === 'org_admin');
 
