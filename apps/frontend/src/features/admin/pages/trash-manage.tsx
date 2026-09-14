@@ -17,6 +17,18 @@ interface TrashItem {
   deletedAt: string;
 }
 
+interface TrashBatch {
+  _id: string;
+  ids: string[];
+  count: number;
+  entityType: TrashItem['entityType'];
+  label: string;
+  sampleLabels: string[];
+  school?: TrashItem['school'];
+  deletedBy?: TrashItem['deletedBy'];
+  deletedAt: string;
+}
+
 interface UndoState {
   item: TrashItem;
   entityId: string | null;
@@ -51,6 +63,8 @@ export function TrashManage() {
   const isSuperAdmin = user?.role === 'admin';
 
   const [items, setItems] = useState<TrashItem[]>([]);
+  const [batches, setBatches] = useState<TrashBatch[]>([]);
+  const [view, setView] = useState<'individual' | 'bulk'>('individual');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -69,13 +83,15 @@ export function TrashManage() {
   const fetchItems = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const params: any = { page: String(page), limit: String(limit) };
+      const params: any = { page: String(page), limit: String(limit), view };
       if (entityType) params.entityType = entityType;
       const { data } = await api.get('/trash', { params });
-      setItems(data.data || []); setTotal(data.meta?.total || 0);
+      if (view === 'bulk') setBatches(data.data || []);
+      else setItems(data.data || []);
+      setTotal(data.meta?.total || 0);
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to load trash'); }
     finally { setLoading(false); }
-  }, [page, entityType]);
+  }, [page, entityType, view]);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
   useEffect(() => () => { if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current); }, []);
@@ -93,7 +109,11 @@ export function TrashManage() {
     selectableItems.forEach(i => n.add(i._id));
     return n;
   });
-  useEffect(() => { setSelected(new Set()); }, [page, entityType]);
+  useEffect(() => { setSelected(new Set()); }, [page, entityType, view]);
+
+  const changeView = (next: 'individual' | 'bulk') => {
+    setView(next); setPage(1); setMessage(''); setError('');
+  };
 
   // ── Restore (optimistic + undo) ──
   const dismissUndo = () => {
@@ -161,13 +181,28 @@ export function TrashManage() {
     finally { setBulkBusy(false); }
   };
 
+  const handleBatchRestore = async (batch: TrashBatch) => {
+    if (!confirm(`Restore all ${batch.count} items from “${batch.label}”?`)) return;
+    setBulkBusy(true); setError('');
+    try {
+      const { data } = await api.post('/trash/bulk-restore', { ids: batch.ids });
+      const restored = data.data?.restored ?? 0;
+      setMessage(`Restored ${restored} of ${batch.count} item(s) from one bulk deletion`);
+      await fetchItems();
+    } catch (err: any) { setError(err.response?.data?.message || 'Bulk deletion restore failed'); }
+    finally { setBulkBusy(false); }
+  };
+
   const confirmBulkPurge = async (ids: string[]) => {
     setConfirmBusy(true); setError('');
     try {
       const { data } = await api.delete('/trash/bulk', { data: { ids } });
       const deletedIds = new Set((data.data?.results || []).filter((r: any) => r.success).map((r: any) => r.id));
-      setItems(prev => prev.filter(i => !deletedIds.has(i._id)));
-      setTotal(t => Math.max(0, t - deletedIds.size));
+      if (view === 'bulk') await fetchItems();
+      else {
+        setItems(prev => prev.filter(i => !deletedIds.has(i._id)));
+        setTotal(t => Math.max(0, t - deletedIds.size));
+      }
       setSelected(new Set());
       setMessage(`Permanently deleted ${data.data?.deleted ?? 0} of ${ids.length} item(s)`);
     } catch (err: any) { setError(err.response?.data?.message || 'Bulk delete failed'); }
@@ -179,7 +214,7 @@ export function TrashManage() {
     setConfirmBusy(true); setError('');
     try {
       const { data } = await api.delete('/trash', { data: { confirm: true } });
-      setItems([]); setTotal(0); setPage(1); setSelected(new Set());
+      setItems([]); setBatches([]); setTotal(0); setPage(1); setSelected(new Set());
       setMessage(`Permanently deleted ${data.data?.deleted ?? 0} item(s)`);
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to empty trash'); }
     finally { setConfirmBusy(false); setConfirmModal(null); setConfirmTyped(''); }
@@ -193,11 +228,10 @@ export function TrashManage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🗑️ Trash</h1>
-            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} deleted item{total === 1 ? '' : 's'} — restore or permanently delete</p>
+            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} {view === 'bulk' ? `bulk deletion${total === 1 ? '' : 's'}` : `individual item${total === 1 ? '' : 's'}`} — restore or permanently delete</p>
           </div>
           <button
-            onClick={() => total > 0 && setConfirmModal({ kind: 'empty' })}
-            disabled={total === 0}
+            onClick={() => setConfirmModal({ kind: 'empty' })}
             className="rounded-xl border border-red-300 dark:border-red-800 px-5 py-2.5 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             🗑️ Empty Trash
@@ -215,14 +249,18 @@ export function TrashManage() {
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="inline-flex w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1 sm:w-auto">
+            <button type="button" onClick={() => changeView('individual')} className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-colors sm:flex-none ${view === 'individual' ? 'bg-[var(--color-surface-primary)] text-primary-600 shadow-sm' : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'}`}>Individual Items</button>
+            <button type="button" onClick={() => changeView('bulk')} className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition-colors sm:flex-none ${view === 'bulk' ? 'bg-[var(--color-surface-primary)] text-primary-600 shadow-sm' : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'}`}>Bulk Deletions</button>
+          </div>
           <select value={entityType} onChange={e => { setEntityType(e.target.value); setPage(1); }} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500">
             <option value="">All Types</option>
             {ENTITY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
 
-        {selected.size > 0 && (
+        {view === 'individual' && selected.size > 0 && (
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950/30 px-4 py-3">
             <span className="text-sm font-medium text-primary-700 dark:text-primary-300">{selected.size} selected</span>
             <button onClick={handleBulkRestore} disabled={bulkBusy} className="rounded-lg border border-primary-300 dark:border-primary-700 bg-[var(--color-surface-primary)] px-3 py-1.5 text-xs font-semibold text-primary-600 dark:text-primary-400 hover:bg-primary-100 dark:hover:bg-primary-900/40 disabled:opacity-50 transition-colors">
@@ -243,11 +281,10 @@ export function TrashManage() {
               <table className="w-full text-sm">
                 <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                   <tr>
-                    <th className="px-5 py-3 w-10">
-                      <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} disabled={selectableItems.length === 0} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" />
-                    </th>
+                    {view === 'individual' && <th className="px-5 py-3 w-10"><input type="checkbox" checked={allSelected} onChange={toggleSelectAll} disabled={selectableItems.length === 0} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" /></th>}
                     <th className="text-left px-5 py-3 font-semibold whitespace-nowrap">Type</th>
-                    <th className="text-left px-5 py-3 font-semibold whitespace-nowrap">Name</th>
+                    <th className="text-left px-5 py-3 font-semibold whitespace-nowrap">{view === 'bulk' ? 'Bulk deletion' : 'Name'}</th>
+                    {view === 'bulk' && <th className="text-left px-5 py-3 font-semibold whitespace-nowrap">Items</th>}
                     <th className="text-left px-5 py-3 font-semibold hidden md:table-cell whitespace-nowrap">Organization</th>
                     <th className="text-left px-5 py-3 font-semibold hidden sm:table-cell whitespace-nowrap">Deleted By</th>
                     <th className="text-left px-5 py-3 font-semibold whitespace-nowrap">Deleted At</th>
@@ -255,9 +292,19 @@ export function TrashManage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {items.length === 0 ? (
-                    <tr><td colSpan={7} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">🗑️ Trash is empty</p><p className="text-sm">Deleted students, parents, teachers, classes, courses, and organizations will show up here.</p></td></tr>
-                  ) : items.map(item => (
+                  {(view === 'bulk' ? batches.length === 0 : items.length === 0) ? (
+                    <tr><td colSpan={view === 'bulk' ? 8 : 7} className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-lg mb-1">{view === 'bulk' ? 'No bulk deletions' : '🗑️ Trash is empty'}</p><p className="text-sm">{view === 'bulk' ? 'Items deleted together will appear here as one restorable group.' : 'Deleted students, parents, teachers, classes, courses, and organizations will show up here.'}</p></td></tr>
+                  ) : view === 'bulk' ? batches.map(batch => (
+                    <tr key={batch._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
+                      <td className="px-5 py-4 whitespace-nowrap"><span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${TYPE_STYLES[batch.entityType] || 'bg-gray-100 text-gray-600'}`}>{batch.entityType}</span></td>
+                      <td className="px-5 py-4"><p className="font-semibold text-[var(--color-text-primary)]">{batch.label}</p><p className="mt-1 max-w-md truncate text-xs text-[var(--color-text-tertiary)]">{batch.sampleLabels.join(', ')}{batch.count > batch.sampleLabels.length ? ` +${batch.count - batch.sampleLabels.length} more` : ''}</p></td>
+                      <td className="px-5 py-4 whitespace-nowrap"><span className="rounded-full bg-primary-50 px-3 py-1 text-xs font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{batch.count}</span></td>
+                      <td className="px-5 py-4 hidden md:table-cell whitespace-nowrap text-[var(--color-text-secondary)]">{batch.school?.name || '—'}</td>
+                      <td className="px-5 py-4 hidden sm:table-cell whitespace-nowrap text-xs text-[var(--color-text-tertiary)]">{batch.deletedBy?.email || '—'}</td>
+                      <td className="px-5 py-4 whitespace-nowrap text-xs text-[var(--color-text-tertiary)]">{new Date(batch.deletedAt).toLocaleString()}</td>
+                      <td className="px-5 py-4 text-center whitespace-nowrap"><div className="flex items-center justify-center gap-2"><button disabled={bulkBusy} onClick={() => void handleBatchRestore(batch)} className="rounded-lg border border-primary-300 dark:border-primary-800 px-3 py-1.5 text-xs font-semibold text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-950/30 disabled:opacity-50">↩ Restore All</button><button disabled={bulkBusy} onClick={() => setConfirmModal({ kind: 'purge-bulk', ids: batch.ids })} className="rounded-lg border border-red-300 dark:border-red-800 px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50">Delete Group Forever</button></div></td>
+                    </tr>
+                  )) : items.map(item => (
                     <tr key={item._id} className="border-b border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)] transition-colors">
                       <td className="px-5 py-4">
                         <input type="checkbox" checked={selected.has(item._id)} onChange={() => toggleSelected(item._id)} disabled={!canActOn(item)} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30 disabled:opacity-30" />
@@ -336,7 +383,7 @@ export function TrashManage() {
             {confirmModal.kind === 'empty' && (
               <>
                 <h2 className="text-lg font-bold text-[var(--color-text-primary)] mb-2">Empty Trash?</h2>
-                <p className="text-sm text-[var(--color-text-secondary)] mb-4">This will permanently delete <strong>all {total} item{total === 1 ? '' : 's'}</strong> in Trash. This cannot be undone.</p>
+                <p className="text-sm text-[var(--color-text-secondary)] mb-4">This will permanently delete <strong>all items in Trash</strong>, including every individual item and bulk deletion group. This cannot be undone.</p>
                 <label className="block text-xs font-medium text-[var(--color-text-tertiary)] mb-1.5">Type <strong className="text-red-600">DELETE</strong> to confirm</label>
                 <input
                   autoFocus type="text" value={confirmTyped} onChange={e => setConfirmTyped(e.target.value)}

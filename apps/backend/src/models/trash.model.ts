@@ -25,6 +25,9 @@ export interface ITrash extends Document {
   school?: mongoose.Types.ObjectId | null;
   snapshots: ITrashSnapshot[];
   restoreMeta?: Record<string, unknown>;
+  batchId?: mongoose.Types.ObjectId | null;
+  batchLabel?: string;
+  batchSize?: number;
   deletedBy?: mongoose.Types.ObjectId | null;
   deletedByName?: string;
   deletedAt: Date;
@@ -43,6 +46,9 @@ const trashSchema = new Schema<ITrash>(
       },
     ],
     restoreMeta: { type: Schema.Types.Mixed, default: null },
+    batchId: { type: Schema.Types.ObjectId, default: null, index: true },
+    batchLabel: { type: String, default: '', trim: true, maxlength: 200 },
+    batchSize: { type: Number, default: null, min: 2 },
     deletedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     deletedByName: { type: String, default: '' },
     deletedAt: { type: Date, default: Date.now, index: true },
