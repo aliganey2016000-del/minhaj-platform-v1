@@ -38,6 +38,7 @@ interface CourseItem {
   courseCode?: string;
   title?: { en?: string } | string;
   teacher?: { _id?: string } | string | null;
+  status?: string;
 }
 
 interface TimetablePeriod {
@@ -379,8 +380,9 @@ export function SchedulesTimetable() {
     if (!effectiveSchoolId || coursesByClass[classId] || loadingCourseClassIds.has(classId)) return;
     setLoadingCourseClassIds(current => new Set(current).add(classId));
     try {
-      const { data } = await api.get('/courses/admin', { params: { school: effectiveSchoolId, classId, status: 'published', limit: 300 } });
-      setCoursesByClass(current => ({ ...current, [classId]: data.data || [] }));
+      const { data } = await api.get('/courses/admin', { params: { school: effectiveSchoolId, classId, limit: 300 } });
+      const available = (data.data || []).filter((course: CourseItem) => course.status !== 'archived');
+      setCoursesByClass(current => ({ ...current, [classId]: available }));
     } catch (err: any) {
       setError(err.response?.data?.message || `Could not load courses for ${className(classes.find(item => item._id === classId))}.`);
     } finally {
@@ -692,7 +694,7 @@ export function SchedulesTimetable() {
                               {editMode ? (
                                 <select value={selectedCourseId} disabled={savingCells.has(cellKey) || loadingCourseClassIds.has(column.id)} onFocus={() => void loadClassCourses(column.id)} onChange={(event) => void updateCell(column.id, period, event.target.value)} className="min-h-[44px] w-full rounded-lg border border-primary-300 bg-[var(--color-surface-primary)] px-2 py-2 text-xs font-semibold text-[var(--color-text-primary)] outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-60">
                                   <option value="">{loadingCourseClassIds.has(column.id) ? 'Loading courses...' : savingCells.has(cellKey) ? 'Saving...' : '— Empty cell —'}</option>
-                                  {classCourses.map(course => <option key={course._id} value={course._id}>{typeof course.title === 'string' ? course.title : course.title?.en || 'Untitled course'}{course.courseCode ? ` — ${course.courseCode}` : ''}</option>)}
+                                  {classCourses.map(course => <option key={course._id} value={course._id}>{typeof course.title === 'string' ? course.title : course.title?.en || 'Untitled course'}{course.courseCode ? ` — ${course.courseCode}` : ''}{course.status ? ` (${course.status})` : ''}</option>)}
                                   {selectedCourseId && !classCourses.some(course => course._id === selectedCourseId) && <option value={selectedCourseId}>{courses[0] || 'Current course'}</option>}
                                 </select>
                               ) : courses.length > 0 ? (

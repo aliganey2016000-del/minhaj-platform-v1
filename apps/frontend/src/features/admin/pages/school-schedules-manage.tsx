@@ -7,7 +7,7 @@ import BulkEntityImportModal from './components/bulk-entity-import-modal';
 
 type Ref = { _id: string; title?: string; name?: string; section?: string; room?: string };
 type Teacher = { _id: string; teacherId?: string; profile?: { firstName?: string; lastName?: string }; user?: { email?: string } };
-type Course = { _id: string; courseCode?: string; title: { en: string }; teacher?: Teacher | null; class?: Ref | null };
+type Course = { _id: string; courseCode?: string; title: { en: string }; teacher?: Teacher | null; class?: Ref | null; status?: string };
 type Schedule = {
   _id: string;
   class: Ref;
@@ -133,8 +133,8 @@ function ScheduleModal({ schedule, organizationId, classes, teachers, onClose, o
     if (!classId) { setCourses([]); return; }
     setLoadingCourses(true);
     try {
-      const { data } = await api.get('/courses/admin', { params: { school: organizationId, classId, status: 'published', limit: 300 } });
-      const list: Course[] = data.data || [];
+      const { data } = await api.get('/courses/admin', { params: { school: organizationId, classId, limit: 300 } });
+      const list: Course[] = (data.data || []).filter((course: Course) => course.status !== 'archived');
       setCourses(list);
       if (keepCourse && !list.some(course => course._id === keepCourse)) {
         try {
@@ -180,7 +180,7 @@ function ScheduleModal({ schedule, organizationId, classes, teachers, onClose, o
       <form onSubmit={submit} className="space-y-4 p-5">
         {error && <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/20">{error}</div>}
         <label className="block text-xs font-semibold">Class / Section *<select required value={form.classId} onChange={event => changeClass(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm"><option value="">Select class / section...</option>{classes.map(cls => <option key={cls._id} value={cls._id}>{className(cls)}</option>)}</select></label>
-        <label className="block text-xs font-semibold">Course / Subject *<select required disabled={!form.classId || loadingCourses} value={form.courseId} onChange={event => changeCourse(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm disabled:opacity-50"><option value="">{loadingCourses ? 'Loading subjects...' : form.classId ? 'Select course / subject...' : 'Select class first'}</option>{courses.map(course => <option key={course._id} value={course._id}>{course.title.en}{course.courseCode ? ` — ${course.courseCode}` : ''}</option>)}</select></label>
+        <label className="block text-xs font-semibold">Course / Subject *<select required disabled={!form.classId || loadingCourses} value={form.courseId} onChange={event => changeCourse(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm disabled:opacity-50"><option value="">{loadingCourses ? 'Loading subjects...' : form.classId ? 'Select course / subject...' : 'Select class first'}</option>{courses.map(course => <option key={course._id} value={course._id}>{course.title.en}{course.courseCode ? ` — ${course.courseCode}` : ''}{course.status ? ` (${course.status})` : ''}</option>)}</select></label>
         <label className="block text-xs font-semibold">Teacher / Instructor<select value={form.teacherId} onChange={event => setForm(current => ({ ...current, teacherId: event.target.value }))} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm"><option value="">Unassigned — assign later</option>{teachers.map(teacher => <option key={teacher._id} value={teacher._id}>{teacherName(teacher)}</option>)}</select></label>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2"><label className="block text-xs font-semibold">Day *<select value={form.dayOfWeek} onChange={event => setForm(current => ({ ...current, dayOfWeek: Number(event.target.value) }))} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm">{DAYS.map((day, index) => <option key={day} value={index}>{day}</option>)}</select></label><div><span className="block text-xs font-semibold">Time *</span><div className="mt-1 flex items-center gap-2"><input required type="time" value={form.startTime} onChange={event => setForm(current => ({ ...current, startTime: event.target.value }))} className="min-w-0 flex-1 rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /><span className="text-xs text-[var(--color-text-tertiary)]">to</span><input required type="time" value={form.endTime} onChange={event => setForm(current => ({ ...current, endTime: event.target.value }))} className="min-w-0 flex-1 rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" /></div></div></div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isActive} onChange={event => setForm(current => ({ ...current, isActive: event.target.checked }))} />Active schedule</label>
