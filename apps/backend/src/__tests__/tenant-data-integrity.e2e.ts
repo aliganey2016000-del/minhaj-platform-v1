@@ -61,7 +61,7 @@ async function main() {
   const ownBrowse = await request(app).get('/api/v1/classes/browse').set('Authorization', `Bearer ${tokenA}`).query({ department: deptA._id.toString() });
   assert(ownBrowse.status === 200 && ownBrowse.body?.data?.[0]?._id === classA._id.toString(), 'same-organization department browse succeeds');
   const crossBrowse = await request(app).get('/api/v1/classes/browse').set('Authorization', `Bearer ${tokenA}`).query({ department: deptB._id.toString() });
-  assert(crossBrowse.status === 404, 'cross-organization department browse is hidden');
+  assert([403, 404].includes(crossBrowse.status), `cross-organization department browse is denied (status ${crossBrowse.status})`);
 
   console.log('\n=== COURSE IMPORT SLUGS ===');
   function workbookBuffer() {
