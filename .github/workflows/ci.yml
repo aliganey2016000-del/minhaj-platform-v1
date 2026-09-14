@@ -48,6 +48,9 @@ jobs:
       - name: Parent portal privacy and authorization tests
         run: npm run test:parent-portal
 
+      - name: Tenant data integrity tests
+        run: npm run test:tenant-data-integrity
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest

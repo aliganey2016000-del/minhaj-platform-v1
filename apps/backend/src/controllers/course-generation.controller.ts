@@ -6,6 +6,7 @@ import { BadRequestError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { bulkImport } from './course-spreadsheet.controller';
+import { tenantSlug } from '../utils/tenant-slug';
 
 const DIACRITICS_REGEX = new RegExp('[\\u0300-\\u036f]', 'g');
 
@@ -90,8 +91,9 @@ export const generateMissingCourses = async (req: Request, res: Response): Promi
 
   const allRows = schoolCourseRows();
   const missingRows = allRows.filter(([title, code, placement]) => {
-    const slug = `${slugify(title)}-${slugify(placement)}`;
-    return !existingCodes.has(code.toLowerCase()) && !existingSlugs.has(slug);
+    const legacySlug = `${slugify(title)}-${slugify(placement)}`;
+    const slug = tenantSlug(legacySlug, schoolId);
+    return !existingCodes.has(code.toLowerCase()) && !existingSlugs.has(legacySlug) && !existingSlugs.has(slug);
   });
   const skipped = allRows.length - missingRows.length;
 

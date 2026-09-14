@@ -29,20 +29,21 @@ export const browseClasses = async (req: Request, res: Response): Promise<Respon
   const departmentId = req.query.department as string | undefined;
   if (!departmentId) throw new BadRequestError('department is required');
 
-  const dept = await Department.findById(departmentId).select('school').lean();
+  const dept = await Department.findById(departmentId).select('tenantId').lean();
   if (!dept) throw new NotFoundError('Department');
+  const departmentSchool = (dept as any).tenantId;
 
   if (req.user?.role === 'student') {
     const student = await ensureStudentRecord(req.user!.userId);
     const studentSchool = (student as any).school;
-    if (!studentSchool || String((dept as any).school) !== String(studentSchool)) {
+    if (!studentSchool || String(departmentSchool) !== String(studentSchool)) {
       throw new NotFoundError('Department');
     }
   } else {
-    assertOwnsOrg(req, dept, 'school');
+    assertOwnsOrg(req, { school: departmentSchool }, 'school');
   }
 
-  const classes = await ClassModel.find({ department: departmentId, status: 'active' })
+  const classes = await ClassModel.find({ school: departmentSchool, department: departmentId, status: 'active' })
     .select('title section')
     .sort({ title: 1, section: 1 })
     .lean();
@@ -767,4 +768,3 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     errors,
   }, `Imported ${inserted} of ${rows.length} classes`);
 };
-

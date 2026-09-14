@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Clipboard, Download, GraduationCap, Layers
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { type InstitutionType, resolveInstitutionType } from '../../../lib/institution-type';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 type StudentStatus = 'active' | 'inactive' | 'graduated' | 'suspended';
 type ApprovalStatus = 'pending' | 'approved' | 'rejected';
@@ -112,9 +112,16 @@ function ImportStudentsModal({ organizationId, onClose, onImported, downloadTemp
 }
 
 export function StudentsManage() {
+  const location = useLocation(); const navigate = useNavigate();
   const { user } = useAuth(); const organizationId = user?.organizationId || '';
   const [organization, setOrganization] = useState<Organization | null>(null); const [classes, setClasses] = useState<ClassItem[]>([]); const [students, setStudents] = useState<Student[]>([]);
   const [search, setSearch] = useState(''); const [status, setStatus] = useState(''); const [classFilter, setClassFilter] = useState(''); const [page, setPage] = useState(1); const [total, setTotal] = useState(0); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [selected, setSelected] = useState<string[]>([]); const [menuOpen, setMenuOpen] = useState(false); const [modal, setModal] = useState<{ open: boolean; student?: Student }>({ open: false }); const [profileStudent, setProfileStudent] = useState<Student | null>(null); const [showImport, setShowImport] = useState(false);
+  useEffect(() => {
+    const routeState = location.state as { openCreate?: boolean } | null;
+    if (!routeState?.openCreate) return;
+    setModal({ open: true });
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
   const limit = 20; const pages = Math.max(1, Math.ceil(total / limit)); const type = resolveInstitutionType(organization); const activeClasses = useMemo(() => classes.filter(c => c.status === 'active'), [classes]);
   const classLabel = useCallback((student: Student) => { if (!student.class) return '-'; const enriched = classes.find(c => c._id === student.class?._id); return enriched ? classOptionLabel(enriched, false) : `${student.class.title}${student.class.section ? ` · Section ${student.class.section}` : ''}`; }, [classes]);
   const loadMeta = useCallback(async () => { if (!organizationId) { setError('Your account is not assigned to an organization.'); return; } try { const org = await api.get(`/schools/${organizationId}`); setOrganization(dataOf<Organization>(org)); const all: ClassItem[] = []; for (let p = 1; p <= 50; p += 1) { const response = await api.get('/classes', { params: { schoolId: organizationId, page: p, limit: 200 } }); const batch = dataOf<ClassItem[]>(response) || []; all.push(...batch); const totalReported = Number(response.data?.pagination?.total ?? response.data?.meta?.total ?? 0); const pagesReported = Number(response.data?.pagination?.pages ?? response.data?.pagination?.totalPages ?? response.data?.meta?.pages ?? 0); if (!batch.length || batch.length < 200 || (pagesReported > 0 && p >= pagesReported) || (totalReported > 0 && all.length >= totalReported)) break; } setClasses(all); } catch (err: any) { setError(err?.response?.data?.message || 'Failed to load organization structure.'); } }, [organizationId]);

@@ -18,6 +18,7 @@ import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { BadRequestError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { tenantSlug } from '../utils/tenant-slug';
 
 const DIACRITICS_REGEX = new RegExp('[\\u0300-\\u036f]', 'g');
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -415,6 +416,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   }
   const slugMap = new Map<string, any>();
   for (const course of existingSlugs as any[]) slugMap.set(String(course.slug), course);
+  const scopedSlugMap = new Map<string, any>();
+  for (const course of existingScoped as any[]) scopedSlugMap.set(String(course.slug), course);
 
   const errors: { row: number; message: string }[] = [];
   const insertDocs: any[] = [];
@@ -460,20 +463,18 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       }
 
       const baseSlug = slugify(title);
-      const slug = placement ? `${baseSlug}-${slugify(placement)}` : baseSlug;
+      const legacySlug = placement ? `${baseSlug}-${slugify(placement)}` : baseSlug;
+      const slug = tenantSlug(legacySlug, context.schoolId);
       const existingByCode = courseCode ? codeMap.get(normalizeLookup(courseCode)) : undefined;
       const slugOwner = slugMap.get(slug);
-      const existing = existingByCode || (slugOwner && String(slugOwner.school) === String(context.schoolId) ? slugOwner : undefined);
+      const existing = existingByCode || scopedSlugMap.get(slug) || scopedSlugMap.get(legacySlug);
 
       if (existing) {
         const existingId = String(existing._id);
         if (seenExistingIds.has(existingId)) throw new Error('This course appears more than once in the import file');
-        if (slugOwner && String(slugOwner._id) !== existingId) {
-          throw new Error(`Another course already uses the generated course URL "${slug}"`);
-        }
       } else {
-        if (slugOwner && String(slugOwner.school) !== String(context.schoolId)) {
-          throw new Error(`A course with generated URL "${slug}" already exists in another organization`);
+        if (slugOwner) {
+          throw new Error(`Another course already uses the generated course URL "${slug}"`);
         }
         if (seenSlugs.has(slug)) throw new Error('This course appears more than once in the import file');
       }
@@ -506,7 +507,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       if (existing) {
         const existingId = String(existing._id);
         seenExistingIds.add(existingId);
-        commonFields.slug = slug;
+        // Re-imports update existing courses without changing public URLs.
+        commonFields.slug = existing.slug;
         updateOps.push({
           updateOne: {
             filter: { _id: existing._id, school: context.schoolId },

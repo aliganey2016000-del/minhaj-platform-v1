@@ -22,6 +22,7 @@ import ensureStudentRecord from '../utils/ensure-student';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { moveToTrash } from '../utils/trash';
 import { escapeRegex } from '../utils/escape-regex';
+import { tenantSlug } from '../utils/tenant-slug';
 
 /**
  * Throws ForbiddenError if the caller is a `teacher` and this course isn't
@@ -1050,7 +1051,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       // a wrong teacher email, actually apply the fix instead of failing
       // every row with a duplicate-key error.
       const baseSlug = slugify(titleEn);
-      const slug = classTitle ? `${baseSlug}-${slugify(classTitle)}` : baseSlug;
+      const legacySlug = classTitle ? `${baseSlug}-${slugify(classTitle)}` : baseSlug;
+      const slug = tenantSlug(legacySlug, schoolId);
 
       const fields = {
         category, level, duration, fee, maxStudents,
@@ -1058,7 +1060,9 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         thumbnail: thumbnail || undefined,
       };
 
-      const existing = slugMap.get(slug);
+      const generatedOwner = slugMap.get(slug);
+      const legacyOwner = slugMap.get(legacySlug);
+      const existing = generatedOwner || (legacyOwner && String(legacyOwner.school) === String(schoolId) ? legacyOwner : undefined);
       if (existing) {
         if (String(existing.school) !== String(schoolId)) {
           throw new Error(`A course with slug "${slug}" already exists in a different organization`);
