@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Download, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { BookOpen, Download, LayoutGrid, MoreVertical, Pencil, Plus, Search, Table2, Trash2, Upload, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import BulkEntityImportModal from './components/bulk-entity-import-modal';
 import { useAuth } from '../../../store/auth-context';
@@ -134,10 +134,7 @@ function TeacherPermissionModal({ teacherId, teacherName: tName, courseTitle, on
 // Course Card — thumbnail, meta, and the full per-course actions menu
 // ---------------------------------------------------------------------------
 
-interface CourseCardProps {
-  course: Course;
-  selected: boolean;
-  onToggleSelect: (id: string) => void;
+interface CourseActionHandlers {
   onEdit: (course: Course) => void;
   onDelete: (id: string) => void;
   onDuplicate: (course: Course) => void;
@@ -149,12 +146,19 @@ interface CourseCardProps {
   onSetAccessMode: (course: Course) => void;
   onTeacherPermission: (course: Course) => void;
   onGateReport: (course: Course) => void;
+}
+
+interface CourseCardProps extends CourseActionHandlers {
+  course: Course;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
   type: InstitutionType;
 }
 
-function CourseCard({ course: c, selected, onToggleSelect, onEdit, onDelete, onDuplicate, onToggleStatus, onArchiveRestore, onBuildContent, onViewStudents, onPreview, onSetAccessMode, onTeacherPermission, onGateReport, type }: CourseCardProps) {
+// Shared per-course "..." actions menu — used by both the card and table
+// row layouts so the two views stay behaviorally identical.
+function CourseActionsButton({ course: c, onEdit, onDelete, onDuplicate, onToggleStatus, onArchiveRestore, onBuildContent, onViewStudents, onPreview, onSetAccessMode, onTeacherPermission, onGateReport }: { course: Course } & CourseActionHandlers) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [thumbnailBroken, setThumbnailBroken] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [menuCoords, setMenuCoords] = useState({ top: 0, left: 0 });
@@ -173,6 +177,43 @@ function CourseCard({ course: c, selected, onToggleSelect, onEdit, onDelete, onD
   const isPublished = c.status === 'published';
   const isArchived = c.status === 'archived';
   const handleAction = (action: () => void) => { setMenuOpen(false); action(); };
+
+  return (
+    <div className="relative flex-shrink-0">
+      <button ref={buttonRef} onClick={toggleMenu} className="h-8 w-8 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors" aria-label="Course actions">
+        <MoreVertical className="h-5 w-5" strokeWidth={1.75} />
+      </button>
+      {menuOpen && createPortal(
+        <div ref={menuRef} style={{ position: 'fixed', top: menuCoords.top, left: menuCoords.left }} className="w-60 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-xl py-1.5 origin-top-right" onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => handleAction(() => onEdit(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">✏️</span><span>Edit Course</span></button>
+          <button onClick={() => handleAction(() => onBuildContent(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🏗️</span><span>Build Course Content</span></button>
+          <button onClick={() => handleAction(() => onSetAccessMode(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">{c.accessMode === 'restricted' ? '🔒' : '🔓'}</span><span>Course Progression Settings</span></button>
+          <button onClick={() => handleAction(() => onTeacherPermission(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🔐</span><span>Teacher Content Permission</span></button>
+          <button onClick={() => handleAction(() => onViewStudents(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">👥</span><span>View Enrolled Students</span></button>
+          <button onClick={() => handleAction(() => onGateReport(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🎯</span><span>Interactive Gate Report</span></button>
+          <button onClick={() => handleAction(() => onDuplicate(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">📋</span><span>Duplicate Course</span></button>
+          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+          <button onClick={() => handleAction(() => onToggleStatus(c._id, c.status))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">{isPublished ? '📥' : '📤'}</span><span className={isPublished ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>{isPublished ? 'Unpublish' : 'Publish'}</span></button>
+          {!isArchived ? (
+            <button onClick={() => handleAction(() => { if (window.confirm('Archive this course? It will be hidden from students.')) onArchiveRestore(c._id, c.status); })} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-left"><span className="w-4 text-center flex-shrink-0">📦</span><span>Archive</span></button>
+          ) : (
+            <button onClick={() => handleAction(() => onArchiveRestore(c._id, c.status))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/20 transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🔄</span><span>Restore</span></button>
+          )}
+          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+          <button onClick={() => handleAction(() => onPreview(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">👁️</span><span>Preview as Student</span></button>
+          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+          <button onClick={() => handleAction(() => { if (window.confirm('Delete this course permanently? This action cannot be undone.')) onDelete(c._id); })} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🗑️</span><span>Delete Course</span></button>
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+function CourseCard({ course: c, selected, onToggleSelect, type, ...actions }: CourseCardProps) {
+  const [thumbnailBroken, setThumbnailBroken] = useState(false);
+  const isPublished = c.status === 'published';
+  const isArchived = c.status === 'archived';
   const className = c.class ? `${c.class.title || c.class.name}${c.class.section ? ` (${c.class.section})` : ''}` : '—';
 
   return (
@@ -190,34 +231,7 @@ function CourseCard({ course: c, selected, onToggleSelect, onEdit, onDelete, onD
       <div className="p-5 flex flex-col flex-1 gap-3">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-bold text-[var(--color-text-primary)] leading-snug line-clamp-2 text-base flex-1">{c.title.en || 'Untitled course'}</h3>
-          <div className="relative flex-shrink-0">
-            <button ref={buttonRef} onClick={toggleMenu} className="h-8 w-8 flex items-center justify-center rounded-lg text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors" aria-label="Course actions">
-              <MoreVertical className="h-5 w-5" strokeWidth={1.75} />
-            </button>
-            {menuOpen && createPortal(
-              <div ref={menuRef} style={{ position: 'fixed', top: menuCoords.top, left: menuCoords.left }} className="w-60 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-xl py-1.5 origin-top-right" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => handleAction(() => onEdit(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">✏️</span><span>Edit Course</span></button>
-                <button onClick={() => handleAction(() => onBuildContent(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🏗️</span><span>Build Course Content</span></button>
-                <button onClick={() => handleAction(() => onSetAccessMode(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">{c.accessMode === 'restricted' ? '🔒' : '🔓'}</span><span>Course Progression Settings</span></button>
-                <button onClick={() => handleAction(() => onTeacherPermission(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🔐</span><span>Teacher Content Permission</span></button>
-                <button onClick={() => handleAction(() => onViewStudents(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">👥</span><span>View Enrolled Students</span></button>
-                <button onClick={() => handleAction(() => onGateReport(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🎯</span><span>Interactive Gate Report</span></button>
-                <button onClick={() => handleAction(() => onDuplicate(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">📋</span><span>Duplicate Course</span></button>
-                <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-                <button onClick={() => handleAction(() => onToggleStatus(c._id, c.status))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">{isPublished ? '📥' : '📤'}</span><span className={isPublished ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>{isPublished ? 'Unpublish' : 'Publish'}</span></button>
-                {!isArchived ? (
-                  <button onClick={() => handleAction(() => { if (window.confirm('Archive this course? It will be hidden from students.')) onArchiveRestore(c._id, c.status); })} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-left"><span className="w-4 text-center flex-shrink-0">📦</span><span>Archive</span></button>
-                ) : (
-                  <button onClick={() => handleAction(() => onArchiveRestore(c._id, c.status))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/20 transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🔄</span><span>Restore</span></button>
-                )}
-                <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-                <button onClick={() => handleAction(() => onPreview(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">👁️</span><span>Preview as Student</span></button>
-                <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-                <button onClick={() => handleAction(() => { if (window.confirm('Delete this course permanently? This action cannot be undone.')) onDelete(c._id); })} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🗑️</span><span>Delete Course</span></button>
-              </div>,
-              document.body,
-            )}
-          </div>
+          <CourseActionsButton course={c} {...actions} />
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-xs">
@@ -239,6 +253,34 @@ function CourseCard({ course: c, selected, onToggleSelect, onEdit, onDelete, onD
   );
 }
 
+// ---------------------------------------------------------------------------
+// Course Table Row — same data + actions as the card, in a compact row
+// ---------------------------------------------------------------------------
+
+function CourseTableRow({ course: c, selected, onToggleSelect, type, ...actions }: CourseCardProps) {
+  const isPublished = c.status === 'published';
+  const isArchived = c.status === 'archived';
+  const className = c.class ? `${c.class.title || c.class.name}${c.class.section ? ` (${c.class.section})` : ''}` : '—';
+
+  return (
+    <tr className="border-b border-[var(--color-border-default)] last:border-0 hover:bg-[var(--color-surface-tertiary)]/50">
+      <td className="w-10 px-3 py-2.5"><input type="checkbox" checked={selected} onChange={() => onToggleSelect(c._id)} className="h-4 w-4" /></td>
+      <td className="px-3 py-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <BookOpen className="h-4 w-4 flex-shrink-0 text-primary-400" strokeWidth={1.5} />
+          <span className="truncate font-medium text-[var(--color-text-primary)]">{c.title.en || 'Untitled course'}</span>
+        </div>
+      </td>
+      <td className="px-3 py-2.5 text-[var(--color-text-tertiary)]">{c.courseCode || '—'}</td>
+      <td className="px-3 py-2.5 truncate">{teacherName(c.teacher)}</td>
+      <td className="px-3 py-2.5 truncate">{className}</td>
+      <td className="px-3 py-2.5 whitespace-nowrap">{c.enrolledStudents || 0} / {c.maxStudents || '∞'}</td>
+      <td className="px-3 py-2.5"><span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${isPublished ? 'bg-green-100 text-green-700' : isArchived ? 'bg-gray-100 text-gray-600' : 'bg-amber-100 text-amber-700'}`}>{c.status}</span></td>
+      <td className="px-3 py-2.5 text-right"><CourseActionsButton course={c} {...actions} /></td>
+    </tr>
+  );
+}
+
 export default function CoursesManage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -255,7 +297,15 @@ export default function CoursesManage() {
   const [permCourse, setPermCourse] = useState<Course | undefined>(undefined);
   const [selected, setSelected] = useState<string[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [viewMode, setViewMode] = useState<'card' | 'table'>(() => {
+    try { return (localStorage.getItem('courses-view-mode') as 'card' | 'table') || 'card'; } catch { return 'card'; }
+  });
   const type = resolveInstitutionType(org);
+
+  const changeViewMode = (mode: 'card' | 'table') => {
+    setViewMode(mode);
+    try { localStorage.setItem('courses-view-mode', mode); } catch { /* ignore */ }
+  };
 
   const load = useCallback(async () => { if (!organizationId) return; setLoading(true); try { const [o, c] = await Promise.all([api.get(`/schools/${organizationId}`), api.get('/courses/admin', { params: { school: organizationId, limit: 300 } })]); const raw = o.data.data || o.data; setOrg(raw); setCourses(c.data.data || []); } catch (err: any) { setError(err.response?.data?.message || 'Unable to load courses'); setCourses([]); } finally { setLoading(false); } }, [organizationId]);
   useEffect(() => { load(); }, [load]);
@@ -296,10 +346,47 @@ export default function CoursesManage() {
 
   return <div className="space-y-4 p-4 sm:p-6">
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h1 className="truncate text-xl font-bold">Manage Courses</h1><p className="text-sm text-[var(--color-text-secondary)]">{courses.length} courses · {labelFor(type)} curriculum</p></div><div className="relative shrink-0"><button aria-label="Course actions" onClick={() => setMenuOpen(v => !v)} className="rounded-xl border border-[var(--color-border-default)] p-2.5 hover:bg-[var(--color-surface-tertiary)]"><MoreVertical className="h-5 w-5" /></button>{menuOpen && <div className="absolute right-0 top-11 z-30 w-56 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl"><button onClick={() => { setModal('new'); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Plus className="h-4 w-4" /> Add Course</button><button onClick={() => { exportCourses(); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Download className="h-4 w-4" /> Export Courses</button><button onClick={() => { setShowImportModal(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-tertiary)]"><Upload className="h-4 w-4" /> Import Courses</button>{selected.length > 0 && <button onClick={() => { bulkDelete(); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /> Delete Selected ({selected.length})</button>}</div>}</div></div>
-    <div className="flex flex-col gap-2 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search courses, categories, teachers..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2.5 pl-9 pr-3 text-sm" /></div><select value={status} onChange={e => setStatus(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value="all">All statuses</option><option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option></select></div>
+    <div className="flex flex-col gap-2 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search courses, categories, teachers..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2.5 pl-9 pr-3 text-sm" /></div><select value={status} onChange={e => setStatus(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value="all">All statuses</option><option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option></select><div className="flex shrink-0 overflow-hidden rounded-xl border border-[var(--color-border-default)]"><button type="button" aria-label="Card view" aria-pressed={viewMode === 'card'} onClick={() => changeViewMode('card')} className={`flex items-center gap-1.5 px-3 py-2.5 text-sm transition-colors ${viewMode === 'card' ? 'bg-primary-600 text-white' : 'bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)]'}`}><LayoutGrid className="h-4 w-4" /><span className="hidden sm:inline">Cards</span></button><button type="button" aria-label="Table view" aria-pressed={viewMode === 'table'} onClick={() => changeViewMode('table')} className={`flex items-center gap-1.5 border-l border-[var(--color-border-default)] px-3 py-2.5 text-sm transition-colors ${viewMode === 'table' ? 'bg-primary-600 text-white' : 'bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)]'}`}><Table2 className="h-4 w-4" /><span className="hidden sm:inline">Table</span></button></div></div>
     {error && <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
     <label className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? [] : filtered.map(c => c._id))} /> Select all visible</label>
-    {loading ? <div className="rounded-2xl border p-8 text-center text-sm text-[var(--color-text-tertiary)]">Loading courses...</div> : filtered.length === 0 ? <div className="rounded-2xl border p-10 text-center"><BookOpen className="mx-auto mb-2 h-8 w-8 text-[var(--color-text-tertiary)]" /><p className="font-medium">No courses found</p><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Add a course from the three-dot menu.</p></div> : <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">{filtered.map(c => (
+    {loading ? <div className="rounded-2xl border p-8 text-center text-sm text-[var(--color-text-tertiary)]">Loading courses...</div> : filtered.length === 0 ? <div className="rounded-2xl border p-10 text-center"><BookOpen className="mx-auto mb-2 h-8 w-8 text-[var(--color-text-tertiary)]" /><p className="font-medium">No courses found</p><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Add a course from the three-dot menu.</p></div> : viewMode === 'table' ? (
+      <div className="overflow-x-auto rounded-2xl border border-[var(--color-border-default)]">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] text-xs text-[var(--color-text-tertiary)]">
+            <tr>
+              <th className="w-10 px-3 py-3"><input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? [] : filtered.map(c => c._id))} className="h-4 w-4" /></th>
+              <th className="px-3 py-3">Course</th>
+              <th className="px-3 py-3">Code</th>
+              <th className="px-3 py-3">Teacher</th>
+              <th className="px-3 py-3">{type === 'school' ? 'Class / Section' : type === 'training_center' ? 'Batch / Cohort' : 'Class / Cohort'}</th>
+              <th className="px-3 py-3">Students</th>
+              <th className="px-3 py-3">Status</th>
+              <th className="px-3 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>{filtered.map(c => (
+            <CourseTableRow
+              key={c._id}
+              course={c}
+              selected={selected.includes(c._id)}
+              onToggleSelect={(id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])}
+              onEdit={setModal}
+              onDelete={(id) => { if (window.confirm('Delete this course permanently? This action cannot be undone.')) remove(id); }}
+              onDuplicate={handleDuplicate}
+              onToggleStatus={handleToggleStatus}
+              onArchiveRestore={handleArchiveRestore}
+              onBuildContent={handleBuildContent}
+              onViewStudents={handleViewStudents}
+              onPreview={handlePreview}
+              onSetAccessMode={setAccessModeCourse}
+              onTeacherPermission={handleTeacherPermission}
+              onGateReport={handleGateReport}
+              type={type}
+            />
+          ))}</tbody>
+        </table>
+      </div>
+    ) : <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">{filtered.map(c => (
       <CourseCard
         key={c._id}
         course={c}
