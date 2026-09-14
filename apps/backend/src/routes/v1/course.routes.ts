@@ -200,6 +200,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 // POST /api/v1/courses/import — Bulk import matching Add/Edit Course fields
 router.post('/import', authMiddleware, requireModulePermission('courses'), adminOnly, upload.single('file'), asyncHandler(courseSpreadsheetController.bulkImport));
 
+// PATCH /api/v1/courses/bulk/status — Change selected course statuses in one scoped request
+router.patch('/bulk/status', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseController.bulkUpdateStatus));
+
 // GET /api/v1/courses/export — Export matching Add/Edit Course fields
 router.get('/export', authMiddleware, requireModulePermission('courses'), adminOnly, asyncHandler(courseSpreadsheetController.exportCourses as any));
 
