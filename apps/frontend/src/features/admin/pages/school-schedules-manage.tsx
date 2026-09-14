@@ -133,7 +133,7 @@ function ScheduleModal({ schedule, organizationId, classes, teachers, onClose, o
     if (!classId) { setCourses([]); return; }
     setLoadingCourses(true);
     try {
-      const { data } = await api.get('/courses/admin', { params: { school: organizationId, classId, limit: 300 } });
+      const { data } = await api.get('/courses/admin', { params: { school: organizationId, classId, status: 'published', limit: 300 } });
       const list: Course[] = data.data || [];
       setCourses(list);
       if (keepCourse && !list.some(course => course._id === keepCourse)) {
