@@ -47,8 +47,8 @@ export function SchedulesManageShell() {
 
   return (
     <div className="min-w-0">
-      <div className="sticky top-0 z-20 mb-3 flex items-center justify-end px-1 pt-1">
-        <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-sm">
+      <div className="relative z-20 flex items-center justify-end px-4 pt-4 sm:px-6">
+        <div className="inline-flex max-w-full items-center overflow-hidden rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-0.5 shadow-sm">
           <button
             type="button"
             onClick={() => setView('table')}
@@ -60,7 +60,7 @@ export function SchedulesManageShell() {
             aria-pressed={view === 'table'}
           >
             <List className="h-4 w-4" />
-            {schoolMode ? 'Schedule List' : 'Table View'}
+            List
           </button>
           <button
             type="button"
@@ -73,7 +73,7 @@ export function SchedulesManageShell() {
             aria-pressed={view === 'timetable'}
           >
             <CalendarDays className="h-4 w-4" />
-            Timetable View
+            Table
           </button>
         </div>
       </div>
