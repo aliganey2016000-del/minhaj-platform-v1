@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Columns3, Printer, RefreshCw, RotateCcw } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Columns3, Pencil, Printer, RefreshCw, RotateCcw } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -30,6 +30,14 @@ interface ClassItem {
   departmentId?: string;
   shiftMode?: string;
   shift?: string;
+  room?: string;
+}
+
+interface CourseItem {
+  _id: string;
+  courseCode?: string;
+  title?: { en?: string } | string;
+  teacher?: { _id?: string } | string | null;
 }
 
 interface TimetablePeriod {
@@ -130,6 +138,10 @@ export function SchedulesTimetable() {
   const [classPickerOpen, setClassPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [coursesByClass, setCoursesByClass] = useState<Record<string, CourseItem[]>>({});
+  const [loadingCourseClassIds, setLoadingCourseClassIds] = useState<Set<string>>(() => new Set());
+  const [savingCells, setSavingCells] = useState<Set<string>>(() => new Set());
 
   const effectiveSchoolId = schoolId || (isOrgAdmin ? organizationId : '');
 
@@ -356,6 +368,58 @@ export function SchedulesTimetable() {
     return Array.from(new Set(names));
   };
 
+  const getCellSchedules = (classId: string, start: string, end: string) => daySchedules.filter((item) => {
+    const itemClassId = item.class?._id || className(item.class);
+    return itemClassId === classId
+      && String(item.startTime || '').slice(0, 5) === start
+      && String(item.endTime || '').slice(0, 5) === end;
+  });
+
+  const loadClassCourses = useCallback(async (classId: string) => {
+    if (!effectiveSchoolId || coursesByClass[classId] || loadingCourseClassIds.has(classId)) return;
+    setLoadingCourseClassIds(current => new Set(current).add(classId));
+    try {
+      const { data } = await api.get('/courses/admin', { params: { school: effectiveSchoolId, classId, status: 'published', limit: 300 } });
+      setCoursesByClass(current => ({ ...current, [classId]: data.data || [] }));
+    } catch (err: any) {
+      setError(err.response?.data?.message || `Could not load courses for ${className(classes.find(item => item._id === classId))}.`);
+    } finally {
+      setLoadingCourseClassIds(current => { const next = new Set(current); next.delete(classId); return next; });
+    }
+  }, [classes, coursesByClass, effectiveSchoolId, loadingCourseClassIds]);
+
+  const toggleEditMode = () => {
+    const next = !editMode;
+    setEditMode(next);
+    setError('');
+    if (next) columns.forEach(column => void loadClassCourses(column.id));
+  };
+
+  const updateCell = async (classId: string, period: TimetablePeriod, courseId: string) => {
+    const key = `${selectedDay}-${classId}-${period.startTime}-${period.endTime}`;
+    if (savingCells.has(key)) return;
+    setSavingCells(current => new Set(current).add(key));
+    setError('');
+    try {
+      const existing = getCellSchedules(classId, period.startTime, period.endTime)[0];
+      if (!courseId) {
+        if (existing) await api.delete(`/class-schedules/${existing._id}`);
+      } else {
+        const course = (coursesByClass[classId] || []).find(item => item._id === courseId);
+        const teacher = typeof course?.teacher === 'string' ? course.teacher : course?.teacher?._id || null;
+        const selectedClass = classes.find(item => item._id === classId);
+        const payload = { school: effectiveSchoolId, class: classId, course: courseId, teacher, room: selectedClass?.room || '', dayOfWeek: selectedDay, startTime: period.startTime, endTime: period.endTime, isActive: true };
+        if (existing) await api.put(`/class-schedules/school/${existing._id}`, payload);
+        else await api.post('/class-schedules/school', payload);
+      }
+      await loadAllSchedules();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Could not update this timetable cell.');
+    } finally {
+      setSavingCells(current => { const next = new Set(current); next.delete(key); return next; });
+    }
+  };
+
   const visibleColumnIds = useMemo(() => new Set(columns.map((column) => column.id)), [columns]);
   const activeCount = daySchedules.filter((item) => {
     const classId = item.class?._id || className(item.class);
@@ -445,6 +509,9 @@ export function SchedulesTimetable() {
             )}
             <button type="button" onClick={refreshAll} disabled={loading} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)] disabled:opacity-50">
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+            <button type="button" onClick={toggleEditMode} disabled={!effectiveSchoolId} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50 ${editMode ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
+              {editMode ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />} {editMode ? 'Finish Editing' : 'Edit Timetable'}
             </button>
             <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-700">
               <Printer className="h-3.5 w-3.5" /> Print
@@ -615,9 +682,20 @@ export function SchedulesTimetable() {
                         </td>
                         {columns.map((column) => {
                           const courses = getCellCourses(column.id, period.startTime, period.endTime);
+                          const cellSchedules = getCellSchedules(column.id, period.startTime, period.endTime);
+                          const existingCourse = cellSchedules[0]?.course;
+                          const selectedCourseId = typeof existingCourse === 'string' ? existingCourse : existingCourse?._id || '';
+                          const cellKey = `${selectedDay}-${column.id}-${period.startTime}-${period.endTime}`;
+                          const classCourses = coursesByClass[column.id] || [];
                           return (
                             <td key={column.id} className="border border-[var(--color-border-default)] px-2 py-2 text-center align-middle">
-                              {courses.length > 0 ? (
+                              {editMode ? (
+                                <select value={selectedCourseId} disabled={savingCells.has(cellKey) || loadingCourseClassIds.has(column.id)} onFocus={() => void loadClassCourses(column.id)} onChange={(event) => void updateCell(column.id, period, event.target.value)} className="min-h-[44px] w-full rounded-lg border border-primary-300 bg-[var(--color-surface-primary)] px-2 py-2 text-xs font-semibold text-[var(--color-text-primary)] outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-60">
+                                  <option value="">{loadingCourseClassIds.has(column.id) ? 'Loading courses...' : savingCells.has(cellKey) ? 'Saving...' : '— Empty cell —'}</option>
+                                  {classCourses.map(course => <option key={course._id} value={course._id}>{typeof course.title === 'string' ? course.title : course.title?.en || 'Untitled course'}{course.courseCode ? ` — ${course.courseCode}` : ''}</option>)}
+                                  {selectedCourseId && !classCourses.some(course => course._id === selectedCourseId) && <option value={selectedCourseId}>{courses[0] || 'Current course'}</option>}
+                                </select>
+                              ) : courses.length > 0 ? (
                                 <div className="mx-auto flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-lg bg-primary-50/70 px-2 py-2 dark:bg-primary-950/20">
                                   {courses.map((course, courseIndex) => (
                                     <div key={`${course}-${courseIndex}`} className="text-xs font-bold leading-tight text-[var(--color-text-primary)] sm:text-sm">{course}</div>
