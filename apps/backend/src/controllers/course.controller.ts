@@ -297,6 +297,21 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 // Update Course (Admin only)
 // ---------------------------------------------------------------------------
 
+export const bulkUpdateStatus = async (req: Request, res: Response): Promise<Response> => {
+  const ids = Array.isArray(req.body?.ids) ? Array.from(new Set(req.body.ids.map((id: unknown) => String(id)))) : [];
+  const status = String(req.body?.status || '');
+  if (!ids.length || ids.length > 500) throw new BadRequestError('Select between 1 and 500 courses');
+  if (!ids.every((id) => mongoose.isValidObjectId(id))) throw new BadRequestError('One or more course IDs are invalid');
+  if (!['draft', 'published'].includes(status)) throw new BadRequestError('Status must be draft or published');
+
+  const filter = applyOrgFilter(req, { _id: { $in: ids } }, 'school');
+  const matched = await Course.countDocuments(filter);
+  if (matched !== ids.length) throw new ForbiddenError('One or more selected courses do not belong to your organization');
+
+  const result = await Course.updateMany(filter, { $set: { status } }, { runValidators: true });
+  return ApiResponse.success(res, { matched: result.matchedCount, updated: result.modifiedCount, status }, `${result.modifiedCount} course(s) moved to ${status}`);
+};
+
 export const update = async (req: Request, res: Response): Promise<Response> => {
   const existing = await Course.findById(req.params.id);
   if (!existing) throw new NotFoundError('Course');
