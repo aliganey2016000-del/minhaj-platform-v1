@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import ClassSchedule from '../models/class-schedule.model';
 import ApiResponse from '../utils/api-response';
 import { NotFoundError } from '../utils/api-error';
-import { getOwnTeacherRecord } from '../utils/tenant-scope';
+import { getOwnTeacherRecord, resolveViewableOrgId } from '../utils/tenant-scope';
 
 /**
  * Student-facing weekly timetable. Keep this endpoint deliberately narrow:
@@ -31,14 +31,17 @@ export const getMySchedules = async (req: Request, res: Response): Promise<Respo
 /**
  * Teacher-facing timetable. Populating shiftMode here is important: the
  * teacher portal must display the class's configured shift instead of
- * guessing Morning/Afternoon/Evening from the clock time.
+ * guessing Morning/Afternoon/Evening from the clock time. Organization scope
+ * comes from the authenticated JWT, not a client-controlled query value or a
+ * potentially stale legacy Teacher.school field.
  */
 export const getMyScheduleAsTeacher = async (req: Request, res: Response): Promise<Response> => {
   const teacher = await getOwnTeacherRecord(req);
   if (!teacher) throw new NotFoundError('Teacher record');
+  const schoolId = resolveViewableOrgId(req);
 
   const schedules = await ClassSchedule.find({
-    school: teacher.school,
+    ...(schoolId ? { school: schoolId } : {}),
     teacher: teacher._id,
     isActive: true,
   })
