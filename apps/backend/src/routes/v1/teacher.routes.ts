@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as teacherController from '../../controllers/teacher.controller';
+import * as teacherListController from '../../controllers/teacher-list.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOnly } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -12,7 +13,7 @@ const router = Router();
 router.use(authMiddleware);
 router.use(adminOnly);
 
-router.get('/', asyncHandler(teacherController.getAll));
+router.get('/', asyncHandler(teacherListController.getAll));
 router.get('/export', asyncHandler(teacherController.exportTeachers as any));
 router.get('/template', asyncHandler(teacherController.downloadTemplate as any));
 router.post('/', asyncHandler(teacherController.create));
