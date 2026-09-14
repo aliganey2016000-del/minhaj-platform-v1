@@ -157,6 +157,7 @@ export async function getCourseScheduleStatus(
     .model<IClassSchedule>('ClassSchedule')
     .find({ course: courseId, dayOfWeek, isActive: true })
     .select('dayOfWeek startTime endTime')
+    .sort({ startTime: 1 })
     .lean();
 
   if (schedules.length === 0) {
@@ -171,13 +172,13 @@ export async function getCourseScheduleStatus(
     }
   }
 
-  const schedule = schedules[0];
+  const schedule = matchingSchedule || schedules[0];
   return {
     isScheduled: true,
     isWithinWindow: !!matchingSchedule,
     schedule: {
       dayOfWeek: schedule.dayOfWeek as DayOfWeek,
-      dayName: DAY_NAMES[dayOfWeek],
+      dayName: DAY_NAMES[schedule.dayOfWeek],
       startTime: schedule.startTime,
       endTime: schedule.endTime,
     },
