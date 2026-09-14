@@ -98,6 +98,10 @@ async function main() {
   tplRows[0].Email = 'imported-via-file@test.local';
   tplRows[0].Organization = school.name;
   tplRows[0].Password = 'Password123!';
+  // The RAW TEMPLATE IMPORT case above already created a teacher using the
+  // template's own sample Phone — give this row a distinct one so the two
+  // don't collide on User's unique phone index.
+  tplRows[0].Phone = '+252612345690';
   const filledSheet = XLSX.utils.json_to_sheet(tplRows);
   const filledWb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(filledWb, filledSheet, 'Sheet1');
