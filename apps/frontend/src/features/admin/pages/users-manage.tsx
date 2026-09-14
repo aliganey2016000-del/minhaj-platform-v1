@@ -1,25 +1,15 @@
 /**
  * User Management — Admin CRUD
  * Manage users across all organizations (super admin) or within own org (org_admin).
- *
- * Roles:
- *   - Super admin: views/searches all users, can filter by organization, can
- *     create/edit/delete users with any role in any organization.
- *   - Org admin: auto-scoped to own organization, can only create/delete
- *     teacher/student/parent roles, cannot change roles or organization.
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Users, MoreVertical, Pencil, Ban } from 'lucide-react';
+import { Users, MoreVertical, Pencil, Ban, KeyRound, Copy, RefreshCw } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 import { Pagination } from '../components/pagination';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 interface UserProfile {
   _id?: string;
@@ -36,7 +26,7 @@ interface UserOrg {
 interface UserRecord {
   _id: string;
   email: string;
-    role: 'admin' | 'org_admin' | 'teacher' | 'student' | 'parent' | 'staff';
+  role: 'admin' | 'org_admin' | 'teacher' | 'student' | 'parent' | 'staff';
   organizationId?: UserOrg | null;
   isActive: boolean;
   isVerified: boolean;
@@ -50,23 +40,21 @@ interface School {
   status: 'active' | 'inactive';
 }
 
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
-
 const roleLabels: Record<string, { label: string; color: string }> = {
-  admin:      { label: 'Super Admin',   color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
-  org_admin:  { label: 'Org Admin',     color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
-  teacher:    { label: 'Teacher',       color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
-  student:    { label: 'Student',       color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
-  parent:     { label: 'Parent',        color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
-    staff:      { label: 'Staff',        color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300' },
+  admin: { label: 'Super Admin', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+  org_admin: { label: 'Org Admin', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+  teacher: { label: 'Teacher', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+  student: { label: 'Student', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+  parent: { label: 'Parent', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+  staff: { label: 'Staff', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300' },
 };
 
-// ---------------------------------------------------------------------------
-// Row Actions — compact "⋮" dropdown replacing plain Edit/Deactivate text
-// links, matching the pattern established on Manage Teachers.
-// ---------------------------------------------------------------------------
+function generateTemporaryPassword(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = new Uint32Array(12);
+  crypto.getRandomValues(bytes);
+  return `${Array.from(bytes, (value) => alphabet[value % alphabet.length]).join('')}Aa1!`;
+}
 
 function RowActionsMenu({ onEdit, onDeactivate }: { onEdit: () => void; onDeactivate?: () => void }) {
   const [open, setOpen] = useState(false);
@@ -81,54 +69,23 @@ function RowActionsMenu({ onEdit, onDeactivate }: { onEdit: () => void; onDeacti
   }, [open]);
 
   return (<>
-    <button
-      ref={btnRef}
-      onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
-      className="rounded-lg border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-1.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors"
-      title="More Actions"
-    >
+    <button ref={btnRef} onClick={(e) => { e.stopPropagation(); setOpen(!open); }} className="rounded-lg border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] p-1.5 text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] transition-colors" title="More Actions">
       <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
     </button>
     {open && btnRef.current && createPortal(
-      <div
-        ref={menuRef}
-        style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }}
-        className="w-44 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-elevated py-1"
-      >
-        <button onClick={() => { setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
-          <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit
-        </button>
-        {onDeactivate && (
-          <button onClick={() => { setOpen(false); onDeactivate(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] transition-colors">
-            <Ban className="h-3.5 w-3.5" strokeWidth={1.75} /> Deactivate
-          </button>
-        )}
-      </div>,
-      document.body,
+      <div ref={menuRef} style={{ position: 'fixed', top: btnRef.current.getBoundingClientRect().bottom + 4, right: window.innerWidth - btnRef.current.getBoundingClientRect().right, zIndex: 100 }} className="w-44 rounded-xl border border-slate-100 dark:border-slate-800 bg-[var(--color-surface-primary)] shadow-elevated py-1">
+        <button onClick={() => { setOpen(false); onEdit(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary-600 hover:bg-[var(--color-surface-tertiary)] transition-colors"><Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit</button>
+        {onDeactivate && <button onClick={() => { setOpen(false); onDeactivate(); }} className="flex w-full items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-[var(--color-surface-tertiary)] transition-colors"><Ban className="h-3.5 w-3.5" strokeWidth={1.75} /> Deactivate</button>}
+      </div>, document.body,
     )}
   </>);
 }
 
-// ---------------------------------------------------------------------------
-// User Modal (Create / Edit)
-// ---------------------------------------------------------------------------
-
-function UserModal({
-  user,
-  schools,
-  onClose,
-  onSaved,
-}: {
-  user?: UserRecord;
-  schools: School[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+function UserModal({ user, schools, onClose, onSaved }: { user?: UserRecord; schools: School[]; onClose: () => void; onSaved: () => void }) {
   const { user: currentUser } = useAuth();
   const isEdit = !!user;
   const isSuperAdmin = currentUser?.role === 'admin';
   const isOrgAdmin = currentUser?.role === 'org_admin';
-
   const [form, setForm] = useState({
     firstName: user?.profile?.firstName || '',
     lastName: user?.profile?.lastName || '',
@@ -136,205 +93,89 @@ function UserModal({
     password: '',
     gender: user?.profile?.gender || 'male',
     role: user?.role || 'student',
-    organizationId: isOrgAdmin
-      ? (currentUser?.organizationId || '')
-      : (user?.organizationId?._id || user?.organizationId as any || ''),
+    organizationId: isOrgAdmin ? (currentUser?.organizationId || '') : (user?.organizationId?._id || user?.organizationId as any || ''),
   });
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const orgName = schools.find(s => s._id === form.organizationId)?.name || user?.organizationId?.name || '';
-
-  // Organization ownership: a Super Admin (admin) or Org Admin account must be
-  // linked to an organization when it is created so the platform can always
-  // answer "who owns this organization". On edit, only org_admin stays
-  // mandatory — the global platform admin (no org) must remain editable.
   const isOrgBoundRole = form.role === 'admin' || form.role === 'org_admin';
   const orgRequired = isOrgBoundRole && (!isEdit || form.role === 'org_admin');
-
-  const update = (field: string, value: string) =>
-    setForm(prev => ({ ...prev, [field]: value }));
+  const update = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
+  const generatePassword = () => { update('password', generateTemporaryPassword()); setCopied(false); };
+  const copyPassword = async () => {
+    if (!form.password) return;
+    await navigator.clipboard.writeText(form.password);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (orgRequired && !form.organizationId) { setError('Please select the organization this account owns / belongs to'); return; }
+    if (!isEdit && form.password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    if (isEdit && form.password && form.password.length < 8) { setError('New password must be at least 8 characters.'); return; }
 
-    if (orgRequired && !form.organizationId) {
-      setError('Please select the organization this account owns / belongs to');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
+    setLoading(true); setError('');
     try {
-      const payload: any = {
-        firstName: form.firstName,
-        lastName: form.lastName,
-        email: form.email,
-        role: form.role,
-        gender: form.gender,
-      };
-
-      if (!isEdit) {
-        payload.password = form.password;
-      }
-
-      // Organization: org_admin always uses own org, super admin can choose
-      if (isOrgAdmin) {
-        payload.organizationId = currentUser?.organizationId;
-      } else if (form.organizationId) {
-        payload.organizationId = form.organizationId;
-      }
-
-      // For edit, build payload from form fields that are relevant
-      if (isEdit) {
-        // Include all fields — backend will only update allowed ones
-        if (!isOrgAdmin) {
-          payload.role = form.role;
-          payload.organizationId = form.organizationId || undefined;
-        }
-      }
-
-      if (isEdit) {
-        await api.patch(`/users/${user!._id}`, payload);
-      } else {
-        await api.post('/users', payload);
-      }
-      onSaved();
-      onClose();
+      const payload: any = { firstName: form.firstName, lastName: form.lastName, email: form.email, role: form.role, gender: form.gender };
+      if (form.password.trim()) payload.password = form.password;
+      if (isOrgAdmin) payload.organizationId = currentUser?.organizationId;
+      else if (form.organizationId) payload.organizationId = form.organizationId;
+      if (isEdit && !isOrgAdmin) { payload.role = form.role; payload.organizationId = form.organizationId || undefined; }
+      if (isEdit) await api.patch(`/users/${user!._id}`, payload); else await api.post('/users', payload);
+      onSaved(); onClose();
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to save user');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div
-        className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-xl font-bold mb-4">{isEdit ? '✏️ Edit User' : '➕ Create User'}</h2>
-        {error && <p className="text-red-500 text-sm mb-3 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{error}</p>}
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <h2 className="text-xl font-bold mb-4">{isEdit ? '✏️ Edit User' : '➕ Create User'}</h2>
+      {error && <p className="text-red-500 text-sm mb-3 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">{error}</p>}
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">First Name *</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.firstName} onChange={(e) => update('firstName', e.target.value)} required /></div>
+          <div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Last Name *</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.lastName} onChange={(e) => update('lastName', e.target.value)} required /></div>
+        </div>
+        <div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Email *</label><input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="email" value={form.email} onChange={(e) => update('email', e.target.value)} required /></div>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {/* First & Last Name */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">First Name *</label>
-              <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.firstName} onChange={(e) => update('firstName', e.target.value)} required />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Last Name *</label>
-              <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.lastName} onChange={(e) => update('lastName', e.target.value)} required />
-            </div>
+        <div className="rounded-xl border border-primary-200 bg-primary-50/70 p-3 dark:border-primary-900/50 dark:bg-primary-950/20">
+          <div className="mb-2 flex items-center gap-2"><KeyRound className="h-4 w-4 text-primary-600" /><label className="text-xs font-semibold text-[var(--color-text-primary)]">{isEdit ? 'Reset Password' : 'Password *'}</label></div>
+          <div className="flex gap-2">
+            <input className="min-w-0 flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm font-mono" type="text" value={form.password} onChange={(e) => { update('password', e.target.value); setCopied(false); }} required={!isEdit} minLength={8} placeholder={isEdit ? 'Leave blank to keep current password' : 'Enter or generate password'} autoComplete="new-password" />
+            <button type="button" onClick={generatePassword} className="rounded-xl border border-primary-200 bg-white px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-50" title="Generate temporary password"><RefreshCw className="h-4 w-4" /></button>
+            <button type="button" onClick={() => void copyPassword()} disabled={!form.password} className="rounded-xl border border-primary-200 bg-white px-3 py-2 text-xs font-semibold text-primary-700 disabled:opacity-40" title="Copy password"><Copy className="h-4 w-4" /></button>
           </div>
+          <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">{copied ? 'Copied. Share this password securely with the user.' : isEdit ? 'The old password is never shown. Enter or generate a new password only when you want to reset login access.' : 'Generate a strong temporary password, copy it, and share it securely with the user.'}</p>
+        </div>
 
-          {/* Email */}
-          <div>
-            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Email *</label>
-            <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="email" value={form.email} onChange={(e) => update('email', e.target.value)} required />
-          </div>
-
-          {/* Password (create only) */}
-          {!isEdit && (
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Password *</label>
-              <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="password" value={form.password} onChange={(e) => update('password', e.target.value)} required minLength={8} />
-            </div>
-          )}
-
-          {/* Gender */}
-          <div>
-            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Gender *</label>
-            <select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.gender} onChange={(e) => update('gender', e.target.value)}>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-            </select>
-          </div>
-
-          {/* Role */}
-          <div>
-            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Role *</label>
-            {isOrgAdmin && isEdit ? (
-              <div className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
-                {roleLabels[form.role]?.label || form.role}
-              </div>
-            ) : (
-              <select
-                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
-                value={form.role}
-                onChange={(e) => update('role', e.target.value)}
-                disabled={isOrgAdmin && isEdit}
-              >
-                {isSuperAdmin && <option value="admin">Super Admin</option>}
-                {isSuperAdmin && <option value="org_admin">Org Admin</option>}
-                <option value="teacher">Teacher</option>
-                <option value="student">Student</option>
-                <option value="parent">Parent</option>
-                  <option value="staff">Staff</option>
-              </select>
-            )}
-          </div>
-
-          {/* Organization */}
-          <div>
-            <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Organization{orgRequired ? ' *' : ''}</label>
-            {isOrgAdmin ? (
-              <div className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
-                {orgName || 'Your Organization'}
-              </div>
-            ) : (
-              <select
-                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm"
-                value={form.organizationId}
-                onChange={(e) => update('organizationId', e.target.value)}
-                required={orgRequired}
-              >
-                <option value="">-- Select Organization --</option>
-                {schools.map(s => (
-                  <option key={s._id} value={s._id}>{s.name}</option>
-                ))}
-              </select>
-            )}
-            {isSuperAdmin && isOrgBoundRole && (
-              <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
-                {form.role === 'admin'
-                  ? 'Assign the organization this Super Admin owns / manages.'
-                  : 'Assign the organization this Org Admin will manage.'}
-              </p>
-            )}
-          </div>
-
-          {/* Buttons */}
-          <div className="flex gap-2 pt-3">
-            <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button>
-            <button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors">
-              {loading ? 'Saving...' : isEdit ? 'Update' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </div>
+        <div><label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Gender *</label><select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.gender} onChange={(e) => update('gender', e.target.value)}><option value="male">Male</option><option value="female">Female</option></select></div>
+        <div>
+          <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Role *</label>
+          {isOrgAdmin && isEdit ? <div className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">{roleLabels[form.role]?.label || form.role}</div> : <select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.role} onChange={(e) => update('role', e.target.value)} disabled={isOrgAdmin && isEdit}>{isSuperAdmin && <option value="admin">Super Admin</option>}{isSuperAdmin && <option value="org_admin">Org Admin</option>}<option value="teacher">Teacher</option><option value="student">Student</option><option value="parent">Parent</option><option value="staff">Staff</option></select>}
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Organization{orgRequired ? ' *' : ''}</label>
+          {isOrgAdmin ? <div className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">{orgName || 'Your Organization'}</div> : <select className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" value={form.organizationId} onChange={(e) => update('organizationId', e.target.value)} required={orgRequired}><option value="">-- Select Organization --</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>}
+          {isSuperAdmin && isOrgBoundRole && <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">{form.role === 'admin' ? 'Assign the organization this Super Admin owns / manages.' : 'Assign the organization this Org Admin will manage.'}</p>}
+        </div>
+        <div className="flex gap-2 pt-3"><button type="button" onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)] transition-colors">Cancel</button><button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-primary-700 disabled:opacity-60 transition-colors">{loading ? 'Saving...' : isEdit ? 'Update' : 'Create'}</button></div>
+      </form>
     </div>
-  );
+  </div>;
 }
-
-// ---------------------------------------------------------------------------
-// Main Component
-// ---------------------------------------------------------------------------
 
 export function UsersManage() {
   const { user: currentUser } = useAuth();
   const isSuperAdmin = currentUser?.role === 'admin';
   const isOrgAdmin = currentUser?.role === 'org_admin';
-
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [schools, setSchools] = useState<School[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -343,313 +184,60 @@ export function UsersManage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [limit, setLimit] = useState(25);
-
   const [showCreate, setShowCreate] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRecord | undefined>(undefined);
 
-  // Load schools list for super admin filter dropdown.
-  // For org_admin, also fetch the user's own school so we can display the
-  // organization name in the filter bar and header.
   useEffect(() => {
     if (isSuperAdmin) {
-      (async () => {
-        try {
-          const { data } = await api.get('/schools', { params: { limit: '100' } });
-          setSchools((data.data || []).filter((s: School) => s.status === 'active'));
-        } catch { /* non-fatal */ }
-      })();
+      (async () => { try { const { data } = await api.get('/schools', { params: { limit: '100' } }); setSchools((data.data || []).filter((s: School) => s.status === 'active')); } catch { /* non-fatal */ } })();
       return;
     }
-
     if (isOrgAdmin && currentUser?.organizationId) {
-      (async () => {
-        try {
-          const { data } = await api.get(`/schools/${currentUser.organizationId}`);
-          const school = data.data;
-          if (school && school.status === 'active') {
-            setSchools([school]);
-            setMyOrgName(school.name);
-          }
-        } catch { /* non-fatal */ }
-      })();
+      (async () => { try { const { data } = await api.get(`/schools/${currentUser.organizationId}`); const school = data.data; if (school && school.status === 'active') { setSchools([school]); setMyOrgName(school.name); } } catch { /* non-fatal */ } })();
     }
   }, [isSuperAdmin, isOrgAdmin, currentUser?.organizationId]);
 
-  // Fetch users
   const fetchUsers = useCallback(async (pageNum = 1, overrideLimit?: number) => {
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
       const lim = overrideLimit !== undefined ? overrideLimit : limit;
       const params: any = { page: String(pageNum), limit: String(lim) };
       if (search) params.search = search;
       if (roleFilter) params.role = roleFilter;
       if (statusFilter) params.status = statusFilter;
-      // org_admin: backend already scopes by the JWT's organizationId —
-      // no need to pass an additional school param.
-      // super admin can optionally filter by school.
-      if (!isOrgAdmin && filterSchool && filterSchool !== 'all') {
-        params.school = filterSchool;
-      } else if (isSuperAdmin && !filterSchool) {
-        // Super admin with no selection = fetch all users
-        params.school = 'all';
-      }
-
+      if (!isOrgAdmin && filterSchool && filterSchool !== 'all') params.school = filterSchool;
+      else if (isSuperAdmin && !filterSchool) params.school = 'all';
       const { data } = await api.get('/users', { params });
-      setUsers(data.data || []);
-      setTotal(data.meta?.total || 0);
-      setPage(pageNum);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load users');
-    } finally {
-      setLoading(false);
-    }
+      setUsers(data.data || []); setTotal(data.meta?.total || 0); setPage(pageNum);
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to load users'); }
+    finally { setLoading(false); }
   }, [search, roleFilter, statusFilter, filterSchool, isSuperAdmin, isOrgAdmin, limit]);
 
-  // Initial fetch on mount
-  useEffect(() => {
-    fetchUsers(1);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchUsers(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const handleDelete = async (id: string) => { if (!window.confirm('Deactivate this user? They will no longer be able to log in.')) return; try { await api.delete(`/users/${id}`); setUsers(prev => prev.map(u => u._id === id ? { ...u, isActive: false } : u)); } catch (err: any) { alert(err.response?.data?.message || 'Failed to deactivate user'); } };
+  const fullName = (u: UserRecord) => u.profile?.firstName && u.profile?.lastName ? `${u.profile.firstName} ${u.profile.lastName}` : (u.profile?.firstName || u.profile?.lastName || '—');
+  const orgName = (u: UserRecord) => u.organizationId && typeof u.organizationId === 'object' ? (u.organizationId as UserOrg).name : '—';
+  const userColumnAccessors: Record<string, (row: UserRecord) => string> = { name: fullName, email: (u) => u.email, role: (u) => roleLabels[u.role]?.label || u.role, organization: orgName, status: (u) => (u.isActive ? 'Active' : 'Inactive') };
+  const { columnFilters: userColumnFilters, sortCol: userSortCol, sortDir: userSortDir, applyColumnCommit: applyUserColumnCommit, clearColumnFilter: clearUserColumnFilter, clearAll: clearAllUserColumnFilters, displayedRows: displayedUsers, columnFiltersActive: userColumnFiltersActive } = useColumnFilters(users, userColumnAccessors);
 
-  const handleApplyFilters = () => fetchUsers(1);
-  const handlePageChange = (newPage: number) => fetchUsers(newPage);
-  const handleLimitChange = (newLimit: number) => { setLimit(newLimit); fetchUsers(1, newLimit); };
-
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Deactivate this user? They will no longer be able to log in.')) return;
-    try {
-      await api.delete(`/users/${id}`);
-      setUsers(prev => prev.map(u => u._id === id ? { ...u, isActive: false } : u));
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to deactivate user');
-    }
-  };
-
-  const handleEdit = (user: UserRecord) => {
-    setEditingUser(user);
-  };
-
-  const fullName = (u: UserRecord) =>
-    u.profile?.firstName && u.profile?.lastName
-      ? `${u.profile.firstName} ${u.profile.lastName}`
-      : (u.profile?.firstName || u.profile?.lastName || '—');
-
-  const orgName = (u: UserRecord) =>
-    u.organizationId && typeof u.organizationId === 'object'
-      ? (u.organizationId as UserOrg).name
-      : '—';
-
-  // Excel-style column header filters/sort — client-side, over whichever page of results is currently loaded.
-  const userColumnAccessors: Record<string, (row: UserRecord) => string> = {
-    name: (u) => fullName(u),
-    email: (u) => u.email,
-    role: (u) => roleLabels[u.role]?.label || u.role,
-    organization: (u) => orgName(u),
-    status: (u) => (u.isActive ? 'Active' : 'Inactive'),
-  };
-  const {
-    columnFilters: userColumnFilters, sortCol: userSortCol, sortDir: userSortDir,
-    applyColumnCommit: applyUserColumnCommit, clearColumnFilter: clearUserColumnFilter,
-    clearAll: clearAllUserColumnFilters, displayedRows: displayedUsers, columnFiltersActive: userColumnFiltersActive,
-  } = useColumnFilters(users, userColumnAccessors);
-
-  return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-screen-2xl space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]"><Users className="h-8 w-8 text-primary-600" strokeWidth={1.75} />User Management</h1>
-            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-              {total} users
-              {isOrgAdmin && ' — your organization'}
-            </p>
-          </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm"
-          >
-            + Create User
-          </button>
-        </div>
-
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          {/* Organization filter */}
-          {isOrgAdmin ? (
-            <div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">
-              {myOrgName || 'Your Organization'}
-            </div>
-          ) : (
-            <select
-              className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
-              value={filterSchool}
-              onChange={(e) => setFilterSchool(e.target.value)}
-            >
-              <option value="">Select an Organization...</option>
-              {schools.map(s => (
-                <option key={s._id} value={s._id}>{s.name}</option>
-              ))}
-            </select>
-          )}
-
-          <input
-            className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
-            placeholder="Search by name or email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-
-          <select
-            className="flex-1 sm:flex-none sm:w-40 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-          >
-            <option value="">All Roles</option>
-            {isSuperAdmin && <option value="admin">Super Admin</option>}
-            {isSuperAdmin && <option value="org_admin">Org Admin</option>}
-            <option value="teacher">Teacher</option>
-            <option value="student">Student</option>
-            <option value="parent">Parent</option>
-          </select>
-
-          <select
-            className="flex-1 sm:flex-none sm:w-36 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-
-          <button
-            onClick={handleApplyFilters}
-            className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors"
-          >
-            Apply Filters
-          </button>
-        </div>
-
-        {/* Content area */}
-        {loading ? (
-          <div className="flex min-h-[300px] items-center justify-center">
-            <div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
-          </div>
-        ) : error && users.length === 0 ? (
-          <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]">
-            <div className="text-center py-16 text-[var(--color-text-tertiary)]">
-              <p className="text-4xl mb-3">👥</p>
-              <p className="text-lg font-medium mb-1">{error}</p>
-              <p className="text-sm">
-                {isSuperAdmin
-                  ? 'Select an organization and click "Apply Filters" to load users.'
-                  : 'Click "Apply Filters" to load users for your organization.'}
-              </p>
-            </div>
-          </div>
-        ) : users.length === 0 ? (
-          <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]">
-            <div className="text-center py-16 text-[var(--color-text-tertiary)]">
-              <p className="text-4xl mb-3">📭</p>
-              <p className="text-lg font-medium mb-1">No users found</p>
-              <p className="text-sm">Click "+ Create User" to add one.</p>
-            </div>
-          </div>
-        ) : (<>
-          {userColumnFiltersActive && (
-            <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] mb-3">
-              <span>Showing {displayedUsers.length} of {users.length} loaded users (column filters active)</span>
-              <button onClick={clearAllUserColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button>
-            </div>
-          )}
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]">
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[180px]"><ColumnFilterHeader label="Name" colKey="name" allValues={users.map(userColumnAccessors.name)} currentSelected={userColumnFilters.name ?? null} currentSort={userSortCol === 'name' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[200px]"><ColumnFilterHeader label="Email" colKey="email" allValues={users.map(userColumnAccessors.email)} currentSelected={userColumnFilters.email ?? null} currentSort={userSortCol === 'email' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[120px]"><ColumnFilterHeader label="Role" colKey="role" allValues={users.map(userColumnAccessors.role)} currentSelected={userColumnFilters.role ?? null} currentSort={userSortCol === 'role' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] hidden md:table-cell whitespace-nowrap min-w-[160px]"><ColumnFilterHeader label="Organization" colKey="organization" allValues={users.map(userColumnAccessors.organization)} currentSelected={userColumnFilters.organization ?? null} currentSort={userSortCol === 'organization' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[100px]"><ColumnFilterHeader label="Status" colKey="status" allValues={users.map(userColumnAccessors.status)} currentSelected={userColumnFilters.status ?? null} currentSort={userSortCol === 'status' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-primary)] whitespace-nowrap min-w-[80px]">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--color-border-subtle)]">
-                  {displayedUsers.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-16 text-center text-[var(--color-text-tertiary)]">
-                        <p className="text-lg mb-1">🔍 No users match these column filters</p>
-                        <button onClick={clearAllUserColumnFilters} className="text-sm text-primary-600 hover:underline">Clear column filters</button>
-                      </td>
-                    </tr>
-                  ) : displayedUsers.map(u => (
-                    <tr key={u._id} className="hover:bg-[var(--color-surface-tertiary)]/50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-[var(--color-text-primary)] whitespace-nowrap">
-                        {fullName(u)}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--color-text-secondary)] whitespace-nowrap">
-                        {u.email}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${roleLabels[u.role]?.color || 'bg-gray-100 text-gray-600'}`}>
-                          {roleLabels[u.role]?.label || u.role}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-[var(--color-text-secondary)] hidden md:table-cell whitespace-nowrap">
-                        {orgName(u)}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${u.isActive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}`}>
-                          {u.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <RowActionsMenu
-                          onEdit={() => handleEdit(u)}
-                          onDeactivate={u.isActive && u._id !== currentUser?.id ? () => handleDelete(u._id) : undefined}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>)}
-
-        {!loading && total > 0 && (
-          <Pagination page={page} limit={limit} total={total} onPageChange={handlePageChange} onLimitChange={handleLimitChange} itemLabel="users" />
-        )}
-      </div>
-
-      {/* Create Modal */}
-      {showCreate && (
-        <UserModal
-          schools={schools}
-          onClose={() => setShowCreate(false)}
-          onSaved={() => {
-            setShowCreate(false);
-            fetchUsers(1);
-          }}
-        />
-      )}
-
-      {/* Edit Modal */}
-      {editingUser && (
-        <UserModal
-          user={editingUser}
-          schools={schools}
-          onClose={() => setEditingUser(undefined)}
-          onSaved={() => {
-            setEditingUser(undefined);
-            fetchUsers(page);
-          }}
-        />
-      )}
+  return <div className="p-6 lg:p-10 pt-20 lg:pt-10"><div className="mx-auto max-w-screen-2xl space-y-6">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"><div><h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]"><Users className="h-8 w-8 text-primary-600" strokeWidth={1.75} />User Management</h1><p className="text-sm text-[var(--color-text-tertiary)] mt-1">{total} users{isOrgAdmin && ' — your organization'}</p></div><button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">+ Create User</button></div>
+    <div className="flex flex-col sm:flex-row gap-3">
+      {isOrgAdmin ? <div className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-tertiary)] px-4 py-2.5 text-sm text-[var(--color-text-secondary)]">{myOrgName || 'Your Organization'}</div> : <select className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" value={filterSchool} onChange={(e) => setFilterSchool(e.target.value)}><option value="">Select an Organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>}
+      <input className="flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" placeholder="Search by name or email..." value={search} onChange={(e) => setSearch(e.target.value)} />
+      <select className="flex-1 sm:flex-none sm:w-40 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}><option value="">All Roles</option>{isSuperAdmin && <option value="admin">Super Admin</option>}{isSuperAdmin && <option value="org_admin">Org Admin</option>}<option value="teacher">Teacher</option><option value="student">Student</option><option value="parent">Parent</option><option value="staff">Staff</option></select>
+      <select className="flex-1 sm:flex-none sm:w-36 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+      <button onClick={() => fetchUsers(1)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors">Apply Filters</button>
     </div>
-  );
+    {loading ? <div className="flex min-h-[300px] items-center justify-center"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div> : error && users.length === 0 ? <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]"><div className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-4xl mb-3">👥</p><p className="text-lg font-medium mb-1">{error}</p></div></div> : users.length === 0 ? <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]"><div className="text-center py-16 text-[var(--color-text-tertiary)]"><p className="text-4xl mb-3">📭</p><p className="text-lg font-medium mb-1">No users found</p></div></div> : <>
+      {userColumnFiltersActive && <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] mb-3"><span>Showing {displayedUsers.length} of {users.length} loaded users (column filters active)</span><button onClick={clearAllUserColumnFilters} className="font-medium text-primary-600 hover:underline">Clear all</button></div>}
+      <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card"><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]"><th className="text-left px-4 py-3 font-semibold min-w-[180px]"><ColumnFilterHeader label="Name" colKey="name" allValues={users.map(userColumnAccessors.name)} currentSelected={userColumnFilters.name ?? null} currentSort={userSortCol === 'name' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th><th className="text-left px-4 py-3 font-semibold min-w-[200px]"><ColumnFilterHeader label="Email" colKey="email" allValues={users.map(userColumnAccessors.email)} currentSelected={userColumnFilters.email ?? null} currentSort={userSortCol === 'email' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th><th className="text-left px-4 py-3 font-semibold min-w-[120px]"><ColumnFilterHeader label="Role" colKey="role" allValues={users.map(userColumnAccessors.role)} currentSelected={userColumnFilters.role ?? null} currentSort={userSortCol === 'role' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th><th className="text-left px-4 py-3 font-semibold hidden md:table-cell min-w-[160px]"><ColumnFilterHeader label="Organization" colKey="organization" allValues={users.map(userColumnAccessors.organization)} currentSelected={userColumnFilters.organization ?? null} currentSort={userSortCol === 'organization' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th><th className="text-left px-4 py-3 font-semibold min-w-[100px]"><ColumnFilterHeader label="Status" colKey="status" allValues={users.map(userColumnAccessors.status)} currentSelected={userColumnFilters.status ?? null} currentSort={userSortCol === 'status' ? userSortDir : null} onCommit={applyUserColumnCommit} onClear={clearUserColumnFilter} /></th><th className="text-left px-4 py-3 font-semibold min-w-[80px]">Actions</th></tr></thead><tbody className="divide-y divide-[var(--color-border-subtle)]">{displayedUsers.map(u => <tr key={u._id} className="hover:bg-[var(--color-surface-tertiary)]/50 transition-colors"><td className="px-4 py-3 font-medium whitespace-nowrap">{fullName(u)}</td><td className="px-4 py-3 text-[var(--color-text-secondary)] whitespace-nowrap">{u.email}</td><td className="px-4 py-3"><span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${roleLabels[u.role]?.color || 'bg-gray-100 text-gray-600'}`}>{roleLabels[u.role]?.label || u.role}</span></td><td className="px-4 py-3 text-[var(--color-text-secondary)] hidden md:table-cell whitespace-nowrap">{orgName(u)}</td><td className="px-4 py-3"><span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${u.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{u.isActive ? 'Active' : 'Inactive'}</span></td><td className="px-4 py-3"><RowActionsMenu onEdit={() => setEditingUser(u)} onDeactivate={u.isActive && u._id !== currentUser?.id ? () => handleDelete(u._id) : undefined} /></td></tr>)}</tbody></table></div></div>
+    </>}
+    {!loading && total > 0 && <Pagination page={page} limit={limit} total={total} onPageChange={(newPage) => fetchUsers(newPage)} onLimitChange={(newLimit) => { setLimit(newLimit); fetchUsers(1, newLimit); }} itemLabel="users" />}
+  </div>
+  {showCreate && <UserModal schools={schools} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchUsers(1); }} />}
+  {editingUser && <UserModal user={editingUser} schools={schools} onClose={() => setEditingUser(undefined)} onSaved={() => { setEditingUser(undefined); fetchUsers(page); }} />}
+  </div>;
 }
 
 export default UsersManage;
