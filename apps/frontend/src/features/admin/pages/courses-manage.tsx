@@ -202,7 +202,7 @@ function CourseActionsButton({ course: c, onEdit, onDelete, onDuplicate, onToggl
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button onClick={() => handleAction(() => onPreview(c))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors text-left"><span className="w-4 text-center flex-shrink-0">👁️</span><span>Preview as Student</span></button>
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-          <button onClick={() => handleAction(() => { if (window.confirm('Delete this course permanently? This action cannot be undone.')) onDelete(c._id); })} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🗑️</span><span>Delete Course</span></button>
+          <button onClick={() => handleAction(() => onDelete(c._id))} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors text-left"><span className="w-4 text-center flex-shrink-0">🗑️</span><span>Delete Course</span></button>
         </div>,
         document.body,
       )}
