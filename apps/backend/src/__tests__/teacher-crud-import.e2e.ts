@@ -70,6 +70,27 @@ async function main() {
   for (const required of ['First Name', 'Last Name', 'Gender', 'Email']) {
     assert(tplHeaders.includes(required), `template includes "${required}"`);
   }
+  // Snapshot the pristine row before any test below mutates the shared
+  // tplRows[0] object (Email/Organization/Password get overwritten just below).
+  const rawTemplateRow = { ...tplRows[0] };
+  assert(rawTemplateRow.Password === '', 'template sample row ships with a blank Password, not a fixed known default credential');
+
+  // -------------------------------------------------------------------
+  section('RAW TEMPLATE IMPORT — org_admin, completely unmodified (blank Password, blank Organization)');
+  // -------------------------------------------------------------------
+  const rawSheet = XLSX.utils.json_to_sheet([rawTemplateRow]);
+  const rawWb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(rawWb, rawSheet, 'Sheet1');
+  const rawBuf = XLSX.write(rawWb, { type: 'buffer', bookType: 'xlsx' });
+  const rawRes = await request(app)
+    .post('/api/v1/teachers/import')
+    .set('Authorization', `Bearer ${orgAdminToken}`)
+    .attach('file', rawBuf, 'teachers-template.xlsx');
+  assert(rawRes.status === 200, `raw template import request succeeds (status ${rawRes.status})`);
+  assert(rawRes.body?.data?.created === 1, `raw, unmodified downloaded template imports successfully — blank Password and blank Organization are both handled (got ${JSON.stringify(rawRes.body?.data)})`);
+  const rawImportedUser: any = await User.findOne({ email: rawTemplateRow.Email }).select('+password');
+  assert(!!rawImportedUser && !!rawImportedUser.password, 'a random password was generated for the blank Password cell');
+  assert(!(await rawImportedUser.comparePassword('ChangeMe123')), 'the generated password is not a fixed, guessable default');
 
   // -------------------------------------------------------------------
   section('FILE-UPLOAD IMPORT — global admin, exact downloaded template, real org name filled in');
@@ -77,6 +98,10 @@ async function main() {
   tplRows[0].Email = 'imported-via-file@test.local';
   tplRows[0].Organization = school.name;
   tplRows[0].Password = 'Password123!';
+  // The RAW TEMPLATE IMPORT case above already created a teacher using the
+  // template's own sample Phone — give this row a distinct one so the two
+  // don't collide on User's unique phone index.
+  tplRows[0].Phone = '+252612345690';
   const filledSheet = XLSX.utils.json_to_sheet(tplRows);
   const filledWb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(filledWb, filledSheet, 'Sheet1');
@@ -98,10 +123,13 @@ async function main() {
   assert(exportRows[0].Phone === tplRows[0].Phone, 'export preserves teacher phone');
   assert(exportRows[0].Organization === school.name, 'export includes organization');
   assert(exportRows[0].Password === '', 'export does not expose passwords');
+  // Password is optional on import (a blank cell gets a random password —
+  // see the "RAW TEMPLATE IMPORT" section above), but a cell that IS filled
+  // in must still meet the 8-character minimum.
   const badWb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(badWb, XLSX.utils.json_to_sheet([{ ...tplRows[0], Email: 'bad@test.local', Password: '' }]), 'Teachers');
+  XLSX.utils.book_append_sheet(badWb, XLSX.utils.json_to_sheet([{ ...tplRows[0], Email: 'bad@test.local', Password: 'short1' }]), 'Teachers');
   const badRes = await request(app).post('/api/v1/teachers/import').set('Authorization', `Bearer ${orgAdminToken}`).attach('file', XLSX.write(badWb, { type: 'buffer', bookType: 'xlsx' }), 'bad.xlsx');
-  assert(badRes.body?.data?.created === 0 && /Password/.test(badRes.body?.data?.errors?.[0]?.message || ''), 'missing password produces an actionable row error');
+  assert(badRes.body?.data?.created === 0 && /8 characters/.test(badRes.body?.data?.errors?.[0]?.message || ''), 'a too-short (but non-blank) password still produces an actionable row error');
 
   // The exact regression this was about: filling in the DOWNLOADED template
   // as instructed and NOT touching Organization must fail with a clear,

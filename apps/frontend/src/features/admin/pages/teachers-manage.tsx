@@ -185,7 +185,7 @@ export default function TeachersManage() {
 
     {showImportModal && <BulkEntityImportModal
       title="Import Teachers"
-      description="Use the Add Teacher fields in the template. First Name, Last Name, Gender, Email and Password (8+ characters) are required. Dates: YYYY-MM-DD. Organization defaults to your organization. Upload photos and documents through Add/Edit; view them in the teacher profile. Exported passwords are blank. Import creates new teachers; use Edit for existing teachers."
+      description="Use the Add Teacher fields in the template. First Name, Last Name, Gender, and Email are required. Password is optional (8+ characters if set) — leave it blank and one is generated automatically; the teacher signs in via password reset. Dates: YYYY-MM-DD. Organization defaults to your organization. Upload photos and documents through Add/Edit; view them in the teacher profile. Import creates new teachers; use Edit for existing teachers."
       templateUrl={`/teachers/template?school=${encodeURIComponent(organizationId)}`}
       importUrl="/teachers/import"
       templateName="teachers-template.xlsx"

@@ -487,12 +487,13 @@ export const exportTeachers = async (req: Request, res: Response): Promise<void>
 export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
   const schoolId = resolveOrgIdForCreate(req, req.query.school);
   const school = schoolId ? await School.findById(schoolId).select('name').lean() : null;
-  // A real 8+ character sample password (not blank) so a raw, unmodified
-  // download imports successfully — exportTeachers intentionally leaves this
-  // column blank instead, since a real teacher's password can't be recovered.
+  // Password is left blank, like exportTeachers: bulkImport now generates a
+  // random one for any blank cell, so a raw unmodified download still
+  // imports successfully — without shipping every fresh-downloaded template
+  // with the same known, guessable sample credential.
   const rows = [[
     'Ahmed', 'Hassan', 'male', '2026-01-15', 'ahmed.hassan@example.com', '+252612345678',
-    'ChangeMe123', 'Bachelor of Islamic Studies', 5, 'Tajweed, Fiqh',
+    '', 'Bachelor of Islamic Studies', 5, 'Tajweed, Fiqh',
     'Experienced Quran teacher.', school?.name || '',
   ]];
   const buffer = buildXlsxBuffer(TEACHER_COLUMNS, rows, 'Teacher Template');
@@ -550,7 +551,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const lastName = String(getField(row, 'Last Name') ?? '').trim();
       const gender = String(getField(row, 'Gender') ?? 'male').trim().toLowerCase();
       const email = String(getField(row, 'Email') ?? '').trim().toLowerCase();
-      const password = String(getField(row, 'Password') ?? '');
+      const passwordRaw = String(getField(row, 'Password') ?? '');
       const phone = String(getField(row, 'Phone') ?? '').trim();
       const qualification = String(getField(row, 'Qualification') ?? '').trim();
       const specializationRaw = String(getField(row, 'Specialization') ?? '').trim();
@@ -562,13 +563,20 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('A valid Email is required');
       if (!['male', 'female'].includes(gender)) throw new Error('Gender must be male or female');
 
-      // Check for an already-registered email before requiring a password —
-      // re-importing an exported file (which never carries real passwords,
-      // see exportTeachers) is the common case here, and "already registered"
-      // is the actionable message for that row, not a confusing password error.
+      // Check for an already-registered email before validating the password —
+      // "already registered" is the actionable message for that row, not a
+      // password error.
       const existingUser = await User.findOne({ email }).lean();
       if (existingUser) throw new Error(`Email "${email}" is already registered`);
-      if (password.length < 8) throw new Error('Password is required and must be at least 8 characters');
+
+      // Password is optional on import: exportTeachers never carries real
+      // passwords (they can't be recovered from the hash), and re-importing
+      // that file — or a template row someone left blank — is the common
+      // case. A blank cell gets a random password instead of failing the
+      // row; the teacher signs in via password reset. A cell that IS filled
+      // in must still meet the 8-character minimum.
+      if (passwordRaw && passwordRaw.length < 8) throw new Error('Password must be at least 8 characters');
+      const password = passwordRaw || crypto.randomBytes(24).toString('base64url');
 
       const specialization = specializationRaw
         ? specializationRaw.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean)
