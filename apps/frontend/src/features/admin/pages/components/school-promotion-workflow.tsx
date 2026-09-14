@@ -21,6 +21,8 @@ type ReviewGroup = {
   isFinal: boolean;
   targetGradeLevel?: number | null;
   targetTitle?: string;
+  targetReady: boolean;
+  missingReason?: string;
   students: ReviewStudent[];
 };
 
@@ -30,16 +32,16 @@ type ReviewPayload = {
   groups: ReviewGroup[];
 };
 
+type MissingTarget = { title: string; section?: string; message: string };
+
 type ReviewResult = {
   sourceAcademicYear: string;
   targetAcademicYear: string;
   studentsPromoted: number;
   studentsRepeated: number;
   studentsGraduated: number;
-  classesCompleted: number;
-  targetsCreated: number;
-  repeatClassesCreated: number;
-  intakesOpened: number;
+  missingTargets: MissingTarget[];
+  skippedStudents: { studentId: string; reason: string }[];
 };
 
 const dataOf = <T,>(response: any): T => response?.data?.data ?? response?.data ?? response;
@@ -61,7 +63,10 @@ function PromotionWorkflow({ onClose }: { onClose: () => void }) {
       setReview(payload);
       const initial: Record<string, Decision> = {};
       for (const group of payload.groups || []) {
-        for (const student of group.students || []) initial[student._id] = student.defaultAction;
+        // A group whose next-grade class doesn't exist yet can't default to
+        // Promote — Repeat is the only valid action until it's created.
+        const forceRepeat = !group.isFinal && !group.targetReady;
+        for (const student of group.students || []) initial[student._id] = forceRepeat ? 'repeat' : student.defaultAction;
       }
       setDecisions(initial);
     }).catch((e) => active && setError(errOf(e))).finally(() => active && setLoading(false));
@@ -80,7 +85,10 @@ function PromotionWorkflow({ onClose }: { onClose: () => void }) {
   const resetDefaults = () => {
     if (!review) return;
     const next: Record<string, Decision> = {};
-    for (const group of review.groups) for (const student of group.students) next[student._id] = student.defaultAction;
+    for (const group of review.groups) {
+      const forceRepeat = !group.isFinal && !group.targetReady;
+      for (const student of group.students) next[student._id] = forceRepeat ? 'repeat' : student.defaultAction;
+    }
     setDecisions(next);
   };
 
@@ -88,7 +96,7 @@ function PromotionWorkflow({ onClose }: { onClose: () => void }) {
     if (!review || running) return;
     const total = summary.promote + summary.repeat + summary.graduate;
     if (!total) return;
-    if (!window.confirm(`Confirm year-end promotion?\n\nPromote: ${summary.promote}\nRepeat: ${summary.repeat}\nGraduate: ${summary.graduate}\n\nThis will close the source classes and move students into ${review.targetAcademicYear}.`)) return;
+    if (!window.confirm(`Confirm year-end promotion?\n\nPromote: ${summary.promote}\nRepeat: ${summary.repeat}\nGraduate: ${summary.graduate}\n\nStudents move into their ${review.targetAcademicYear} classes; classes and courses themselves are unchanged.`)) return;
     setRunning(true);
     setError('');
     try {
@@ -114,8 +122,8 @@ function PromotionWorkflow({ onClose }: { onClose: () => void }) {
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {loading ? <div className="py-16 text-center text-sm text-slate-500">Preparing students...</div> : result ? <div className="space-y-4">
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/30"><div className="text-lg font-bold text-emerald-800 dark:text-emerald-200">Promotion completed successfully</div><div className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">{result.sourceAcademicYear} → {result.targetAcademicYear}</div></div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Stat label="Promoted" value={result.studentsPromoted}/><Stat label="Repeated" value={result.studentsRepeated}/><Stat label="Graduated" value={result.studentsGraduated}/><Stat label="Classes closed" value={result.classesCompleted}/></div>
-          <div className="rounded-xl border border-slate-200 p-4 text-sm dark:border-slate-800">Prepared automatically: <b>{result.targetsCreated}</b> next-grade class(es), <b>{result.repeatClassesCreated}</b> repeat class(es), and <b>{result.intakesOpened}</b> new intake class(es).</div>
+          <div className="grid grid-cols-3 gap-3"><Stat label="Promoted" value={result.studentsPromoted}/><Stat label="Repeated" value={result.studentsRepeated}/><Stat label="Graduated" value={result.studentsGraduated}/></div>
+          {result.missingTargets.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300"><p className="font-semibold">{result.skippedStudents.length} student(s) were skipped — their next-grade class doesn't exist yet:</p><ul className="mt-2 list-disc space-y-1 pl-4">{result.missingTargets.map((m, i) => <li key={i}>{m.message}</li>)}</ul><p className="mt-2">Create the class(es) in Manage Classes, then run promotion again for those students.</p></div>}
         </div> : review ? <div className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60">
             <div className="text-xs font-semibold uppercase text-slate-500">Academic year</div><div className="mt-1 text-xl font-bold">{review.sourceAcademicYear} → {review.targetAcademicYear}</div>
@@ -127,7 +135,8 @@ function PromotionWorkflow({ onClose }: { onClose: () => void }) {
 
           <div className="space-y-3">{review.groups.map((group, index) => <details key={group.classId} open={index === 0} className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
             <summary className="cursor-pointer list-none px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-900"><div className="flex items-center justify-between gap-3"><div><div className="font-semibold">{group.title}{group.section ? ` · ${group.section}` : ''}</div><div className="mt-0.5 text-xs text-slate-500">Grade {group.gradeLevel} → {group.isFinal ? 'Graduate' : `Grade ${group.targetGradeLevel}`}</div></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold dark:bg-slate-800">{group.students.length} students</span></div></summary>
-            <div className="border-t border-slate-100 dark:border-slate-800">{group.students.length ? group.students.map((student) => <div key={student._id} className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 last:border-0 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800"><div><div className="text-sm font-medium">{student.name || student.studentId}</div><div className="text-xs text-slate-500">{student.studentId}</div></div><select value={decisions[student._id] || student.defaultAction} onChange={(e) => setDecisions((x) => ({ ...x, [student._id]: e.target.value as Decision }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">{group.isFinal ? <><option value="graduate">Graduate</option><option value="repeat">Repeat grade</option></> : <><option value="promote">Promote</option><option value="repeat">Repeat grade</option></>}</select></div>) : <div className="px-4 py-5 text-sm text-slate-500">No active students in this class.</div>}</div>
+            {!group.isFinal && !group.targetReady && <div className="border-t border-amber-100 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">{group.missingReason || 'The next-grade class does not exist yet — only Repeat is available until it is created.'}</div>}
+            <div className="border-t border-slate-100 dark:border-slate-800">{group.students.length ? group.students.map((student) => <div key={student._id} className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 last:border-0 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800"><div><div className="text-sm font-medium">{student.name || student.studentId}</div><div className="text-xs text-slate-500">{student.studentId}</div></div><select value={decisions[student._id] || student.defaultAction} onChange={(e) => setDecisions((x) => ({ ...x, [student._id]: e.target.value as Decision }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">{group.isFinal ? <><option value="graduate">Graduate</option><option value="repeat">Repeat grade</option></> : <>{group.targetReady && <option value="promote">Promote</option>}<option value="repeat">Repeat grade</option></>}</select></div>) : <div className="px-4 py-5 text-sm text-slate-500">No active students in this class.</div>}</div>
           </details>)}{!review.groups.length && <div className="rounded-xl border border-slate-200 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-800">No active classes are ready for year-end promotion.</div>}</div>
         </div> : <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error || 'Could not prepare promotion.'}</div>}
       </div>

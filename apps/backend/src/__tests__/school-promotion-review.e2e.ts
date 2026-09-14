@@ -59,6 +59,7 @@ async function main() {
   await syncStudentCourseEnrollment(repeatTen._id, grade10._id);
   const courseBefore: any = await Course.findById(grade10Course._id).lean();
   assert(courseBefore?.enrolledStudents === 2, `source course starts with two active students (got ${courseBefore?.enrolledStudents})`);
+  const classCountBefore = await ClassModel.countDocuments({ school: school._id });
 
   console.log('\n=== REVIEW PREVIEW ===');
   const preview = await request(app).get('/api/v1/classes/promotion-review').set('Authorization', `Bearer ${token}`).query({ schoolId: school._id.toString() });
@@ -67,6 +68,7 @@ async function main() {
   const g9 = groups.find((x: any) => String(x.classId) === String(grade9._id));
   const g10 = groups.find((x: any) => String(x.classId) === String(grade10._id));
   assert(g9?.students?.length === 2 && g9?.students?.every((x: any) => x.defaultAction === 'promote'), 'Grade 9 defaults to Promote');
+  assert(g9?.targetReady === true && String(g9?.targetTitle) === 'Grade 10', 'Grade 9 targets the existing Grade 10 class, ready to go');
   assert(g10?.students?.length === 2 && g10?.students?.every((x: any) => x.defaultAction === 'graduate'), 'Final grade defaults to Graduate');
 
   console.log('\n=== REVIEWED EXECUTION WITH REPEAT EXCEPTIONS ===');
@@ -81,66 +83,51 @@ async function main() {
   assert(execute.body?.data?.studentsPromoted === 1, 'one student promoted');
   assert(execute.body?.data?.studentsRepeated === 2, 'two students repeat');
   assert(execute.body?.data?.studentsGraduated === 1, 'one student graduated');
+  assert((execute.body?.data?.missingTargets || []).length === 0, 'no target class was missing');
+
+  const classCountAfter = await ClassModel.countDocuments({ school: school._id });
+  assert(classCountAfter === classCountBefore, `no new Class documents were created (before ${classCountBefore}, after ${classCountAfter})`);
 
   const promoted: any = await Student.findById(promoteMe._id).lean();
   const repeated9: any = await Student.findById(repeatNine._id).lean();
   const graduated: any = await Student.findById(graduateMe._id).lean();
   const repeated10: any = await Student.findById(repeatTen._id).lean();
-  const pClass: any = await ClassModel.findById(promoted?.class).lean();
-  const r9Class: any = await ClassModel.findById(repeated9?.class).lean();
-  const r10Class: any = await ClassModel.findById(repeated10?.class).lean();
 
-  assert(pClass?.gradeLevel === 10 && pClass?.academicYear === '2027-2028', 'promoted student moves to next grade in new year');
+  assert(String(promoted?.class) === String(grade10._id), 'promoted student moves into the EXISTING Grade 10 class, not a new one');
   assert(promoted?.grade === '10', `promoted student's denormalized grade is synchronized (got ${promoted?.grade})`);
   assert(promoted?.department === 'Secondary', `promoted student's department is synchronized (got ${promoted?.department})`);
   assert(promoted?.shiftMode === 'Afternoon', `promoted student's shift follows target class (got ${promoted?.shiftMode})`);
-  assert(r9Class?.gradeLevel === 9 && r9Class?.academicYear === '2027-2028' && r9Class?.batch === '2026', 'Grade 9 repeater stays same grade in new year and keeps cohort batch');
-  assert(repeated9?.shiftMode === 'Morning', `repeater keeps the repeated class shift (got ${repeated9?.shiftMode})`);
-  assert(r10Class?.gradeLevel === 10 && r10Class?.academicYear === '2027-2028' && r10Class?.batch === '2026', 'final-grade repeater stays final grade in new year');
+  assert(String(repeated9?.class) === String(grade9._id), 'Grade 9 repeater STAYS in the same Grade 9 class — no new class');
+  assert(String(repeated10?.class) === String(grade10._id), 'Grade 10 repeater STAYS in the same Grade 10 class — no new class');
+
+  const latestActive = (student: any) => (student?.enrollmentHistory || []).find((h: any) => h.status === 'active');
+  assert(latestActive(promoted)?.academicYear === '2027-2028', 'promoted student\'s new history entry records the new academic year');
+  assert(latestActive(repeated9)?.academicYear === '2027-2028' && String(latestActive(repeated9)?.class) === String(grade9._id), 'Grade 9 repeater opens a fresh history entry for the new year on the SAME class');
+  assert(latestActive(repeated10)?.academicYear === '2027-2028' && String(latestActive(repeated10)?.class) === String(grade10._id), 'Grade 10 repeater opens a fresh history entry for the new year on the SAME class');
   assert(graduated?.status === 'graduated', 'default final-grade student graduates');
 
+  // repeatTen stays enrolled in Grade 10's course (same class, same course);
+  // only graduateMe's enrollment closed.
   const courseAfter: any = await Course.findById(grade10Course._id).lean();
-  assert(courseAfter?.enrolledStudents === 0, `completed source course has zero active students after repeat/graduate (got ${courseAfter?.enrolledStudents})`);
+  assert(courseAfter?.enrolledStudents === 1, `Grade 10 course keeps its repeating student enrolled (got ${courseAfter?.enrolledStudents})`);
 
-  const newIntake = await ClassModel.findOne({ school: school._id, gradeLevel: 9, academicYear: '2027-2028', batch: '2027', isEntryGrade: true }).lean();
-  assert(!!newIntake, 'new Grade 9 intake is separate from repeat class');
+  console.log('\n=== SOURCE CLASSES STAY ACTIVE — NEVER "completed" ===');
   const old9: any = await ClassModel.findById(grade9._id).lean();
   const old10: any = await ClassModel.findById(grade10._id).lean();
-  assert(old9?.status === 'completed' && old10?.status === 'completed', 'source classes are completed');
+  assert(old9?.status === 'active', `Grade 9 remains active (got ${old9?.status})`);
+  assert(old10?.status === 'active', `Grade 10 remains active (got ${old10?.status})`);
+  assert(!old9?.promotedAt && !old10?.promotedAt, 'classes never accumulate a promotedAt marker under the new flow');
 
-  const second = await request(app).post('/api/v1/classes/promote-reviewed').set('Authorization', `Bearer ${token}`).send({ schoolId: school._id.toString(), targetAcademicYear: '2027-2028', decisions: [] });
-  assert(second.status === 200 && second.body?.data?.classesCompleted === 0, 'second run is idempotent and changes no source classes');
-
-  console.log('\n=== UNDO REVIEWED PROMOTION ===');
+  console.log('\n=== UNDO PROMOTION IS A NO-OP FOR THE NEW FLOW ===');
+  // rollback-promotion only knows how to undo the OLD clone-and-complete
+  // model. Since these classes never became "completed", there is nothing
+  // for it to roll back — it must say so, not silently do nothing wrong.
   const rollback = await request(app).post('/api/v1/classes/rollback-promotion').set('Authorization', `Bearer ${token}`).send({
     classIds: [grade9._id.toString(), grade10._id.toString()],
   });
-  assert(rollback.status === 200, `promotion rollback succeeds (got ${rollback.status}, ${JSON.stringify(rollback.body)})`);
-  assert(rollback.body?.data?.classesRestored === 2, 'two source classes restored');
-  assert(rollback.body?.data?.studentsRestored === 3, 'promoted/repeating students moved back to source classes');
-  assert(rollback.body?.data?.graduatesRestored === 1, 'graduated student restored to active');
+  assert(rollback.status === 400, `rollback correctly refuses classes that were never marked completed (got ${rollback.status})`);
 
-  const restoredPromote: any = await Student.findById(promoteMe._id).lean();
-  const restoredRepeat9: any = await Student.findById(repeatNine._id).lean();
-  const restoredGraduate: any = await Student.findById(graduateMe._id).lean();
-  const restoredRepeat10: any = await Student.findById(repeatTen._id).lean();
-  assert(String(restoredPromote?.class) === String(grade9._id), 'promoted student returns to Grade 9 source class');
-  assert(String(restoredRepeat9?.class) === String(grade9._id), 'Grade 9 repeater returns to Grade 9 source class');
-  assert(String(restoredRepeat10?.class) === String(grade10._id), 'Grade 10 repeater returns to Grade 10 source class');
-  assert(restoredGraduate?.status === 'active' && String(restoredGraduate?.class) === String(grade10._id), 'graduate returns to active status in Grade 10 source class');
-
-  const restored9: any = await ClassModel.findById(grade9._id).lean();
-  const restored10: any = await ClassModel.findById(grade10._id).lean();
-  assert(restored9?.status === 'active' && restored9?.academicYear === '2025-2026' && !restored9?.promotedAt && !restored9?.promotedTo, 'Grade 9 reopens one academic year earlier and clears promotion markers');
-  assert(restored10?.status === 'active' && restored10?.academicYear === '2025-2026' && !restored10?.promotedAt && !restored10?.promotedTo, 'Grade 10 reopens one academic year earlier and clears promotion markers');
-
-  const courseAfterRollback: any = await Course.findById(grade10Course._id).lean();
-  assert(courseAfterRollback?.enrolledStudents === 2, `source course count is restored after rollback (got ${courseAfterRollback?.enrolledStudents})`);
-
-  const previewAfterRollback = await request(app).get('/api/v1/classes/promotion-review').set('Authorization', `Bearer ${token}`).query({ schoolId: school._id.toString(), targetAcademicYear: '2026-2027' });
-  assert(previewAfterRollback.status === 200 && (previewAfterRollback.body?.data?.groups || []).length === 2, 'rewound classes become eligible for promotion from their restored academic year');
-
-  console.log('\n=== MIXED ACADEMIC YEAR UNDO ===');
+  console.log('\n=== MIXED ACADEMIC YEAR UNDO (legacy completed classes, unrelated to the new flow) ===');
   const mixedA = await ClassModel.create({
     school: school._id, department: department._id, title: 'Mixed Grade 6', section: 'M1', room: 'M1', batch: 'MIX-A',
     gradeLevel: 6, academicYear: '2028-2029', status: 'completed', shiftMode: 'Morning', promotedAt: new Date(),
@@ -152,13 +139,13 @@ async function main() {
   const mixedRollback = await request(app).post('/api/v1/classes/rollback-promotion').set('Authorization', `Bearer ${token}`).send({
     classIds: [mixedA._id.toString(), mixedB._id.toString()],
   });
-  assert(mixedRollback.status === 200, `mixed-year promotion rollback succeeds (got ${mixedRollback.status}, ${JSON.stringify(mixedRollback.body)})`);
+  assert(mixedRollback.status === 200, `mixed-year legacy promotion rollback succeeds (got ${mixedRollback.status}, ${JSON.stringify(mixedRollback.body)})`);
   const mixedAAfter: any = await ClassModel.findById(mixedA._id).lean();
   const mixedBAfter: any = await ClassModel.findById(mixedB._id).lean();
-  assert(mixedAAfter?.status === 'active' && mixedAAfter?.academicYear === '2027-2028', '2028-2029 selected class rewinds independently to 2027-2028');
-  assert(mixedBAfter?.status === 'active' && mixedBAfter?.academicYear === '2029-2030', '2030-2031 selected class rewinds independently to 2029-2030');
+  assert(mixedAAfter?.status === 'active' && mixedAAfter?.academicYear === '2027-2028', '2028-2029 legacy class rewinds independently to 2027-2028');
+  assert(mixedBAfter?.status === 'active' && mixedBAfter?.academicYear === '2029-2030', '2030-2031 legacy class rewinds independently to 2029-2030');
 
-  console.log('\n=== BULK MAKE ACTIVE ===');
+  console.log('\n=== BULK MAKE ACTIVE (legacy completed class) ===');
   const manualCompleted = await ClassModel.create({ school: school._id, department: department._id, title: 'Manual Completed', section: 'B', room: 'MB', batch: '2025', gradeLevel: 8, academicYear: '2025-2026', status: 'completed', shiftMode: 'Morning' });
   await Student.updateOne({ _id: promoteMe._id }, {
     $push: {
@@ -178,7 +165,7 @@ async function main() {
   assert(deleteActiveHistoryClass.status === 204, `active class with history-only references can be deleted (got ${deleteActiveHistoryClass.status})`);
 
   const deleteCurrentActiveClass = await request(app).delete(`/api/v1/classes/${grade9._id}`).set('Authorization', `Bearer ${token}`);
-  assert(deleteCurrentActiveClass.status === 400, `active class with current live students remains protected (got ${deleteCurrentActiveClass.status})`);
+  assert(deleteCurrentActiveClass.status === 400, `active class with a current repeating student remains protected (got ${deleteCurrentActiveClass.status})`);
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(failures === 0 ? 'ALL REVIEWED PROMOTION CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
