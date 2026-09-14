@@ -464,7 +464,12 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       }
 
       const baseSlug = slugify(title);
-      const legacySlug = placement ? `${baseSlug}-${slugify(placement)}` : baseSlug;
+      // Class/Section differentiates the slug for same-named courses across
+      // grades (e.g. Mathematics in Grade 1 vs Grade 2). When a row has no
+      // placement, fall back to Course Code so repeated names still get a
+      // unique, insertable slug instead of colliding on the DB unique index.
+      const slugDifferentiator = placement ? slugify(placement) : (courseCode ? slugify(courseCode) : '');
+      const legacySlug = slugDifferentiator ? `${baseSlug}-${slugDifferentiator}` : baseSlug;
       const slug = tenantSlug(legacySlug, context.schoolId);
       const existingByCode = courseCode ? codeMap.get(normalizeLookup(courseCode)) : undefined;
       const slugOwner = slugMap.get(slug);
