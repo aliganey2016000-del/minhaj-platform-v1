@@ -22,15 +22,17 @@ router.use(authMiddleware);
 router.get('/', adminOrTeacher, asyncHandler(dispatchCtrl.getAllSchedules));
 router.post('/', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.create));
 
-// Simplified school-only CRUD/import/export workflow.
+// Simplified school-only CRUD/import/export workflow. Static school routes must
+// be registered before /school/:id so names such as "period-settings" are not
+// interpreted as schedule ids by Express.
 router.get('/school/list', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolListCtrl.getSchoolSchedules));
-router.post('/school', roleMiddleware(['admin', 'org_admin']), asyncHandler(validateScheduleRoomConflict), asyncHandler(schoolCtrl.createSchoolSchedule));
-router.put('/school/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(validateScheduleRoomConflict), asyncHandler(schoolCtrl.updateSchoolSchedule));
+router.get('/school/period-settings', roleMiddleware(['admin', 'org_admin']), asyncHandler(periodSettingsCtrl.getPeriodSettings));
+router.put('/school/period-settings', roleMiddleware(['admin', 'org_admin']), asyncHandler(periodSettingsCtrl.savePeriodSettings));
 router.post('/school/import', roleMiddleware(['admin', 'org_admin']), upload.single('file'), asyncHandler(schoolCtrl.importSchoolSchedules));
 router.get('/school/export', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.exportSchoolSchedules as any));
 router.get('/school/template', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolTemplateCtrl.downloadSchoolTemplate as any));
-router.get('/school/period-settings', roleMiddleware(['admin', 'org_admin']), asyncHandler(periodSettingsCtrl.getPeriodSettings));
-router.put('/school/period-settings', roleMiddleware(['admin', 'org_admin']), asyncHandler(periodSettingsCtrl.savePeriodSettings));
+router.post('/school', roleMiddleware(['admin', 'org_admin']), asyncHandler(validateScheduleRoomConflict), asyncHandler(schoolCtrl.createSchoolSchedule));
+router.put('/school/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(validateScheduleRoomConflict), asyncHandler(schoolCtrl.updateSchoolSchedule));
 
 // Legacy/comprehensive workflow retained for university, college, training
 // center and super-admin use.
