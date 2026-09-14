@@ -15,6 +15,9 @@ function objectIdString(value: unknown): string {
 }
 
 export async function preflightTimetableDraft(req: Request, _res: Response, next: NextFunction) {
+  const name = String(req.body?.name || 'Working Draft').trim();
+  if (name.length > 120) throw new BadRequestError('Timetable draft name cannot exceed 120 characters');
+
   const raw = req.body?.entries;
   // When entries are omitted, the recovery-aware controller builds and validates
   // a safe snapshot of the currently published timetable before replacing any
@@ -28,13 +31,18 @@ export async function preflightTimetableDraft(req: Request, _res: Response, next
   if (!schoolId || !mongoose.isValidObjectId(schoolId)) throw new BadRequestError('School is required');
 
   const entries = raw.map((item: any, index: number) => {
+    const entryId = item?._id ? objectIdString(item._id) : '';
+    const sourceSchedule = item?.sourceSchedule ? objectIdString(item.sourceSchedule) : '';
     const cls = objectIdString(item?.class);
     const course = objectIdString(item?.course);
     const teacher = item?.teacher ? objectIdString(item.teacher) : null;
     const dayOfWeek = Number(item?.dayOfWeek);
     const startTime = String(item?.startTime || '').trim();
     const endTime = String(item?.endTime || '').trim();
+    const room = String(item?.room || '').trim();
 
+    if (entryId && !mongoose.isValidObjectId(entryId)) throw new BadRequestError(`Entry ${index + 1}: id is invalid`);
+    if (sourceSchedule && !mongoose.isValidObjectId(sourceSchedule)) throw new BadRequestError(`Entry ${index + 1}: source schedule is invalid`);
     if (!mongoose.isValidObjectId(cls)) throw new BadRequestError(`Entry ${index + 1}: valid class is required`);
     if (!mongoose.isValidObjectId(course)) throw new BadRequestError(`Entry ${index + 1}: valid course is required`);
     if (teacher && !mongoose.isValidObjectId(teacher)) throw new BadRequestError(`Entry ${index + 1}: teacher is invalid`);
@@ -42,6 +50,7 @@ export async function preflightTimetableDraft(req: Request, _res: Response, next
     if (!TIME_RE.test(startTime) || !TIME_RE.test(endTime) || endTime <= startTime) {
       throw new BadRequestError(`Entry ${index + 1}: valid start/end time is required`);
     }
+    if (room.length > 80) throw new BadRequestError(`Entry ${index + 1}: room cannot exceed 80 characters`);
 
     return { class: cls, course, teacher };
   });
