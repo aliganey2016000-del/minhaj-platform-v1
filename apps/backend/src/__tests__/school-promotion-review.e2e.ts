@@ -106,10 +106,11 @@ async function main() {
   assert(latestActive(repeated10)?.academicYear === '2027-2028' && String(latestActive(repeated10)?.class) === String(grade10._id), 'Grade 10 repeater opens a fresh history entry for the new year on the SAME class');
   assert(graduated?.status === 'graduated', 'default final-grade student graduates');
 
-  // repeatTen stays enrolled in Grade 10's course (same class, same course);
-  // only graduateMe's enrollment closed.
+  // repeatTen stays enrolled in Grade 10's course (same class, same course),
+  // and promoteMe is newly enrolled in it by moving into Grade 10 — only
+  // graduateMe's enrollment closed.
   const courseAfter: any = await Course.findById(grade10Course._id).lean();
-  assert(courseAfter?.enrolledStudents === 1, `Grade 10 course keeps its repeating student enrolled (got ${courseAfter?.enrolledStudents})`);
+  assert(courseAfter?.enrolledStudents === 2, `Grade 10 course keeps its repeating student and gains the newly-promoted one (got ${courseAfter?.enrolledStudents})`);
 
   console.log('\n=== SOURCE CLASSES STAY ACTIVE — NEVER "completed" ===');
   const old9: any = await ClassModel.findById(grade9._id).lean();
