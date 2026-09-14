@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import TimetablePeriodSettings from '../models/timetable-period-settings.model';
+import ClassSchedule from '../models/class-schedule.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError } from '../utils/api-error';
 import { resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
@@ -50,10 +51,49 @@ function validatePeriods(input: unknown) {
   return sorted.map(({ index: _index, ...period }) => period);
 }
 
+async function inferPeriodsFromExistingSchedules(school: string) {
+  const schedules = await ClassSchedule.find({ school, isActive: true })
+    .select('startTime endTime')
+    .sort({ startTime: 1, endTime: 1 })
+    .lean();
+
+  const unique = new Map<string, { startTime: string; endTime: string }>();
+  for (const schedule of schedules as any[]) {
+    const startTime = String(schedule.startTime || '').slice(0, 5);
+    const endTime = String(schedule.endTime || '').slice(0, 5);
+    if (!TIME.test(startTime) || !TIME.test(endTime) || endTime <= startTime) continue;
+    const key = `${startTime}-${endTime}`;
+    if (!unique.has(key)) unique.set(key, { startTime, endTime });
+  }
+
+  return Array.from(unique.values())
+    .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime))
+    .map((period, index) => ({
+      label: `Period ${index + 1}`,
+      startTime: period.startTime,
+      endTime: period.endTime,
+      isBreak: false,
+    }));
+}
+
 export const getPeriodSettings = async (req: Request, res: Response): Promise<Response> => {
   const school = readableSchoolId(req);
   const existing = await TimetablePeriodSettings.findOne({ school }).lean();
-  return ApiResponse.success(res, { school, periods: existing?.periods?.length ? existing.periods : DEFAULT_SCHOOL_PERIODS });
+  if (existing?.periods?.length) {
+    return ApiResponse.success(res, { school, periods: existing.periods, configured: true, source: 'configured' });
+  }
+
+  // Older schools may already have a valid timetable but no saved Period &
+  // Break Settings. Returning hard-coded defaults in that case made lessons
+  // at different times disappear from the timetable grid. Derive display rows
+  // from the real active schedule first; use defaults only for an empty school.
+  const inferred = await inferPeriodsFromExistingSchedules(school);
+  return ApiResponse.success(res, {
+    school,
+    periods: inferred.length ? inferred : DEFAULT_SCHOOL_PERIODS,
+    configured: false,
+    source: inferred.length ? 'schedules' : 'defaults',
+  });
 };
 
 export const savePeriodSettings = async (req: Request, res: Response): Promise<Response> => {

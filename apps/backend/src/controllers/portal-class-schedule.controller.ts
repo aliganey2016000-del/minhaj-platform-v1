@@ -4,11 +4,14 @@ import ClassSchedule from '../models/class-schedule.model';
 import ApiResponse from '../utils/api-response';
 import { ForbiddenError, NotFoundError } from '../utils/api-error';
 import { getOwnTeacherRecord, resolveViewableOrgId } from '../utils/tenant-scope';
+import { isLiveEligibleSchedule } from '../utils/schedule-live-eligibility';
 
 /**
  * Student-facing weekly timetable. Keep this endpoint deliberately narrow:
  * the caller can only resolve the Student record attached to their own user,
- * then only active schedules for that current class are returned.
+ * then only currently valid active schedules for that current class are
+ * returned. Historical rows remain stored for admin/audit purposes, but a
+ * later class/course/teacher deactivation must not leak into the live portal.
  */
 export const getMySchedules = async (req: Request, res: Response): Promise<Response> => {
   const Student = mongoose.model('Student');
@@ -20,12 +23,17 @@ export const getMySchedules = async (req: Request, res: Response): Promise<Respo
     class: student.class,
     isActive: true,
   })
-    .populate('course', 'title isLive')
-    .populate({ path: 'teacher', populate: { path: 'profile', select: 'firstName lastName' } })
+    .populate('class', 'title section status')
+    .populate('course', 'title isLive status')
+    .populate({
+      path: 'teacher',
+      select: 'profile status',
+      populate: { path: 'profile', select: 'firstName lastName' },
+    })
     .sort({ dayOfWeek: 1, startTime: 1 })
     .lean();
 
-  return ApiResponse.success(res, schedules);
+  return ApiResponse.success(res, schedules.filter(isLiveEligibleSchedule));
 };
 
 /**
@@ -49,12 +57,13 @@ export const getMyScheduleAsTeacher = async (req: Request, res: Response): Promi
     .populate('school', 'name')
     .populate({
       path: 'class',
-      select: 'title section department shiftMode room',
+      select: 'title section department shiftMode room status',
       populate: { path: 'department', select: 'name' },
     })
-    .populate('course', 'title')
+    .populate('course', 'title status')
+    .populate({ path: 'teacher', select: 'status' })
     .sort({ dayOfWeek: 1, startTime: 1 })
     .lean();
 
-  return ApiResponse.success(res, schedules);
+  return ApiResponse.success(res, schedules.filter(isLiveEligibleSchedule));
 };
