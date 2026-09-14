@@ -102,12 +102,13 @@ studentSchema.index({ school: 1, studentId: 1 }, { unique: true });
 
 /**
  * Generate a tenant-friendly Student ID from the first word of the
- * organization name, followed by a per-organization sequence beginning at
- * 001. Example: "Bal'ad Primary and Secondary School" => BALAD001.
+ * organization name, a stable organization key, and a per-organization
+ * sequence beginning at 001. Example: BALAD-<ORGANIZATION_ID>-001.
  *
  * The sequence is scoped to the school so every organization starts from
- * 001. The organization prefix also keeps IDs distinct on databases that may
- * still have an older platform-wide unique index on studentId.
+ * 001. The stable key prevents organizations with the same first word from
+ * colliding on databases that still have an older global studentId index.
+ * Existing student IDs are deliberately left unchanged.
  */
 async function generateAutomaticStudentId(school?: unknown): Promise<string> {
   const StudentModel = mongoose.model<IStudent>('Student');
@@ -124,6 +125,8 @@ async function generateAutomaticStudentId(school?: unknown): Promise<string> {
       .replace(/[^a-zA-Z0-9]/g, '')
       .toUpperCase();
     if (normalized) prefix = normalized;
+    const tenantKey = String(school).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    if (tenantKey) prefix = `${prefix}-${tenantKey}-`;
   }
 
   const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
