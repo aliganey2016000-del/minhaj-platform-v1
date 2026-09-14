@@ -248,8 +248,6 @@ async function deleteTeacherToTrash(teacherId: string, req: Request): Promise<vo
   }
 
   const [userDoc, profileDoc] = await Promise.all([
-    // +password: it's `select: false` on the schema, but the snapshot must
-    // carry it or a restore fails Mongoose's `required` validation on User.
     User.findById(teacher.user).select('+password +tokenVersion'),
     Profile.findById(teacher.profile),
   ]);
@@ -322,12 +320,6 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
     if (ids.length === 0) throw new BadRequestError('At least one teacher id is required');
   }
 
-  // Resolve every matching teacher in ONE query, then do a single Trash
-  // insertMany + three deleteMany calls instead of looping
-  // deleteTeacherToTrash per id — that per-id loop (each needing several
-  // sequential round trips) was slow enough against the remote Atlas
-  // cluster to blow past the browser/proxy request timeout on anything
-  // more than a couple dozen teachers.
   const teachers = await Teacher.find({ _id: { $in: ids } });
   const foundIds = new Set(teachers.map((t) => String(t._id)));
   const notFoundIds = ids.filter((id) => !foundIds.has(id));
@@ -343,14 +335,6 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
     }
   }
 
-  // Unlike single delete (which still hard-blocks on active courses —
-  // deleteTeacherToTrash above), bulk delete auto-unassigns instead of
-  // skipping: any published/draft course taught by one of these teachers
-  // gets its teacher cleared and is dropped to 'draft' (pulling it out of
-  // any public "published courses" listing, since a published course with
-  // no teacher is a broken state for students), then the teacher proceeds
-  // to delete normally. One aggregation + one updateMany across every
-  // candidate instead of a per-teacher query.
   const Course = mongoose.model('Course');
   if (ownable.length > 0) {
     const activeCourseCounts = await Course.aggregate([
@@ -460,7 +444,6 @@ export const updateCoursePermission = async (req: Request, res: Response): Promi
 // GET /teachers/export — Export all teachers as formatted XLSX
 // ---------------------------------------------------------------------------
 
-// Keep template and export columns in the same order as the Add/Edit form.
 const TEACHER_COLUMNS = [
   'First Name', 'Last Name', 'Gender', 'Joining Date', 'Email', 'Phone',
   'Password', 'Qualification', 'Experience (years)', 'Specialization', 'Bio', 'Organization',
@@ -487,10 +470,6 @@ export const exportTeachers = async (req: Request, res: Response): Promise<void>
 export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
   const schoolId = resolveOrgIdForCreate(req, req.query.school);
   const school = schoolId ? await School.findById(schoolId).select('name').lean() : null;
-  // Password is left blank, like exportTeachers: bulkImport now generates a
-  // random one for any blank cell, so a raw unmodified download still
-  // imports successfully — without shipping every fresh-downloaded template
-  // with the same known, guessable sample credential.
   const rows = [[
     'Ahmed', 'Hassan', 'male', '2026-01-15', 'ahmed.hassan@example.com', '+252612345678',
     '', 'Bachelor of Islamic Studies', 5, 'Tajweed, Fiqh',
@@ -501,10 +480,6 @@ export const downloadTemplate = async (req: Request, res: Response): Promise<voi
   res.setHeader('Content-Disposition', 'attachment; filename=teachers-template.xlsx');
   res.end(buffer);
 };
-
-// ---------------------------------------------------------------------------
-// Helpers for import
-// ---------------------------------------------------------------------------
 
 function getField(row: Record<string, any>, ...names: string[]): unknown {
   const keys = Object.keys(row);
@@ -520,7 +495,7 @@ function esc(val: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// POST /teachers/import — Transactional bulk import
+// POST /teachers/import — Bulk import with per-row compensation
 // ---------------------------------------------------------------------------
 
 export const bulkImport = async (req: Request, res: Response): Promise<Response> => {
@@ -541,8 +516,6 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 2;
     const row = rows[i];
-
-    // Skip header row if present
     const firstCell = String(Object.values(row as Record<string, any>)[0] ?? '').trim().toLowerCase();
     if (firstCell === 'first name' || firstCell === 'first') { continue; }
 
@@ -563,18 +536,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('A valid Email is required');
       if (!['male', 'female'].includes(gender)) throw new Error('Gender must be male or female');
 
-      // Check for an already-registered email before validating the password —
-      // "already registered" is the actionable message for that row, not a
-      // password error.
       const existingUser = await User.findOne({ email }).lean();
       if (existingUser) throw new Error(`Email "${email}" is already registered`);
-
-      // Password is optional on import: exportTeachers never carries real
-      // passwords (they can't be recovered from the hash), and re-importing
-      // that file — or a template row someone left blank — is the common
-      // case. A blank cell gets a random password instead of failing the
-      // row; the teacher signs in via password reset. A cell that IS filled
-      // in must still meet the 8-character minimum.
       if (passwordRaw && passwordRaw.length < 8) throw new Error('Password must be at least 8 characters');
       const password = passwordRaw || crypto.randomBytes(24).toString('base64url');
 
@@ -587,7 +550,6 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         : joiningDateRaw ? new Date(String(joiningDateRaw)) : new Date();
       if (isNaN(joiningDate.getTime())) throw new Error('Joining Date must be a valid date (YYYY-MM-DD)');
 
-      // Resolve organization
       let schoolId: string | undefined = ownOrgId;
       if (!schoolId) {
         const schoolName = String(getField(row, 'School', 'Organization') ?? '').trim();
@@ -608,19 +570,10 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     }
   }
 
-  // Each row runs in its own transaction (User+Profile+Teacher all-or-nothing
-  // for that one teacher) instead of bundling the whole batch into a single
-  // transaction — previously, one bad row (e.g. a duplicate email slipping
-  // past the pre-check, or a validation error) rolled back every other row
-  // in the same import silently: the failure was a plain Mongoose error, not
-  // a BulkWriteError, so it has no `.writeErrors` and the old catch block
-  // only handled that shape — nothing was ever pushed to `errors`, so the
-  // admin saw "0 imported" with no explanation at all.
-  // No transaction — this deployment's MongoDB is a standalone instance (no
-  // replica set), which doesn't support transactions; session.withTransaction()
-  // throws immediately there. Each row's User+Profile+Teacher is created as
-  // plain sequential writes instead — not atomic per-row, but functional —
-  // with the same per-row try/catch isolating one bad row from the rest.
+  // This deployment uses standalone MongoDB, so transactions are unavailable.
+  // Keep successful rows independent, and compensate any failed row by removing
+  // only the records created for that row. This prevents failed imports from
+  // leaving orphan User/Profile documents behind.
   let inserted = 0;
   if (teachersToInsert.length > 0) {
     const baseTeacherCount = await Teacher.countDocuments();
@@ -629,6 +582,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     for (let idx = 0; idx < teachersToInsert.length; idx++) {
       const item = teachersToInsert[idx];
       const teacherId = `TCH-${currentYear}-${String(baseTeacherCount + idx + 1).padStart(4, '0')}`;
+      let createdUserId: mongoose.Types.ObjectId | null = null;
+      let createdProfileId: mongoose.Types.ObjectId | null = null;
 
       try {
         const user = await User.create({
@@ -636,10 +591,12 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
           organizationId: item.school, phone: item.phone || undefined,
           isVerified: true, isActive: true, preferredLanguage: 'en',
         });
+        createdUserId = user._id;
 
         const profile = await Profile.create({
           user: user._id, firstName: item.firstName, lastName: item.lastName, gender: item.gender,
         });
+        createdProfileId = profile._id;
 
         await Teacher.create({
           user: user._id, profile: profile._id, teacherId,
@@ -650,7 +607,21 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
         inserted++;
       } catch (rowErr: any) {
-        errors.push({ row: item.rowNum, message: rowErr.message || 'Insert failed' });
+        let cleanupFailed = false;
+        if (createdUserId) {
+          try {
+            await Teacher.deleteMany({ user: createdUserId });
+            if (createdProfileId) await Profile.findByIdAndDelete(createdProfileId);
+            await User.findByIdAndDelete(createdUserId);
+          } catch {
+            cleanupFailed = true;
+          }
+        }
+        const message = rowErr.message || 'Insert failed';
+        errors.push({
+          row: item.rowNum,
+          message: cleanupFailed ? `${message} (automatic cleanup incomplete; review partial records)` : message,
+        });
       }
     }
   }
