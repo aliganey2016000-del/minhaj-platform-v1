@@ -470,8 +470,15 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       // unique, insertable slug instead of colliding on the DB unique index.
       const slugDifferentiator = placement ? slugify(placement) : (courseCode ? slugify(courseCode) : '');
       const legacySlug = slugDifferentiator ? `${baseSlug}-${slugDifferentiator}` : baseSlug;
-      const slug = tenantSlug(legacySlug, context.schoolId);
+      let slug = tenantSlug(legacySlug, context.schoolId);
       const existingByCode = courseCode ? codeMap.get(normalizeLookup(courseCode)) : undefined;
+      // Distinct Course Codes are allowed in the same class/placement. If an
+      // earlier new row already claimed the normal name+placement slug, add the
+      // Course Code only for the colliding row so existing URL conventions stay
+      // unchanged for the common case.
+      if (!existingByCode && courseCode && seenSlugs.has(slug)) {
+        slug = tenantSlug(`${legacySlug}-${slugify(courseCode)}`, context.schoolId);
+      }
       const slugOwner = slugMap.get(slug);
       const existing = existingByCode || scopedSlugMap.get(slug) || scopedSlugMap.get(legacySlug);
 
