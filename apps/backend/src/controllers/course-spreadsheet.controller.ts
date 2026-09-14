@@ -425,6 +425,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   const updateOps: any[] = [];
   const seenSlugs = new Set<string>();
   const seenExistingIds = new Set<string>();
+  const seenCourseCodes = new Set<string>();
   let teachersCreated = 0;
 
   for (let index = 0; index < rows.length; index += 1) {
@@ -469,6 +470,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const slugOwner = slugMap.get(slug);
       const existing = existingByCode || scopedSlugMap.get(slug) || scopedSlugMap.get(legacySlug);
 
+      const codeKey = courseCode ? normalizeLookup(courseCode) : '';
+
       if (existing) {
         const existingId = String(existing._id);
         if (seenExistingIds.has(existingId)) throw new Error('This course appears more than once in the import file');
@@ -476,7 +479,14 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         if (slugOwner) {
           throw new Error(`Another course already uses the generated course URL "${slug}"`);
         }
-        if (seenSlugs.has(slug)) throw new Error('This course appears more than once in the import file');
+        // Course Code is the actual unique identifier for a row (e.g. MATH-1..MATH-12
+        // for the same subject repeated across grades). Only fall back to the
+        // generated name+placement slug when a row has no code to key off.
+        if (codeKey) {
+          if (seenCourseCodes.has(codeKey)) throw new Error('This course appears more than once in the import file');
+        } else if (seenSlugs.has(slug)) {
+          throw new Error('This course appears more than once in the import file');
+        }
       }
 
       // Teacher is optional. Blank means Unassigned and remains editable later.
@@ -519,6 +529,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       }
 
       seenSlugs.add(slug);
+      if (codeKey) seenCourseCodes.add(codeKey);
       insertRowNumbers.push(rowNumber);
       insertDocs.push({
         ...commonFields,
