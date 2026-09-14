@@ -44,7 +44,11 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   }
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-  const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 10));
+  // Admin assignment surfaces legitimately need more than 100 active teachers
+  // in one request (for example Course teacher selectors request 200-500).
+  // Keep a hard upper bound to avoid unbounded reads while honoring those
+  // established client contracts.
+  const limitNum = Math.max(1, Math.min(500, parseInt(limit as string, 10) || 10));
   const skip = (pageNum - 1) * limitNum;
 
   const [teachers, total] = await Promise.all([
