@@ -2,11 +2,12 @@
  * Teacher Schedule — Read-Only View
  *
  * Displays the teacher's own weekly teaching schedule fetched from
- * GET /class-schedules/my-teaching. Shows day, session number, time,
- * course, class, and shift for each scheduled session.
+ * GET /class-schedules/my-teaching. Session numbering is resolved against the
+ * school's configured timetable periods so a teacher's first lesson of the
+ * day is not incorrectly labelled Period 1 when it is actually Period 3.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../../../lib/axios';
 
 interface Schedule {
@@ -24,13 +25,21 @@ interface Schedule {
   course?: { _id: string; title: { en: string } };
 }
 
+interface Period {
+  label?: string;
+  startTime: string;
+  endTime: string;
+  isBreak?: boolean;
+}
+
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5] as const;
 
 function getShiftLabel(schedule: Schedule): 'Morning' | 'Afternoon' | 'Evening' | 'Virtual' {
   if (schedule.class?.shiftMode) return schedule.class.shiftMode;
 
-  // Backward-compatible fallback for existing schedule responses where
-  // shiftMode is not included in the populated Class document.
+  // Backward-compatible fallback for old schedule responses that pre-date
+  // shiftMode population. New responses include the class-configured value.
   const hour = Number(schedule.startTime.slice(0, 2));
   if (hour < 12) return 'Morning';
   if (hour < 17) return 'Afternoon';
@@ -45,13 +54,13 @@ function getShiftIcon(shift: string): string {
 }
 
 const sessionNames = ['1aad', '2aad', '3aad', '4aad', '5aad', '6aad', '7aad', '8aad', '9aad', '10aad'];
-
 function getSessionName(index: number): string {
   return sessionNames[index] || `${index + 1}aad`;
 }
 
 export function TeacherSchedule() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [periods, setPeriods] = useState<Period[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -61,6 +70,16 @@ export function TeacherSchedule() {
       try {
         const { data } = await api.get('/class-schedules/my-teaching');
         setSchedules(data.data || []);
+
+        // Period settings are supplemental. A legacy organization without
+        // saved settings should still get the schedule even if this request
+        // is unavailable for any reason.
+        try {
+          const periodResponse = await api.get('/class-schedules/school/period-settings');
+          setPeriods(periodResponse.data?.data?.periods || []);
+        } catch {
+          setPeriods([]);
+        }
       } catch (err: any) {
         setError(err.response?.data?.message || 'Failed to load your schedule');
       } finally {
@@ -69,16 +88,31 @@ export function TeacherSchedule() {
     })();
   }, []);
 
-  // Group schedules by day
+  const lessonPeriods = useMemo(
+    () => periods
+      .filter((period) => !period.isBreak)
+      .slice()
+      .sort((a, b) => a.startTime.localeCompare(b.startTime)),
+    [periods],
+  );
+
+  // Group schedules by day and sort each day by start time.
   const grouped: Record<number, Schedule[]> = {};
-  schedules.forEach((s) => {
-    (grouped[s.dayOfWeek] = grouped[s.dayOfWeek] || []).push(s);
+  schedules.forEach((schedule) => {
+    (grouped[schedule.dayOfWeek] = grouped[schedule.dayOfWeek] || []).push(schedule);
   });
+  Object.values(grouped).forEach((items) => items.sort((a, b) => a.startTime.localeCompare(b.startTime)));
 
-  // Sort each day's schedules by start time
-  Object.values(grouped).forEach((arr) => arr.sort((a, b) => a.startTime.localeCompare(b.startTime)));
+  // The school week is displayed Saturday first everywhere else in the
+  // timetable experience; keep the teacher portal consistent.
+  const daysWithSchedules = DISPLAY_ORDER.filter((day) => grouped[day]?.length);
 
-  const daysWithSchedules = Object.keys(grouped).map(Number).sort((a, b) => a - b);
+  const sessionLabel = (schedule: Schedule, fallbackIndex: number) => {
+    const configuredIndex = lessonPeriods.findIndex(
+      (period) => period.startTime === schedule.startTime && period.endTime === schedule.endTime,
+    );
+    return `Xisada ${getSessionName(configuredIndex >= 0 ? configuredIndex : fallbackIndex)}`;
+  };
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">
@@ -113,24 +147,26 @@ export function TeacherSchedule() {
                   <h3 className="text-sm font-bold text-[var(--color-text-primary)]">{DAYS[day]}</h3>
                 </div>
                 <div className="divide-y divide-[var(--color-border-subtle)]">
-                  {grouped[day].map((s, index) => {
-                    const shift = getShiftLabel(s);
+                  {grouped[day].map((schedule, index) => {
+                    const shift = getShiftLabel(schedule);
+                    const configuredIndex = lessonPeriods.findIndex(
+                      (period) => period.startTime === schedule.startTime && period.endTime === schedule.endTime,
+                    );
                     return (
-                      <div key={s._id} className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--color-surface-secondary)] transition-colors">
-                        {/* Clear session number: Xisada 1aad, Xisada 2aad, ... */}
+                      <div key={schedule._id} className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--color-surface-secondary)] transition-colors">
                         <div className="flex-shrink-0 w-24 text-center">
                           <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary-600 text-sm font-extrabold text-white shadow-sm">
-                            {index + 1}
+                            {configuredIndex >= 0 ? configuredIndex + 1 : index + 1}
                           </div>
                           <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-primary-700 dark:text-primary-300">
-                            Xisada {getSessionName(index)}
+                            {sessionLabel(schedule, index)}
                           </p>
                         </div>
 
                         <div className="flex-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="inline-block rounded-lg bg-primary-50 dark:bg-primary-950/30 px-3 py-1.5 text-sm font-semibold text-primary-700 dark:text-primary-300">
-                              {s.startTime} – {s.endTime}
+                              {schedule.startTime} – {schedule.endTime}
                             </span>
                             <span className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-semibold text-[var(--color-text-secondary)]">
                               {getShiftIcon(shift)} {shift}
@@ -138,10 +174,10 @@ export function TeacherSchedule() {
                           </div>
 
                           <p className="mt-2 text-sm font-semibold text-[var(--color-text-primary)] truncate">
-                            {s.course?.title?.en || 'Untitled Course'}
+                            {schedule.course?.title?.en || 'Untitled Course'}
                           </p>
                           <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-                            🏫 {s.class ? `${s.class.title} ${s.class.section || ''}`.trim() : '—'}
+                            🏫 {schedule.class ? `${schedule.class.title} ${schedule.class.section || ''}`.trim() : '—'}
                           </p>
                         </div>
                       </div>

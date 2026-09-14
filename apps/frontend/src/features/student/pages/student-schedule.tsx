@@ -23,6 +23,13 @@ interface Schedule {
   teacher?: { _id: string; name?: string; profile?: { firstName: string; lastName: string } };
 }
 
+interface Period {
+  label?: string;
+  startTime: string;
+  endTime: string;
+  isBreak?: boolean;
+}
+
 // dayOfWeek is stored/compared as JS Date.getDay() (0 = Sunday .. 6 = Saturday).
 // DAY_NAMES stays indexed by that number; DISPLAY_ORDER just controls what
 // order the day tabs render in — the school week starts Saturday here.
@@ -47,16 +54,36 @@ function formatBreakLabel(minutes: number): string {
 
 type DayRow = { kind: 'class'; schedule: Schedule } | { kind: 'break'; minutes: number };
 
-/** Interleaves a break placeholder between two consecutive classes whenever the gap between them is 30+ minutes. */
-function withBreaks(daySchedules: Schedule[]): DayRow[] {
+/**
+ * Interleave the school's configured Break rows between two lessons. Legacy
+ * schools that do not expose period settings still retain the older 30-minute
+ * gap fallback, so this remains backward-compatible while correctly showing
+ * short configured breaks such as 09:30–09:50.
+ */
+function withBreaks(daySchedules: Schedule[], periods: Period[]): DayRow[] {
   const rows: DayRow[] = [];
-  daySchedules.forEach((s, i) => {
-    rows.push({ kind: 'class', schedule: s });
-    const next = daySchedules[i + 1];
-    if (next) {
-      const gap = toMinutes(next.startTime) - toMinutes(s.endTime);
-      if (gap >= 30) rows.push({ kind: 'break', minutes: gap });
+  const configuredBreaks = periods
+    .filter((period) => period.isBreak)
+    .slice()
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+  daySchedules.forEach((schedule, index) => {
+    rows.push({ kind: 'class', schedule });
+    const next = daySchedules[index + 1];
+    if (!next) return;
+
+    const breaksBetween = configuredBreaks.filter(
+      (period) => period.startTime >= schedule.endTime && period.endTime <= next.startTime,
+    );
+    if (breaksBetween.length > 0) {
+      breaksBetween.forEach((period) => {
+        rows.push({ kind: 'break', minutes: Math.max(0, toMinutes(period.endTime) - toMinutes(period.startTime)) });
+      });
+      return;
     }
+
+    const gap = toMinutes(next.startTime) - toMinutes(schedule.endTime);
+    if (gap >= 30) rows.push({ kind: 'break', minutes: gap });
   });
   return rows;
 }
@@ -134,6 +161,7 @@ function savePendingReminders(list: PendingReminder[]): void {
 export function StudentSchedule() {
   const navigate = useNavigate();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [periods, setPeriods] = useState<Period[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [now, setNow] = useState(new Date());
@@ -150,6 +178,15 @@ export function StudentSchedule() {
       try {
         const { data } = await api.get('/class-schedules/my');
         setSchedules(data.data || []);
+
+        // Period settings are supplemental; legacy timetable data must remain
+        // readable even if this request is temporarily unavailable.
+        try {
+          const periodResponse = await api.get('/class-schedules/school/period-settings');
+          setPeriods(periodResponse.data?.data?.periods || []);
+        } catch {
+          setPeriods([]);
+        }
       } catch (err: any) {
         setError(err.response?.data?.message || 'Failed to load your schedule');
       } finally {
@@ -251,7 +288,7 @@ export function StudentSchedule() {
   };
 
   const daySchedules = grouped[selectedDay] || [];
-  const dayRows = withBreaks(daySchedules);
+  const dayRows = withBreaks(daySchedules, periods);
 
   return (
     <div className="p-6 lg:p-10 pt-20 lg:pt-10">

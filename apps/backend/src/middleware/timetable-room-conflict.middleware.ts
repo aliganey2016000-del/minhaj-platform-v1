@@ -42,6 +42,11 @@ export async function validateScheduleRoomConflict(req: Request, _res: Response,
 
   const candidates = await ClassSchedule.find(query).populate('class', 'room title section').lean();
   const conflict = candidates.find((schedule: any) => {
+    // Same-class overlaps are diagnosed by the school schedule controller as
+    // a Class conflict. Do not mask that more useful message merely because
+    // the class naturally has the same room as itself.
+    const candidateClassId = String(schedule.class?._id || schedule.class || '');
+    if (candidateClassId === classId) return false;
     const candidateRoom = String(schedule.room || schedule.class?.room || '').trim();
     return candidateRoom && candidateRoom.localeCompare(room, undefined, { sensitivity: 'accent' }) === 0;
   });

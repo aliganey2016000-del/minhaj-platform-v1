@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import TimetablePeriodSettings from '../models/timetable-period-settings.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError } from '../utils/api-error';
-import { resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const DEFAULT_SCHOOL_PERIODS = [
@@ -14,9 +14,16 @@ export const DEFAULT_SCHOOL_PERIODS = [
   { label: 'Period 4', startTime: '10:35', endTime: '11:20', isBreak: false },
 ];
 
-function schoolId(req: Request): string {
+function writableSchoolId(req: Request): string {
   const requested = String(req.query.school || req.body?.school || '');
   const resolved = String(resolveOrgIdForCreate(req, requested) || '');
+  if (!resolved || !mongoose.isValidObjectId(resolved)) throw new BadRequestError('School is required');
+  return resolved;
+}
+
+function readableSchoolId(req: Request): string {
+  const requested = String(req.query.school || req.body?.school || '');
+  const resolved = String(resolveViewableOrgId(req, requested) || '');
   if (!resolved || !mongoose.isValidObjectId(resolved)) throw new BadRequestError('School is required');
   return resolved;
 }
@@ -44,13 +51,13 @@ function validatePeriods(input: unknown) {
 }
 
 export const getPeriodSettings = async (req: Request, res: Response): Promise<Response> => {
-  const school = schoolId(req);
+  const school = readableSchoolId(req);
   const existing = await TimetablePeriodSettings.findOne({ school }).lean();
   return ApiResponse.success(res, { school, periods: existing?.periods?.length ? existing.periods : DEFAULT_SCHOOL_PERIODS });
 };
 
 export const savePeriodSettings = async (req: Request, res: Response): Promise<Response> => {
-  const school = schoolId(req);
+  const school = writableSchoolId(req);
   const periods = validatePeriods(req.body?.periods);
   const settings = await TimetablePeriodSettings.findOneAndUpdate(
     { school },
