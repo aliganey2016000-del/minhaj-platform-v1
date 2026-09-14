@@ -36,6 +36,9 @@ jobs:
       - name: Class Schedule & Timetable A-Z QA
         run: npm run test:schedule-qa
 
+      - name: Attendance lock audit regression
+        run: npm run test:attendance-lock
+
       - name: Promotion tests
         run: npm run test:promotion
 
