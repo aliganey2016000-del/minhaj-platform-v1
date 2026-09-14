@@ -135,19 +135,29 @@ async function main() {
   const importedAfter: any = await Student.findById(importedStudent?._id).lean();
   const graduateAfter: any = await Student.findById(graduateId).lean();
   const repeatFinalAfter: any = await Student.findById(repeatFinalId).lean();
-  const manualTarget: any = await ClassModel.findById(manualAfter?.class).lean();
+  // Classes are persistent: the "target" for a promoted student is the SAME
+  // Grade 10 document, and a repeater's "target" is the SAME class they
+  // were already in — nothing new is created. The new academic year lives
+  // in the student's enrollmentHistory, not on the (unchanged) Class doc.
   const importedRepeatClass: any = await ClassModel.findById(importedAfter?.class).lean();
   const finalRepeatClass: any = await ClassModel.findById(repeatFinalAfter?.class).lean();
+  const latestActive = (student: any) => (student?.enrollmentHistory || []).find((entry: any) => entry.status === 'active');
 
-  assert(manualAfter?.status === 'active' && manualTarget?.gradeLevel === 10 && manualTarget?.academicYear === '2027-2028', 'promoted student is active in next grade / target year');
-  assert(importedAfter?.status === 'active' && importedRepeatClass?.gradeLevel === 9 && importedRepeatClass?.academicYear === '2027-2028' && importedRepeatClass?.batch === '2026', 'imported repeater stays Grade 9 in new year with original cohort');
-  assert(graduateAfter?.status === 'graduated' && String(graduateAfter?.class) === String(grade10._id), 'graduate keeps historical final class and becomes graduated');
-  assert(repeatFinalAfter?.status === 'active' && finalRepeatClass?.gradeLevel === 10 && finalRepeatClass?.academicYear === '2027-2028' && finalRepeatClass?.batch === '2026', 'final-grade repeater remains active in final grade / target year');
+  assert(manualAfter?.status === 'active' && String(manualAfter?.class) === String(grade10._id), 'promoted student is active in the existing Grade 10 class');
+  assert(latestActive(manualAfter)?.academicYear === '2027-2028', 'promoted student\'s new history entry records the target year');
+  assert(importedAfter?.status === 'active' && String(importedAfter?.class) === String(grade9._id) && importedRepeatClass?.batch === '2026', 'imported repeater stays in the SAME Grade 9 class, keeping its cohort batch');
+  assert(latestActive(importedAfter)?.academicYear === '2027-2028', 'imported repeater\'s new history entry records the target year');
+  assert(graduateAfter?.status === 'graduated' && String(graduateAfter?.class) === String(grade10._id), 'graduate keeps their class and becomes graduated');
+  assert(repeatFinalAfter?.status === 'active' && String(repeatFinalAfter?.class) === String(grade10._id) && finalRepeatClass?.batch === '2026', 'final-grade repeater remains active in the SAME final-grade class');
+  assert(latestActive(repeatFinalAfter)?.academicYear === '2027-2028', 'final-grade repeater\'s new history entry records the target year');
+
+  const classCountAfterPromotion = await ClassModel.countDocuments({ school: school._id });
+  assert(classCountAfterPromotion === 2, `no new Class documents were created by promotion (got ${classCountAfterPromotion})`);
 
   const g9CourseAfter: any = await Course.findById(grade9Course._id).lean();
   const g10CourseAfter: any = await Course.findById(grade10Course._id).lean();
-  assert(g9CourseAfter?.enrolledStudents === 0, `completed Grade 9 source course count is zero (got ${g9CourseAfter?.enrolledStudents})`);
-  assert(g10CourseAfter?.enrolledStudents === 0, `completed Grade 10 source course count is zero (got ${g10CourseAfter?.enrolledStudents})`);
+  assert(g9CourseAfter?.enrolledStudents === 1, `Grade 9 course keeps its repeating student enrolled, the promoted student left (got ${g9CourseAfter?.enrolledStudents})`);
+  assert(g10CourseAfter?.enrolledStudents === 2, `Grade 10 course now has its own repeater plus the newly-promoted student (got ${g10CourseAfter?.enrolledStudents})`);
 
   console.log('\n=== 5. MANAGE STUDENTS LIST / FILTERS AFTER PROMOTION ===');
   const allStudents = await request(app).get('/api/v1/students').set('Authorization', `Bearer ${token}`).query({ school: school._id.toString(), limit: 20 });
@@ -166,22 +176,25 @@ async function main() {
   const preserveGraduate = await request(app).patch(`/api/v1/students/${graduateId}`).set('Authorization', `Bearer ${token}`).send({
     firstName: 'Final Edited', classId: grade10._id.toString(), school: school._id.toString(),
   });
-  assert(preserveGraduate.status === 200, `graduate profile edit may preserve completed historical class (got ${preserveGraduate.status})`);
+  assert(preserveGraduate.status === 200, `graduate profile edit may preserve their class (got ${preserveGraduate.status})`);
 
+  // A genuinely different active class than the one the graduate is already
+  // in (grade10) — grade9 (== importedRepeatClass) fits, since classes are
+  // persistent and there's no separate "next year's Grade 10" to reuse here.
   const invalidGraduateMove = await request(app).patch(`/api/v1/students/${graduateId}`).set('Authorization', `Bearer ${token}`).send({
-    classId: manualTarget?._id?.toString(), school: school._id.toString(),
+    classId: importedRepeatClass?._id?.toString(), school: school._id.toString(),
   });
-  assert(invalidGraduateMove.status === 400, `graduated student cannot silently move into active class while remaining graduated (got ${invalidGraduateMove.status})`);
+  assert(invalidGraduateMove.status === 400, `graduated student cannot silently move into a different active class while remaining graduated (got ${invalidGraduateMove.status})`);
   const graduateStillHistorical: any = await Student.findById(graduateId).lean();
-  assert(graduateStillHistorical?.status === 'graduated' && String(graduateStillHistorical?.class) === String(grade10._id), 'blocked move leaves graduate status and historical class unchanged');
+  assert(graduateStillHistorical?.status === 'graduated' && String(graduateStillHistorical?.class) === String(grade10._id), 'blocked move leaves graduate status and class unchanged');
 
   const explicitReactivate = await request(app).patch(`/api/v1/students/${graduateId}`).set('Authorization', `Bearer ${token}`).send({
-    classId: manualTarget?._id?.toString(), school: school._id.toString(), status: 'active',
+    classId: importedRepeatClass?._id?.toString(), school: school._id.toString(), status: 'active',
   });
   assert(explicitReactivate.status === 200, `explicit reactivation + active target class is allowed (got ${explicitReactivate.status})`);
   const reactivated: any = await Student.findById(graduateId).lean();
-  assert(reactivated?.status === 'active' && String(reactivated?.class) === String(manualTarget?._id), 'reactivated student is consistently assigned to active target class');
-  assert((reactivated?.enrollmentHistory || []).some((entry: any) => String(entry.class) === String(manualTarget?._id) && entry.status === 'active'), 'reactivation opens a new active enrollment-history entry');
+  assert(reactivated?.status === 'active' && String(reactivated?.class) === String(importedRepeatClass?._id), 'reactivated student is consistently assigned to the new active target class');
+  assert((reactivated?.enrollmentHistory || []).some((entry: any) => String(entry.class) === String(importedRepeatClass?._id) && entry.status === 'active'), 'reactivation opens a new active enrollment-history entry');
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(failures === 0 ? 'ALL STUDENT LIFECYCLE WORKFLOW CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);

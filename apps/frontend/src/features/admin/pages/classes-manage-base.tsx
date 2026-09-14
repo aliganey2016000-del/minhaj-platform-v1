@@ -10,7 +10,7 @@ type Status = 'active' | 'inactive' | 'completed';
 type Shift = 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
 type AcademicSystem = 'annual' | 'semester';
 type SchoolClassTab = 'active' | 'completed';
-type PromotionAction = 'promote-new' | 'promote-existing' | 'graduate' | 'already-promoted' | 'skipped';
+type PromotionAction = 'promote' | 'graduate' | 'missing-target';
 
 interface Organization { _id: string; name: string; institutionType?: string; organizationType?: string; }
 interface Faculty { _id: string; name: string; code?: string; }
@@ -65,10 +65,6 @@ interface PromotionGroup {
   targetClassId?: string;
   targetTitle?: string;
   targetGradeLevel?: number;
-  targetCourseCount?: number;
-  sourceCourseCount?: number;
-  willCreateTarget?: boolean;
-  willCopyCurriculum?: boolean;
   reason?: string;
 }
 interface PromotionPreview {
@@ -76,19 +72,16 @@ interface PromotionPreview {
   targetAcademicYear: string;
   suggestedAcademicYear: string;
   groups: PromotionGroup[];
-  entryIntakesToOpen?: number;
   missingGradeLevel?: Array<{ classId: string; title: string; section?: string }>;
 }
+interface PromotionMissingTarget { title: string; section?: string; message: string }
 interface PromotionResult {
   sourceAcademicYear: string;
   targetAcademicYear: string;
   promoted: number;
   graduated: number;
-  skipped: number;
   studentsMoved: number;
-  intakesOpened: number;
-  targetsCreated: number;
-  coursesCopied: number;
+  missingTargets: PromotionMissingTarget[];
 }
 
 interface RowActionsProps {
@@ -347,9 +340,9 @@ function SchoolPromotionModal({ onClose, onCompleted }: { onClose: () => void; o
     }
   };
 
-  const actionable = preview?.groups.filter(g => g.action === 'promote-new' || g.action === 'promote-existing' || g.action === 'graduate') || [];
+  const actionable = preview?.groups.filter(g => g.action === 'promote' || g.action === 'graduate') || [];
   const studentTotal = actionable.reduce((sum, g) => sum + (g.studentCount || 0), 0);
-  const skipped = preview?.groups.filter(g => g.action === 'skipped') || [];
+  const missingTargetGroups = preview?.groups.filter(g => g.action === 'missing-target') || [];
 
   return <div className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4">
     <div className="flex max-h-[95vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl dark:bg-slate-950">
@@ -361,38 +354,32 @@ function SchoolPromotionModal({ onClose, onCompleted }: { onClose: () => void; o
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
         {loading ? <div className="py-12 text-center text-sm text-slate-500">Preparing promotion preview...</div> : error && !preview ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div> : result ? <div className="space-y-4">
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/30"><div className="font-bold text-emerald-800 dark:text-emerald-200">Promotion completed successfully</div><p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">{result.sourceAcademicYear} → {result.targetAcademicYear}</p></div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-800"><div className="text-xl font-bold">{result.studentsMoved}</div><div className="text-xs text-slate-500">Students promoted</div></div>
             <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-800"><div className="text-xl font-bold">{result.graduated}</div><div className="text-xs text-slate-500">Graduated</div></div>
-            <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-800"><div className="text-xl font-bold">{result.targetsCreated}</div><div className="text-xs text-slate-500">Classes prepared</div></div>
-            <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-800"><div className="text-xl font-bold">{result.intakesOpened}</div><div className="text-xs text-slate-500">New intakes</div></div>
           </div>
-          {result.skipped > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">{result.skipped} class(es) were skipped. Review the class setup before promoting those students.</div>}
+          {result.missingTargets.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"><p className="font-semibold">{result.missingTargets.length} class(es) were skipped — the next-grade class doesn't exist yet:</p><ul className="mt-2 list-disc space-y-1 pl-4">{result.missingTargets.map((m, i) => <li key={i}>{m.message}</li>)}</ul><p className="mt-2">Create the class(es) in Manage Classes, then promote again.</p></div>}
         </div> : preview ? <div className="space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60">
             <div className="flex items-center justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Academic year</div><div className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{preview.sourceAcademicYear} → {preview.targetAcademicYear}</div></div><GraduationCap className="text-slate-500" size={28}/></div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center"><div className="rounded-xl bg-white p-2 dark:bg-slate-950"><div className="font-bold">{actionable.length}</div><div className="text-[11px] text-slate-500">Classes</div></div><div className="rounded-xl bg-white p-2 dark:bg-slate-950"><div className="font-bold">{studentTotal}</div><div className="text-[11px] text-slate-500">Students</div></div><div className="rounded-xl bg-white p-2 dark:bg-slate-950"><div className="font-bold">{preview.entryIntakesToOpen || 0}</div><div className="text-[11px] text-slate-500">New intakes</div></div></div>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-center"><div className="rounded-xl bg-white p-2 dark:bg-slate-950"><div className="font-bold">{actionable.length}</div><div className="text-[11px] text-slate-500">Classes</div></div><div className="rounded-xl bg-white p-2 dark:bg-slate-950"><div className="font-bold">{studentTotal}</div><div className="text-[11px] text-slate-500">Students</div></div></div>
           </div>
 
           <div className="space-y-2">
             {preview.groups.map(group => {
-              const isSkipped = group.action === 'skipped';
+              const isMissing = group.action === 'missing-target';
               const isGraduate = group.action === 'graduate';
-              const isDone = group.action === 'already-promoted';
-              const targetText = isGraduate ? 'Graduated' : isDone ? 'Already promoted' : `Grade ${group.targetGradeLevel ?? group.gradeLevel + 1}`;
-              return <div key={group.classId} className={`rounded-xl border p-3 ${isSkipped ? 'border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950'}`}>
+              const targetText = isGraduate ? 'Graduated' : `Grade ${group.targetGradeLevel ?? group.gradeLevel + 1}`;
+              return <div key={group.classId} className={`rounded-xl border p-3 ${isMissing ? 'border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950'}`}>
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-semibold text-slate-900 dark:text-white">{group.title}{group.section ? ` · ${group.section}` : ''}</div><div className="mt-1 text-sm text-slate-600 dark:text-slate-300">Grade {group.gradeLevel} → {targetText}</div></div><span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{group.studentCount} student{group.studentCount === 1 ? '' : 's'}</span></div>
-                {group.willCreateTarget && !isSkipped && <div className="mt-2 text-xs font-medium text-blue-700 dark:text-blue-300">New class will be created automatically.</div>}
-                {group.willCopyCurriculum && !isSkipped && <div className="mt-1 text-xs text-slate-500">Grade curriculum will be copied automatically.</div>}
-                {group.reason && <div className={`mt-2 text-xs ${isSkipped ? 'text-amber-800 dark:text-amber-200' : 'text-slate-500'}`}>{group.reason}</div>}
+                {group.reason && <div className={`mt-2 text-xs ${isMissing ? 'text-amber-800 dark:text-amber-200' : 'text-slate-500'}`}>{group.reason}</div>}
               </div>;
             })}
             {!preview.groups.length && <div className="rounded-xl border border-slate-200 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-800">No active classes are ready for year-end promotion.</div>}
           </div>
 
-          {!!preview.entryIntakesToOpen && <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">The system will also prepare {preview.entryIntakesToOpen} empty entry-grade class(es) for new students in {preview.targetAcademicYear}.</div>}
           {!!preview.missingGradeLevel?.length && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">{preview.missingGradeLevel.length} class(es) have no Grade Level and will not be touched.</div>}
-          {!!skipped.length && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{skipped.length} class(es) need attention before their students can be promoted.</div>}
+          {!!missingTargetGroups.length && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{missingTargetGroups.length} class(es) need their next-grade class created in Manage Classes before those students can be promoted.</div>}
           {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
         </div> : null}
       </div>

@@ -67,6 +67,12 @@ export const bulkUpdateStatus = async (req: Request, res: Response): Promise<Res
   return ApiResponse.success(res, { updated: result.modifiedCount, status }, `${result.modifiedCount} class(es) updated to ${status}.`);
 };
 
+// Applies only to classes promoted before classes became persistent
+// (school-year-promotion.controller.ts / school-promotion-review.controller.ts
+// no longer clone a class or mark one "completed" — see class-promotion.service.ts).
+// Legacy completed classes from before that change still roll back exactly as
+// before; a class promoted since then never reaches `status: 'completed'`, so
+// this simply finds nothing to undo for it.
 export const rollbackPromotion = async (req: Request, res: Response): Promise<Response> => {
   const ids = parseClassIds(req.body?.classIds);
   const classes = await ClassModel.find({ _id: { $in: ids } });
