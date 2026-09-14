@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, CalendarDays, Download, MoreVertical, Pencil, Plus, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { CalendarDays, Download, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import BulkEntityImportModal from './components/bulk-entity-import-modal';
-import AITimetableStudio from './components/ai-timetable-studio';
 
 type Ref = { _id: string; title?: string; name?: string; section?: string; room?: string };
 type Teacher = { _id: string; teacherId?: string; profile?: { firstName?: string; lastName?: string }; user?: { email?: string } };
@@ -20,7 +19,6 @@ type Schedule = {
   endTime: string;
   isActive: boolean;
 };
-type StudioView = 'grid' | 'conflicts' | 'settings' | 'ai';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const IMPORT_HEADERS = ['Class / Section', 'Course / Subject', 'Teacher / Instructor', 'Day', 'Time', 'Status'];
@@ -156,7 +154,6 @@ export function SchoolSchedulesManage() {
   const [modal, setModal] = useState<Schedule | 'new' | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [studioView, setStudioView] = useState<StudioView | null>(null);
 
   const loadReferences = useCallback(async () => {
     if (!organizationId) return;
@@ -208,21 +205,16 @@ export function SchoolSchedulesManage() {
     } catch (err: any) { setError(err.response?.data?.message || 'Export failed'); }
   };
 
-  const openStudio = (view: StudioView) => { setMenuOpen(false); setStudioView(view); };
 
   return <div className="space-y-4 p-4 sm:p-6">
     <div className="flex items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-xl font-bold"><CalendarDays className="h-5 w-5 text-emerald-600" />Class Schedules</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Build, validate and publish the weekly school timetable.</p></div><div className="relative"><button type="button" onClick={() => setMenuOpen(value => !value)} className="rounded-xl border border-[var(--color-border-default)] p-2.5 hover:bg-[var(--color-surface-tertiary)]" aria-label="Schedule page actions"><MoreVertical className="h-5 w-5" /></button>{menuOpen && <div className="absolute right-0 z-40 mt-2 w-64 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl">
       <button type="button" onClick={() => { setMenuOpen(false); setModal('new'); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)]"><Plus className="h-4 w-4" />Add Schedule</button>
-      <button type="button" onClick={() => openStudio('ai')} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/20"><Sparkles className="h-4 w-4" />AI Generate Timetable</button>
-      <button type="button" onClick={() => openStudio('conflicts')} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><ShieldCheck className="h-4 w-4" />Check Conflicts</button>
       <button type="button" onClick={() => { setMenuOpen(false); setShowImport(true); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Upload className="h-4 w-4" />Import Schedules</button>
       <button type="button" onClick={() => void exportSchedules()} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Download className="h-4 w-4" />Export Schedules</button>
-      <button type="button" onClick={() => openStudio('settings')} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Settings2 className="h-4 w-4" />Timetable Settings</button>
     </div>}</div></div>
 
     {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
 
-    <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-4 dark:border-emerald-900/50 dark:from-emerald-950/20 dark:to-transparent"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 font-bold"><Bot className="h-5 w-5 text-emerald-600" />AI Timetable Studio</div><p className="mt-1 text-xs text-[var(--color-text-secondary)]">Draft grid, drag-and-drop, teacher availability, room checks, hard/soft rules, conflict reports and version rollback.</p></div><button type="button" onClick={() => openStudio('grid')} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">Open Studio</button></div></div>
 
     <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold">{schedules.filter(item => item.isActive).length}</div><div className="text-xs text-[var(--color-text-tertiary)]">Active lessons</div></div><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold">{new Set(schedules.map(item => item.class?._id).filter(Boolean)).size}</div><div className="text-xs text-[var(--color-text-tertiary)]">Classes scheduled</div></div><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold text-amber-600">{schedules.filter(item => !item.teacher).length}</div><div className="text-xs text-[var(--color-text-tertiary)]">Unassigned teacher slots</div></div></div>
 
@@ -233,7 +225,6 @@ export function SchoolSchedulesManage() {
 
     {modal && <ScheduleModal schedule={modal === 'new' ? undefined : modal} organizationId={organizationId} classes={classes} teachers={teachers} onClose={() => setModal(null)} onSaved={() => void load()} />}
     {showImport && <BulkEntityImportModal title="Import Class Schedules" description="School schedule template, import and export use the same simple columns. Teacher can be blank for Unassigned." templateUrl="/class-schedules/school/template" importUrl="/class-schedules/school/import" templateName="school-class-schedules-template.xlsx" headers={IMPORT_HEADERS} onClose={() => setShowImport(false)} onImported={() => void load()} />}
-    {studioView && <AITimetableStudio organizationId={organizationId} classes={classes} teachers={teachers} initialView={studioView} onClose={() => setStudioView(null)} onPublished={load} />}
   </div>;
 }
 

@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, List, PencilLine } from 'lucide-react';
+import { CalendarDays, List } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { resolveInstitutionType } from '../../../lib/institution-type';
 import { SchedulesManage } from './schedules-manage';
 import { SchoolSchedulesManage } from './school-schedules-manage';
 import { SchedulesTimetable } from './schedules-timetable';
-import { SchedulesTimetableEditor } from './schedules-timetable-editor';
 
 export function SchedulesManageShell() {
   const { user } = useAuth();
-  const [view, setView] = useState<'table' | 'timetable' | 'edit'>('table');
+  const [view, setView] = useState<'table' | 'timetable'>('table');
   const [schoolMode, setSchoolMode] = useState(false);
   const [resolvingMode, setResolvingMode] = useState(user?.role === 'org_admin');
 
@@ -41,10 +40,6 @@ export function SchedulesManageShell() {
     })();
     return () => { cancelled = true; };
   }, [user]);
-
-  useEffect(() => {
-    if (!schoolMode && view === 'edit') setView('table');
-  }, [schoolMode, view]);
 
   if (resolvingMode) {
     return <div className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">Loading schedule workspace...</div>;
@@ -80,29 +75,12 @@ export function SchedulesManageShell() {
             <CalendarDays className="h-4 w-4" />
             Timetable View
           </button>
-          {schoolMode && (
-            <button
-              type="button"
-              onClick={() => setView('edit')}
-              className={`inline-flex min-h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors ${
-                view === 'edit'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
-              }`}
-              aria-pressed={view === 'edit'}
-            >
-              <PencilLine className="h-4 w-4" />
-              Edit Timetable
-            </button>
-          )}
         </div>
       </div>
 
       {view === 'table'
         ? (schoolMode ? <SchoolSchedulesManage /> : <SchedulesManage />)
-        : view === 'edit'
-          ? <SchedulesTimetableEditor />
-          : <SchedulesTimetable />}
+        : <SchedulesTimetable />}
     </div>
   );
 }
