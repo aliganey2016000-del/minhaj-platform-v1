@@ -1,17 +1,25 @@
 /**
  * Student Schedule — Read-Only View
  *
- * Displays the student's weekly class schedule fetched from
- * GET /class-schedules/my. Day-tab navigation (swipeable on touch devices),
- * color-coded course cards, a live "happening right now" indicator, break
- * dividers, and per-class quick actions (add to Google Calendar, local
- * reminder, join a currently-live class).
+ * Premium mobile-first weekly timetable for students. Keeps the existing
+ * schedule API, swipe navigation, live-class state, Google Calendar action,
+ * and local reminder support while presenting the timetable as a clean
+ * timeline that mirrors the approved visual direction.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { CalendarDays, User, Clock, Coffee, CalendarPlus, Bell, Video } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  Bell,
+  CalendarDays,
+  CalendarPlus,
+  Clock,
+  Coffee,
+  MapPin,
+  User,
+  Video,
+} from 'lucide-react';
 import api from '../../../lib/axios';
 
 interface Schedule {
@@ -19,8 +27,18 @@ interface Schedule {
   dayOfWeek: number;
   startTime: string;
   endTime: string;
-  course?: { _id: string; title: { en: string }; isLive?: boolean };
-  teacher?: { _id: string; name?: string; profile?: { firstName: string; lastName: string } };
+  room?: string;
+  course?: {
+    _id: string;
+    title: { en: string } | string;
+    courseCode?: string;
+    isLive?: boolean;
+  };
+  teacher?: {
+    _id: string;
+    name?: string;
+    profile?: { firstName: string; lastName: string };
+  };
 }
 
 interface Period {
@@ -30,20 +48,15 @@ interface Period {
   isBreak?: boolean;
 }
 
-// dayOfWeek is stored/compared as JS Date.getDay() (0 = Sunday .. 6 = Saturday).
-// DAY_NAMES stays indexed by that number; DISPLAY_ORDER just controls what
-// order the day tabs render in — the school week starts Saturday here.
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5];
 
-/** "09:30" -> 570 (minutes since midnight), for comparing two HH:MM times. */
 function toMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number);
   return h * 60 + m;
 }
 
-/** 30 -> "30-min Break"; 60 -> "1-hour Break"; 90 -> "1h 30m Break". */
 function formatBreakLabel(minutes: number): string {
   if (minutes < 60) return `${minutes}-min Break`;
   const hours = Math.floor(minutes / 60);
@@ -52,14 +65,10 @@ function formatBreakLabel(minutes: number): string {
   return `${hours}h ${rest}m Break`;
 }
 
-type DayRow = { kind: 'class'; schedule: Schedule } | { kind: 'break'; minutes: number };
+type DayRow =
+  | { kind: 'class'; schedule: Schedule }
+  | { kind: 'break'; minutes: number; startTime?: string; endTime?: string };
 
-/**
- * Interleave the school's configured Break rows between two lessons. Legacy
- * schools that do not expose period settings still retain the older 30-minute
- * gap fallback, so this remains backward-compatible while correctly showing
- * short configured breaks such as 09:30–09:50.
- */
 function withBreaks(daySchedules: Schedule[], periods: Period[]): DayRow[] {
   const rows: DayRow[] = [];
   const configuredBreaks = periods
@@ -75,64 +84,137 @@ function withBreaks(daySchedules: Schedule[], periods: Period[]): DayRow[] {
     const breaksBetween = configuredBreaks.filter(
       (period) => period.startTime >= schedule.endTime && period.endTime <= next.startTime,
     );
+
     if (breaksBetween.length > 0) {
       breaksBetween.forEach((period) => {
-        rows.push({ kind: 'break', minutes: Math.max(0, toMinutes(period.endTime) - toMinutes(period.startTime)) });
+        rows.push({
+          kind: 'break',
+          minutes: Math.max(0, toMinutes(period.endTime) - toMinutes(period.startTime)),
+          startTime: period.startTime,
+          endTime: period.endTime,
+        });
       });
       return;
     }
 
     const gap = toMinutes(next.startTime) - toMinutes(schedule.endTime);
-    if (gap >= 30) rows.push({ kind: 'break', minutes: gap });
+    if (gap >= 30) {
+      rows.push({
+        kind: 'break',
+        minutes: gap,
+        startTime: schedule.endTime,
+        endTime: next.startTime,
+      });
+    }
   });
+
   return rows;
 }
 
-// ---------------------------------------------------------------------------
-// Per-course color-coding — a stable hash of the course id into a fixed,
-// curated palette, so the same subject always renders the same color across
-// reloads without needing any backend "category color" field.
-// ---------------------------------------------------------------------------
 const COURSE_PALETTE = [
-  { border: 'border-l-blue-500', text: 'text-blue-700 dark:text-blue-300', dot: 'bg-blue-500' },
-  { border: 'border-l-purple-500', text: 'text-purple-700 dark:text-purple-300', dot: 'bg-purple-500' },
-  { border: 'border-l-emerald-500', text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500' },
-  { border: 'border-l-amber-500', text: 'text-amber-700 dark:text-amber-300', dot: 'bg-amber-500' },
-  { border: 'border-l-rose-500', text: 'text-rose-700 dark:text-rose-300', dot: 'bg-rose-500' },
-  { border: 'border-l-cyan-500', text: 'text-cyan-700 dark:text-cyan-300', dot: 'bg-cyan-500' },
-  { border: 'border-l-indigo-500', text: 'text-indigo-700 dark:text-indigo-300', dot: 'bg-indigo-500' },
-  { border: 'border-l-fuchsia-500', text: 'text-fuchsia-700 dark:text-fuchsia-300', dot: 'bg-fuchsia-500' },
+  {
+    border: 'border-l-violet-500',
+    dot: 'bg-violet-500',
+    avatar: 'bg-violet-500/20 text-violet-700 dark:text-violet-300',
+    badge: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/25',
+  },
+  {
+    border: 'border-l-emerald-500',
+    dot: 'bg-emerald-500',
+    avatar: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
+    badge: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/25',
+  },
+  {
+    border: 'border-l-sky-500',
+    dot: 'bg-sky-500',
+    avatar: 'bg-sky-500/20 text-sky-700 dark:text-sky-300',
+    badge: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/25',
+  },
+  {
+    border: 'border-l-fuchsia-500',
+    dot: 'bg-fuchsia-500',
+    avatar: 'bg-fuchsia-500/20 text-fuchsia-700 dark:text-fuchsia-300',
+    badge: 'bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border-fuchsia-500/25',
+  },
+  {
+    border: 'border-l-amber-500',
+    dot: 'bg-amber-500',
+    avatar: 'bg-amber-500/20 text-amber-700 dark:text-amber-300',
+    badge: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/25',
+  },
+  {
+    border: 'border-l-cyan-500',
+    dot: 'bg-cyan-500',
+    avatar: 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300',
+    badge: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/25',
+  },
 ];
+
 function courseAccentColor(courseId: string) {
   let hash = 0;
-  for (let i = 0; i < courseId.length; i++) hash = (hash * 31 + courseId.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < courseId.length; i += 1) {
+    hash = (hash * 31 + courseId.charCodeAt(i)) >>> 0;
+  }
   return COURSE_PALETTE[hash % COURSE_PALETTE.length];
 }
 
-// ---------------------------------------------------------------------------
-// "Add to Google Calendar" — pure client-side, no backend involved. Computes
-// the NEXT real calendar date this weekly slot falls on and opens Google
-// Calendar's own "create event" URL (as a weekly-recurring event) in a new tab.
-// ---------------------------------------------------------------------------
+function courseTitle(schedule: Schedule): string {
+  const title = schedule.course?.title;
+  if (typeof title === 'string') return title || 'Untitled Course';
+  return title?.en || 'Untitled Course';
+}
+
+function courseInitials(title: string): string {
+  const initials = title
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 3)
+    .toUpperCase();
+  return initials || 'CLS';
+}
+
+function weekDateForDay(reference: Date, dayOfWeek: number): Date {
+  const start = new Date(reference);
+  start.setHours(0, 0, 0, 0);
+  const daysSinceSaturday = (reference.getDay() - 6 + 7) % 7;
+  start.setDate(reference.getDate() - daysSinceSaturday);
+  const index = DISPLAY_ORDER.indexOf(dayOfWeek);
+  const result = new Date(start);
+  result.setDate(start.getDate() + Math.max(0, index));
+  return result;
+}
+
+function formatSelectedDate(date: Date): string {
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
 function nextOccurrenceDate(dayOfWeek: number, time: string): Date {
   const [h, m] = time.split(':').map(Number);
   const now = new Date();
   const result = new Date(now);
   result.setHours(h, m, 0, 0);
   let diff = (dayOfWeek - now.getDay() + 7) % 7;
-  if (diff === 0 && result.getTime() < now.getTime()) diff = 7; // today's slot already passed -> next week
+  if (diff === 0 && result.getTime() < now.getTime()) diff = 7;
   result.setDate(now.getDate() + diff);
   return result;
 }
+
 function formatGCalDateTime(d: Date): string {
   return `${d.toISOString().replace(/[-:]/g, '').split('.')[0]}Z`;
 }
+
 function buildGoogleCalendarUrl(schedule: Schedule, teacherName: string): string {
   const start = nextOccurrenceDate(schedule.dayOfWeek, schedule.startTime);
   const end = nextOccurrenceDate(schedule.dayOfWeek, schedule.endTime);
   const params = new URLSearchParams({
     action: 'TEMPLATE',
-    text: schedule.course?.title?.en || 'Class',
+    text: courseTitle(schedule),
     dates: `${formatGCalDateTime(start)}/${formatGCalDateTime(end)}`,
     details: `Teacher: ${teacherName}`,
     recur: 'RRULE:FREQ=WEEKLY',
@@ -140,20 +222,23 @@ function buildGoogleCalendarUrl(schedule: Schedule, teacherName: string): string
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
-// ---------------------------------------------------------------------------
-// Local reminders — Notification API + localStorage, no backend. Only fires
-// while this page (or another tab of this app) is open at the right moment;
-// a real "even if the app is closed" reminder would need a backend-scheduled
-// push job against the existing /push infrastructure (out of scope here).
-// ---------------------------------------------------------------------------
 const REMINDERS_KEY = 'sahal_schedule_reminders';
 const REMINDER_LEAD_MINUTES = 10;
 
-interface PendingReminder { id: string; courseTitle: string; fireAt: number; }
+interface PendingReminder {
+  id: string;
+  courseTitle: string;
+  fireAt: number;
+}
 
 function getPendingReminders(): PendingReminder[] {
-  try { return JSON.parse(localStorage.getItem(REMINDERS_KEY) || '[]'); } catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(REMINDERS_KEY) || '[]');
+  } catch {
+    return [];
+  }
 }
+
 function savePendingReminders(list: PendingReminder[]): void {
   localStorage.setItem(REMINDERS_KEY, JSON.stringify(list));
 }
@@ -179,8 +264,6 @@ export function StudentSchedule() {
         const { data } = await api.get('/class-schedules/my');
         setSchedules(data.data || []);
 
-        // Period settings are supplemental; legacy timetable data must remain
-        // readable even if this request is temporarily unavailable.
         try {
           const periodResponse = await api.get('/class-schedules/school/period-settings');
           setPeriods(periodResponse.data?.data?.periods || []);
@@ -195,25 +278,24 @@ export function StudentSchedule() {
     })();
   }, []);
 
-  // Tick the clock every 30s so the "LIVE NOW" badge stays accurate.
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(id);
   }, []);
 
-  // Check due local reminders every 60s (plus once immediately on mount, in
-  // case one came due while this page was closed) and fire a notification.
   useEffect(() => {
     const checkReminders = () => {
       const pending = getPendingReminders();
       if (pending.length === 0) return;
+
       const nowMs = Date.now();
-      const due = pending.filter((r) => r.fireAt <= nowMs);
-      const remaining = pending.filter((r) => r.fireAt > nowMs);
+      const due = pending.filter((reminder) => reminder.fireAt <= nowMs);
+      const remaining = pending.filter((reminder) => reminder.fireAt > nowMs);
+
       if (due.length > 0) {
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          due.forEach((r) => {
-            new Notification(`⏰ ${r.courseTitle} starts soon`, {
+          due.forEach((reminder) => {
+            new Notification(`⏰ ${reminder.courseTitle} starts soon`, {
               body: `Starting in about ${REMINDER_LEAD_MINUTES} minutes.`,
               icon: '/icons/pwa-192x192.png',
             });
@@ -221,21 +303,29 @@ export function StudentSchedule() {
         }
         savePendingReminders(remaining);
       }
-      setRemindedIds(new Set(remaining.map((r) => r.id.split('|')[0])));
+
+      setRemindedIds(new Set(remaining.map((reminder) => reminder.id.split('|')[0])));
     };
+
     checkReminders();
     const id = setInterval(checkReminders, 60000);
     return () => clearInterval(id);
   }, []);
 
-  const teacherLabel = (t?: Schedule['teacher']): string => {
-    if (!t) return '—';
-    const fullName = t.profile ? `${t.profile.firstName || ''} ${t.profile.lastName || ''}`.trim() : '';
-    return fullName || t.name || '—';
+  const teacherLabel = (teacher?: Schedule['teacher']): string => {
+    if (!teacher) return 'Teacher not assigned';
+    const fullName = teacher.profile
+      ? `${teacher.profile.firstName || ''} ${teacher.profile.lastName || ''}`.trim()
+      : '';
+    return fullName || teacher.name || 'Teacher not assigned';
   };
 
   const handleAddToCalendar = (schedule: Schedule) => {
-    window.open(buildGoogleCalendarUrl(schedule, teacherLabel(schedule.teacher)), '_blank', 'noopener,noreferrer');
+    window.open(
+      buildGoogleCalendarUrl(schedule, teacherLabel(schedule.teacher)),
+      '_blank',
+      'noopener,noreferrer',
+    );
   };
 
   const handleSetReminder = async (schedule: Schedule) => {
@@ -246,237 +336,341 @@ export function StudentSchedule() {
 
     const start = nextOccurrenceDate(schedule.dayOfWeek, schedule.startTime);
     const fireAt = start.getTime() - REMINDER_LEAD_MINUTES * 60000;
-    if (fireAt <= Date.now()) return; // too close to / past start to usefully remind
+    if (fireAt <= Date.now()) return;
 
     const pending = getPendingReminders();
     const id = `${schedule._id}|${fireAt}`;
-    if (pending.some((r) => r.id === id)) return; // already set for this occurrence
-    pending.push({ id, courseTitle: schedule.course?.title?.en || 'Class', fireAt });
+    if (pending.some((reminder) => reminder.id === id)) return;
+
+    pending.push({ id, courseTitle: courseTitle(schedule), fireAt });
     savePendingReminders(pending);
-    setRemindedIds((prev) => new Set(prev).add(schedule._id));
+    setRemindedIds((previous) => new Set(previous).add(schedule._id));
   };
 
   const handleJoinClass = (schedule: Schedule) => {
     if (schedule.course?._id) navigate(`/student/courses/${schedule.course._id}`);
   };
 
-  // Group + sort each day's schedules by start time.
   const grouped: Record<number, Schedule[]> = {};
-  schedules.forEach((s) => {
-    (grouped[s.dayOfWeek] = grouped[s.dayOfWeek] || []).push(s);
+  schedules.forEach((schedule) => {
+    (grouped[schedule.dayOfWeek] = grouped[schedule.dayOfWeek] || []).push(schedule);
   });
-  Object.values(grouped).forEach((arr) => arr.sort((a, b) => a.startTime.localeCompare(b.startTime)));
+  Object.values(grouped).forEach((items) =>
+    items.sort((a, b) => a.startTime.localeCompare(b.startTime)),
+  );
 
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const isLiveNow = (s: Schedule) => s.dayOfWeek === todayDow && nowMinutes >= toMinutes(s.startTime) && nowMinutes <= toMinutes(s.endTime);
+  const isLiveNow = (schedule: Schedule) =>
+    schedule.dayOfWeek === todayDow &&
+    nowMinutes >= toMinutes(schedule.startTime) &&
+    nowMinutes <= toMinutes(schedule.endTime);
 
   const changeDay = (delta: number) => {
-    const idx = DISPLAY_ORDER.indexOf(selectedDay);
-    const nextIdx = idx + delta;
-    if (nextIdx < 0 || nextIdx >= DISPLAY_ORDER.length) return;
+    const index = DISPLAY_ORDER.indexOf(selectedDay);
+    const nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= DISPLAY_ORDER.length) return;
     setSwipeDirection(delta);
-    setSelectedDay(DISPLAY_ORDER[nextIdx]);
+    setSelectedDay(DISPLAY_ORDER[nextIndex]);
   };
 
-  const onTouchStart = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
-  const onTouchEnd = (e: React.TouchEvent) => {
+  const onTouchStart = (event: React.TouchEvent) => {
+    touchStartX.current = event.touches[0].clientX;
+  };
+
+  const onTouchEnd = (event: React.TouchEvent) => {
     if (touchStartX.current === null) return;
-    const delta = e.changedTouches[0].clientX - touchStartX.current;
+    const delta = event.changedTouches[0].clientX - touchStartX.current;
     touchStartX.current = null;
     if (Math.abs(delta) < 50) return;
-    changeDay(delta < 0 ? 1 : -1); // swipe left -> next day, swipe right -> previous day
+    changeDay(delta < 0 ? 1 : -1);
   };
 
   const daySchedules = grouped[selectedDay] || [];
   const dayRows = withBreaks(daySchedules, periods);
+  const selectedDate = weekDateForDay(now, selectedDay);
 
   return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-5xl w-full px-0 sm:px-4 space-y-6">
-        <div>
-          <h1 className="flex items-center gap-2.5 text-3xl font-bold text-[var(--color-text-primary)]">
-            <CalendarDays className="h-8 w-8 text-primary-600" strokeWidth={1.75} />
-            My Schedule
-          </h1>
-          <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Your weekly class timetable</p>
-        </div>
+    <div className="px-4 pb-12 pt-20 sm:px-6 lg:px-10 lg:pt-10">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-300">
+              <CalendarDays className="h-6 w-6" strokeWidth={1.8} />
+            </div>
+            <div>
+              <h1 className="text-3xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-4xl">
+                My Schedule
+              </h1>
+              <p className="mt-1 text-sm text-[var(--color-text-tertiary)] sm:text-base">
+                Your weekly class timetable
+              </p>
+            </div>
+          </div>
+
+          <div className="inline-flex w-fit items-center gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] shadow-sm">
+            <CalendarDays className="h-4 w-4 text-primary-500" />
+            {formatSelectedDate(selectedDate)}
+          </div>
+        </header>
 
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+            {error}
+          </div>
         )}
 
         {loading && (
-          <div className="flex justify-center py-10">
-            <div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
+          <div className="flex justify-center py-14">
+            <div className="h-10 w-10 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
           </div>
         )}
 
         {!loading && schedules.length === 0 && !error && (
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-12 text-center shadow-card">
-            <p className="text-lg text-[var(--color-text-tertiary)]">No classes scheduled yet.</p>
-            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Your schedule will appear here once your administrator sets up class times.</p>
+          <div className="rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-12 text-center shadow-sm">
+            <CalendarDays className="mx-auto h-10 w-10 text-[var(--color-text-tertiary)]" />
+            <p className="mt-4 text-lg font-bold text-[var(--color-text-primary)]">
+              No classes scheduled yet
+            </p>
+            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+              Your schedule will appear here once your administrator sets up class times.
+            </p>
           </div>
         )}
 
         {!loading && schedules.length > 0 && (
-          <div className="space-y-4">
-            {/* ── Day Tabs ── */}
-            <div className="flex items-center gap-2">
-              <div
-                className="flex flex-1 min-w-0 gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 [&::-webkit-scrollbar]:hidden"
-                style={{ scrollbarWidth: 'none' }}
-              >
-                {DISPLAY_ORDER.map((day) => {
-                  const isToday = day === todayDow;
-                  const isSelected = day === selectedDay;
-                  const count = grouped[day]?.length || 0;
-                  return (
-                    <button
-                      key={day}
-                      onClick={() => { setSwipeDirection(day > selectedDay ? 1 : -1); setSelectedDay(day); }}
-                      className={`relative flex-shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap ${
-                        isSelected
-                          ? 'bg-primary-600 text-white shadow-sm'
-                          : 'bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
-                      }`}
-                    >
-                      <span className="hidden sm:inline">{DAY_NAMES[day]}</span>
-                      <span className="sm:hidden">{DAY_SHORT[day]}</span>
-                      {isToday && (
-                        <span className={`ml-1.5 inline-block h-1.5 w-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-primary-500'}`} />
-                      )}
+          <div className="space-y-5">
+            <div
+              className="flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden"
+              style={{ scrollbarWidth: 'none' }}
+            >
+              {DISPLAY_ORDER.map((day) => {
+                const date = weekDateForDay(now, day);
+                const isToday = day === todayDow;
+                const isSelected = day === selectedDay;
+                const count = grouped[day]?.length || 0;
+
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => {
+                      setSwipeDirection(DISPLAY_ORDER.indexOf(day) > DISPLAY_ORDER.indexOf(selectedDay) ? 1 : -1);
+                      setSelectedDay(day);
+                    }}
+                    className={`min-w-[88px] shrink-0 rounded-2xl border px-4 py-3 text-center transition-all duration-200 ${
+                      isSelected
+                        ? 'border-emerald-500 bg-emerald-500 text-white shadow-lg shadow-emerald-500/15'
+                        : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:-translate-y-0.5 hover:border-primary-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span className="text-sm font-bold">{DAY_SHORT[day]}</span>
                       {count > 0 && (
-                        <span className={`ml-1.5 text-[10px] ${isSelected ? 'text-white/70' : 'text-[var(--color-text-tertiary)]'}`}>
-                          {count}
+                        <span className={`text-[10px] font-black ${isSelected ? 'text-white/85' : 'text-[var(--color-text-tertiary)]'}`}>
+                          • {count}
                         </span>
                       )}
-                    </button>
-                  );
-                })}
-              </div>
-              {selectedDay !== todayDow && (
-                <button
-                  onClick={() => { setSwipeDirection(todayDow > selectedDay ? 1 : -1); setSelectedDay(todayDow); }}
-                  className="flex-shrink-0 rounded-xl border border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-950/30 px-3 py-2.5 text-xs font-semibold text-primary-600 dark:text-primary-400 hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-colors whitespace-nowrap"
-                >
-                  Today
-                </button>
-              )}
+                    </div>
+                    <p className={`mt-1 text-xs ${isSelected ? 'text-white/85' : 'text-[var(--color-text-tertiary)]'}`}>
+                      {date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </p>
+                    {isToday && !isSelected && (
+                      <span className="mx-auto mt-1.5 block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
-            {/* ── Selected Day Panel (swipeable on touch) ── */}
             <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={selectedDay}
-                  initial={{ opacity: 0, x: swipeDirection >= 0 ? 24 : -24 }}
+                  initial={{ opacity: 0, x: swipeDirection >= 0 ? 26 : -26 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: swipeDirection >= 0 ? -24 : 24 }}
+                  exit={{ opacity: 0, x: swipeDirection >= 0 ? -26 : 26 }}
                   transition={{ duration: 0.2 }}
                   className="space-y-3"
                 >
                   {dayRows.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center">
-                      <p className="text-sm text-[var(--color-text-tertiary)]">No classes on {DAY_NAMES[selectedDay]}.</p>
+                    <div className="rounded-3xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-6 py-14 text-center">
+                      <CalendarDays className="mx-auto h-8 w-8 text-[var(--color-text-tertiary)]" />
+                      <p className="mt-3 text-sm font-semibold text-[var(--color-text-primary)]">
+                        No classes on {DAY_NAMES[selectedDay]}
+                      </p>
                     </div>
                   )}
 
-                  {dayRows.map((row, i) =>
-                    row.kind === 'break' ? (
-                      <div key={`break-${i}`} className="flex items-center gap-3 rounded-xl border border-dashed border-amber-200 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-950/10 px-4 py-2.5">
-                        <Coffee className="h-4 w-4 text-amber-500 flex-shrink-0" strokeWidth={1.75} />
-                        <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">☕ Break — {formatBreakLabel(row.minutes)}</p>
-                      </div>
-                    ) : (() => {
-                      const s = row.schedule;
-                      const color = courseAccentColor(s.course?._id || s._id);
-                      const live = isLiveNow(s);
-                      const isLiveCourse = !!s.course?.isLive;
-                      const hasReminder = remindedIds.has(s._id);
-                      const startM = toMinutes(s.startTime);
-                      const endM = toMinutes(s.endTime);
-                      const progressPct = live ? Math.min(100, Math.max(0, ((nowMinutes - startM) / (endM - startM)) * 100)) : 0;
-                      const minutesLeft = live ? Math.max(0, endM - nowMinutes) : 0;
+                  {dayRows.map((row, index) => {
+                    if (row.kind === 'break') {
                       return (
-                        <div
-                          key={s._id}
-                          className={`rounded-2xl border-l-4 ${color.border} border-y border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card overflow-hidden transition-all ${
-                            live ? 'ring-2 ring-red-400 dark:ring-red-500 shadow-[0_0_24px_-6px_rgba(239,68,68,0.55)]' : ''
-                          }`}
-                        >
-                          <div className="px-5 py-4">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                                {s.startTime} – {s.endTime}
-                              </span>
-                              <span className={`inline-block h-1.5 w-1.5 rounded-full flex-shrink-0 ${color.dot}`} />
-                              <p className="text-base font-bold text-[var(--color-text-primary)] truncate">
-                                {s.course?.title?.en || 'Untitled Course'}
-                              </p>
-                              {live && (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white animate-pulse">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-white" /> Live Now
-                                </span>
-                              )}
-                            </div>
-                            <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] mt-1">
-                              <User className="h-3.5 w-3.5 text-slate-400" strokeWidth={1.75} />
-                              {teacherLabel(s.teacher)}
-                            </p>
-
-                            {live && (
-                              <div className="mt-2.5">
-                                <div className="flex items-center justify-between text-[10px] font-medium text-red-600 dark:text-red-400 mb-1">
-                                  <span>In progress</span>
-                                  <span>{minutesLeft} min left</span>
+                        <div key={`break-${index}`} className="grid grid-cols-[58px_1fr] gap-3 sm:grid-cols-[76px_1fr]">
+                          <div className="flex flex-col items-center pt-2 text-[11px] font-semibold text-[var(--color-text-tertiary)] sm:text-xs">
+                            {row.startTime && <span>{row.startTime}</span>}
+                            <span className="my-1 h-4 w-px bg-amber-400/50" />
+                            {row.endTime && <span>{row.endTime}</span>}
+                          </div>
+                          <div className="rounded-2xl border border-dashed border-amber-400/30 bg-amber-500/10 px-4 py-4 sm:px-5">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex min-w-0 items-center gap-3">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-500">
+                                  <Coffee className="h-5 w-5" />
                                 </div>
-                                <div className="h-1.5 w-full rounded-full bg-red-100 dark:bg-red-950/40 overflow-hidden">
-                                  <div className="h-full rounded-full bg-red-500 transition-all duration-500" style={{ width: `${progressPct}%` }} />
+                                <div className="min-w-0">
+                                  <p className="font-bold text-amber-700 dark:text-amber-300">Break</p>
+                                  <p className="text-sm text-amber-700/75 dark:text-amber-300/75">
+                                    {formatBreakLabel(row.minutes)}
+                                  </p>
                                 </div>
                               </div>
-                            )}
-                          </div>
-
-                          {/* Quick actions */}
-                          <div className="flex items-center gap-2 px-5 pb-3.5 pt-0.5">
-                            <button
-                              onClick={() => handleAddToCalendar(s)}
-                              title="Add to Google Calendar"
-                              className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600 hover:scale-105 active:scale-95 transition-all"
-                            >
-                              <CalendarPlus className="h-4 w-4" strokeWidth={1.75} />
-                            </button>
-                            <button
-                              onClick={() => handleSetReminder(s)}
-                              disabled={hasReminder}
-                              title={hasReminder ? 'Reminder set' : `Remind me ${REMINDER_LEAD_MINUTES} min before (while this app is open)`}
-                              className={`flex h-8 w-8 items-center justify-center rounded-full border transition-all hover:scale-105 active:scale-95 ${
-                                hasReminder
-                                  ? 'border-primary-300 bg-primary-50 dark:bg-primary-950/30 text-primary-600 dark:text-primary-400'
-                                  : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-primary-600'
-                              }`}
-                            >
-                              <Bell className="h-4 w-4" strokeWidth={1.75} fill={hasReminder ? 'currentColor' : 'none'} />
-                            </button>
-                            {isLiveCourse && (
-                              <button
-                                onClick={() => handleJoinClass(s)}
-                                className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 hover:scale-105 active:scale-95 transition-all animate-pulse"
-                              >
-                                <Video className="h-3.5 w-3.5" strokeWidth={1.75} />
-                                Join Class
-                              </button>
-                            )}
+                              <span className="hidden rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300 sm:inline-flex">
+                                Break Time
+                              </span>
+                            </div>
                           </div>
                         </div>
                       );
-                    })()
-                  )}
+                    }
+
+                    const schedule = row.schedule;
+                    const title = courseTitle(schedule);
+                    const color = courseAccentColor(schedule.course?._id || schedule._id);
+                    const live = isLiveNow(schedule);
+                    const hasReminder = remindedIds.has(schedule._id);
+                    const isLiveCourse = !!schedule.course?.isLive;
+                    const startMinutes = toMinutes(schedule.startTime);
+                    const endMinutes = toMinutes(schedule.endTime);
+                    const progress = live
+                      ? Math.min(100, Math.max(0, ((nowMinutes - startMinutes) / Math.max(1, endMinutes - startMinutes)) * 100))
+                      : 0;
+                    const minutesLeft = live ? Math.max(0, endMinutes - nowMinutes) : 0;
+
+                    return (
+                      <div key={schedule._id} className="grid grid-cols-[58px_1fr] gap-3 sm:grid-cols-[76px_1fr]">
+                        <div className="flex flex-col items-center pt-5 text-xs font-bold text-[var(--color-text-secondary)] sm:text-sm">
+                          <span>{schedule.startTime}</span>
+                          <div className="my-2 flex min-h-[64px] flex-1 flex-col items-center">
+                            <span className={`h-3 w-3 rounded-full ring-4 ring-[var(--color-background-primary)] ${color.dot}`} />
+                            <span className="mt-1.5 w-px flex-1 bg-[var(--color-border-default)]" />
+                          </div>
+                          <span>{schedule.endTime}</span>
+                        </div>
+
+                        <article
+                          className={`overflow-hidden rounded-3xl border border-[var(--color-border-default)] border-l-4 ${color.border} bg-[var(--color-surface-primary)] shadow-sm transition-all duration-200 ${
+                            live
+                              ? 'ring-2 ring-red-400/70 shadow-[0_0_30px_-10px_rgba(239,68,68,0.65)]'
+                              : 'hover:-translate-y-0.5 hover:shadow-lg'
+                          }`}
+                        >
+                          <div className="p-4 sm:p-5">
+                            <div className="flex items-start gap-3 sm:gap-4">
+                              <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-sm font-black sm:h-16 sm:w-16 sm:text-base ${color.avatar}`}>
+                                {courseInitials(title)}
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h2 className="truncate text-lg font-black text-[var(--color-text-primary)] sm:text-xl">
+                                    {title}
+                                  </h2>
+                                  {live && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-red-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                                      Live now
+                                    </span>
+                                  )}
+                                </div>
+
+                                {schedule.course?.courseCode && (
+                                  <p className="mt-1 text-xs font-semibold text-[var(--color-text-tertiary)]">
+                                    {schedule.course.courseCode}
+                                  </p>
+                                )}
+
+                                <p className="mt-2 flex items-center gap-2 text-sm text-[var(--color-text-tertiary)]">
+                                  <User className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                                  <span className="truncate">{teacherLabel(schedule.teacher)}</span>
+                                </p>
+                              </div>
+
+                              {schedule.room && (
+                                <span className={`hidden shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold sm:inline-flex ${color.badge}`}>
+                                  <MapPin className="h-3.5 w-3.5" />
+                                  {schedule.room}
+                                </span>
+                              )}
+                            </div>
+
+                            {schedule.room && (
+                              <div className="mt-3 sm:hidden">
+                                <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${color.badge}`}>
+                                  <MapPin className="h-3.5 w-3.5" />
+                                  {schedule.room}
+                                </span>
+                              </div>
+                            )}
+
+                            {live && (
+                              <div className="mt-4">
+                                <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold text-red-500">
+                                  <span>In progress</span>
+                                  <span>{minutesLeft} min left</span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden rounded-full bg-red-500/15">
+                                  <div
+                                    className="h-full rounded-full bg-red-500 transition-all duration-500"
+                                    style={{ width: `${progress}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="mt-4 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleAddToCalendar(schedule)}
+                                title="Add to Google Calendar"
+                                className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] transition-all hover:-translate-y-0.5 hover:text-primary-600 active:translate-y-0"
+                              >
+                                <CalendarPlus className="h-4.5 w-4.5" strokeWidth={1.75} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleSetReminder(schedule)}
+                                disabled={hasReminder}
+                                title={hasReminder ? 'Reminder set' : `Remind me ${REMINDER_LEAD_MINUTES} min before`}
+                                className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-all hover:-translate-y-0.5 active:translate-y-0 ${
+                                  hasReminder
+                                    ? 'border-primary-300 bg-primary-50 text-primary-600 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-300'
+                                    : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] hover:text-primary-600'
+                                }`}
+                              >
+                                <Bell className="h-4.5 w-4.5" strokeWidth={1.75} fill={hasReminder ? 'currentColor' : 'none'} />
+                              </button>
+
+                              {isLiveCourse && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleJoinClass(schedule)}
+                                  className="ml-auto inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-bold text-white transition-all hover:bg-red-700"
+                                >
+                                  <Video className="h-4 w-4" />
+                                  Join Class
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </article>
+                      </div>
+                    );
+                  })}
                 </motion.div>
               </AnimatePresence>
-              {/* Mobile swipe hint */}
-              <p className="sm:hidden text-center text-[11px] text-[var(--color-text-tertiary)] pt-2 flex items-center justify-center gap-1">
-                <Clock className="h-3 w-3" strokeWidth={1.75} /> Swipe left or right to switch days
+
+              <p className="mt-5 flex items-center justify-center gap-1.5 text-center text-[11px] text-[var(--color-text-tertiary)] sm:hidden">
+                <Clock className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Swipe left or right to switch days
               </p>
             </div>
           </div>
