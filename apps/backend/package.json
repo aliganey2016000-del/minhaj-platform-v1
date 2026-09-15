@@ -13,7 +13,7 @@
     "test": "node scripts/run-e2e-tests.mjs",
     "test:student-registration-optional-number": "ts-node src/__tests__/student-registration-optional-number.e2e.ts",
     "test:user-orphan-cleanup": "ts-node src/__tests__/user-orphan-cleanup.e2e.ts",
-    "test:promotion": "ts-node src/__tests__/promotion-no-course-block.e2e.ts && ts-node src/__tests__/school-promotion-review.e2e.ts && ts-node src/__tests__/persistent-class-promotion.e2e.ts && ts-node src/__tests__/attendance-across-promotion.e2e.ts && ts-node src/__tests__/student-class-assignment.e2e.ts && ts-node src/__tests__/student-import-cohort-and-class-delete.e2e.ts && ts-node src/__tests__/student-import-password-cache.e2e.ts && ts-node src/__tests__/student-lifecycle-workflow.e2e.ts",
+    "test:promotion": "ts-node src/__tests__/promotion-no-course-block.e2e.ts && ts-node src/__tests__/school-promotion-review.e2e.ts && ts-node src/__tests__/persistent-class-promotion.e2e.ts && ts-node src/__tests__/undo-whole-school-promotion.e2e.ts && ts-node src/__tests__/attendance-across-promotion.e2e.ts && ts-node src/__tests__/student-class-assignment.e2e.ts && ts-node src/__tests__/student-import-cohort-and-class-delete.e2e.ts && ts-node src/__tests__/student-import-password-cache.e2e.ts && ts-node src/__tests__/student-lifecycle-workflow.e2e.ts",
     "test:schedule-qa": "ts-node src/__tests__/class-schedule-timetable-a-z.e2e.ts",
     "test:teacher-promotion": "ts-node src/__tests__/teacher-promotion.e2e.ts",
     "test:gate-report": "ts-node src/__tests__/gate-report.e2e.ts",

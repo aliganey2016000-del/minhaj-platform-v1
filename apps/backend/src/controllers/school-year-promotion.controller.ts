@@ -242,12 +242,32 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
   }, message);
 };
 
-/** Students a promotion to `targetAcademicYear` actually touched — the set undo-promotion acts on. */
+/**
+ * Students a promotion to `targetAcademicYear` actually touched — the set
+ * undo-promotion acts on. Matches revertStudentPromotion()'s own condition,
+ * not just "currently active in the target year": a student who was simply
+ * created directly into a `targetAcademicYear` class (never promoted into
+ * it) also has an active enrollmentHistory entry for that year, but has no
+ * prior entry to restore, so revertStudentPromotion() would skip them.
+ * `enrollmentHistory.1` existing (a second array element) is required
+ * because syncEnrollmentHistory keeps at most one 'active' entry at a time,
+ * so an active-status match can only be the *last* entry — the same one
+ * revertStudentPromotion() reads — and a prior entry existing alongside it
+ * means there is something real to revert to. Without this check, the
+ * preview and the actual undo disagreed: the preview counted every student
+ * merely sitting in `targetAcademicYear`, while the undo itself correctly
+ * refused to fabricate a "before" state for students who were never
+ * promoted, so every one of them came back as skipped.
+ */
 async function findPromotedStudents(schoolId: string, targetAcademicYear: string, sourceAcademicYear: string) {
   return Student.find({
     school: schoolId,
     $or: [
-      { status: 'active', enrollmentHistory: { $elemMatch: { status: 'active', academicYear: targetAcademicYear } } },
+      {
+        status: 'active',
+        enrollmentHistory: { $elemMatch: { status: 'active', academicYear: targetAcademicYear } },
+        'enrollmentHistory.1': { $exists: true },
+      },
       { status: 'graduated', enrollmentHistory: { $elemMatch: { status: 'graduated', academicYear: sourceAcademicYear } } },
     ],
   }).select('_id');
