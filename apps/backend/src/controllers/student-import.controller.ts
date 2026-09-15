@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
-import bcrypt from 'bcrypt';
 import Student from '../models/student.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
@@ -151,25 +150,6 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   const seenStudentIdsBySchool = new Map<string, Set<string>>();
   const parsedRows: any[] = [];
 
-  // Most rows in a real bulk import leave Password blank and fall back to
-  // the same literal default ('changeme123'), so hashing it fresh per row
-  // is redundant, CPU-bound work repeated hundreds of times in this one
-  // sequential loop — for a few hundred rows that alone was slow enough to
-  // blow past the reverse-proxy request timeout, so the browser reported
-  // "Import failed" while the request kept running server-side and finished
-  // the insert anyway, leaving the UI's row/student counts stale until a
-  // manual refresh. Caching by the plaintext value collapses every row that
-  // shares a password (the common case) down to one bcrypt.hash call.
-  const passwordHashCache = new Map<string, Promise<string>>();
-  function hashPasswordCached(password: string): Promise<string> {
-    let cached = passwordHashCache.get(password);
-    if (!cached) {
-      cached = bcrypt.hash(password, 10);
-      passwordHashCache.set(password, cached);
-    }
-    return cached;
-  }
-
   for (let index = 0; index < rows.length; index++) {
     const rowNum = index + 2;
     const row = rows[index];
@@ -240,7 +220,13 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         lastName,
         gender: ['male', 'female'].includes(gender) ? gender : 'male',
         email,
-        hashedPassword: await hashPasswordCached(finalPassword),
+        // Plaintext — User's own pre-save hook hashes this with a fresh
+        // per-user salt (see user.model.ts). Hashing it here too would
+        // double-hash the value before that hook re-hashes it again,
+        // corrupting the stored password so the real plaintext could never
+        // compare-match it again — i.e. the imported account could never
+        // actually log in with the password it was just given.
+        password: finalPassword,
         school: new mongoose.Types.ObjectId(schoolId),
         classId: cls.classId,
         department: cls.department,
@@ -313,7 +299,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         const relationshipMap: Record<string, string> = { Father: 'father', Mother: 'mother', Guardian: 'guardian', Other: 'other' };
         const guardianUser = await User.create({
           email: item.guardianEmail || `${item.email.replace('@', '+parent@')}`,
-          password: await bcrypt.hash(item.guardianPassword || 'guardian123', 10),
+          // Plaintext — User's pre-save hook hashes this (see student.password comment above).
+          password: item.guardianPassword || 'guardian123',
           role: 'parent', organizationId: item.school, phone: item.guardianPhone,
           isVerified: true, isActive: true,
         });
@@ -341,7 +328,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     try {
       await Promise.all([
         User.create({
-          _id: userId, email: item.email, password: item.hashedPassword, role: 'student',
+          _id: userId, email: item.email, password: item.password, role: 'student',
           organizationId: item.school, isVerified: true, isActive: true, preferredLanguage: 'en',
         }),
         Profile.create({

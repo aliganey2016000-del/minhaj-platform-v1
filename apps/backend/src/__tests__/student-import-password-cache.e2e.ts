@@ -1,26 +1,39 @@
 /**
- * Student bulk import — password hashing must stay both correct and cheap.
+ * Student bulk import — password hashing must stay both correct and fast.
  *
- * bulkImport() used to call bcrypt.hash() fresh for every row, inside the
- * single sequential validation loop. A real bulk import overwhelmingly
- * leaves Password blank (falling back to the same literal default), so a
- * few-hundred-row file meant a few hundred *redundant* bcrypt.hash() calls
- * back to back — slow enough that a large real-world import (reported: 722
- * rows) blew past the reverse-proxy's request timeout. The browser reported
- * "Import failed" while the request kept running server-side and actually
- * finished the insert, leaving admins looking at stale/partial student
- * counts until a manual page refresh.
+ * bulkImport() used to call bcrypt.hash() itself for every row (and again
+ * for every new guardian account) inside the sequential validation loop,
+ * BEFORE calling User.create(). But User's own pre-save hook (user.model.ts)
+ * already hashes `password` on every create/modify — so every imported
+ * student and guardian account was hashed TWICE (bcrypt(bcrypt(plaintext))).
+ * A double-hashed value can never be validated against the real plaintext
+ * via bcrypt.compare(), so none of those accounts could ever actually log
+ * in with the password they were assigned. This was a real, serious,
+ * pre-existing authentication bug, independent of the reported slowness.
  *
- * The fix caches the computed hash by its plaintext input, so every row
- * sharing a password (the common case) costs one bcrypt.hash() call, not
- * one per row. This test proves that stays *correct*, not just fast:
- *  - many rows sharing the same blank->default password all get the exact
- *    same stored hash (proving the cache hit path is taken), and
- *  - rows with a different explicit password get a genuinely different
- *    hash (proving the cache is keyed by value, not a blanket reuse).
- * Every stored hash is also verified against its real intended password
- * with bcrypt.compare, so a caching bug that reused the wrong hash for
- * the wrong row would fail here even if the row counts looked fine.
+ * It also caused the reported slowness: a few hundred sequential
+ * bcrypt.hash() calls back to back (one per row, mostly for the same
+ * literal default password) was slow enough that a large real-world import
+ * (reported: 722 rows) blew past the reverse-proxy's request timeout. The
+ * browser reported "Import failed" while the request kept running
+ * server-side and actually finished the insert, leaving admins looking at
+ * stale/partial student counts until a manual page refresh.
+ *
+ * The fix removes all manual pre-hashing from the controller and passes
+ * plaintext straight into User.create() for both students and guardians,
+ * letting the pre-save hook be the single hashing authority — matching the
+ * pattern already used by the single-student "Quick Add" endpoint. This
+ * also fixes the slowness as a side effect: the real (necessary) hashing
+ * work now happens inside the insert phase's existing 10-way-concurrent
+ * batching instead of a purely sequential pre-pass.
+ *
+ * This test proves every imported student's AND guardian's stored password
+ * actually validates against the real plaintext they were assigned via
+ * bcrypt.compare — the exact property the double-hashing bug broke. It
+ * also confirms bcrypt's per-call random salting is preserved (two rows
+ * sharing one plaintext password store two different hash strings), since
+ * a "fix" that cached/reused one hash across accounts would be a security
+ * regression even though it happens to also pass a compare() check.
  */
 
 process.env.JWT_ACCESS_SECRET = 'test-access-secret-do-not-use-in-prod';
@@ -73,9 +86,11 @@ async function main() {
     batch: '2027', gradeLevel: 9, academicYear: '2027-2028', status: 'active', shiftMode: 'Morning',
   });
 
-  section('IMPORT — a mix of blank-default, shared-explicit, and unique passwords');
+  section('IMPORT — a mix of blank-default, shared-explicit, and unique passwords, plus a guardian');
   // 8 rows leave Password blank (all fall back to the same 'changeme123'
   // default), 2 rows share one explicit password, and 1 row sets its own.
+  // One row also carries guardian details, so the guardian account's
+  // password path gets covered too.
   const blankRows = Array.from({ length: 8 }, (_, i) => ({
     'First Name': `Blank${i}`, 'Last Name': 'Student', Gender: 'male',
     Email: `blank-${i}@test.local`, Organization: school.name,
@@ -93,7 +108,14 @@ async function main() {
     'Class Name': 'Grade 9', Section: 'A', 'Enrollment Date': '2027-09-01',
     Password: 'OnlyMineSecret1',
   };
-  const importRows = [...blankRows, ...sharedRows, uniqueRow];
+  const guardianRow = {
+    'First Name': 'HasGuardian', 'Last Name': 'Student', Gender: 'female',
+    Email: 'has-guardian@test.local', Organization: school.name,
+    'Class Name': 'Grade 9', Section: 'A', 'Enrollment Date': '2027-09-01',
+    'Guardian Name': 'Guardian One', 'Guardian Email': 'guardian-one@test.local',
+    'Guardian Password': 'GuardianSecret1', 'Guardian Phone': '+252611220000', Relationship: 'Father',
+  };
+  const importRows = [...blankRows, ...sharedRows, uniqueRow, guardianRow];
 
   const imported = await request(app)
     .post('/api/v1/students/import')
@@ -103,30 +125,37 @@ async function main() {
   assert(imported.status === 200, `import request succeeds (status ${imported.status})`);
   assert(imported.body?.data?.created === importRows.length, `all ${importRows.length} rows import successfully (got ${imported.body?.data?.created}, errors: ${JSON.stringify(imported.body?.data?.errors)})`);
 
-  section('HASH REUSE — rows sharing a password get the identical stored hash');
+  section('LOGIN CORRECTNESS — every stored hash actually validates its real assigned password');
   const blankUsers: any[] = await User.find({ email: { $in: blankRows.map((r) => r.Email) } }).select('+password email').lean();
   assert(blankUsers.length === blankRows.length, `all ${blankRows.length} blank-password students were created`);
-  const blankHashes = new Set(blankUsers.map((u) => u.password));
-  assert(blankHashes.size === 1, `every blank-password row reuses the exact same cached hash (got ${blankHashes.size} distinct hash(es))`);
+  for (const u of blankUsers) {
+    assert(await bcrypt.compare('changeme123', u.password), `${u.email}'s stored hash matches the real default "changeme123" (would be able to log in)`);
+  }
 
   const sharedUsers: any[] = await User.find({ email: { $in: sharedRows.map((r) => r.Email) } }).select('+password email').lean();
   assert(sharedUsers.length === 2, 'both shared-password students were created');
-  const sharedHashes = new Set(sharedUsers.map((u) => u.password));
-  assert(sharedHashes.size === 1, `both rows sharing "SharedSecret1" reuse the same cached hash (got ${sharedHashes.size} distinct hash(es))`);
+  for (const u of sharedUsers) {
+    assert(await bcrypt.compare('SharedSecret1', u.password), `${u.email}'s stored hash matches "SharedSecret1" (would be able to log in)`);
+  }
 
   const uniqueUser: any = await User.findOne({ email: uniqueRow.Email }).select('+password').lean();
   assert(Boolean(uniqueUser), 'the unique-password student was created');
-
-  section('HASH CORRECTNESS — the cache never leaks one row\'s hash onto another');
-  assert([...blankHashes][0] !== [...sharedHashes][0], 'blank-default rows and shared-password rows do NOT collide on the same hash');
-  assert([...sharedHashes][0] !== uniqueUser?.password, 'the unique-password row does NOT collide with the shared-password rows');
-  assert(await bcrypt.compare('changeme123', blankUsers[0].password), 'a blank-password row\'s stored hash actually matches the real default "changeme123"');
-  assert(await bcrypt.compare('SharedSecret1', sharedUsers[0].password), 'a shared-password row\'s stored hash actually matches "SharedSecret1"');
-  assert(await bcrypt.compare('OnlyMineSecret1', uniqueUser?.password), 'the unique-password row\'s stored hash actually matches "OnlyMineSecret1"');
+  assert(await bcrypt.compare('OnlyMineSecret1', uniqueUser?.password), 'the unique-password row\'s stored hash matches "OnlyMineSecret1" (would be able to log in)');
   assert(!(await bcrypt.compare('OnlyMineSecret1', blankUsers[0].password)), 'a blank-password row\'s hash does NOT also validate the unrelated unique password');
 
+  const guardianUser: any = await User.findOne({ email: guardianRow['Guardian Email'] }).select('+password').lean();
+  assert(Boolean(guardianUser), 'the guardian account was created');
+  assert(guardianUser?.role === 'parent', 'the guardian account has role "parent"');
+  assert(await bcrypt.compare('GuardianSecret1', guardianUser?.password), 'the guardian\'s stored hash matches "GuardianSecret1" (would be able to log in) — this is the double-hash bug\'s exact failure mode');
+
+  section('SALTING PRESERVED — bcrypt\'s per-call random salt still applies (no hash reuse across accounts)');
+  const sharedHashes = new Set(sharedUsers.map((u) => u.password));
+  assert(sharedHashes.size === 2, `both rows sharing "SharedSecret1" still get their own distinct salted hash (got ${sharedHashes.size} distinct hash(es) — 1 would mean an unsafe shared/cached hash)`);
+  const blankHashes = new Set(blankUsers.map((u) => u.password));
+  assert(blankHashes.size === blankUsers.length, `every blank-password row still gets its own distinct salted hash (got ${blankHashes.size} of ${blankUsers.length})`);
+
   console.log(`\n${'='.repeat(60)}`);
-  console.log(failures === 0 ? 'ALL STUDENT IMPORT PASSWORD-CACHE CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
+  console.log(failures === 0 ? 'ALL STUDENT IMPORT PASSWORD CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
   console.log('='.repeat(60));
 
   await mongoose.disconnect();
