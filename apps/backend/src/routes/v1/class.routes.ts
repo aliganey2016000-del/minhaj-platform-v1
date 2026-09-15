@@ -39,6 +39,8 @@ router.patch('/:id/status', adminOnly, asyncHandler(classController.updateStatus
 router.get('/schedule/:courseId', asyncHandler(classController.getSchedule));
 router.get('/promotion-preview', adminOnly, asyncHandler(curriculumPromotionController.getPromotionPreview));
 router.post('/promote-all', adminOnly, asyncHandler(curriculumPromotionController.promoteAll));
+router.get('/undo-promotion-preview', adminOnly, asyncHandler(curriculumPromotionController.getUndoPromotionPreview));
+router.post('/undo-promotion', adminOnly, asyncHandler(curriculumPromotionController.undoPromotion));
 router.get('/promotion-target', adminOnly, asyncHandler(curriculumPromotionController.validatePromotionTarget));
 router.get('/promotion-review', adminOnly, asyncHandler(reviewedPromotionController.getPromotionReview));
 router.post('/promote-reviewed', adminOnly, asyncHandler(reviewedPromotionController.promoteReviewed));

@@ -6,7 +6,9 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError } from '../utils/api-error';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { completeStudentEnrollmentHistory, reassignStudentClassCourses } from '../services/enrollment.service';
-import { findPersistentTargetClass, describeMissingTarget, classifyClasses, MissingTarget } from '../services/class-promotion.service';
+import { findPersistentTargetClass, describeMissingTarget, classifyClasses, runWithConcurrency, MissingTarget } from '../services/class-promotion.service';
+
+const PROMOTION_CONCURRENCY = 10;
 
 /**
  * Per-student reviewed promotion (promote / repeat / graduate exceptions).
@@ -124,9 +126,36 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
   }
 
   const classIds = classes.map((x) => x._id);
-  const allStudents = await Student.find({ class: { $in: classIds }, status: 'active' }).select('_id class').lean();
-  const validStudentIds = new Set(allStudents.map((x) => String(x._id)));
+  const rawStudents = await Student.find({ class: { $in: classIds }, status: 'active' })
+    .select('_id class enrollmentHistory').lean();
+  const validStudentIds = new Set(rawStudents.map((x) => String(x._id)));
   for (const studentId of decisions.keys()) if (!validStudentIds.has(studentId)) throw new BadRequestError('A promotion decision references a student outside the active classes');
+
+  const isFinalById = new Map(classes.map((cls) => [String(cls._id), isFinalClass(cls)]));
+
+  // Guard against a duplicate submission for the SAME target year — a
+  // client retry after a timeout (the request can succeed on the server
+  // after the client already gave up and reports failure), or a
+  // double-click of Confirm. Without this, a student already moved into
+  // targetAcademicYear by an earlier, unacknowledged run would be found
+  // again in their new (now source) class and swept one grade further.
+  //
+  // Scoped to 'promote' only: a 'repeat' or 'graduate' decision is already
+  // naturally idempotent (repeat's history entry is deduped by class+year in
+  // syncEnrollmentHistory; graduate's status-guarded update just no-ops), and
+  // re-submitting either is expected to keep succeeding rather than being
+  // silently skipped.
+  let alreadyHandled = 0;
+  const allStudents = rawStudents.filter((student) => {
+    const requested = decisions.get(String(student._id)) || (isFinalById.get(String(student.class)) ? 'graduate' : 'promote');
+    if (requested !== 'promote') return true;
+    const activeEntry = (student.enrollmentHistory || []).find((entry: any) => entry.status === 'active');
+    if (activeEntry?.academicYear === targetAcademicYear) {
+      alreadyHandled += 1;
+      return false;
+    }
+    return true;
+  });
 
   const byClass = new Map<string, typeof allStudents>();
   for (const student of allStudents) {
@@ -142,57 +171,75 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
   const missingTargets: (MissingTarget & { sourceClassId: mongoose.Types.ObjectId; sourceTitle: string })[] = [];
   const skippedStudents: { studentId: string; reason: string }[] = [];
 
+  // See school-year-promotion.controller.ts: a class is persistent and its
+  // own `academicYear` is display metadata, not per-student history — left
+  // untouched it would keep showing the old year forever. Every class this
+  // run actually moved, repeated, or graduated someone through now operates
+  // in targetAcademicYear.
+  const promotedIntoYear = new Set<string>();
+
   for (const cls of classes) {
     const students = byClass.get(String(cls._id)) || [];
     if (!students.length) continue;
     const isFinal = isFinalClass(cls);
 
-    let promotionTargetChecked = false;
-    let promotionTarget: Awaited<ReturnType<typeof findPersistentTargetClass>> = null;
-    let promotionMissing: MissingTarget | null = null;
+    const requestedFor = (student: (typeof students)[number]) => decisions.get(String(student._id)) || (isFinal ? 'graduate' : 'promote');
 
+    // Validate every decision for this class before any write happens, so a
+    // bad request fails cleanly instead of partway through a concurrent batch.
     for (const student of students) {
-      const requested = decisions.get(String(student._id)) || (isFinal ? 'graduate' : 'promote');
+      const requested = requestedFor(student);
       if (isFinal && requested === 'promote') throw new BadRequestError(`Final grade students cannot be promoted beyond ${cls.title}; choose Graduate or Repeat.`);
       if (!isFinal && requested === 'graduate') throw new BadRequestError(`Only final grade students can be graduated; ${cls.title} must use Promote or Repeat.`);
+    }
 
+    let promotionTarget: Awaited<ReturnType<typeof findPersistentTargetClass>> = null;
+    let promotionMissing: MissingTarget | null = null;
+    if (!isFinal && students.some((student) => requestedFor(student) === 'promote')) {
+      const targetGradeLevel = Number(cls.gradeLevel) + 1;
+      promotionTarget = await findPersistentTargetClass({ schoolId, gradeLevel: targetGradeLevel, section: cls.section || undefined });
+      if (!promotionTarget) {
+        promotionMissing = describeMissingTarget(cls, targetGradeLevel);
+        missingTargets.push({ ...promotionMissing, sourceClassId: cls._id as mongoose.Types.ObjectId, sourceTitle: cls.title });
+      }
+    }
+
+    await runWithConcurrency(students, PROMOTION_CONCURRENCY, async (student) => {
+      const requested = requestedFor(student);
       if (requested === 'graduate') {
         await Student.updateOne({ _id: student._id, status: 'active' }, { $set: { status: 'graduated' } });
         await completeStudentEnrollmentHistory(student._id, 'graduated');
         studentsGraduated += 1;
+        promotedIntoYear.add(String(cls._id));
       } else if (requested === 'repeat') {
         // Same persistent class, new academic year — no class change, just a fresh history entry.
         await reassignStudentClassCourses(student._id, cls._id, cls._id, targetAcademicYear);
         studentsRepeated += 1;
+        promotedIntoYear.add(String(cls._id));
+      } else if (!promotionTarget) {
+        skippedStudents.push({ studentId: String(student._id), reason: promotionMissing!.message });
       } else {
-        if (!promotionTargetChecked) {
-          promotionTargetChecked = true;
-          const targetGradeLevel = Number(cls.gradeLevel) + 1;
-          promotionTarget = await findPersistentTargetClass({
-            schoolId, gradeLevel: targetGradeLevel,
-            section: cls.section || undefined,
-          });
-          if (!promotionTarget) {
-            promotionMissing = describeMissingTarget(cls, targetGradeLevel);
-            missingTargets.push({ ...promotionMissing, sourceClassId: cls._id as mongoose.Types.ObjectId, sourceTitle: cls.title });
-          }
-        }
-        if (!promotionTarget) {
-          skippedStudents.push({ studentId: String(student._id), reason: promotionMissing!.message });
-          continue;
-        }
         await reassignStudentClassCourses(student._id, cls._id, promotionTarget._id, targetAcademicYear);
         studentsPromoted += 1;
+        promotedIntoYear.add(String(cls._id));
+        promotedIntoYear.add(String(promotionTarget._id));
       }
-    }
+    });
   }
 
+  if (promotedIntoYear.size) {
+    await ClassModel.updateMany({ _id: { $in: [...promotedIntoYear] } }, { $set: { academicYear: targetAcademicYear } });
+  }
+
+  const alreadyHandledNote = alreadyHandled
+    ? ` ${alreadyHandled} student(s) were already moved for ${targetAcademicYear} by an earlier run and were left untouched.`
+    : '';
   const message = skippedStudents.length
-    ? `Promotion complete: ${studentsPromoted} promoted, ${studentsRepeated} repeating, ${studentsGraduated} graduated. ${skippedStudents.length} student(s) skipped — create the missing target class(es) in Manage Classes, then promote them.`
-    : `Promotion complete: ${studentsPromoted} promoted, ${studentsRepeated} repeating, ${studentsGraduated} graduated.`;
+    ? `Promotion complete: ${studentsPromoted} promoted, ${studentsRepeated} repeating, ${studentsGraduated} graduated. ${skippedStudents.length} student(s) skipped — create the missing target class(es) in Manage Classes, then promote them.${alreadyHandledNote}`
+    : `Promotion complete: ${studentsPromoted} promoted, ${studentsRepeated} repeating, ${studentsGraduated} graduated.${alreadyHandledNote}`;
 
   return ApiResponse.success(res, {
     sourceAcademicYear: previousAcademicYear(targetAcademicYear) || '', targetAcademicYear,
-    studentsPromoted, studentsRepeated, studentsGraduated, missingTargets, skippedStudents,
+    studentsPromoted, studentsRepeated, studentsGraduated, missingTargets, skippedStudents, alreadyHandled,
   }, message);
 };

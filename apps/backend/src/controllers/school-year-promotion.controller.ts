@@ -5,8 +5,8 @@ import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
-import { completeStudentEnrollmentHistory, reassignStudentClassCourses } from '../services/enrollment.service';
-import { findPersistentTargetClass, describeMissingTarget, classifyClasses, MissingTarget } from '../services/class-promotion.service';
+import { completeStudentEnrollmentHistory, reassignStudentClassCourses, revertStudentPromotion } from '../services/enrollment.service';
+import { findPersistentTargetClass, describeMissingTarget, classifyClasses, runWithConcurrency, MissingTarget } from '../services/class-promotion.service';
 
 /**
  * Bulk year-end promotion. Classes are persistent (Grade 1 A, Grade 2 A, ...)
@@ -49,6 +49,8 @@ async function getScopedSchoolId(req: Request): Promise<string> {
   if (!resolved) throw new BadRequestError('An organization must be selected');
   return String(resolved);
 }
+
+const PROMOTION_CONCURRENCY = 10;
 
 async function assertClassInOrg(req: Request, classId: mongoose.Types.ObjectId, schoolId: string) {
   const cls = await ClassModel.findById(classId);
@@ -134,7 +136,28 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
   // be picked up again when Grade 10's turn comes and swept straight to
   // Grade 11, cascading multiple grades in one promotion run.
   const classIds = activeClasses.map((cls) => cls._id);
-  const allStudents = await Student.find({ class: { $in: classIds }, status: 'active' }).select('_id class').lean();
+  const rawStudents = await Student.find({ class: { $in: classIds }, status: 'active' })
+    .select('_id class enrollmentHistory').lean();
+
+  // Guard against a duplicate submission for the SAME target year — a
+  // client retry after a timeout (the request can succeed on the server
+  // after the client already gave up and reports failure), or a
+  // double-click of Confirm. Without this, a student already moved into
+  // targetAcademicYear by an earlier, unacknowledged run would be found
+  // again in their new (now source) class and swept one grade further —
+  // Grade 2 -> Grade 3 the first time, then straight to Grade 4 the second.
+  // A student whose current active enrollment history entry already
+  // targets this academic year has already been promoted for it and must
+  // not be moved again.
+  let alreadyPromoted = 0;
+  const allStudents = rawStudents.filter((student) => {
+    const activeEntry = (student.enrollmentHistory || []).find((entry: any) => entry.status === 'active');
+    if (activeEntry?.academicYear === targetAcademicYear) {
+      alreadyPromoted += 1;
+      return false;
+    }
+    return true;
+  });
   const byClass = new Map<string, typeof allStudents>();
   for (const student of allStudents) {
     const key = String(student.class);
@@ -149,18 +172,30 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
   let graduated = 0;
   let promotedGroups = 0;
 
+  // A class is a persistent container reused every year, so its own
+  // `academicYear` is display/reporting metadata, not the source of truth
+  // for any one student's year (that's enrollmentHistory). Left untouched,
+  // it would keep showing the OLD year in Manage Classes forever, making
+  // the class list look like promotion never ran. Every class this
+  // promotion actually moved someone through — as a source (it just
+  // graduated or emptied out into the next grade) or as a target (it just
+  // received the promoted cohort) — now operates in targetAcademicYear, so
+  // both ends of every move are recorded here and bulk-updated afterward.
+  const promotedIntoYear = new Set<string>();
+
   for (const cls of activeClasses) {
     const students = byClass.get(String(cls._id)) || [];
     if (!students.length) continue;
 
     if (isFinalClass(cls)) {
       let modifiedCount = 0;
-      for (const student of students) {
+      await runWithConcurrency(students, PROMOTION_CONCURRENCY, async (student) => {
         const update = await Student.updateOne({ _id: student._id, status: 'active' }, { $set: { status: 'graduated' } });
         modifiedCount += update.modifiedCount;
         await completeStudentEnrollmentHistory(student._id, 'graduated');
-      }
+      });
       graduated += modifiedCount;
+      promotedIntoYear.add(String(cls._id));
       results.push({ classId: cls._id, title: cls.title, section: cls.section, action: 'graduated', studentsMoved: modifiedCount });
       continue;
     }
@@ -178,26 +213,104 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
       continue;
     }
 
-    for (const student of students) {
-      await reassignStudentClassCourses(student._id, cls._id, targetClass._id, targetAcademicYear);
-    }
+    await runWithConcurrency(students, PROMOTION_CONCURRENCY, (student) => reassignStudentClassCourses(student._id, cls._id, targetClass._id, targetAcademicYear));
 
     promotedGroups += 1;
     studentsMoved += students.length;
+    promotedIntoYear.add(String(cls._id));
+    promotedIntoYear.add(String(targetClass._id));
     results.push({
       classId: cls._id, title: cls.title, section: cls.section, action: 'promoted',
       targetClassId: targetClass._id, targetTitle: targetClass.title, studentsMoved: students.length,
     });
   }
 
+  if (promotedIntoYear.size) {
+    await ClassModel.updateMany({ _id: { $in: [...promotedIntoYear] } }, { $set: { academicYear: targetAcademicYear } });
+  }
+
+  const alreadyPromotedNote = alreadyPromoted
+    ? ` ${alreadyPromoted} student(s) were already promoted to ${targetAcademicYear} by an earlier run and were left untouched.`
+    : '';
   const message = missingTargets.length
-    ? `Promotion complete: moved ${studentsMoved} student(s), graduated ${graduated}. ${missingTargets.length} class(es) skipped — create the missing target class(es) in Manage Classes, then promote again.`
-    : `Promotion complete: moved ${studentsMoved} student(s), graduated ${graduated}.`;
+    ? `Promotion complete: moved ${studentsMoved} student(s), graduated ${graduated}. ${missingTargets.length} class(es) skipped — create the missing target class(es) in Manage Classes, then promote again.${alreadyPromotedNote}`
+    : `Promotion complete: moved ${studentsMoved} student(s), graduated ${graduated}.${alreadyPromotedNote}`;
 
   return ApiResponse.success(res, {
     sourceAcademicYear: previousAcademicYear(targetAcademicYear),
-    targetAcademicYear, results, promoted: promotedGroups, graduated, studentsMoved, missingTargets,
+    targetAcademicYear, results, promoted: promotedGroups, graduated, studentsMoved, missingTargets, alreadyPromoted,
   }, message);
+};
+
+/** Students a promotion to `targetAcademicYear` actually touched — the set undo-promotion acts on. */
+async function findPromotedStudents(schoolId: string, targetAcademicYear: string, sourceAcademicYear: string) {
+  return Student.find({
+    school: schoolId,
+    $or: [
+      { status: 'active', enrollmentHistory: { $elemMatch: { status: 'active', academicYear: targetAcademicYear } } },
+      { status: 'graduated', enrollmentHistory: { $elemMatch: { status: 'graduated', academicYear: sourceAcademicYear } } },
+    ],
+  }).select('_id');
+}
+
+/**
+ * Preview for "Undo Promotion": counts how many students a whole-school
+ * rollback of `targetAcademicYear` would touch, without changing anything —
+ * lets the admin confirm scope before an operation this broad runs.
+ */
+export const getUndoPromotionPreview = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = await getScopedSchoolId(req);
+  const targetAcademicYear = String(req.query.targetAcademicYear || '').trim();
+  if (!targetAcademicYear) throw new BadRequestError('The academic year to undo is required');
+  if (academicYearStart(targetAcademicYear) === null) {
+    throw new BadRequestError('Academic year must use the format YYYY-YYYY, for example 2027-2028.');
+  }
+  const sourceAcademicYear = previousAcademicYear(targetAcademicYear);
+
+  const students = await findPromotedStudents(schoolId, targetAcademicYear, sourceAcademicYear);
+  return ApiResponse.success(res, {
+    targetAcademicYear, sourceAcademicYear, affectedStudentCount: students.length,
+  });
+};
+
+/**
+ * Undoes an entire year-end promotion across the whole school: every
+ * student currently placed in `targetAcademicYear`, and every student
+ * graduated when that promotion closed out `sourceAcademicYear`, is put
+ * back exactly where their own enrollment history says they were —
+ * mirroring how promote-all itself acts on every class at once, so a bad
+ * run (a mistaken confirm, a duplicate submission) can be fully reversed
+ * rather than fixed student by student.
+ *
+ * Safe to run more than once: a student with no matching history entry to
+ * revert (already undone, or never touched by this promotion) is simply
+ * left alone.
+ */
+export const undoPromotion = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = await getScopedSchoolId(req);
+  const targetAcademicYear = String(req.body?.targetAcademicYear || '').trim();
+  if (!targetAcademicYear) throw new BadRequestError('The academic year to undo is required');
+  if (academicYearStart(targetAcademicYear) === null) {
+    throw new BadRequestError('Academic year must use the format YYYY-YYYY, for example 2027-2028.');
+  }
+  const sourceAcademicYear = previousAcademicYear(targetAcademicYear);
+
+  const students = await findPromotedStudents(schoolId, targetAcademicYear, sourceAcademicYear);
+
+  let movedBack = 0;
+  let unGraduated = 0;
+  let skipped = 0;
+  for (const student of students) {
+    const outcome = await revertStudentPromotion(student._id, targetAcademicYear, sourceAcademicYear);
+    if (outcome === 'moved-back') movedBack += 1;
+    else if (outcome === 'un-graduated') unGraduated += 1;
+    else skipped += 1;
+  }
+
+  const skippedNote = skipped ? ` ${skipped} student(s) had no prior enrollment record to restore and were left as-is.` : '';
+  return ApiResponse.success(res, {
+    targetAcademicYear, sourceAcademicYear, movedBack, unGraduated, skipped, totalReverted: movedBack + unGraduated,
+  }, `Undo complete: moved ${movedBack} student(s) back to ${sourceAcademicYear}, restored ${unGraduated} graduate(s) to active.${skippedNote}`);
 };
 
 export const validatePromotionTarget = async (req: Request, res: Response): Promise<Response> => {

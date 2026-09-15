@@ -303,6 +303,86 @@ function ClassModal({ cls, organization, structure, faculties, departments, prog
   </div>;
 }
 
+function Stat({ label, value }: { label: string; value: number }) {
+  return <div className="rounded-xl border border-slate-200 bg-white p-3 text-center dark:border-slate-800 dark:bg-slate-950"><div className="text-xl font-bold">{value}</div><div className="text-[11px] text-slate-500">{label}</div></div>;
+}
+
+function UndoPromotionModal({ onClose, onCompleted }: { onClose: () => void; onCompleted: () => Promise<void> | void }) {
+  const [targetAcademicYear, setTargetAcademicYear] = useState('');
+  const [affectedStudentCount, setAffectedStudentCount] = useState<number | null>(null);
+  const [sourceAcademicYear, setSourceAcademicYear] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ movedBack: number; unGraduated: number; skipped: number; sourceAcademicYear: string } | null>(null);
+  const [error, setError] = useState('');
+
+  const yearFormatOk = /^\d{4}-\d{4}$/.test(targetAcademicYear.trim());
+
+  const checkPreview = async () => {
+    if (!yearFormatOk || checking) return;
+    setChecking(true);
+    setError('');
+    setAffectedStudentCount(null);
+    try {
+      const response = await api.get('/classes/undo-promotion-preview', { params: { targetAcademicYear: targetAcademicYear.trim() } });
+      const data = dataOf<{ affectedStudentCount: number; sourceAcademicYear: string }>(response);
+      setAffectedStudentCount(data.affectedStudentCount);
+      setSourceAcademicYear(data.sourceAcademicYear);
+    } catch (e) {
+      setError(errOf(e));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const execute = async () => {
+    if (!yearFormatOk || running || affectedStudentCount === null) return;
+    if (!window.confirm(`Undo the whole-school promotion into ${targetAcademicYear.trim()}?\n\n${affectedStudentCount} student(s) will be moved back to ${sourceAcademicYear}, across every class this promotion touched.\n\nThis cannot be undone automatically — only run it again if you meant to redo the promotion.`)) return;
+    setRunning(true);
+    setError('');
+    try {
+      const response = await api.post('/classes/undo-promotion', { targetAcademicYear: targetAcademicYear.trim() });
+      const data = dataOf<{ movedBack: number; unGraduated: number; skipped: number; sourceAcademicYear: string }>(response);
+      setResult(data);
+      await onCompleted();
+    } catch (e) {
+      setError(errOf(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return <div className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4">
+    <div className="flex max-h-[95vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl dark:bg-slate-950">
+      <div className="flex shrink-0 items-start justify-between border-b border-slate-200 px-4 py-4 sm:px-6 dark:border-slate-800">
+        <div><h2 className="text-lg font-bold text-slate-900 dark:text-white">Undo Whole-School Promotion</h2><p className="mt-1 text-xs text-slate-500">Reverts every class and every student that a year-end promotion moved.</p></div>
+        <button onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18}/></button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        {result ? <div className="space-y-4">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/30"><div className="text-lg font-bold text-emerald-800 dark:text-emerald-200">Undo complete</div><div className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">Students are back in {result.sourceAcademicYear}.</div></div>
+          <div className="grid grid-cols-3 gap-3"><Stat label="Moved back" value={result.movedBack}/><Stat label="Un-graduated" value={result.unGraduated}/><Stat label="Skipped" value={result.skipped}/></div>
+          {result.skipped > 0 && <p className="text-xs text-slate-500">Skipped students had no prior enrollment record to restore and were left as-is.</p>}
+        </div> : <div className="space-y-4">
+          <p className="text-sm text-slate-600 dark:text-slate-300">Enter the academic year the promotion moved students <b>into</b> (the target year shown on the "Confirm &amp; Promote" screen), for example <code>2027-2028</code>. Every student and class the promotion touched will be reverted to where they were before it ran.</p>
+          {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+          <div className="flex gap-2">
+            <input value={targetAcademicYear} onChange={(e) => { setTargetAcademicYear(e.target.value); setAffectedStudentCount(null); }} placeholder="2027-2028" className="flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm dark:border-slate-700 dark:bg-slate-900"/>
+            <button type="button" disabled={!yearFormatOk || checking} onClick={() => void checkPreview()} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold disabled:opacity-50 dark:border-slate-700">{checking ? 'Checking...' : 'Check'}</button>
+          </div>
+          {affectedStudentCount !== null && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">{affectedStudentCount} student(s) will be moved back to {sourceAcademicYear || 'the previous academic year'}.</div>}
+        </div>}
+      </div>
+      <div className="flex shrink-0 gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:justify-end sm:px-6 dark:border-slate-800 dark:bg-slate-950">
+        {result ? <button type="button" onClick={onClose} className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white sm:w-auto dark:bg-white dark:text-slate-900">Done</button> : <>
+          <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold sm:flex-none dark:border-slate-700">Cancel</button>
+          <button type="button" onClick={() => void execute()} disabled={affectedStudentCount === null || running} className="flex-1 rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 sm:flex-none">{running ? 'Undoing...' : `Undo Promotion${affectedStudentCount ? ` (${affectedStudentCount})` : ''}`}</button>
+        </>}
+      </div>
+    </div>
+  </div>;
+}
+
 function SchoolPromotionModal({ onClose, onCompleted }: { onClose: () => void; onCompleted: () => Promise<void> | void }) {
   const [preview, setPreview] = useState<PromotionPreview | null>(null);
   const [result, setResult] = useState<PromotionResult | null>(null);
@@ -334,7 +414,23 @@ function SchoolPromotionModal({ onClose, onCompleted }: { onClose: () => void; o
       setResult(dataOf<PromotionResult>(response));
       await onCompleted();
     } catch (e) {
-      setError(errOf(e));
+      // A request this size can exceed the reverse proxy's timeout and come
+      // back as an error even after finishing successfully on the server —
+      // re-check the real state so the admin sees what actually happened
+      // instead of a bare "failed" that may not be true.
+      let note = '';
+      try {
+        const recheck = await api.get('/classes/promotion-preview', { params: { targetAcademicYear: preview.targetAcademicYear } });
+        const fresh = dataOf<PromotionPreview>(recheck);
+        const remaining = (fresh.groups || []).reduce((sum, g) => sum + (g.action === 'promote' || g.action === 'graduate' ? g.studentCount || 0 : 0), 0);
+        setPreview(fresh);
+        note = remaining < studentTotal
+          ? ` The request may have partly gone through on the server: ${studentTotal - remaining} of ${studentTotal} student(s) are no longer pending. Review the list below and confirm again for what's left.`
+          : ' Nothing was changed — safe to try again.';
+      } catch {
+        // Re-check itself failed; fall through with just the original error.
+      }
+      setError(errOf(e) + note);
     } finally {
       setRunning(false);
     }
@@ -351,8 +447,10 @@ function SchoolPromotionModal({ onClose, onCompleted }: { onClose: () => void; o
         <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18}/></button>
       </div>
 
+      {error && <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 sm:px-6 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-        {loading ? <div className="py-12 text-center text-sm text-slate-500">Preparing promotion preview...</div> : error && !preview ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div> : result ? <div className="space-y-4">
+        {loading ? <div className="py-12 text-center text-sm text-slate-500">Preparing promotion preview...</div> : !preview && error ? null : result ? <div className="space-y-4">
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/30"><div className="font-bold text-emerald-800 dark:text-emerald-200">Promotion completed successfully</div><p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">{result.sourceAcademicYear} → {result.targetAcademicYear}</p></div>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-800"><div className="text-xl font-bold">{result.studentsMoved}</div><div className="text-xs text-slate-500">Students promoted</div></div>
@@ -380,7 +478,6 @@ function SchoolPromotionModal({ onClose, onCompleted }: { onClose: () => void; o
 
           {!!preview.missingGradeLevel?.length && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">{preview.missingGradeLevel.length} class(es) have no Grade Level and will not be touched.</div>}
           {!!missingTargetGroups.length && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{missingTargetGroups.length} class(es) need their next-grade class created in Manage Classes before those students can be promoted.</div>}
-          {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
         </div> : null}
       </div>
 
@@ -413,6 +510,7 @@ export function ClassesManage() {
   const [bulkActionRunning, setBulkActionRunning] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showPromotionModal, setShowPromotionModal] = useState(false);
+  const [showUndoPromotionModal, setShowUndoPromotionModal] = useState(false);
   const [academicSystem, setAcademicSystem] = useState<AcademicSystem>('annual');
   const [semestersPerYear, setSemestersPerYear] = useState<2 | 3>(2);
 
@@ -591,6 +689,7 @@ export function ClassesManage() {
           <button onClick={() => { setMenu(false); void exportXlsx(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"><Download size={16}/> Export Classes</button>
           <button onClick={() => { setMenu(false); setShowImportModal(true); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"><Upload size={16}/> Import Classes</button>
           {institutionType === 'school' && <button onClick={() => { setMenu(false); setShowPromotionModal(true); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800"><GraduationCap size={16}/> End Academic Year &amp; Promote</button>}
+          {institutionType === 'school' && <button onClick={() => { setMenu(false); setShowUndoPromotionModal(true); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30"><RotateCcw size={16}/> Undo Whole-School Promotion</button>}
           {selected.length > 0 && <button onClick={() => { setMenu(false); void bulkDelete(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><Trash2 size={16}/> Delete Selected</button>}
         </div>}
       </div>
@@ -638,7 +737,8 @@ export function ClassesManage() {
       onClose={() => setShowImportModal(false)}
       onImported={refresh}
     />}
-    {showPromotionModal && <SchoolPromotionModal onClose={() => setShowPromotionModal(false)} onCompleted={refresh}/>} 
+    {showPromotionModal && <SchoolPromotionModal onClose={() => setShowPromotionModal(false)} onCompleted={refresh}/>}
+    {showUndoPromotionModal && <UndoPromotionModal onClose={() => setShowUndoPromotionModal(false)} onCompleted={refresh}/>} 
     {modal.open && <ClassModal cls={modal.cls} organization={organization} structure={{ ...(structure || { _id: '', school: orgId || '', academicSystem, semestersPerAcademicYear: semestersPerYear }), academicSystem, semestersPerAcademicYear: semestersPerYear } as AcademicStructure} faculties={faculties} departments={departments} programs={programs} onClose={() => setModal({ open: false })} onSaved={async () => { setModal({ open: false }); await refresh(); }}/>} 
   </div>;
 }

@@ -19,6 +19,22 @@
 import mongoose from 'mongoose';
 import ClassModel, { IClass } from '../models/class.model';
 
+/**
+ * Runs `worker` over `items` with at most `concurrency` in flight at once.
+ * A student move is several sequential DB round trips (enrollment history
+ * sync, course re-enrollment, course-count recalculation), so promoting or
+ * importing hundreds of students fully one-at-a-time is slow enough to blow
+ * past the reverse-proxy's request timeout — the browser reports a failure
+ * (or nothing at all) while the request keeps running server-side, leading
+ * an admin to retry the same click repeatedly. Shared by both promotion
+ * flows and the student importer for the same reason.
+ */
+export async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+  for (let index = 0; index < items.length; index += concurrency) {
+    await Promise.all(items.slice(index, index + concurrency).map(worker));
+  }
+}
+
 export interface TargetClassQuery {
   schoolId: string;
   gradeLevel: number;

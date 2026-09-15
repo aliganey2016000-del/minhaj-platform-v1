@@ -209,6 +209,71 @@ export async function reassignStudentClassCourses(
   await recalcEnrolledStudents(new Set([...oldCourseIds, ...newCourseIds]));
 }
 
+/**
+ * Reverts one student's move into `targetAcademicYear` (or the graduation
+ * that closed out `sourceAcademicYear`, the year right before it), putting
+ * them back exactly where their own enrollment history says they were
+ * before that promotion touched them. Used to undo an entire year-end
+ * promotion run across a school — not part of the ordinary promotion flow.
+ *
+ * Returns what changed, or null if this student was never touched by that
+ * promotion (nothing to revert) or has no prior entry to restore to.
+ */
+export async function revertStudentPromotion(
+  studentId: mongoose.Types.ObjectId | string,
+  targetAcademicYear: string,
+  sourceAcademicYear: string,
+): Promise<'moved-back' | 'un-graduated' | null> {
+  const student = await Student.findById(studentId).setOptions({ skipCourseNormalization: true });
+  if (!student) return null;
+  const history = student.enrollmentHistory as any[];
+  if (!history.length) return null;
+  const last: any = history[history.length - 1];
+
+  if (student.status === 'active' && last.status === 'active' && last.academicYear === targetAcademicYear) {
+    const previous: any = history[history.length - 2];
+    if (!previous) return null;
+
+    const affectedCourseIds = new Set<string>([
+      ...(last.courses || []).map((id: any) => id.toString()),
+      ...(previous.courses || []).map((id: any) => id.toString()),
+    ]);
+
+    const previousClass: any = await ClassModel.findById(previous.class).populate('department', 'name');
+    history.pop();
+    previous.status = 'active';
+    previous.endedAt = undefined;
+
+    student.class = previous.class;
+    if (previousClass) {
+      student.grade = previousClass.gradeLevel !== null && previousClass.gradeLevel !== undefined
+        ? String(previousClass.gradeLevel)
+        : (String(previousClass.title || '').trim() || undefined);
+      const department = previousClass.department;
+      student.department = typeof department === 'string' ? department : department?.name || undefined;
+      student.shiftMode = previousClass.shiftMode || undefined;
+    }
+    student.enrolledCourses = (previous.courses || []).map((id: any) => new mongoose.Types.ObjectId(String(id)));
+    student.markModified('enrollmentHistory');
+    await student.save();
+    await recalcEnrolledStudents(affectedCourseIds);
+    return 'moved-back';
+  }
+
+  if (student.status === 'graduated' && last.status === 'graduated' && last.academicYear === sourceAcademicYear) {
+    const affectedCourseIds = new Set<string>((last.courses || []).map((id: any) => id.toString()));
+    last.status = 'active';
+    last.endedAt = undefined;
+    student.status = 'active';
+    student.markModified('enrollmentHistory');
+    await student.save();
+    await recalcEnrolledStudents(affectedCourseIds);
+    return 'un-graduated';
+  }
+
+  return null;
+}
+
 /** New student (no prior class) — assigns existing published courses and opens the first history entry. */
 export async function syncStudentCourseEnrollment(
   studentId: mongoose.Types.ObjectId | string,
