@@ -1,7 +1,14 @@
 import { Request, Response } from 'express';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 
+/**
+ * Student ID leads the template so Template, Import and Export all carry the
+ * same identifier column. Leave it blank for a new student and the system
+ * allocates one; keep the exported value and the importer updates that exact
+ * student instead of creating a second copy of them.
+ */
 const HEADERS = [
+  'Student ID',
   'First Name',
   'Last Name',
   'Gender',
@@ -18,6 +25,7 @@ const HEADERS = [
 
 export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
   const rows = [[
+    '',
     'Ahmed',
     'Ali',
     'male',
