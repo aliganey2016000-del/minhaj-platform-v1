@@ -373,11 +373,36 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
     }
   }
 
+  // The Student/Teacher/Parent create flow writes User -> Profile -> domain
+  // record without a transaction: if that last step fails, the User/Profile
+  // is left behind with no Student/Teacher/Parent ever created for it. That
+  // orphan is invisible on Manage Students/Teachers/Parents (which read from
+  // the domain collection), so deactivating it here would just leave a
+  // permanently blocked email with nothing left to ever reactivate — there
+  // is no real account behind it to preserve. Remove it outright
+  // instead. A user WITH a real domain record never takes this path —
+  // deleting those belongs on their dedicated Manage page, which correctly
+  // cascades enrollment/course/attendance history too.
+  const domainModel = user.role === 'student' ? Student : user.role === 'teacher' ? Teacher : user.role === 'parent' ? Parent : null;
+  const isOrphan = domainModel ? !(await domainModel.exists({ user: user._id })) : false;
+
+  if (isOrphan) {
+    await Promise.all([
+      Profile.deleteOne({ user: user._id }),
+      User.deleteOne({ _id: user._id }),
+    ]);
+    // A 204 must not carry a body — Node's http parser silently drops one if
+    // sent, so the caller would never actually see which outcome happened.
+    // Use 200 here so the distinction between "removed" and "deactivated"
+    // actually reaches the client.
+    return ApiResponse.success(res, null, 'Orphaned account removed — this email can be used again');
+  }
+
   // Soft-delete: set isActive to false
   user.isActive = false;
   await user.save();
 
-  return ApiResponse.noContent(res, 'User deactivated successfully');
+  return ApiResponse.success(res, null, 'User deactivated successfully');
 };
 
 function spreadsheetField(row: Record<string, unknown>, ...names: string[]): string {

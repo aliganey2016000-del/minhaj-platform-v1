@@ -63,6 +63,9 @@ jobs:
       - name: Tenant data integrity tests
         run: npm run test:tenant-data-integrity
 
+      - name: User Management orphan cleanup tests
+        run: npm run test:user-orphan-cleanup
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
