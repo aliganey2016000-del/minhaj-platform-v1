@@ -172,6 +172,17 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
   let graduated = 0;
   let promotedGroups = 0;
 
+  // A class is a persistent container reused every year, so its own
+  // `academicYear` is display/reporting metadata, not the source of truth
+  // for any one student's year (that's enrollmentHistory). Left untouched,
+  // it would keep showing the OLD year in Manage Classes forever, making
+  // the class list look like promotion never ran. Every class this
+  // promotion actually moved someone through — as a source (it just
+  // graduated or emptied out into the next grade) or as a target (it just
+  // received the promoted cohort) — now operates in targetAcademicYear, so
+  // both ends of every move are recorded here and bulk-updated afterward.
+  const promotedIntoYear = new Set<string>();
+
   for (const cls of activeClasses) {
     const students = byClass.get(String(cls._id)) || [];
     if (!students.length) continue;
@@ -184,6 +195,7 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
         await completeStudentEnrollmentHistory(student._id, 'graduated');
       });
       graduated += modifiedCount;
+      promotedIntoYear.add(String(cls._id));
       results.push({ classId: cls._id, title: cls.title, section: cls.section, action: 'graduated', studentsMoved: modifiedCount });
       continue;
     }
@@ -205,10 +217,16 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
 
     promotedGroups += 1;
     studentsMoved += students.length;
+    promotedIntoYear.add(String(cls._id));
+    promotedIntoYear.add(String(targetClass._id));
     results.push({
       classId: cls._id, title: cls.title, section: cls.section, action: 'promoted',
       targetClassId: targetClass._id, targetTitle: targetClass.title, studentsMoved: students.length,
     });
+  }
+
+  if (promotedIntoYear.size) {
+    await ClassModel.updateMany({ _id: { $in: [...promotedIntoYear] } }, { $set: { academicYear: targetAcademicYear } });
   }
 
   const alreadyPromotedNote = alreadyPromoted

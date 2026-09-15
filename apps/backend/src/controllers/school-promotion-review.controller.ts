@@ -163,6 +163,13 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
   const missingTargets: (MissingTarget & { sourceClassId: mongoose.Types.ObjectId; sourceTitle: string })[] = [];
   const skippedStudents: { studentId: string; reason: string }[] = [];
 
+  // See school-year-promotion.controller.ts: a class is persistent and its
+  // own `academicYear` is display metadata, not per-student history — left
+  // untouched it would keep showing the old year forever. Every class this
+  // run actually moved, repeated, or graduated someone through now operates
+  // in targetAcademicYear.
+  const promotedIntoYear = new Set<string>();
+
   for (const cls of classes) {
     const students = byClass.get(String(cls._id)) || [];
     if (!students.length) continue;
@@ -195,17 +202,25 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
         await Student.updateOne({ _id: student._id, status: 'active' }, { $set: { status: 'graduated' } });
         await completeStudentEnrollmentHistory(student._id, 'graduated');
         studentsGraduated += 1;
+        promotedIntoYear.add(String(cls._id));
       } else if (requested === 'repeat') {
         // Same persistent class, new academic year — no class change, just a fresh history entry.
         await reassignStudentClassCourses(student._id, cls._id, cls._id, targetAcademicYear);
         studentsRepeated += 1;
+        promotedIntoYear.add(String(cls._id));
       } else if (!promotionTarget) {
         skippedStudents.push({ studentId: String(student._id), reason: promotionMissing!.message });
       } else {
         await reassignStudentClassCourses(student._id, cls._id, promotionTarget._id, targetAcademicYear);
         studentsPromoted += 1;
+        promotedIntoYear.add(String(cls._id));
+        promotedIntoYear.add(String(promotionTarget._id));
       }
     });
+  }
+
+  if (promotedIntoYear.size) {
+    await ClassModel.updateMany({ _id: { $in: [...promotedIntoYear] } }, { $set: { academicYear: targetAcademicYear } });
   }
 
   const alreadyHandledNote = alreadyHandled
