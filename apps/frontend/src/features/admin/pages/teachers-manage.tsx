@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MoreVertical, Search, UserPlus, Upload, Download, Trash2, Eye, Pencil, BookOpen, X, Check } from 'lucide-react';
+import { MoreVertical, Search, UserPlus, Upload, Download, Trash2, Eye, Pencil, BookOpen, X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../../../lib/axios';
 import BulkEntityImportModal from './components/bulk-entity-import-modal';
 import { useAuth } from '../../../store/auth-context';
@@ -88,17 +88,101 @@ function ViewModal({ teacher, assignedCourses, onClose }: { teacher: Teacher; as
 }
 function Info({ label, value }: { label: string; value: React.ReactNode }) { return <div className="rounded-xl border border-[var(--color-border-default)] p-3"><p className="text-xs text-[var(--color-text-tertiary)]">{label}</p><div className="mt-1 text-sm font-medium">{value}</div></div>; }
 
+function CourseCheckTile({ label, sublabel, checked, onToggle }: { label: string; sublabel?: string; checked: boolean; onToggle: () => void }) {
+  return <button type="button" onClick={onToggle} className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-colors ${checked ? 'border-primary-600 bg-primary-50 dark:bg-primary-950/20' : 'border-[var(--color-border-default)] hover:bg-[var(--color-surface-secondary)]'}`}>
+    <span className="flex w-full items-center justify-between gap-2">
+      <span className="min-w-0 truncate text-sm font-semibold">{label}</span>
+      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{checked && <Check size={13} />}</span>
+    </span>
+    {sublabel && <span className="text-xs text-[var(--color-text-tertiary)]">{sublabel}</span>}
+  </button>;
+}
+
 function CourseAssignmentModal({ teacher, courses, onClose, onSaved }: { teacher: Teacher; courses: Course[]; onClose: () => void; onSaved: () => void }) {
   const assigned = useMemo(() => new Set(courses.filter(c => courseTeacherId(c) === teacher._id).map(c => c._id)), [courses, teacher._id]);
-  const [selected, setSelected] = useState<Set<string>>(assigned); const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const [search, setSearch] = useState('');
-  const visible = courses.filter(c => `${c.title?.en || ''} ${c.class?.title || ''}`.toLowerCase().includes(search.toLowerCase()));
+  const [selected, setSelected] = useState<Set<string>>(assigned); const [saving, setSaving] = useState(false); const [error, setError] = useState('');
+  const [tab, setTab] = useState<'class' | 'course'>('class');
+  const [activeClassId, setActiveClassId] = useState<string | null>(null);
+  const [activeCourseKey, setActiveCourseKey] = useState<string | null>(null);
+
   const save = async () => { setSaving(true); setError(''); try { const changes = courses.filter(c => selected.has(c._id) !== assigned.has(c._id)); await Promise.all(changes.map(c => api.patch(`/courses/${c._id}`, { teacher: selected.has(c._id) ? teacher._id : null }))); onSaved(); onClose(); } catch (e: any) { setError(e.response?.data?.message || 'Failed to update course assignments'); } finally { setSaving(false); } };
   const toggle = (id: string) => setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+
+  // Step 1 of the "By Class" tab: one row per class, so the admin picks the
+  // class the teacher works in before ever seeing a course name — avoiding
+  // one long searchable list of every course x class combination at once.
+  const classGroups = useMemo(() => {
+    const map = new Map<string, { classId: string; label: string; courses: Course[] }>();
+    for (const c of courses) {
+      const classId = c.class?._id || '__unassigned__';
+      const label = c.class ? `${c.class.title || 'Class'}${c.class.section ? ` • ${c.class.section}` : ''}` : 'No class/cohort';
+      if (!map.has(classId)) map.set(classId, { classId, label, courses: [] });
+      map.get(classId)!.courses.push(c);
+    }
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [courses]);
+
+  // Step 1 of the "By Course" tab: one row per distinct course NAME (e.g.
+  // "Mathematics"), collapsing every class's own copy of that subject into a
+  // single entry — the class/code details only appear once you drill in.
+  const courseGroups = useMemo(() => {
+    const map = new Map<string, { key: string; name: string; instances: Course[] }>();
+    for (const c of courses) {
+      const name = c.title?.en?.trim() || 'Untitled course';
+      const key = name.toLowerCase();
+      if (!map.has(key)) map.set(key, { key, name, instances: [] });
+      map.get(key)!.instances.push(c);
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [courses]);
+
+  const activeClassGroup = classGroups.find(g => g.classId === activeClassId) || null;
+  const activeCourseGroup = courseGroups.find(g => g.key === activeCourseKey) || null;
+  const countAssignedIn = (list: Course[]) => list.filter(c => selected.has(c._id)).length;
+
+  const switchTab = (next: 'class' | 'course') => { setTab(next); setActiveClassId(null); setActiveCourseKey(null); };
+
   return <Modal title={`Assign Courses — ${teacherName(teacher)}`} onClose={onClose} wide>
     {error && <div className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30">{error}</div>}
-    <input className={`${inputClass} mb-3`} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search course or class..." />
-    <div className="max-h-[52vh] overflow-y-auto rounded-xl border border-[var(--color-border-default)]">{visible.length ? visible.map(c => { const checked = selected.has(c._id); return <button key={c._id} type="button" onClick={() => toggle(c._id)} className="flex w-full items-center gap-3 border-b border-[var(--color-border-subtle)] px-3 py-3 text-left last:border-0 hover:bg-[var(--color-surface-secondary)]"><span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>{checked && <Check size={13} />}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{c.title?.en || 'Untitled course'}</span><span className="block text-xs text-[var(--color-text-tertiary)]">{c.class?.title || 'No class/cohort'}{c.class?.section ? ` • ${c.class.section}` : ''} • {c.status || 'draft'}</span></span></button>; }) : <p className="p-5 text-center text-sm text-[var(--color-text-tertiary)]">No courses found.</p>}</div>
-    <div className="mt-3 flex items-center justify-between text-xs text-[var(--color-text-tertiary)]"><span>{selected.size} selected</span><button type="button" onClick={() => setSelected(new Set(visible.map(c => c._id)))} className="font-semibold text-primary-600">Select visible</button></div>
+
+    <div className="mb-3 inline-flex rounded-lg border border-[var(--color-border-default)] p-0.5">
+      <button type="button" onClick={() => switchTab('class')} className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${tab === 'class' ? 'bg-primary-600 text-white' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>By Class</button>
+      <button type="button" onClick={() => switchTab('course')} className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${tab === 'course' ? 'bg-primary-600 text-white' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>By Course</button>
+    </div>
+
+    <div className="max-h-[52vh] overflow-y-auto rounded-xl border border-[var(--color-border-default)]">
+      {tab === 'class' && !activeClassGroup && (
+        classGroups.length ? classGroups.map(g => <button key={g.classId} type="button" onClick={() => setActiveClassId(g.classId)} className="flex w-full items-center gap-3 border-b border-[var(--color-border-subtle)] px-3 py-3 text-left last:border-0 hover:bg-[var(--color-surface-secondary)]">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold">{g.label}</span>
+            <span className="block text-xs text-[var(--color-text-tertiary)]">{g.courses.length} course{g.courses.length === 1 ? '' : 's'} • {countAssignedIn(g.courses)} assigned to this teacher</span>
+          </span>
+          <ChevronRight size={16} className="shrink-0 text-[var(--color-text-tertiary)]" />
+        </button>) : <p className="p-5 text-center text-sm text-[var(--color-text-tertiary)]">No classes found.</p>
+      )}
+
+      {tab === 'class' && activeClassGroup && <>
+        <button type="button" onClick={() => setActiveClassId(null)} className="flex w-full items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-3 py-2.5 text-left text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-secondary)]"><ChevronLeft size={14} /> All classes</button>
+        <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2">{activeClassGroup.courses.map(c => <CourseCheckTile key={c._id} label={c.title?.en || 'Untitled course'} sublabel={c.status || 'draft'} checked={selected.has(c._id)} onToggle={() => toggle(c._id)} />)}</div>
+      </>}
+
+      {tab === 'course' && !activeCourseGroup && (
+        courseGroups.length ? courseGroups.map(g => <button key={g.key} type="button" onClick={() => setActiveCourseKey(g.key)} className="flex w-full items-center gap-3 border-b border-[var(--color-border-subtle)] px-3 py-3 text-left last:border-0 hover:bg-[var(--color-surface-secondary)]">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold">{g.name}</span>
+            <span className="block text-xs text-[var(--color-text-tertiary)]">{g.instances.length} class{g.instances.length === 1 ? '' : 'es'} • {countAssignedIn(g.instances)} assigned to this teacher</span>
+          </span>
+          <ChevronRight size={16} className="shrink-0 text-[var(--color-text-tertiary)]" />
+        </button>) : <p className="p-5 text-center text-sm text-[var(--color-text-tertiary)]">No courses found.</p>
+      )}
+
+      {tab === 'course' && activeCourseGroup && <>
+        <button type="button" onClick={() => setActiveCourseKey(null)} className="flex w-full items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-3 py-2.5 text-left text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-secondary)]"><ChevronLeft size={14} /> All courses</button>
+        <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2">{activeCourseGroup.instances.map(c => <CourseCheckTile key={c._id} label={c.class ? `${c.class.title || 'Class'}${c.class.section ? ` • ${c.class.section}` : ''}` : 'No class/cohort'} sublabel={c.status || 'draft'} checked={selected.has(c._id)} onToggle={() => toggle(c._id)} />)}</div>
+      </>}
+    </div>
+
+    <div className="mt-3 text-xs text-[var(--color-text-tertiary)]">{selected.size} course{selected.size === 1 ? '' : 's'} assigned in total</div>
     <div className="mt-4 flex gap-2"><button onClick={onClose} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold">Cancel</button><button disabled={saving} onClick={save} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Saving...' : 'Save Assignments'}</button></div>
   </Modal>;
 }
