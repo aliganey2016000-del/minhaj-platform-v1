@@ -200,13 +200,17 @@ export async function undoWholeSchoolPromotion(
         delete previous.endedAt;
       }
 
-      const currentClassGranted = new Set((last.courses || []).map((id: any) => idOf(id)));
-      const retainedIndividual = (student.enrolledCourses || [])
+      const currentClassGranted = new Set<string>(
+        (last.courses || []).map((id: any) => idOf(id)).filter((id: string) => Boolean(id)),
+      );
+      const retainedIndividual: string[] = (student.enrolledCourses || [])
         .map((id: any) => idOf(id))
         .filter((id: string) => id && !currentClassGranted.has(id));
-      const restoredClassCourses = (previous.courses || []).map((id: any) => idOf(id)).filter(Boolean);
+      const restoredClassCourses: string[] = (previous.courses || [])
+        .map((id: any) => idOf(id))
+        .filter((id: string) => Boolean(id));
       const nextEnrolledCourses = uniqueObjectIds([...retainedIndividual, ...restoredClassCourses]);
-      for (const id of currentClassGranted) if (id) affectedCourseIds.add(id);
+      for (const id of currentClassGranted) affectedCourseIds.add(id);
       for (const id of restoredClassCourses) affectedCourseIds.add(id);
 
       const placement = placementFromClass(previousClass);
@@ -232,7 +236,10 @@ export async function undoWholeSchoolPromotion(
     if (student.status === 'graduated' && last?.status === 'graduated' && last?.academicYear === sourceAcademicYear) {
       last.status = 'active';
       delete last.endedAt;
-      for (const id of (last.courses || []).map((courseId: any) => idOf(courseId)).filter(Boolean)) affectedCourseIds.add(id);
+      const graduatedCourses: string[] = (last.courses || [])
+        .map((courseId: any) => idOf(courseId))
+        .filter((id: string) => Boolean(id));
+      for (const id of graduatedCourses) affectedCourseIds.add(id);
       operations.push({
         updateOne: {
           filter: { _id: student._id, status: 'graduated' },
