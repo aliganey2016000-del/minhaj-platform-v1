@@ -74,7 +74,7 @@ export const getPromotionReview = async (req: Request, res: Response): Promise<R
     if (!isFinal) {
       targetGradeLevel = Number(cls.gradeLevel) + 1;
       const targetClass = await findPersistentTargetClass({
-        schoolId, department: cls.department, gradeLevel: targetGradeLevel,
+        schoolId, gradeLevel: targetGradeLevel,
         section: cls.section || undefined,
       });
       if (targetClass) {
@@ -169,7 +169,7 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
           promotionTargetChecked = true;
           const targetGradeLevel = Number(cls.gradeLevel) + 1;
           promotionTarget = await findPersistentTargetClass({
-            schoolId, department: cls.department, gradeLevel: targetGradeLevel,
+            schoolId, gradeLevel: targetGradeLevel,
             section: cls.section || undefined,
           });
           if (!promotionTarget) {
