@@ -8,6 +8,25 @@ import { SchedulesManage } from './schedules-manage';
 import { SchoolSchedulesManage } from './school-schedules-manage';
 import { SchedulesTimetable } from './schedules-timetable';
 
+// Climbs up from a heading looking, at each level, for a sibling of the
+// current ancestor that contains a button. This is deliberately structure-
+// agnostic (rather than a fixed number of parentElement hops) because the
+// heading can be wrapped in a different number of layout divs (e.g. an icon
+// badge) depending on the page — a fixed hop count silently stops matching
+// the moment a wrapper div is added or removed.
+function findActionSibling(heading: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = heading;
+  while (node && node.parentElement) {
+    const parent: HTMLElement = node.parentElement;
+    const sibling = Array.from(parent.children).find(
+      (child): child is HTMLElement => child !== node && !child.contains(heading) && !!child.querySelector('button')
+    );
+    if (sibling) return sibling;
+    node = parent;
+  }
+  return null;
+}
+
 export function SchedulesManageShell() {
   const { user } = useAuth();
   const [view, setView] = useState<'table' | 'timetable'>('timetable');
@@ -106,22 +125,23 @@ export function SchedulesManageShell() {
       const heading = Array.from(document.querySelectorAll<HTMLHeadingElement>('h1')).find((item) =>
         item.textContent?.trim().toLowerCase() === 'class timetable'
       );
-      const titleBlock = heading?.parentElement;
-      const headerRow = titleBlock?.parentElement;
 
-      if (!heading || !headerRow) {
+      if (!heading) {
         attempts += 1;
         if (attempts < 30) frame = window.requestAnimationFrame(normalizeTimetableHeader);
         return;
       }
 
-      actionArea = Array.from(headerRow.children).find((child) =>
-        child !== titleBlock && child.querySelector('button')
-      ) as HTMLElement | null;
-      if (actionArea) {
-        previousDisplay = actionArea.style.display;
-        actionArea.style.display = 'none';
+      const found = findActionSibling(heading);
+      if (!found) {
+        attempts += 1;
+        if (attempts < 30) frame = window.requestAnimationFrame(normalizeTimetableHeader);
+        return;
       }
+
+      actionArea = found;
+      previousDisplay = actionArea.style.display;
+      actionArea.style.display = 'none';
 
       timetableRoot = heading.closest('.min-h-full') as HTMLElement | null;
       if (timetableRoot) {
@@ -149,9 +169,9 @@ export function SchedulesManageShell() {
       const heading = Array.from(document.querySelectorAll<HTMLHeadingElement>('h1')).find((item) =>
         item.textContent?.trim().toLowerCase() === 'class timetable'
       );
-      const headerRow = heading?.parentElement?.parentElement;
-      const button = headerRow
-        ? Array.from(headerRow.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent?.trim() === 'Edit Timetable')
+      const actionArea = heading ? findActionSibling(heading) : null;
+      const button = actionArea
+        ? Array.from(actionArea.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent?.trim() === 'Edit Timetable')
         : undefined;
       if (button) {
         button.click();
@@ -172,9 +192,9 @@ export function SchedulesManageShell() {
     const heading = Array.from(document.querySelectorAll<HTMLHeadingElement>('h1')).find((item) =>
       item.textContent?.trim().toLowerCase() === 'class timetable'
     );
-    const headerRow = heading?.parentElement?.parentElement;
-    const button = headerRow
-      ? Array.from(headerRow.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent?.trim() === 'Refresh')
+    const actionArea = heading ? findActionSibling(heading) : null;
+    const button = actionArea
+      ? Array.from(actionArea.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent?.trim() === 'Refresh')
       : undefined;
     button?.click();
   };
