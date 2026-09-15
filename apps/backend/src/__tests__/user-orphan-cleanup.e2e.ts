@@ -82,8 +82,8 @@ async function main() {
   assert(/deactivated/i.test(deleteReal.body?.message || ''), `response says the account was deactivated, not removed (got "${deleteReal.body?.message}")`);
   const realUserAfter: any = await User.findById(realUser._id).lean();
   assert(realUserAfter?.isActive === false, 'the real User document still exists and is now inactive');
-  assert(await Student.exists({ _id: realStudent._id }), 'the linked Student document is completely untouched');
-  assert(await Profile.exists({ _id: realProfile._id }), 'the linked Profile document is completely untouched');
+  assert(!!(await Student.exists({ _id: realStudent._id })), 'the linked Student document is completely untouched');
+  assert(!!(await Profile.exists({ _id: realProfile._id })), 'the linked Profile document is completely untouched');
 
   section('NON-DOMAIN ROLES — admin/org_admin/staff accounts are unaffected by the orphan check');
   const orgAdminUser = await User.create({ email: 'org-admin@test.local', password: 'Password123!', role: 'org_admin', organizationId: school._id });
@@ -92,7 +92,7 @@ async function main() {
     .set('Authorization', `Bearer ${adminToken}`);
   assert(deleteOrgAdmin.status === 200, `delete succeeds (status ${deleteOrgAdmin.status})`);
   assert(/deactivated/i.test(deleteOrgAdmin.body?.message || ''), 'org_admin accounts (no domain-record concept) are only ever deactivated');
-  assert(await User.exists({ _id: orgAdminUser._id }), 'the org_admin User document still exists');
+  assert(!!(await User.exists({ _id: orgAdminUser._id })), 'the org_admin User document still exists');
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(failures === 0 ? 'ALL USER ORPHAN CLEANUP CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
