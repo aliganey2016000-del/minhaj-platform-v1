@@ -18,7 +18,7 @@
  *   GET    /report/export    — Export the analytics report (XLSX)
  */
 
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 import * as studentController from '../../controllers/student.controller';
 import * as studentRegistrationIoController from '../../controllers/student-registration-io.controller';
@@ -58,6 +58,50 @@ const photoUpload = multer({
 });
 
 const router = Router();
+
+/**
+ * Large student imports are intentionally one request: validation, create/update,
+ * guardian linking and enrollment sync all finish before the final JSON result is
+ * returned. In production the reverse proxy can otherwise decide the upstream is
+ * idle and emit a 504 while Node is still correctly finishing the same request.
+ * That produced the misleading UI state where only part of a 722-row file looked
+ * saved, even though refreshing later showed that all rows had actually landed.
+ *
+ * Send harmless JSON whitespace while the import is running. Leading whitespace
+ * is valid JSON, so Axios still receives one normal JSON document at the end.
+ * `X-Accel-Buffering: no` asks nginx-style proxies not to buffer those heartbeats.
+ * We also adapt res.json for this one route because Express cannot set headers
+ * again after the first heartbeat has been flushed.
+ */
+function keepLargeImportConnectionAlive(_req: Request, res: Response, next: NextFunction): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  res.write('\n');
+
+  const originalJson = res.json.bind(res);
+  res.json = ((body: unknown) => {
+    if (res.headersSent) {
+      if (!res.writableEnded) res.end(JSON.stringify(body));
+      return res;
+    }
+    return originalJson(body);
+  }) as typeof res.json;
+
+  const heartbeat = setInterval(() => {
+    if (res.writableEnded || res.destroyed) return;
+    res.write(' \n');
+    const flush = (res as Response & { flush?: () => void }).flush;
+    if (typeof flush === 'function') flush.call(res);
+  }, 5000);
+
+  const stopHeartbeat = () => clearInterval(heartbeat);
+  res.once('finish', stopHeartbeat);
+  res.once('close', stopHeartbeat);
+  next();
+}
 
 router.use(authMiddleware);
 
@@ -110,6 +154,7 @@ router.post(
   adminOnly,
   upload.single('file'),
   asyncHandler(requireStudentEmailInImport),
+  keepLargeImportConnectionAlive,
   asyncHandler(studentRegistrationIoController.bulkImport)
 );
 
