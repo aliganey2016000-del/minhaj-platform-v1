@@ -6,7 +6,7 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { completeStudentEnrollmentHistory, reassignStudentClassCourses, revertStudentPromotion } from '../services/enrollment.service';
-import { findPersistentTargetClass, describeMissingTarget, classifyClasses, MissingTarget } from '../services/class-promotion.service';
+import { findPersistentTargetClass, describeMissingTarget, classifyClasses, runWithConcurrency, MissingTarget } from '../services/class-promotion.service';
 
 /**
  * Bulk year-end promotion. Classes are persistent (Grade 1 A, Grade 2 A, ...)
@@ -49,6 +49,8 @@ async function getScopedSchoolId(req: Request): Promise<string> {
   if (!resolved) throw new BadRequestError('An organization must be selected');
   return String(resolved);
 }
+
+const PROMOTION_CONCURRENCY = 10;
 
 async function assertClassInOrg(req: Request, classId: mongoose.Types.ObjectId, schoolId: string) {
   const cls = await ClassModel.findById(classId);
@@ -176,11 +178,11 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
 
     if (isFinalClass(cls)) {
       let modifiedCount = 0;
-      for (const student of students) {
+      await runWithConcurrency(students, PROMOTION_CONCURRENCY, async (student) => {
         const update = await Student.updateOne({ _id: student._id, status: 'active' }, { $set: { status: 'graduated' } });
         modifiedCount += update.modifiedCount;
         await completeStudentEnrollmentHistory(student._id, 'graduated');
-      }
+      });
       graduated += modifiedCount;
       results.push({ classId: cls._id, title: cls.title, section: cls.section, action: 'graduated', studentsMoved: modifiedCount });
       continue;
@@ -199,9 +201,7 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
       continue;
     }
 
-    for (const student of students) {
-      await reassignStudentClassCourses(student._id, cls._id, targetClass._id, targetAcademicYear);
-    }
+    await runWithConcurrency(students, PROMOTION_CONCURRENCY, (student) => reassignStudentClassCourses(student._id, cls._id, targetClass._id, targetAcademicYear));
 
     promotedGroups += 1;
     studentsMoved += students.length;

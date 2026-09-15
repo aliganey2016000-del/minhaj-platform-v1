@@ -414,7 +414,23 @@ function SchoolPromotionModal({ onClose, onCompleted }: { onClose: () => void; o
       setResult(dataOf<PromotionResult>(response));
       await onCompleted();
     } catch (e) {
-      setError(errOf(e));
+      // A request this size can exceed the reverse proxy's timeout and come
+      // back as an error even after finishing successfully on the server —
+      // re-check the real state so the admin sees what actually happened
+      // instead of a bare "failed" that may not be true.
+      let note = '';
+      try {
+        const recheck = await api.get('/classes/promotion-preview', { params: { targetAcademicYear: preview.targetAcademicYear } });
+        const fresh = dataOf<PromotionPreview>(recheck);
+        const remaining = (fresh.groups || []).reduce((sum, g) => sum + (g.action === 'promote' || g.action === 'graduate' ? g.studentCount || 0 : 0), 0);
+        setPreview(fresh);
+        note = remaining < studentTotal
+          ? ` The request may have partly gone through on the server: ${studentTotal - remaining} of ${studentTotal} student(s) are no longer pending. Review the list below and confirm again for what's left.`
+          : ' Nothing was changed — safe to try again.';
+      } catch {
+        // Re-check itself failed; fall through with just the original error.
+      }
+      setError(errOf(e) + note);
     } finally {
       setRunning(false);
     }
@@ -431,8 +447,10 @@ function SchoolPromotionModal({ onClose, onCompleted }: { onClose: () => void; o
         <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18}/></button>
       </div>
 
+      {error && <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 sm:px-6 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-        {loading ? <div className="py-12 text-center text-sm text-slate-500">Preparing promotion preview...</div> : error && !preview ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div> : result ? <div className="space-y-4">
+        {loading ? <div className="py-12 text-center text-sm text-slate-500">Preparing promotion preview...</div> : !preview && error ? null : result ? <div className="space-y-4">
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/30"><div className="font-bold text-emerald-800 dark:text-emerald-200">Promotion completed successfully</div><p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">{result.sourceAcademicYear} → {result.targetAcademicYear}</p></div>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-800"><div className="text-xl font-bold">{result.studentsMoved}</div><div className="text-xs text-slate-500">Students promoted</div></div>
@@ -460,7 +478,6 @@ function SchoolPromotionModal({ onClose, onCompleted }: { onClose: () => void; o
 
           {!!preview.missingGradeLevel?.length && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">{preview.missingGradeLevel.length} class(es) have no Grade Level and will not be touched.</div>}
           {!!missingTargetGroups.length && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{missingTargetGroups.length} class(es) need their next-grade class created in Manage Classes before those students can be promoted.</div>}
-          {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
         </div> : null}
       </div>
 

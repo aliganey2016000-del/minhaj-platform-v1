@@ -6,7 +6,9 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError } from '../utils/api-error';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { completeStudentEnrollmentHistory, reassignStudentClassCourses } from '../services/enrollment.service';
-import { findPersistentTargetClass, describeMissingTarget, classifyClasses, MissingTarget } from '../services/class-promotion.service';
+import { findPersistentTargetClass, describeMissingTarget, classifyClasses, runWithConcurrency, MissingTarget } from '../services/class-promotion.service';
+
+const PROMOTION_CONCURRENCY = 10;
 
 /**
  * Per-student reviewed promotion (promote / repeat / graduate exceptions).
@@ -166,15 +168,29 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
     if (!students.length) continue;
     const isFinal = isFinalClass(cls);
 
-    let promotionTargetChecked = false;
-    let promotionTarget: Awaited<ReturnType<typeof findPersistentTargetClass>> = null;
-    let promotionMissing: MissingTarget | null = null;
+    const requestedFor = (student: (typeof students)[number]) => decisions.get(String(student._id)) || (isFinal ? 'graduate' : 'promote');
 
+    // Validate every decision for this class before any write happens, so a
+    // bad request fails cleanly instead of partway through a concurrent batch.
     for (const student of students) {
-      const requested = decisions.get(String(student._id)) || (isFinal ? 'graduate' : 'promote');
+      const requested = requestedFor(student);
       if (isFinal && requested === 'promote') throw new BadRequestError(`Final grade students cannot be promoted beyond ${cls.title}; choose Graduate or Repeat.`);
       if (!isFinal && requested === 'graduate') throw new BadRequestError(`Only final grade students can be graduated; ${cls.title} must use Promote or Repeat.`);
+    }
 
+    let promotionTarget: Awaited<ReturnType<typeof findPersistentTargetClass>> = null;
+    let promotionMissing: MissingTarget | null = null;
+    if (!isFinal && students.some((student) => requestedFor(student) === 'promote')) {
+      const targetGradeLevel = Number(cls.gradeLevel) + 1;
+      promotionTarget = await findPersistentTargetClass({ schoolId, gradeLevel: targetGradeLevel, section: cls.section || undefined });
+      if (!promotionTarget) {
+        promotionMissing = describeMissingTarget(cls, targetGradeLevel);
+        missingTargets.push({ ...promotionMissing, sourceClassId: cls._id as mongoose.Types.ObjectId, sourceTitle: cls.title });
+      }
+    }
+
+    await runWithConcurrency(students, PROMOTION_CONCURRENCY, async (student) => {
+      const requested = requestedFor(student);
       if (requested === 'graduate') {
         await Student.updateOne({ _id: student._id, status: 'active' }, { $set: { status: 'graduated' } });
         await completeStudentEnrollmentHistory(student._id, 'graduated');
@@ -183,27 +199,13 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
         // Same persistent class, new academic year — no class change, just a fresh history entry.
         await reassignStudentClassCourses(student._id, cls._id, cls._id, targetAcademicYear);
         studentsRepeated += 1;
+      } else if (!promotionTarget) {
+        skippedStudents.push({ studentId: String(student._id), reason: promotionMissing!.message });
       } else {
-        if (!promotionTargetChecked) {
-          promotionTargetChecked = true;
-          const targetGradeLevel = Number(cls.gradeLevel) + 1;
-          promotionTarget = await findPersistentTargetClass({
-            schoolId, gradeLevel: targetGradeLevel,
-            section: cls.section || undefined,
-          });
-          if (!promotionTarget) {
-            promotionMissing = describeMissingTarget(cls, targetGradeLevel);
-            missingTargets.push({ ...promotionMissing, sourceClassId: cls._id as mongoose.Types.ObjectId, sourceTitle: cls.title });
-          }
-        }
-        if (!promotionTarget) {
-          skippedStudents.push({ studentId: String(student._id), reason: promotionMissing!.message });
-          continue;
-        }
         await reassignStudentClassCourses(student._id, cls._id, promotionTarget._id, targetAcademicYear);
         studentsPromoted += 1;
       }
-    }
+    });
   }
 
   const alreadyHandledNote = alreadyHandled
