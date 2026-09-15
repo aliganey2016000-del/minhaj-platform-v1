@@ -22,21 +22,21 @@ export function SchoolAttendanceManage() {
 
   return (
     <div className="min-w-0 space-y-4">
-      <div className="sticky top-0 z-20 -mx-1 overflow-x-auto px-1 pt-1">
-        <div className="grid min-w-[560px] grid-cols-4 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
+      <div className="sticky top-0 z-20 -mx-1 px-1 pt-1">
+        <div className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card sm:grid-cols-4">
           {tabs.map(([key, label, Icon]) => (
             <button
               key={key}
               type="button"
               onClick={() => setWorkspace(key)}
-              className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-semibold transition-colors sm:text-sm ${
+              className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl px-2 text-xs font-semibold transition-colors sm:px-3 sm:text-sm ${
                 workspace === key
                   ? 'bg-primary-600 text-white shadow-sm'
                   : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
               }`}
             >
-              <Icon className="h-4 w-4" />
-              {label}
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="truncate">{label}</span>
             </button>
           ))}
         </div>

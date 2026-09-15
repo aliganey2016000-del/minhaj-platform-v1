@@ -119,13 +119,18 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
   }
 
   const scheduleFilter = schedule ? schedule._id : null;
-  if (req.user?.role !== 'admin') {
-    const lockedSession = isSchool && schedule
-      ? await AttendanceSession.exists({ school: course.school, schedule: schedule._id, date, locked: true })
-      : await Attendance.exists({ course: course._id, date, schedule: scheduleFilter, locked: true });
-    if (lockedSession) {
-      throw new ForbiddenError('Attendance for this session is locked. An authorized school administrator must unlock it with a correction reason.');
-    }
+
+  // A completed school session is immutable for every role, including platform
+  // admins. Corrections must first go through /school/unlock so the reason,
+  // actor and timestamp are preserved in the AttendanceSession audit trail.
+  // Retain the legacy admin override only for non-school/course-based records.
+  const lockedSession = isSchool && schedule
+    ? await AttendanceSession.exists({ school: course.school, schedule: schedule._id, date, locked: true })
+    : req.user?.role !== 'admin'
+      ? await Attendance.exists({ course: course._id, date, schedule: scheduleFilter, locked: true })
+      : null;
+  if (lockedSession) {
+    throw new ForbiddenError('Attendance for this session is locked. An authorized school administrator must unlock it with a correction reason.');
   }
 
   const completeRoster = normalized.length >= students.length;
