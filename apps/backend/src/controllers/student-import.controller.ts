@@ -151,6 +151,25 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   const seenStudentIdsBySchool = new Map<string, Set<string>>();
   const parsedRows: any[] = [];
 
+  // Most rows in a real bulk import leave Password blank and fall back to
+  // the same literal default ('changeme123'), so hashing it fresh per row
+  // is redundant, CPU-bound work repeated hundreds of times in this one
+  // sequential loop — for a few hundred rows that alone was slow enough to
+  // blow past the reverse-proxy request timeout, so the browser reported
+  // "Import failed" while the request kept running server-side and finished
+  // the insert anyway, leaving the UI's row/student counts stale until a
+  // manual refresh. Caching by the plaintext value collapses every row that
+  // shares a password (the common case) down to one bcrypt.hash call.
+  const passwordHashCache = new Map<string, Promise<string>>();
+  function hashPasswordCached(password: string): Promise<string> {
+    let cached = passwordHashCache.get(password);
+    if (!cached) {
+      cached = bcrypt.hash(password, 10);
+      passwordHashCache.set(password, cached);
+    }
+    return cached;
+  }
+
   for (let index = 0; index < rows.length; index++) {
     const rowNum = index + 2;
     const row = rows[index];
@@ -221,7 +240,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         lastName,
         gender: ['male', 'female'].includes(gender) ? gender : 'male',
         email,
-        hashedPassword: await bcrypt.hash(finalPassword, 10),
+        hashedPassword: await hashPasswordCached(finalPassword),
         school: new mongoose.Types.ObjectId(schoolId),
         classId: cls.classId,
         department: cls.department,
