@@ -124,9 +124,28 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
   }
 
   const classIds = classes.map((x) => x._id);
-  const allStudents = await Student.find({ class: { $in: classIds }, status: 'active' }).select('_id class').lean();
-  const validStudentIds = new Set(allStudents.map((x) => String(x._id)));
+  const rawStudents = await Student.find({ class: { $in: classIds }, status: 'active' })
+    .select('_id class enrollmentHistory').lean();
+  const validStudentIds = new Set(rawStudents.map((x) => String(x._id)));
   for (const studentId of decisions.keys()) if (!validStudentIds.has(studentId)) throw new BadRequestError('A promotion decision references a student outside the active classes');
+
+  // Guard against a duplicate submission for the SAME target year — a
+  // client retry after a timeout (the request can succeed on the server
+  // after the client already gave up and reports failure), or a
+  // double-click of Confirm. Without this, a student already moved into
+  // targetAcademicYear by an earlier, unacknowledged run would be found
+  // again in their new (now source) class and swept one grade further.
+  // A student whose current active enrollment history entry already
+  // targets this academic year has already been handled for it.
+  let alreadyHandled = 0;
+  const allStudents = rawStudents.filter((student) => {
+    const activeEntry = (student.enrollmentHistory || []).find((entry: any) => entry.status === 'active');
+    if (activeEntry?.academicYear === targetAcademicYear) {
+      alreadyHandled += 1;
+      return false;
+    }
+    return true;
+  });
 
   const byClass = new Map<string, typeof allStudents>();
   for (const student of allStudents) {
@@ -187,12 +206,15 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
     }
   }
 
+  const alreadyHandledNote = alreadyHandled
+    ? ` ${alreadyHandled} student(s) were already moved for ${targetAcademicYear} by an earlier run and were left untouched.`
+    : '';
   const message = skippedStudents.length
-    ? `Promotion complete: ${studentsPromoted} promoted, ${studentsRepeated} repeating, ${studentsGraduated} graduated. ${skippedStudents.length} student(s) skipped — create the missing target class(es) in Manage Classes, then promote them.`
-    : `Promotion complete: ${studentsPromoted} promoted, ${studentsRepeated} repeating, ${studentsGraduated} graduated.`;
+    ? `Promotion complete: ${studentsPromoted} promoted, ${studentsRepeated} repeating, ${studentsGraduated} graduated. ${skippedStudents.length} student(s) skipped — create the missing target class(es) in Manage Classes, then promote them.${alreadyHandledNote}`
+    : `Promotion complete: ${studentsPromoted} promoted, ${studentsRepeated} repeating, ${studentsGraduated} graduated.${alreadyHandledNote}`;
 
   return ApiResponse.success(res, {
     sourceAcademicYear: previousAcademicYear(targetAcademicYear) || '', targetAcademicYear,
-    studentsPromoted, studentsRepeated, studentsGraduated, missingTargets, skippedStudents,
+    studentsPromoted, studentsRepeated, studentsGraduated, missingTargets, skippedStudents, alreadyHandled,
   }, message);
 };

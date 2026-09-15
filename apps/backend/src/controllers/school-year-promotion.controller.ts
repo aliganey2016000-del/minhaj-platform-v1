@@ -134,7 +134,28 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
   // be picked up again when Grade 10's turn comes and swept straight to
   // Grade 11, cascading multiple grades in one promotion run.
   const classIds = activeClasses.map((cls) => cls._id);
-  const allStudents = await Student.find({ class: { $in: classIds }, status: 'active' }).select('_id class').lean();
+  const rawStudents = await Student.find({ class: { $in: classIds }, status: 'active' })
+    .select('_id class enrollmentHistory').lean();
+
+  // Guard against a duplicate submission for the SAME target year — a
+  // client retry after a timeout (the request can succeed on the server
+  // after the client already gave up and reports failure), or a
+  // double-click of Confirm. Without this, a student already moved into
+  // targetAcademicYear by an earlier, unacknowledged run would be found
+  // again in their new (now source) class and swept one grade further —
+  // Grade 2 -> Grade 3 the first time, then straight to Grade 4 the second.
+  // A student whose current active enrollment history entry already
+  // targets this academic year has already been promoted for it and must
+  // not be moved again.
+  let alreadyPromoted = 0;
+  const allStudents = rawStudents.filter((student) => {
+    const activeEntry = (student.enrollmentHistory || []).find((entry: any) => entry.status === 'active');
+    if (activeEntry?.academicYear === targetAcademicYear) {
+      alreadyPromoted += 1;
+      return false;
+    }
+    return true;
+  });
   const byClass = new Map<string, typeof allStudents>();
   for (const student of allStudents) {
     const key = String(student.class);
@@ -190,13 +211,16 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
     });
   }
 
+  const alreadyPromotedNote = alreadyPromoted
+    ? ` ${alreadyPromoted} student(s) were already promoted to ${targetAcademicYear} by an earlier run and were left untouched.`
+    : '';
   const message = missingTargets.length
-    ? `Promotion complete: moved ${studentsMoved} student(s), graduated ${graduated}. ${missingTargets.length} class(es) skipped — create the missing target class(es) in Manage Classes, then promote again.`
-    : `Promotion complete: moved ${studentsMoved} student(s), graduated ${graduated}.`;
+    ? `Promotion complete: moved ${studentsMoved} student(s), graduated ${graduated}. ${missingTargets.length} class(es) skipped — create the missing target class(es) in Manage Classes, then promote again.${alreadyPromotedNote}`
+    : `Promotion complete: moved ${studentsMoved} student(s), graduated ${graduated}.${alreadyPromotedNote}`;
 
   return ApiResponse.success(res, {
     sourceAcademicYear: previousAcademicYear(targetAcademicYear),
-    targetAcademicYear, results, promoted: promotedGroups, graduated, studentsMoved, missingTargets,
+    targetAcademicYear, results, promoted: promotedGroups, graduated, studentsMoved, missingTargets, alreadyPromoted,
   }, message);
 };
 
