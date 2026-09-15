@@ -64,8 +64,12 @@ export function SchedulesManageShell() {
   }, [user]);
 
   // In List view the shared toolbar is mounted directly beside the existing
-  // "Class Schedules" heading. On narrow screens it takes a full row and is
-  // centered beneath the heading/description; on desktop it stays to the right.
+  // "Class Schedules" heading, grouped together with the page's own "..."
+  // actions button (rather than as a separate third sibling) so on narrow
+  // screens the two wrap together as one right-aligned unit below the
+  // heading/description instead of each landing on its own line — which
+  // used to leave the "..." button stranded between the title and the
+  // toolbar. On desktop both stay inline to the right of the heading.
   useEffect(() => {
     if (!schoolMode || view !== 'table') {
       setListToolbarHost(null);
@@ -81,21 +85,22 @@ export function SchedulesManageShell() {
         item.textContent?.trim().toLowerCase() === 'class schedules'
       );
       const header = heading?.parentElement?.parentElement;
+      const actionMenu = header?.lastElementChild as HTMLElement | null;
 
-      if (!header) {
+      if (!header || !actionMenu) {
         attempts += 1;
         if (attempts < 30) frame = window.requestAnimationFrame(placeToolbar);
         return;
       }
 
       header.classList.add('flex-wrap');
-      host = header.querySelector<HTMLElement>('[data-schedule-list-toolbar-host]');
+      actionMenu.classList.add('flex', 'flex-wrap', 'w-full', 'items-center', 'justify-end', 'gap-2', 'lg:w-auto');
+      host = actionMenu.querySelector<HTMLElement>('[data-schedule-list-toolbar-host]');
       if (!host) {
         host = document.createElement('div');
         host.dataset.scheduleListToolbarHost = 'true';
-        host.className = 'order-3 flex w-full flex-wrap items-center justify-center gap-2 pt-3 print:hidden lg:order-none lg:ml-auto lg:w-auto lg:justify-end lg:pt-0';
-        const actionMenu = header.lastElementChild;
-        header.insertBefore(host, actionMenu || null);
+        host.className = 'flex flex-wrap items-center justify-end gap-2 print:hidden';
+        actionMenu.insertBefore(host, actionMenu.firstElementChild);
       }
       setListToolbarHost(host);
     };
@@ -108,9 +113,12 @@ export function SchedulesManageShell() {
     };
   }, [schoolMode, view, listRefreshKey]);
 
-  // Timetable has its own legacy Refresh/Edit/Print buttons. The school shell
-  // now owns the stable toolbar, so hide those duplicate controls while keeping
-  // them in the DOM for the existing edit-mode behavior.
+  // Timetable has its own legacy header — icon, "Class Timetable" title +
+  // session/class count, and Refresh/Edit/Print buttons. The school shell
+  // now owns the title and toolbar (rendered just above), so hide that
+  // entire legacy row — not just its buttons — while keeping it in the DOM
+  // for the existing edit-mode behavior (its buttons are still clicked
+  // programmatically below).
   useEffect(() => {
     if (!schoolMode || view !== 'timetable') return;
 
@@ -132,14 +140,15 @@ export function SchedulesManageShell() {
         return;
       }
 
-      const found = findActionSibling(heading);
-      if (!found) {
+      const actionSibling = findActionSibling(heading);
+      const legacyHeaderRow = actionSibling?.parentElement as HTMLElement | null;
+      if (!legacyHeaderRow) {
         attempts += 1;
         if (attempts < 30) frame = window.requestAnimationFrame(normalizeTimetableHeader);
         return;
       }
 
-      actionArea = found;
+      actionArea = legacyHeaderRow;
       previousDisplay = actionArea.style.display;
       actionArea.style.display = 'none';
 
