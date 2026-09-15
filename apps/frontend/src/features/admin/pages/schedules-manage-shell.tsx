@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, List, Pencil, Printer, RefreshCw } from 'lucide-react';
+import { CalendarDays, Download, List, MoreVertical, Pencil, Plus, Printer, RefreshCw, Settings, Upload } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { resolveInstitutionType } from '../../../lib/institution-type';
 import { SchedulesManage } from './schedules-manage';
-import { SchoolSchedulesManage } from './school-schedules-manage';
+import { PeriodSettingsModal, ScheduleModal, SchoolSchedulesManage, type Ref, type Teacher } from './school-schedules-manage';
 import { SchedulesTimetable } from './schedules-timetable';
+import BulkEntityImportModal from './components/bulk-entity-import-modal';
+
+const SCHEDULE_IMPORT_HEADERS = ['Class / Section', 'Course / Subject', 'Teacher / Instructor', 'Day', 'Time', 'Status'];
 
 // Climbs up from a heading looking, at each level, for a sibling of the
 // current ancestor that contains a button. This is deliberately structure-
@@ -29,11 +32,52 @@ function findActionSibling(heading: HTMLElement): HTMLElement | null {
 
 export function SchedulesManageShell() {
   const { user } = useAuth();
+  const organizationId = user?.organizationId || (user as any)?.schoolId || '';
   const [view, setView] = useState<'table' | 'timetable'>('timetable');
   const [schoolMode, setSchoolMode] = useState(false);
   const [resolvingMode, setResolvingMode] = useState(user?.role === 'org_admin');
   const [listToolbarHost, setListToolbarHost] = useState<HTMLElement | null>(null);
   const [listRefreshKey, setListRefreshKey] = useState(0);
+
+  // Table (Timetable) view has no "..." page-actions menu of its own — Add
+  // Schedule / Import / Export / Period Settings previously only existed
+  // inside the List view's own component, so switching to Table hid them
+  // entirely instead of just changing which rows/grid is shown. The shell
+  // owns a second copy of that menu, shown only in Table view (List view
+  // keeps its own, which also has the list-specific bulk-delete actions).
+  const [pageMenuOpen, setPageMenuOpen] = useState(false);
+  const [classes, setClasses] = useState<Ref[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [showAddSchedule, setShowAddSchedule] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showPeriodSettings, setShowPeriodSettings] = useState(false);
+
+  useEffect(() => {
+    if (!schoolMode || !organizationId) { setClasses([]); setTeachers([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [classRes, teacherRes] = await Promise.all([
+          api.get('/classes', { params: { schoolId: organizationId, status: 'active', limit: 200 } }),
+          api.get('/teachers', { params: { school: organizationId, status: 'active', limit: 500 } }),
+        ]);
+        if (!cancelled) { setClasses(classRes.data.data || []); setTeachers(teacherRes.data.data || []); }
+      } catch {
+        if (!cancelled) { setClasses([]); setTeachers([]); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [schoolMode, organizationId]);
+
+  const exportSchedules = async () => {
+    setPageMenuOpen(false);
+    try {
+      const response = await api.get('/class-schedules/school/export', { params: { school: organizationId }, responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url; link.download = `school-class-schedules-${new Date().toISOString().slice(0, 10)}.xlsx`; link.click(); URL.revokeObjectURL(url);
+    } catch { /* the List view's own export surfaces its own error state; this menu has no error banner to show one in */ }
+  };
 
   useEffect(() => {
     if (user?.role !== 'org_admin') {
@@ -41,7 +85,6 @@ export function SchedulesManageShell() {
       setResolvingMode(false);
       return;
     }
-    const organizationId = user?.organizationId || (user as any)?.schoolId;
     if (!organizationId) {
       setSchoolMode(false);
       setResolvingMode(false);
@@ -286,6 +329,25 @@ export function SchedulesManageShell() {
             </div>
             <div className="flex w-full flex-wrap items-center justify-center gap-2 lg:ml-auto lg:w-auto lg:justify-end">
               {persistentActions}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setPageMenuOpen((value) => !value)}
+                  className="rounded-lg border border-[var(--color-border-default)] p-2.5 hover:bg-[var(--color-surface-secondary)]"
+                  aria-label="Schedule page actions"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+                {pageMenuOpen && (
+                  <div className="absolute right-0 z-40 mt-2 w-60 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl">
+                    <button type="button" onClick={() => { setPageMenuOpen(false); setShowAddSchedule(true); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-secondary)]"><Plus className="h-4 w-4" /> Add Schedule</button>
+                    <button type="button" onClick={() => { setPageMenuOpen(false); setShowImport(true); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-secondary)]"><Upload className="h-4 w-4" /> Import Schedules</button>
+                    <button type="button" onClick={() => void exportSchedules()} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-secondary)]"><Download className="h-4 w-4" /> Export Schedules</button>
+                    <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+                    <button type="button" onClick={() => { setPageMenuOpen(false); setShowPeriodSettings(true); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-secondary)]"><Settings className="h-4 w-4" /> Period &amp; Break Settings</button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -298,6 +360,29 @@ export function SchedulesManageShell() {
       {view === 'table'
         ? (schoolMode ? <SchoolSchedulesManage key={listRefreshKey} /> : <SchedulesManage />)
         : <SchedulesTimetable />}
+
+      {showAddSchedule && (
+        <ScheduleModal
+          organizationId={organizationId}
+          classes={classes}
+          teachers={teachers}
+          onClose={() => setShowAddSchedule(false)}
+          onSaved={refreshCurrentView}
+        />
+      )}
+      {showImport && (
+        <BulkEntityImportModal
+          title="Import Class Schedules"
+          description="School schedule template, import and export use the same simple columns. Teacher can be blank for Unassigned."
+          templateUrl="/class-schedules/school/template"
+          importUrl="/class-schedules/school/import"
+          templateName="school-class-schedules-template.xlsx"
+          headers={SCHEDULE_IMPORT_HEADERS}
+          onClose={() => setShowImport(false)}
+          onImported={refreshCurrentView}
+        />
+      )}
+      {showPeriodSettings && <PeriodSettingsModal organizationId={organizationId} onClose={() => setShowPeriodSettings(false)} />}
     </div>
   );
 }
