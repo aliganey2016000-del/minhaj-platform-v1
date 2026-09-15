@@ -131,16 +131,24 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
   const validStudentIds = new Set(rawStudents.map((x) => String(x._id)));
   for (const studentId of decisions.keys()) if (!validStudentIds.has(studentId)) throw new BadRequestError('A promotion decision references a student outside the active classes');
 
+  const isFinalById = new Map(classes.map((cls) => [String(cls._id), isFinalClass(cls)]));
+
   // Guard against a duplicate submission for the SAME target year — a
   // client retry after a timeout (the request can succeed on the server
   // after the client already gave up and reports failure), or a
   // double-click of Confirm. Without this, a student already moved into
   // targetAcademicYear by an earlier, unacknowledged run would be found
   // again in their new (now source) class and swept one grade further.
-  // A student whose current active enrollment history entry already
-  // targets this academic year has already been handled for it.
+  //
+  // Scoped to 'promote' only: a 'repeat' or 'graduate' decision is already
+  // naturally idempotent (repeat's history entry is deduped by class+year in
+  // syncEnrollmentHistory; graduate's status-guarded update just no-ops), and
+  // re-submitting either is expected to keep succeeding rather than being
+  // silently skipped.
   let alreadyHandled = 0;
   const allStudents = rawStudents.filter((student) => {
+    const requested = decisions.get(String(student._id)) || (isFinalById.get(String(student.class)) ? 'graduate' : 'promote');
+    if (requested !== 'promote') return true;
     const activeEntry = (student.enrollmentHistory || []).find((entry: any) => entry.status === 'active');
     if (activeEntry?.academicYear === targetAcademicYear) {
       alreadyHandled += 1;
