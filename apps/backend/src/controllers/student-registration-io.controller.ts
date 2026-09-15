@@ -688,7 +688,7 @@ async function createStudent(item: ParsedRegistration, guardianLocks: Map<string
 }
 
 async function updateStudent(item: ParsedRegistration, guardianLocks: Map<string, Promise<void>>): Promise<string> {
-  const student = await Student.findById(item.existingStudentId);
+  const student = await Student.findById(item.existingStudentId).setOptions({ skipCourseNormalization: true });
   if (!student) throw new Error('Existing student could not be found');
 
   await Profile.findByIdAndUpdate(student.profile, {
@@ -723,7 +723,19 @@ async function updateStudent(item: ParsedRegistration, guardianLocks: Map<string
   if (classChanged) {
     await reassignStudentClassCourses(student._id as mongoose.Types.ObjectId, previousClassId, nextClassId);
   } else {
-    await syncStudentCourseEnrollment(student._id as mongoose.Types.ObjectId, nextClassId);
+    // Re-importing an existing roster is the common large-file case. If the
+    // student already has a live history entry for this same class, their
+    // course/history links are already correct; running a full enrollment
+    // sync again would re-query the class/courses and recalculate every course
+    // count for every row. On a 722-row file that redundant work dominated the
+    // request and caused proxy timeouts. Only backfill enrollment for legacy
+    // students that genuinely have no active current-class history yet.
+    const hasCurrentEnrollment = (student.enrollmentHistory || []).some(
+      (entry: any) => entry.status === 'active' && String(entry.class) === nextClassId,
+    );
+    if (!hasCurrentEnrollment) {
+      await syncStudentCourseEnrollment(student._id as mongoose.Types.ObjectId, nextClassId);
+    }
   }
   return student.studentId;
 }
@@ -751,7 +763,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   // concurrency keeps rows independent (each still awaits its own full
   // create/update sequence) while running several at once.
   const guardianLocks = new Map<string, Promise<void>>();
-  const CONCURRENCY = 10;
+  const CONCURRENCY = 24;
   const importable = parsed.filter((item) => {
     if (item.action === 'duplicate' || item.action === 'class_not_found' || item.action === 'invalid') {
       errors.push({ row: item.row, action: item.action, message: item.message || 'Row is not ready to import' });
