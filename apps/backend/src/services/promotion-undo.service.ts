@@ -145,6 +145,7 @@ export async function undoWholeSchoolPromotion(
 
   const operations: any[] = [];
   const affectedCourseIds = new Set<string>();
+  const touchedClassIds = new Set<string>();
   let movedBack = 0;
   let unGraduated = 0;
   let skipped = 0;
@@ -200,6 +201,9 @@ export async function undoWholeSchoolPromotion(
         delete previous.endedAt;
       }
 
+      if (targetClass?._id) touchedClassIds.add(String(targetClass._id));
+      if (previousClass?._id) touchedClassIds.add(String(previousClass._id));
+
       const currentClassGranted = new Set<string>(
         (last.courses || []).map((id: any) => idOf(id)).filter((id: string) => Boolean(id)),
       );
@@ -236,6 +240,8 @@ export async function undoWholeSchoolPromotion(
     if (student.status === 'graduated' && last?.status === 'graduated' && last?.academicYear === sourceAcademicYear) {
       last.status = 'active';
       delete last.endedAt;
+      const graduatedClassId = idOf(last.class || student.class);
+      if (graduatedClassId) touchedClassIds.add(graduatedClassId);
       const graduatedCourses: string[] = (last.courses || [])
         .map((courseId: any) => idOf(courseId))
         .filter((id: string) => Boolean(id));
@@ -255,14 +261,20 @@ export async function undoWholeSchoolPromotion(
 
   await runBulkStudentWrites(operations);
 
-  // Classes are persistent containers. Promotion advances their display year;
-  // undo must restore that metadata as well. The retry-safe filter also fixes
-  // the case where a prior request completed student writes but timed out
-  // before the class metadata update/HTTP response reached the browser.
-  await ClassModel.updateMany(
-    { school: schoolId, status: 'active', gradeLevel: { $ne: null }, academicYear: targetAcademicYear },
-    { $set: { academicYear: sourceAcademicYear } },
-  );
+  // Restore every class actually touched by the rollback, even when an older
+  // timeout already left its display year one step ahead of the students.
+  // Also include classes still explicitly marked with targetAcademicYear so a
+  // retry after a lost HTTP response can finish metadata repair idempotently.
+  const touchedIds = uniqueObjectIds(touchedClassIds);
+  const classYearFilter: Record<string, unknown> = {
+    school: schoolId,
+    status: 'active',
+    gradeLevel: { $ne: null },
+  };
+  classYearFilter.$or = touchedIds.length
+    ? [{ _id: { $in: touchedIds } }, { academicYear: targetAcademicYear }]
+    : [{ academicYear: targetAcademicYear }];
+  await ClassModel.updateMany(classYearFilter, { $set: { academicYear: sourceAcademicYear } });
 
   await recalcCourseEnrollmentCounts(affectedCourseIds);
 
