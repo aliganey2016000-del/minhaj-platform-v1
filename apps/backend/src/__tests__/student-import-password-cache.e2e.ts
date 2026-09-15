@@ -89,7 +89,7 @@ async function main() {
   section('PERFORMANCE — a large import completes well within a generous bound');
   const bigRows = Array.from({ length: 200 }, (_, i) => ({
     'First Name': `Bulk${i}`, 'Last Name': 'Student', Gender: i % 2 === 0 ? 'male' : 'female',
-    Email: `bulk-${i}@test.local`, 'Class Name': 'Grade 9', Section: 'A',
+    Email: `bulk-${i}@test.local`, Organization: school.name, 'Class Name': 'Grade 9', Section: 'A',
     'Enrollment Date': '2027-09-01',
   }));
 
@@ -115,7 +115,7 @@ async function main() {
   section('CONCURRENT SIBLINGS — two rows sharing one guardian phone resolve to a single Parent');
   const siblingRows = [0, 1].map((i) => ({
     'First Name': `Sibling${i}`, 'Last Name': 'Student', Gender: 'male',
-    Email: `sibling-${i}@test.local`, 'Class Name': 'Grade 9', Section: 'A',
+    Email: `sibling-${i}@test.local`, Organization: school.name, 'Class Name': 'Grade 9', Section: 'A',
     'Enrollment Date': '2027-09-01',
     'Guardian Name': 'Shared Guardian', 'Guardian Phone': '+252611230000', Relationship: 'Father',
   }));
