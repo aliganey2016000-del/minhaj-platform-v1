@@ -132,6 +132,58 @@ async function main() {
   assert(guardianParents.length === 1, `exactly one Parent record exists for the shared guardian phone number (got ${guardianParents.length} — more than one means the concurrent rows raced and duplicated the guardian)`);
   assert((guardianParents[0]?.children || []).length === 2, `the single Parent record has both siblings as children (got ${(guardianParents[0]?.children || []).length})`);
 
+  // A large import can outrun the reverse proxy's timeout: the browser is
+  // handed "Import failed" while the server keeps going and finishes. The
+  // admin then presses Import again with the same file, which must land on
+  // the students already saved instead of creating a second copy of each.
+  section('RETRY AFTER A TIMEOUT — re-importing the same file updates, never duplicates');
+  const { default: Student } = await import('../models/student.model');
+  const beforeRetry = await Student.countDocuments({ school: school._id });
+
+  const retryImport = await request(app)
+    .post('/api/v1/students/import')
+    .set('Authorization', `Bearer ${token}`)
+    .attach('file', workbookBuffer(bigRows), { filename: 'students.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+  assert(retryImport.status === 200, `re-importing the same file succeeds (status ${retryImport.status})`);
+  assert(retryImport.body?.data?.created === 0, `re-import creates no new students (got ${retryImport.body?.data?.created})`);
+  assert(retryImport.body?.data?.updated === bigRows.length, `re-import matches all ${bigRows.length} rows onto the students already saved (got ${retryImport.body?.data?.updated}, errors: ${JSON.stringify(retryImport.body?.data?.errors)})`);
+
+  const afterRetry = await Student.countDocuments({ school: school._id });
+  assert(afterRetry === beforeRetry, `the school still has ${beforeRetry} students after the retry, not double (got ${afterRetry})`);
+
+  section('STUDENT ID ROUND TRIP — Template, Import and Export all carry the column');
+  const template = await request(app)
+    .get('/api/v1/students/template')
+    .set('Authorization', `Bearer ${token}`)
+    .buffer(true)
+    .parse((res: any, callback: any) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+      res.on('end', () => callback(null, Buffer.concat(chunks)));
+    });
+
+  const templateSheet = XLSX.read(template.body as Buffer, { type: 'buffer' });
+  const templateHeaders = (XLSX.utils.sheet_to_json(templateSheet.Sheets[templateSheet.SheetNames[0]], { header: 1 })[0] || []) as string[];
+  assert(templateHeaders.includes('Student ID'), `the downloadable template carries a Student ID column (got ${JSON.stringify(templateHeaders)})`);
+
+  const known: any = await Student.findOne({ school: school._id }).sort({ studentId: 1 }).lean();
+  const byIdRow = [{
+    'Student ID': known.studentId, 'First Name': 'RenamedById', 'Last Name': 'Student', Gender: 'male',
+    Email: `renamed-by-id@test.local`, Organization: school.name, 'Class Name': 'Grade 9', Section: 'A',
+    'Enrollment Date': '2027-09-01',
+  }];
+  const byIdImport = await request(app)
+    .post('/api/v1/students/import')
+    .set('Authorization', `Bearer ${token}`)
+    .attach('file', workbookBuffer(byIdRow), { filename: 'by-id.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+  assert(byIdImport.status === 200 && byIdImport.body?.data?.updated === 1 && byIdImport.body?.data?.created === 0,
+    `a row carrying Student ID updates that exact student instead of creating one (got ${JSON.stringify(byIdImport.body?.data && { created: byIdImport.body.data.created, updated: byIdImport.body.data.updated, errors: byIdImport.body.data.errors })})`);
+
+  const afterById = await Student.countDocuments({ school: school._id });
+  assert(afterById === beforeRetry, `importing by Student ID did not add a student (got ${afterById}, expected ${beforeRetry})`);
+
   console.log(`\n${'='.repeat(60)}`);
   console.log(failures === 0 ? 'ALL STUDENT BULK IMPORT CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
   console.log('='.repeat(60));

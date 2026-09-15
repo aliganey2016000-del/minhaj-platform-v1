@@ -188,28 +188,37 @@ const classCache = new Map<string, Map<string, ClassCandidate[]>>();
 
 const AMBIGUOUS = Symbol('ambiguous-name-match');
 type ExistingStudentLite = { _id: mongoose.Types.ObjectId; user: mongoose.Types.ObjectId; studentId: string; class?: mongoose.Types.ObjectId };
-const studentNameCache = new Map<string, Map<string, ExistingStudentLite | typeof AMBIGUOUS>>();
+type SchoolStudentIndex = {
+  byStudentId: Map<string, ExistingStudentLite>;
+  byUserId: Map<string, ExistingStudentLite>;
+  byNameClass: Map<string, ExistingStudentLite | typeof AMBIGUOUS>;
+};
+const studentIndexCache = new Map<string, SchoolStudentIndex>();
+const userByEmailCache = new Map<string, { _id: mongoose.Types.ObjectId }>();
 
 /**
- * Name+class lookup used only when a row has neither Student ID nor Email —
- * the normal case for this template, since both are optional and most real
- * files (this one included) never fill either in. Without this, re-running
- * the exact same file — say after a slow import already succeeded on the
- * server but the browser reported a timeout and the admin clicked Import
- * again — has no way to recognize any of the 722 rows as already imported,
- * so it silently creates 722 duplicate students instead of updating them.
+ * Every "is this student already registered?" lookup a row needs, built once
+ * per school per import instead of per row. A 722-row file previously ran two
+ * to three extra round trips per row (student by Student ID, user by email,
+ * student by that user) just to parse — well over a thousand serial queries
+ * against a remote database before a single write, which is a large part of
+ * why a real import outran the reverse proxy's timeout.
  *
- * Built once per school per import (not per row) to avoid turning a big
- * file's parse into hundreds of extra round trips. Two existing students
- * who share both name and class are deliberately left unresolved (AMBIGUOUS)
- * rather than guessed at — that row is treated as a new student, matching
- * today's behavior, instead of risking overwriting the wrong record.
+ * Three indexes, in the order a row resolves them:
+ *  - byStudentId: the Student ID column, which Template, Import and Export
+ *    all carry, so an exported workbook round-trips onto the same records.
+ *  - byUserId: resolves a row's Email to the student owning that account.
+ *  - byNameClass: last-resort match for a row with neither, so re-running
+ *    the same file updates those students instead of duplicating them.
+ *    Two existing students sharing both name and class are deliberately left
+ *    unresolved (AMBIGUOUS) and treated as new, rather than risking an
+ *    overwrite of the wrong record.
  */
-async function getStudentsByNameKey(schoolId: string): Promise<Map<string, ExistingStudentLite | typeof AMBIGUOUS>> {
-  const cached = studentNameCache.get(schoolId);
+async function getSchoolStudentIndex(schoolId: string): Promise<SchoolStudentIndex> {
+  const cached = studentIndexCache.get(schoolId);
   if (cached) return cached;
 
-  const byKey = new Map<string, ExistingStudentLite | typeof AMBIGUOUS>();
+  const index: SchoolStudentIndex = { byStudentId: new Map(), byUserId: new Map(), byNameClass: new Map() };
   const students = await Student.find({ school: schoolId })
     .select('_id user studentId class')
     .populate('profile', 'firstName lastName')
@@ -217,16 +226,36 @@ async function getStudentsByNameKey(schoolId: string): Promise<Map<string, Exist
     .lean();
 
   for (const student of students as any[]) {
+    const lite: ExistingStudentLite = {
+      _id: student._id,
+      user: student.user,
+      studentId: student.studentId,
+      class: student.class?._id || student.class,
+    };
+    if (student.studentId) index.byStudentId.set(String(student.studentId).toUpperCase(), lite);
+    if (student.user) index.byUserId.set(String(student.user), lite);
+
     const profile = student.profile;
     const cls = student.class;
     if (!profile?.firstName || !cls?.title) continue;
     const key = `${clean(profile.firstName).toLowerCase()}::${clean(profile.lastName).toLowerCase()}::${classKey(clean(cls.title), clean(cls.section))}`;
-    const lite: ExistingStudentLite = { _id: student._id, user: student.user, studentId: student.studentId, class: cls._id };
-    byKey.set(key, byKey.has(key) ? AMBIGUOUS : lite);
+    index.byNameClass.set(key, index.byNameClass.has(key) ? AMBIGUOUS : lite);
   }
 
-  studentNameCache.set(schoolId, byKey);
-  return byKey;
+  studentIndexCache.set(schoolId, index);
+  return index;
+}
+
+/** One query for every email the file mentions, replacing a per-row User.findOne. */
+async function primeUsersByEmail(rows: Record<string, unknown>[]): Promise<void> {
+  const emails = new Set<string>();
+  for (const row of rows) {
+    const email = clean(getField(row, 'Email', 'Student Email')).toLowerCase();
+    if (email) emails.add(email);
+  }
+  if (!emails.size) return;
+  const users = await User.find({ email: { $in: [...emails] } }).select('_id email').lean();
+  for (const user of users as any[]) userByEmailCache.set(String(user.email).toLowerCase(), { _id: user._id });
 }
 
 async function getClassCandidates(schoolId: string): Promise<Map<string, ClassCandidate[]>> {
@@ -318,7 +347,9 @@ function readRows(req: Request): Record<string, unknown>[] {
 
 async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise<ParsedRegistration[]> {
   classCache.clear();
-  studentNameCache.clear();
+  studentIndexCache.clear();
+  userByEmailCache.clear();
+  await primeUsersByEmail(rows);
   const parsed: ParsedRegistration[] = [];
   const seen = new Set<string>();
 
@@ -364,33 +395,26 @@ async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise
       // makes an exported workbook round-trip safely when two active cohorts
       // happen to share the same Class Name + Section: Student ID preserves
       // the exact current class instead of guessing.
-      let existingStudent: any = null;
-      if (studentId) {
-        existingStudent = await Student.findOne({ school: schoolId, studentId }).select('_id user studentId class').lean();
+      const index = await getSchoolStudentIndex(schoolId);
+      let existingStudent: any = studentId ? index.byStudentId.get(studentId) || null : null;
+
+      const accountForEmail = email ? userByEmailCache.get(email) : undefined;
+      if (!existingStudent && accountForEmail) {
+        existingStudent = index.byUserId.get(String(accountForEmail._id)) || null;
+        if (!existingStudent) throw new Error(`Email "${email}" belongs to another account and cannot be used for this student`);
       }
 
-      if (!existingStudent && email) {
-        const existingUser = await User.findOne({ email }).select('_id role organizationId').lean();
-        if (existingUser) {
-          existingStudent = await Student.findOne({ school: schoolId, user: existingUser._id }).select('_id user studentId class').lean();
-          if (!existingStudent) throw new Error(`Email "${email}" belongs to another account and cannot be used for this student`);
-        }
+      if (existingStudent && accountForEmail && String(accountForEmail._id) !== String(existingStudent.user)) {
+        throw new Error(`Email "${email}" is already used by another account`);
       }
 
-      if (existingStudent && email) {
-        const conflictingUser = await User.findOne({ email, _id: { $ne: existingStudent.user } }).select('_id').lean();
-        if (conflictingUser) throw new Error(`Email "${email}" is already used by another account`);
-      }
-
-      // Neither Student ID nor Email identifies this row (the common case for
-      // this template — see getStudentsByNameKey). Fall back to matching an
-      // existing student already enrolled in the exact same class under the
-      // exact same name, so re-importing the same file updates them instead
-      // of creating duplicates.
+      // Neither Student ID nor Email identifies this row — see
+      // getSchoolStudentIndex. Fall back to matching an existing student
+      // already enrolled in the exact same class under the exact same name,
+      // so re-importing the same file updates them instead of duplicating.
       if (!existingStudent && !studentId && !email && firstName && className && section) {
-        const byName = await getStudentsByNameKey(schoolId);
         const nameKey = `${firstName.toLowerCase()}::${lastName.toLowerCase()}::${classKey(className, section)}`;
-        const match = byName.get(nameKey);
+        const match = index.byNameClass.get(nameKey);
         if (match && match !== AMBIGUOUS) existingStudent = match;
       }
 
@@ -703,17 +727,6 @@ async function updateStudent(item: ParsedRegistration, guardianLocks: Map<string
   }
   return student.studentId;
 }
-
-export const downloadTemplate = async (_req: Request, res: Response): Promise<void> => {
-  const rows = [[
-    'Ahmed', 'Ali', 'male', '', 'Grade 5', 'A', new Date().toISOString().slice(0, 10), '',
-    'Mohamed Ali', '', '+252612345678', 'Father',
-  ]];
-  const buffer = buildXlsxBuffer([...STUDENT_REGISTRATION_HEADERS], rows, 'Student Template');
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', 'attachment; filename=students-template.xlsx');
-  res.end(buffer);
-};
 
 export const previewImport = async (req: Request, res: Response): Promise<Response> => {
   const rows = readRows(req);
