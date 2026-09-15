@@ -14,8 +14,9 @@
  *    excludes the students who promoted out;
  *  - marking the new year's attendance on the same recurring weekly slot
  *    never collides with last year's rows (Attendance/AttendanceSession are
- *    keyed by date, and academic years never share a date) — no duplicates,
- *    resubmitting the same date safely updates rather than inserting;
+ *    keyed by date, and academic years never share a date) — no duplicates;
+ *    corrections to a locked school session require an audited unlock first,
+ *    then update the existing date rather than inserting another row;
  *  - last year's attendance for the students who moved on to Grade 3 stays
  *    fully retrievable, even though they are no longer enrolled in the
  *    course or class it was recorded against.
@@ -197,21 +198,56 @@ async function main() {
   assert(yearTwoAttendance.status === 200, `Year 2 attendance saves on the same recurring slot without conflict (status ${yearTwoAttendance.status}: ${messageOf(yearTwoAttendance)})`);
   assert(yearTwoAttendance.body?.data?.completion === 'complete' && yearTwoAttendance.body?.data?.locked === true, 'the new, smaller roster still completes and locks correctly');
 
-  section('DUPLICATE-SAFETY — the academic-year boundary never collides');
+  section('DUPLICATE-SAFETY — academic-year dates stay separate; corrections remain audited');
   assert(await Attendance.countDocuments({ course: mathCourse._id }) === 3, 'exactly 3 Attendance rows total: 2 from Year 1, 1 from Year 2');
   assert(await AttendanceSession.countDocuments({ schedule: mathSchedule._id }) === 2, 'exactly 2 AttendanceSession rows: one per date, never merged or duplicated');
 
-  const resubmitYearTwo = await request(app)
+  const lockedCorrectionAttempt = await request(app)
     .post('/api/v1/attendance')
     .set('Authorization', `Bearer ${adminToken}`)
     .send({
       course: mathCourse._id.toString(), schedule: mathSchedule._id.toString(), date: yearTwoDate,
       records: [{ student: futureG2._id.toString(), status: 'late' }],
     });
-  assert(resubmitYearTwo.status === 200, `resubmitting the same Year 2 date is accepted as a correction (status ${resubmitYearTwo.status})`);
-  assert(await Attendance.countDocuments({ course: mathCourse._id }) === 3, 'resubmitting the same date updates the existing row instead of inserting a duplicate');
+  assert(lockedCorrectionAttempt.status === 403, `locked Year 2 attendance rejects a direct correction (status ${lockedCorrectionAttempt.status})`);
+  assert(/unlock/i.test(messageOf(lockedCorrectionAttempt)), 'locked correction response directs the admin through the audited unlock flow');
+  assert(await Attendance.countDocuments({ course: mathCourse._id }) === 3, 'blocked correction never inserts a duplicate attendance row');
+  const unchangedRow: any = await Attendance.findOne({ course: mathCourse._id, student: futureG2._id, date: yearTwoMonday }).lean();
+  assert(unchangedRow?.status === 'present', 'blocked correction leaves the locked Year 2 attendance unchanged');
+
+  const unlockYearTwo = await request(app)
+    .patch('/api/v1/attendance/school/unlock')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({
+      course: mathCourse._id.toString(), schedule: mathSchedule._id.toString(), date: yearTwoDate,
+      reason: 'Correcting verified Year 2 register entry',
+    });
+  assert(unlockYearTwo.status === 200, `authorized audited unlock succeeds before correction (status ${unlockYearTwo.status}: ${messageOf(unlockYearTwo)})`);
+
+  const unlockedSession: any = await AttendanceSession.findOne({
+    schedule: mathSchedule._id,
+    date: new Date(`${yearTwoDate}T00:00:00`),
+  }).lean();
+  assert(unlockedSession?.locked === false, 'audited unlock clears the Year 2 session lock');
+  assert(unlockedSession?.corrections?.some((row: any) => row.reason === 'Correcting verified Year 2 register entry'), 'audited unlock records the correction reason');
+
+  const correctedYearTwo = await request(app)
+    .post('/api/v1/attendance')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({
+      course: mathCourse._id.toString(), schedule: mathSchedule._id.toString(), date: yearTwoDate,
+      records: [{ student: futureG2._id.toString(), status: 'late', reasonCode: 'transport_delay' }],
+    });
+  assert(correctedYearTwo.status === 200, `Year 2 correction succeeds after audited unlock (status ${correctedYearTwo.status}: ${messageOf(correctedYearTwo)})`);
+  assert(await Attendance.countDocuments({ course: mathCourse._id }) === 3, 'correcting the same date updates the existing row instead of inserting a duplicate');
   const updatedRow: any = await Attendance.findOne({ course: mathCourse._id, student: futureG2._id, date: yearTwoMonday }).lean();
-  assert(updatedRow?.status === 'late', 'the resubmitted row reflects the corrected status');
+  assert(updatedRow?.status === 'late' && updatedRow?.reasonCode === 'transport_delay', 'the corrected row reflects the verified late status and reason');
+
+  const relockedSession: any = await AttendanceSession.findOne({
+    schedule: mathSchedule._id,
+    date: new Date(`${yearTwoDate}T00:00:00`),
+  }).lean();
+  assert(relockedSession?.locked === true && relockedSession?.status === 'complete', 'corrected complete Year 2 roster is re-locked');
 
   section('HISTORY — last year\'s Grade 2 attendance stays retrievable for students now in Grade 3');
   const yearOneReadBack = await request(app)
