@@ -186,6 +186,49 @@ async function resolveSchoolId(req: Request, row: Record<string, unknown>): Prom
 
 const classCache = new Map<string, Map<string, ClassCandidate[]>>();
 
+const AMBIGUOUS = Symbol('ambiguous-name-match');
+type ExistingStudentLite = { _id: mongoose.Types.ObjectId; user: mongoose.Types.ObjectId; studentId: string; class?: mongoose.Types.ObjectId };
+const studentNameCache = new Map<string, Map<string, ExistingStudentLite | typeof AMBIGUOUS>>();
+
+/**
+ * Name+class lookup used only when a row has neither Student ID nor Email —
+ * the normal case for this template, since both are optional and most real
+ * files (this one included) never fill either in. Without this, re-running
+ * the exact same file — say after a slow import already succeeded on the
+ * server but the browser reported a timeout and the admin clicked Import
+ * again — has no way to recognize any of the 722 rows as already imported,
+ * so it silently creates 722 duplicate students instead of updating them.
+ *
+ * Built once per school per import (not per row) to avoid turning a big
+ * file's parse into hundreds of extra round trips. Two existing students
+ * who share both name and class are deliberately left unresolved (AMBIGUOUS)
+ * rather than guessed at — that row is treated as a new student, matching
+ * today's behavior, instead of risking overwriting the wrong record.
+ */
+async function getStudentsByNameKey(schoolId: string): Promise<Map<string, ExistingStudentLite | typeof AMBIGUOUS>> {
+  const cached = studentNameCache.get(schoolId);
+  if (cached) return cached;
+
+  const byKey = new Map<string, ExistingStudentLite | typeof AMBIGUOUS>();
+  const students = await Student.find({ school: schoolId })
+    .select('_id user studentId class')
+    .populate('profile', 'firstName lastName')
+    .populate('class', 'title section')
+    .lean();
+
+  for (const student of students as any[]) {
+    const profile = student.profile;
+    const cls = student.class;
+    if (!profile?.firstName || !cls?.title) continue;
+    const key = `${clean(profile.firstName).toLowerCase()}::${clean(profile.lastName).toLowerCase()}::${classKey(clean(cls.title), clean(cls.section))}`;
+    const lite: ExistingStudentLite = { _id: student._id, user: student.user, studentId: student.studentId, class: cls._id };
+    byKey.set(key, byKey.has(key) ? AMBIGUOUS : lite);
+  }
+
+  studentNameCache.set(schoolId, byKey);
+  return byKey;
+}
+
 async function getClassCandidates(schoolId: string): Promise<Map<string, ClassCandidate[]>> {
   const cached = classCache.get(schoolId);
   if (cached) return cached;
@@ -275,6 +318,7 @@ function readRows(req: Request): Record<string, unknown>[] {
 
 async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise<ParsedRegistration[]> {
   classCache.clear();
+  studentNameCache.clear();
   const parsed: ParsedRegistration[] = [];
   const seen = new Set<string>();
 
@@ -336,6 +380,18 @@ async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise
       if (existingStudent && email) {
         const conflictingUser = await User.findOne({ email, _id: { $ne: existingStudent.user } }).select('_id').lean();
         if (conflictingUser) throw new Error(`Email "${email}" is already used by another account`);
+      }
+
+      // Neither Student ID nor Email identifies this row (the common case for
+      // this template — see getStudentsByNameKey). Fall back to matching an
+      // existing student already enrolled in the exact same class under the
+      // exact same name, so re-importing the same file updates them instead
+      // of creating duplicates.
+      if (!existingStudent && !studentId && !email && firstName && className && section) {
+        const byName = await getStudentsByNameKey(schoolId);
+        const nameKey = `${firstName.toLowerCase()}::${lastName.toLowerCase()}::${classKey(className, section)}`;
+        const match = byName.get(nameKey);
+        if (match && match !== AMBIGUOUS) existingStudent = match;
       }
 
       // Guardian information is optional. If one side of the guardian pair is
