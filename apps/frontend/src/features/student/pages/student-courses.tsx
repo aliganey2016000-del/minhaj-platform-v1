@@ -6,7 +6,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, User } from 'lucide-react';
+import { BookOpen, User, LayoutGrid, List as ListIcon } from 'lucide-react';
 import api from '../../../lib/axios';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +86,21 @@ export function StudentCourses() {
   const [brokenThumbnails, setBrokenThumbnails] = useState<Set<string>>(new Set());
   const markThumbnailBroken = (id: string) => setBrokenThumbnails((prev) => new Set(prev).add(id));
   const [myClass, setMyClass] = useState<{ title: string; section: string } | null>(null);
+  const [viewMode, setViewMode] = useState<'card' | 'list'>(() => {
+    try {
+      return (localStorage.getItem('student-courses-view') as 'card' | 'list') || 'card';
+    } catch {
+      return 'card';
+    }
+  });
+  const changeViewMode = (mode: 'card' | 'list') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('student-courses-view', mode);
+    } catch {
+      // ignore — per-browser convenience only
+    }
+  };
 
   // -----------------------------------------------------------------------
   // Fetch enrolled courses
@@ -319,6 +334,38 @@ export function StudentCourses() {
             <span className="text-xs text-[var(--color-text-tertiary)] self-center ml-2">
               {filteredCourses.length} {t('total')}
             </span>
+
+            {/* Card / List view toggle */}
+            <div className="ml-auto flex items-center gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1">
+              <button
+                type="button"
+                onClick={() => changeViewMode('card')}
+                aria-pressed={viewMode === 'card'}
+                title={lang === 'so' ? 'Muuqaal Kaar' : lang === 'ar' ? 'عرض البطاقات' : 'Card view'}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  viewMode === 'card'
+                    ? 'bg-primary-600 text-white shadow-sm'
+                    : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
+                }`}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.75} />
+                {lang === 'so' ? 'Kaar' : lang === 'ar' ? 'بطاقات' : 'Card'}
+              </button>
+              <button
+                type="button"
+                onClick={() => changeViewMode('list')}
+                aria-pressed={viewMode === 'list'}
+                title={lang === 'so' ? 'Muuqaal Liis' : lang === 'ar' ? 'عرض القائمة' : 'List view'}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-primary-600 text-white shadow-sm'
+                    : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
+                }`}
+              >
+                <ListIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
+                {lang === 'so' ? 'Liis' : lang === 'ar' ? 'قائمة' : 'List'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -340,6 +387,105 @@ export function StudentCourses() {
             <p className="text-5xl mb-4">🔍</p>
             <p className="text-lg">{t('no_courses_found')}</p>
             <p className="text-sm">Try adjusting your filters.</p>
+          </div>
+        ) : viewMode === 'list' ? (
+          /* Course List — compact rows, same data/actions as the card grid */
+          <div className="flex flex-col gap-3">
+            {filteredCourses.map((c) => {
+              const progress = c.progress || {} as Progress;
+              const isCompleted = progress.status === 'completed';
+              const notStarted = !isCompleted && !progress.lastAccessed;
+              const pct = progress.percent || 0;
+
+              return (
+                <div
+                  key={c._id}
+                  className="group flex flex-col sm:flex-row sm:items-center gap-4 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card hover:shadow-lg transition-all duration-300 cursor-pointer"
+                  onClick={() => setSelectedCourse(c)}
+                >
+                  {/* Thumbnail */}
+                  <div className="relative h-16 w-24 flex-shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-900/40 dark:to-primary-800/30">
+                    {c.thumbnail && !brokenThumbnails.has(c._id) ? (
+                      <img
+                        src={c.thumbnail}
+                        alt={c.title.en}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                        onError={() => markThumbnailBroken(c._id)}
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-emerald-500/10 to-teal-500/10">
+                        <BookOpen className="h-6 w-6 text-emerald-600/40" strokeWidth={1.5} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Main info */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold text-sm text-[var(--color-text-primary)] group-hover:text-primary-600 transition-colors truncate">
+                        {getTitle(c)}
+                      </h3>
+                      <span className="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-text-secondary)]">
+                        {getCat(c.category)}
+                      </span>
+                      <span className="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-text-secondary)]">
+                        {getLevel(c.level)}
+                      </span>
+                      {isCompleted ? (
+                        <span className="rounded-full bg-green-500 px-2 py-0.5 text-[10px] font-bold text-white">✅ {t('completed')}</span>
+                      ) : notStarted ? (
+                        <span className="rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-bold text-white">✨ {lang === 'so' ? 'Cusub' : lang === 'ar' ? 'جديد' : 'New'}</span>
+                      ) : (
+                        <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">🔄 {t('in_progress')}</span>
+                      )}
+                    </div>
+                    {c.teacher?.profile && (
+                      <p className="mt-1 flex items-center text-xs text-[var(--color-text-tertiary)] truncate">
+                        <User className="h-3.5 w-3.5 text-slate-400 mr-1.5 flex-shrink-0" strokeWidth={1.75} />
+                        {c.teacher.profile.firstName} {c.teacher.profile.lastName}
+                      </p>
+                    )}
+                    {/* Progress bar */}
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="h-1.5 w-40 max-w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-green-500' : 'bg-primary-500'}`}
+                          style={{ width: `${Math.max(Math.min(pct, 100), pct > 0 ? 2 : 0)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-[var(--color-text-tertiary)]">{pct}%</span>
+                    </div>
+                  </div>
+
+                  {/* Action button */}
+                  <div className="flex-shrink-0 sm:w-40" onClick={(e) => e.stopPropagation()}>
+                    {isCompleted ? (
+                      <button
+                        onClick={() => navigate(`/student/courses/${c._id}`)}
+                        className="w-full rounded-xl bg-green-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-green-700 active:bg-green-800 transition-all shadow-sm hover:shadow-md"
+                      >
+                        🎓 {t('view_progress')}
+                      </button>
+                    ) : (progress.totalItems || 0) > 0 ? (
+                      <button
+                        onClick={() => navigate(`/student/courses/${c._id}`)}
+                        className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-primary-700 active:bg-primary-800 transition-all shadow-sm hover:shadow-md"
+                      >
+                        ▶ {t('continue_learning')}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => navigate(`/student/courses/${c._id}`)}
+                        className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-primary-700 active:bg-primary-800 transition-all shadow-sm hover:shadow-md"
+                      >
+                        📖 {t('resume')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (
           /* Course Cards Grid — identical layout to Browse Courses */
