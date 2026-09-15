@@ -21,7 +21,6 @@ import ClassModel, { IClass } from '../models/class.model';
 
 export interface TargetClassQuery {
   schoolId: string;
-  department?: mongoose.Types.ObjectId | string | null;
   gradeLevel: number;
   section?: string;
 }
@@ -35,19 +34,30 @@ export interface MissingTarget {
 
 /**
  * Finds the persistent, active class a group of students should move into.
- * Never creates one. Matches on (school, department, gradeLevel, section)
- * only — NOT batch: batch is an entry-cohort label ("the year this class's
- * current group started"), so Grade 9's batch and Grade 10's batch are
- * naturally different even when Grade 10 is exactly the right target for a
- * promoting Grade 9 student. Requiring it to match would make the correct,
- * already-existing target class unfindable.
+ * Never creates one. Matches on (school, gradeLevel, section) only — NOT
+ * department and NOT batch.
+ *
+ * Department is deliberately excluded: a school's departments are
+ * themselves grade-bounded (e.g. Primary covers grades 1-8, Secondary
+ * covers 9-12), so the grade that follows a source class can — and
+ * routinely does — belong to a different department than the source
+ * (Grade 8 in Primary promotes into Grade 9 in Secondary). Requiring the
+ * target's department to match the source's would make that ordinary,
+ * already-existing target class unfindable and wrongly report it as
+ * missing. gradeLevel (plus section) already identifies the right class
+ * within the school without it.
+ *
+ * batch is excluded because it is an entry-cohort label ("the year this
+ * class's current group started"), so Grade 9's batch and Grade 10's batch
+ * are naturally different even when Grade 10 is exactly the right target
+ * for a promoting Grade 9 student. Requiring it to match would make the
+ * correct, already-existing target class unfindable.
  */
 export async function findPersistentTargetClass(
   query: TargetClassQuery,
 ): Promise<mongoose.HydratedDocument<IClass> | null> {
   const filter: Record<string, unknown> = {
     school: query.schoolId,
-    department: query.department ?? null,
     gradeLevel: query.gradeLevel,
     status: 'active',
   };

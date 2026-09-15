@@ -84,7 +84,7 @@ export const getPromotionPreview = async (req: Request, res: Response): Promise<
 
     const targetGradeLevel = Number(cls.gradeLevel) + 1;
     const targetClass = await findPersistentTargetClass({
-      schoolId, department: cls.department, gradeLevel: targetGradeLevel,
+      schoolId, gradeLevel: targetGradeLevel,
       section: cls.section || undefined,
     });
 
@@ -167,7 +167,7 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
 
     const targetGradeLevel = Number(cls.gradeLevel) + 1;
     const targetClass = await findPersistentTargetClass({
-      schoolId, department: cls.department, gradeLevel: targetGradeLevel,
+      schoolId, gradeLevel: targetGradeLevel,
       section: cls.section || undefined,
     });
 
@@ -212,7 +212,7 @@ export const validatePromotionTarget = async (req: Request, res: Response): Prom
 
   const targetGradeLevel = Number(source.gradeLevel) + 1;
   const targetClass = await findPersistentTargetClass({
-    schoolId, department: source.department, gradeLevel: targetGradeLevel,
+    schoolId, gradeLevel: targetGradeLevel,
     section: source.section || undefined,
   });
 
