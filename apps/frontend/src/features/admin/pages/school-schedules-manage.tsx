@@ -5,8 +5,8 @@ import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import BulkEntityImportModal from './components/bulk-entity-import-modal';
 
-type Ref = { _id: string; title?: string; name?: string; section?: string; room?: string };
-type Teacher = { _id: string; teacherId?: string; profile?: { firstName?: string; lastName?: string }; user?: { email?: string } };
+export type Ref = { _id: string; title?: string; name?: string; section?: string; room?: string };
+export type Teacher = { _id: string; teacherId?: string; profile?: { firstName?: string; lastName?: string }; user?: { email?: string } };
 type Course = { _id: string; courseCode?: string; title: { en: string }; teacher?: Teacher | null; class?: Ref | null; status?: string };
 type Schedule = {
   _id: string;
@@ -38,7 +38,7 @@ const plusMinutes = (time: string, minutes: number) => {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 };
 
-function PeriodSettingsModal({ organizationId, onClose }: { organizationId: string; onClose: () => void }) {
+export function PeriodSettingsModal({ organizationId, onClose }: { organizationId: string; onClose: () => void }) {
   const [periods, setPeriods] = useState<PeriodRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -107,7 +107,7 @@ function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => 
   </>;
 }
 
-function ScheduleModal({ schedule, organizationId, classes, teachers, onClose, onSaved }: {
+export function ScheduleModal({ schedule, organizationId, classes, teachers, onClose, onSaved }: {
   schedule?: Schedule;
   organizationId: string;
   classes: Ref[];
