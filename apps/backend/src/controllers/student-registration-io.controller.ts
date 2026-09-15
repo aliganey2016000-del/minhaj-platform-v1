@@ -450,12 +450,33 @@ async function generateParentId(): Promise<string> {
   throw new ConflictError('Could not allocate a guardian ID. Please retry.');
 }
 
-async function linkGuardian(item: ParsedRegistration, student: any): Promise<void> {
+async function linkGuardian(item: ParsedRegistration, student: any, guardianLocks: Map<string, Promise<void>>): Promise<void> {
   if (!item.guardianName || !item.guardianPhone) return;
 
+  // Concurrent rows (see bulkImport's CONCURRENCY batching) can share the
+  // same guardian — most commonly siblings imported in the same file. Each
+  // row's guardian work below is a find-or-create sequence that is NOT
+  // atomic, so two rows racing on the same phone number would otherwise
+  // each create their own Parent record instead of sharing one. Serialize
+  // rows that share a phone number onto a single chain per key; different
+  // phone numbers still run fully concurrently.
+  const lockKey = `${item.schoolId}:${item.guardianPhone}`;
+  const previous = guardianLocks.get(lockKey) || Promise.resolve();
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => { release = resolve; });
+  guardianLocks.set(lockKey, previous.then(() => next));
+  await previous;
+  try {
+    await linkGuardianLocked(item, student);
+  } finally {
+    release();
+  }
+}
+
+async function linkGuardianLocked(item: ParsedRegistration, student: any): Promise<void> {
   const schoolId = item.schoolId!;
-  const guardianName = item.guardianName;
-  const guardianPhone = item.guardianPhone;
+  const guardianName = item.guardianName!;
+  const guardianPhone = item.guardianPhone!;
   const [firstName, ...rest] = guardianName.split(/\s+/);
   const lastName = rest.join(' ') || firstName;
 
@@ -534,7 +555,7 @@ async function linkGuardian(item: ParsedRegistration, student: any): Promise<voi
   student.parent = parent._id;
 }
 
-async function createStudent(item: ParsedRegistration): Promise<string> {
+async function createStudent(item: ParsedRegistration, guardianLocks: Map<string, Promise<void>>): Promise<string> {
   const email = item.email || await uniqueSystemEmail(`${item.firstName}.${item.lastName}`, 'student');
   const taken = await User.exists({ email });
   if (taken) throw new ConflictError(`Email "${email}" is already registered`);
@@ -573,7 +594,7 @@ async function createStudent(item: ParsedRegistration): Promise<string> {
 
   try {
     if (item.guardianName && item.guardianPhone) {
-      await linkGuardian(item, student);
+      await linkGuardian(item, student, guardianLocks);
       await student.save();
     }
     await syncStudentCourseEnrollment(student._id as mongoose.Types.ObjectId, cls.classId);
@@ -586,7 +607,7 @@ async function createStudent(item: ParsedRegistration): Promise<string> {
   }
 }
 
-async function updateStudent(item: ParsedRegistration): Promise<string> {
+async function updateStudent(item: ParsedRegistration, guardianLocks: Map<string, Promise<void>>): Promise<string> {
   const student = await Student.findById(item.existingStudentId);
   if (!student) throw new Error('Existing student could not be found');
 
@@ -616,7 +637,7 @@ async function updateStudent(item: ParsedRegistration): Promise<string> {
   if (item.hasEnrollmentDate && item.enrollmentDate) student.enrollmentDate = item.enrollmentDate;
   if (item.hasMedicalNotes) student.medicalNotes = item.medicalNotes || undefined;
 
-  if (item.guardianName && item.guardianPhone) await linkGuardian(item, student);
+  if (item.guardianName && item.guardianPhone) await linkGuardian(item, student, guardianLocks);
   await student.save();
 
   if (classChanged) {
@@ -651,22 +672,40 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   let created = 0;
   let updated = 0;
 
-  for (const item of parsed) {
+  // Each row does several sequential DB round trips (User create — which
+  // hashes a password — then Profile, Student, guardian linking, course
+  // enrollment sync), so importing hundreds of rows fully one-at-a-time was
+  // slow enough to blow past the reverse-proxy's request timeout on a large
+  // real-world file. The browser reported "Import failed" while the request
+  // kept running server-side and actually finished, leaving admins looking
+  // at stale/partial student counts until a manual refresh. Bounded
+  // concurrency keeps rows independent (each still awaits its own full
+  // create/update sequence) while running several at once.
+  const guardianLocks = new Map<string, Promise<void>>();
+  const CONCURRENCY = 10;
+  const importable = parsed.filter((item) => {
     if (item.action === 'duplicate' || item.action === 'class_not_found' || item.action === 'invalid') {
       errors.push({ row: item.row, action: item.action, message: item.message || 'Row is not ready to import' });
-      continue;
+      return false;
     }
-    try {
-      if (item.action === 'update') {
-        await updateStudent(item);
-        updated += 1;
-      } else {
-        await createStudent(item);
-        created += 1;
+    return true;
+  });
+
+  for (let index = 0; index < importable.length; index += CONCURRENCY) {
+    const batch = importable.slice(index, index + CONCURRENCY);
+    await Promise.all(batch.map(async (item) => {
+      try {
+        if (item.action === 'update') {
+          await updateStudent(item, guardianLocks);
+          updated += 1;
+        } else {
+          await createStudent(item, guardianLocks);
+          created += 1;
+        }
+      } catch (error: any) {
+        errors.push({ row: item.row, action: item.action, message: error?.message || 'Import failed' });
       }
-    } catch (error: any) {
-      errors.push({ row: item.row, action: item.action, message: error?.message || 'Import failed' });
-    }
+    }));
   }
 
   const preview = previewPayload(parsed);
