@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import type { Request, Response } from 'express';
 import Student from '../models/student.model';
 import Course from '../models/course.model';
@@ -6,7 +7,7 @@ import QuizAttempt from '../models/quiz-attempt.model';
 import LessonBlockProgress from '../models/lesson-block-progress.model';
 import Progress from '../models/progress.model';
 import ApiResponse from '../utils/api-response';
-import { NotFoundError } from '../utils/api-error';
+import { BadRequestError, NotFoundError } from '../utils/api-error';
 
 type ActivityType = 'interactive_lesson' | 'quiz';
 
@@ -35,6 +36,73 @@ function gateScore(progress: any) {
   const total = firstAttempts.length;
   const score = firstAttempts.filter((a: any) => a.correct).length;
   return { score, total, percentage: total ? Math.round((score / total) * 100) : 0 };
+}
+
+function findContentItem(content: any, itemId: string) {
+  for (const chapter of content?.chapters || []) {
+    for (const item of chapter.items || []) {
+      if (String(item?._id || '') === itemId) {
+        return { item, chapterTitle: chapter.title || 'General' };
+      }
+    }
+  }
+  return null;
+}
+
+function blockQuestions(block: any): any[] {
+  if (Array.isArray(block?.questions)) return block.questions;
+  return block?.question ? [block.question] : [];
+}
+
+function correctAnswerFor(question: any): unknown {
+  switch (question?.type) {
+    case 'mcq':
+      return Array.isArray(question.options) && typeof question.correctIndex === 'number'
+        ? question.options[question.correctIndex]
+        : null;
+    case 'picture_choice':
+      if (!Array.isArray(question.choices) || typeof question.correctIndex !== 'number') return null;
+      return question.choices[question.correctIndex] || null;
+    case 'true_false':
+      return typeof question.correctAnswer === 'boolean' ? question.correctAnswer : null;
+    case 'matching':
+      return Array.isArray(question.pairs) ? question.pairs : [];
+    case 'ordering':
+      return Array.isArray(question.items) ? question.items : [];
+    case 'swipe_sort':
+      return Array.isArray(question.cards)
+        ? question.cards.map((card: any) => ({ text: card.text, side: card.correctSide }))
+        : [];
+    case 'listen_write':
+      return question.correctText ?? null;
+    case 'fill_blank':
+      return Array.isArray(question.blanks) ? question.blanks : [];
+    case 'word_scramble':
+      return question.answer ?? null;
+    case 'sentence_build':
+      return Array.isArray(question.words) ? question.words : [];
+    default:
+      return null;
+  }
+}
+
+function displayAnswer(question: any, answer: unknown): unknown {
+  if (answer === undefined || answer === null) return null;
+
+  if (question?.type === 'picture_choice' && typeof answer === 'string' && Array.isArray(question.choices)) {
+    const choice = question.choices.find((entry: any) => entry?.image === answer);
+    return choice?.label || answer;
+  }
+
+  if (question?.type === 'mcq' && typeof answer === 'number' && Array.isArray(question.options)) {
+    return question.options[answer] ?? answer;
+  }
+
+  if (question?.type === 'true_false' && typeof answer === 'boolean') {
+    return answer ? 'True' : 'False';
+  }
+
+  return answer;
 }
 
 export const getMyPerformance = async (req: Request, res: Response): Promise<Response> => {
@@ -203,5 +271,180 @@ export const getMyPerformance = async (req: Request, res: Response): Promise<Res
     weekly,
     strongAreas: areas.slice(0, 3),
     areasToImprove: [...areas].sort((a, b) => a.score - b.score).slice(0, 3),
+  });
+};
+
+export const getMyAttemptDetail = async (req: Request, res: Response): Promise<Response> => {
+  const { type, id } = req.params;
+  if (type !== 'quiz' && type !== 'interactive_lesson') {
+    throw new BadRequestError('type must be quiz or interactive_lesson');
+  }
+  if (!mongoose.Types.ObjectId.isValid(id)) throw new NotFoundError('Attempt');
+
+  const student = await Student.findOne({ user: req.user!.userId }).select('_id').lean();
+  if (!student) throw new NotFoundError('Student');
+
+  if (type === 'quiz') {
+    const attempt: any = await QuizAttempt.findOne({ _id: id, student: student._id }).lean();
+    if (!attempt) throw new NotFoundError('Quiz attempt');
+
+    const [course, content, attemptHistory] = await Promise.all([
+      Course.findById(attempt.course).select('title').lean(),
+      CourseContent.findOne({ course: attempt.course }).lean(),
+      QuizAttempt.find({
+        student: student._id,
+        course: attempt.course,
+        quizId: attempt.quizId,
+      }).sort({ createdAt: 1 }).lean(),
+    ]);
+    if (!content) throw new NotFoundError('Course content');
+
+    const located = findContentItem(content, String(attempt.quizId));
+    if (!located || located.item?.type !== 'quiz') throw new NotFoundError('Quiz');
+
+    const answerMap = new Map((attempt.answers || []).map((answer: any) => [String(answer.questionId), answer]));
+    const questions = (located.item.questions || []).map((question: any, index: number) => {
+      const questionId = String(question?._id || '');
+      const answer: any = answerMap.get(questionId);
+      const possiblePoints = typeof question.points === 'number' ? question.points : 1;
+      const rawCorrectAnswer = correctAnswerFor(question);
+      return {
+        key: questionId || `question-${index}`,
+        number: index + 1,
+        questionId,
+        type: question.type || 'mcq',
+        question: question.question || `Question ${index + 1}`,
+        selectedAnswer: answer?.selectedAnswer ?? null,
+        selectedAnswerDisplay: displayAnswer(question, answer?.selectedAnswer),
+        correctAnswer: rawCorrectAnswer,
+        correctAnswerDisplay: displayAnswer(question, rawCorrectAnswer),
+        correct: Boolean(answer?.correct),
+        earnedPoints: Number(answer?.points || 0),
+        possiblePoints,
+        explanation: question.explanation || '',
+      };
+    });
+
+    const history = (attemptHistory as any[]).map((row, index) => ({
+      id: String(row._id),
+      attemptNumber: index + 1,
+      score: Number(row.score || 0),
+      totalPoints: Number(row.totalPoints || 0),
+      percentage: Math.round(Number(row.percentage || 0)),
+      passed: Boolean(row.passed),
+      durationSeconds: Number(row.durationSeconds || 0),
+      isFirstAttempt: Boolean(row.isFirstAttempt),
+      date: row.createdAt,
+    }));
+    const attemptNumber = Math.max(1, history.find((row) => row.id === String(attempt._id))?.attemptNumber || history.length);
+
+    return ApiResponse.success(res, {
+      type: 'quiz',
+      course: { id: String(attempt.course), title: (course as any)?.title || 'Course' },
+      chapterTitle: located.chapterTitle,
+      activity: {
+        id: String(attempt._id),
+        title: located.item.title || 'Quiz',
+        status: attempt.passed ? 'Passed' : 'Needs Review',
+        date: attempt.createdAt,
+      },
+      summary: {
+        score: Number(attempt.score || 0),
+        totalPoints: Number(attempt.totalPoints || 0),
+        percentage: Math.round(Number(attempt.percentage || 0)),
+        passed: Boolean(attempt.passed),
+        attemptNumber,
+        totalAttempts: history.length,
+        durationSeconds: Number(attempt.durationSeconds || 0),
+      },
+      questions,
+      attemptHistory: history,
+    });
+  }
+
+  const gate: any = await LessonBlockProgress.findOne({ _id: id, student: student._id }).lean();
+  if (!gate) throw new NotFoundError('Interactive lesson attempt');
+
+  const [course, content] = await Promise.all([
+    Course.findById(gate.course).select('title').lean(),
+    CourseContent.findOne({ course: gate.course }).lean(),
+  ]);
+  if (!content) throw new NotFoundError('Course content');
+
+  const located = findContentItem(content, String(gate.lessonId));
+  if (!located || located.item?.type !== 'lesson') throw new NotFoundError('Lesson');
+
+  const attemptsByQuestion = new Map<string, any[]>();
+  for (const row of gate.attempts || []) {
+    const key = `${row.blockIndex}:${row.questionIndex ?? 0}`;
+    const list = attemptsByQuestion.get(key) || [];
+    list.push(row);
+    attemptsByQuestion.set(key, list);
+  }
+
+  const questions: any[] = [];
+  for (let blockIndex = 0; blockIndex < (located.item.contentBlocks || []).length; blockIndex += 1) {
+    const block = located.item.contentBlocks[blockIndex];
+    const blockQuestionList = blockQuestions(block);
+    for (let questionIndex = 0; questionIndex < blockQuestionList.length; questionIndex += 1) {
+      const question = blockQuestionList[questionIndex];
+      const key = `${blockIndex}:${questionIndex}`;
+      const history = (attemptsByQuestion.get(key) || [])
+        .sort((a: any, b: any) => new Date(a.attemptedAt).getTime() - new Date(b.attemptedAt).getTime());
+      if (history.length === 0) continue;
+
+      const first = history[0];
+      const rawCorrectAnswer = correctAnswerFor(question);
+      questions.push({
+        key,
+        number: questions.length + 1,
+        type: question.type || 'mcq',
+        question: question.question || `Question ${questions.length + 1}`,
+        blockTitle: block.title || `Section ${blockIndex + 1}`,
+        selectedAnswer: first.selectedAnswer ?? null,
+        selectedAnswerDisplay: displayAnswer(question, first.selectedAnswer),
+        correctAnswer: rawCorrectAnswer,
+        correctAnswerDisplay: displayAnswer(question, rawCorrectAnswer),
+        correct: Boolean(first.correct),
+        earnedPoints: first.correct ? 1 : 0,
+        possiblePoints: 1,
+        explanation: question.explanation || '',
+        attempts: history.map((row: any, index: number) => ({
+          attemptNumber: index + 1,
+          selectedAnswer: row.selectedAnswer ?? null,
+          selectedAnswerDisplay: displayAnswer(question, row.selectedAnswer),
+          correct: Boolean(row.correct),
+          attemptedAt: row.attemptedAt,
+          timeSpentSeconds: Number(row.timeSpentSeconds || 0),
+        })),
+      });
+    }
+  }
+
+  const score = gateScore(gate);
+  return ApiResponse.success(res, {
+    type: 'interactive_lesson',
+    course: { id: String(gate.course), title: (course as any)?.title || 'Course' },
+    chapterTitle: located.chapterTitle,
+    activity: {
+      id: String(gate._id),
+      title: located.item.title || 'Interactive Lesson',
+      status: gate.gateCompleted ? 'Completed' : 'In Progress',
+      date: gate.updatedAt || gate.createdAt,
+    },
+    summary: {
+      score: score.score,
+      totalPoints: score.total,
+      percentage: score.percentage,
+      passed: Boolean(gate.gateCompleted),
+      attemptNumber: 1,
+      totalAttempts: Number((gate.attempts || []).length),
+      durationSeconds: Number((gate.attempts || []).reduce(
+        (sum: number, row: any) => sum + Number(row.timeSpentSeconds || 0),
+        0,
+      )),
+    },
+    questions,
+    attemptHistory: [],
   });
 };
