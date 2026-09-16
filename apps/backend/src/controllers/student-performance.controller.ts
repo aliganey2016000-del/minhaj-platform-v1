@@ -13,6 +13,7 @@ type ActivityType = 'interactive_lesson' | 'quiz';
 
 interface ActivityRow {
   id: string;
+  periodId: string;
   courseId: string;
   courseTitle: any;
   chapterTitle: string;
@@ -24,6 +25,18 @@ interface ActivityRow {
   status: string;
   date: Date;
   attempts?: number;
+}
+
+interface PerformancePeriodSeed {
+  id: string;
+  academicYear: string;
+  class: any;
+  grade?: string;
+  status: 'active' | 'completed' | 'graduated';
+  isCurrent: boolean;
+  startedAt?: Date;
+  endedAt?: Date;
+  courseIds: string[];
 }
 
 function gateScore(progress: any) {
@@ -105,32 +118,112 @@ function displayAnswer(question: any, answer: unknown): unknown {
   return answer;
 }
 
+function classSnapshot(value: any, fallbackTitle?: string) {
+  if (!value) return fallbackTitle ? { _id: '', title: fallbackTitle } : null;
+  if (typeof value === 'object' && value._id) {
+    return {
+      _id: String(value._id),
+      title: value.title || fallbackTitle || 'Class',
+      section: value.section || '',
+      academicYear: value.academicYear || '',
+    };
+  }
+  return { _id: String(value), title: fallbackTitle || 'Class', section: '', academicYear: '' };
+}
+
+function uniqueIds(values: any[]): string[] {
+  return Array.from(new Set(values.map((value) => String(value?._id || value || '')).filter(Boolean)));
+}
+
+function dateValue(value: unknown): number {
+  const time = value ? new Date(value as any).getTime() : NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function resolvePeriodId(periods: PerformancePeriodSeed[], courseId: string, activityDate: unknown): string | null {
+  const candidates = periods.filter((period) => period.courseIds.includes(courseId));
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0].id;
+
+  const at = dateValue(activityDate);
+  if (at) {
+    const exact = candidates.find((period) => {
+      const start = dateValue(period.startedAt);
+      const end = dateValue(period.endedAt);
+      return (!start || at >= start) && (!end || at <= end);
+    });
+    if (exact) return exact.id;
+
+    const startedBefore = [...candidates]
+      .filter((period) => dateValue(period.startedAt) <= at)
+      .sort((a, b) => dateValue(b.startedAt) - dateValue(a.startedAt))[0];
+    if (startedBefore) return startedBefore.id;
+  }
+
+  return candidates.find((period) => period.isCurrent)?.id
+    || [...candidates].sort((a, b) => dateValue(b.startedAt) - dateValue(a.startedAt))[0].id;
+}
+
 export const getMyPerformance = async (req: Request, res: Response): Promise<Response> => {
-  const student = await Student.findOne({ user: req.user!.userId })
-    .populate('class', 'title section')
+  const student: any = await Student.findOne({ user: req.user!.userId })
+    .populate('class', 'title section academicYear')
+    .populate('enrollmentHistory.class', 'title section academicYear')
     .lean();
   if (!student) throw new NotFoundError('Student');
 
-  const courseIds = (student.enrolledCourses || []).map((id: any) => String(id));
-  if (courseIds.length === 0) {
-    return ApiResponse.success(res, {
-      student: { class: (student as any).class || null },
-      summary: { overallScore: 0, interactiveLessonAvg: 0, quizAvg: 0, completedActivities: 0, totalActivities: 0 },
-      courses: [], activities: [], weekly: [], strongAreas: [], areasToImprove: [],
+  const currentEnrolledCourseIds = uniqueIds(student.enrolledCourses || []);
+  const history = Array.isArray(student.enrollmentHistory) ? student.enrollmentHistory : [];
+
+  let periods: PerformancePeriodSeed[] = history.map((entry: any, index: number) => ({
+    id: String(entry?._id || `history-${index}`),
+    academicYear: entry.academicYear || 'Academic Year',
+    class: classSnapshot(entry.class, entry.grade),
+    grade: entry.grade || entry.class?.title || undefined,
+    status: entry.status || 'completed',
+    isCurrent: false,
+    startedAt: entry.startedAt ? new Date(entry.startedAt) : undefined,
+    endedAt: entry.endedAt ? new Date(entry.endedAt) : undefined,
+    courseIds: uniqueIds(entry.courses || []),
+  }));
+
+  const activePeriod = [...periods]
+    .filter((period) => period.status === 'active')
+    .sort((a, b) => dateValue(b.startedAt) - dateValue(a.startedAt))[0];
+
+  if (activePeriod) {
+    activePeriod.isCurrent = true;
+    activePeriod.courseIds = uniqueIds([...activePeriod.courseIds, ...currentEnrolledCourseIds]);
+  } else if (currentEnrolledCourseIds.length > 0) {
+    const currentClass = classSnapshot(student.class);
+    periods.push({
+      id: `current:${currentClass?._id || 'unassigned'}`,
+      academicYear: currentClass?.academicYear || 'Current',
+      class: currentClass,
+      grade: currentClass?.title,
+      status: 'active',
+      isCurrent: true,
+      startedAt: student.enrollmentDate ? new Date(student.enrollmentDate) : undefined,
+      courseIds: currentEnrolledCourseIds,
     });
   }
 
+  periods = periods.sort((a, b) => {
+    if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+    return dateValue(b.startedAt) - dateValue(a.startedAt);
+  });
+
+  const allCourseIds = uniqueIds(periods.flatMap((period) => period.courseIds));
   const [courses, contents, quizAttempts, gateProgress, progressDocs] = await Promise.all([
-    Course.find({ _id: { $in: courseIds } }).select('title').lean(),
-    CourseContent.find({ course: { $in: courseIds } }).lean(),
-    QuizAttempt.find({ student: student._id, course: { $in: courseIds } }).sort({ createdAt: -1 }).lean(),
-    LessonBlockProgress.find({ student: student._id, course: { $in: courseIds } }).lean(),
-    Progress.find({ student: student._id, course: { $in: courseIds } }).lean(),
+    Course.find({ _id: { $in: allCourseIds } }).select('title').lean(),
+    CourseContent.find({ course: { $in: allCourseIds } }).lean(),
+    QuizAttempt.find({ student: student._id, course: { $in: allCourseIds } }).sort({ createdAt: -1 }).lean(),
+    LessonBlockProgress.find({ student: student._id, course: { $in: allCourseIds } }).lean(),
+    Progress.find({ student: student._id, course: { $in: allCourseIds } }).lean(),
   ]);
 
-  const courseMap = new Map(courses.map((c: any) => [String(c._id), c]));
-  const contentMap = new Map(contents.map((c: any) => [String(c.course), c]));
-  const progressMap = new Map(progressDocs.map((p: any) => [String(p.course), p]));
+  const courseMap = new Map(courses.map((course: any) => [String(course._id), course]));
+  const contentMap = new Map(contents.map((content: any) => [String(content.course), content]));
+  const progressMap = new Map(progressDocs.map((progress: any) => [String(progress.course), progress]));
   const itemMap = new Map<string, { courseId: string; courseTitle: any; title: string; type: string; chapterTitle: string }>();
 
   for (const content of contents as any[]) {
@@ -153,8 +246,12 @@ export const getMyPerformance = async (req: Request, res: Response): Promise<Res
   const activities: ActivityRow[] = [];
   const latestQuizByKey = new Map<string, any>();
   const quizAttemptCount = new Map<string, number>();
+
   for (const attempt of quizAttempts as any[]) {
-    const key = `${String(attempt.course)}:${String(attempt.quizId)}`;
+    const courseId = String(attempt.course);
+    const periodId = resolvePeriodId(periods, courseId, attempt.createdAt);
+    if (!periodId) continue;
+    const key = `${periodId}:${courseId}:${String(attempt.quizId)}`;
     quizAttemptCount.set(key, (quizAttemptCount.get(key) || 0) + 1);
     if (!latestQuizByKey.has(key)) latestQuizByKey.set(key, attempt);
   }
@@ -162,8 +259,10 @@ export const getMyPerformance = async (req: Request, res: Response): Promise<Res
   for (const [key, attempt] of latestQuizByKey) {
     const item = itemMap.get(String(attempt.quizId));
     if (!item) continue;
+    const periodId = key.split(':', 1)[0];
     activities.push({
       id: String(attempt._id),
+      periodId,
       courseId: item.courseId,
       courseTitle: item.courseTitle,
       chapterTitle: item.chapterTitle,
@@ -173,7 +272,7 @@ export const getMyPerformance = async (req: Request, res: Response): Promise<Res
       total: Number(attempt.totalPoints || 0),
       percentage: Math.round(Number(attempt.percentage || 0)),
       status: attempt.passed ? 'Completed' : 'Needs Review',
-      date: attempt.createdAt,
+      date: new Date(attempt.createdAt || 0),
       attempts: quizAttemptCount.get(key) || 1,
     });
   }
@@ -182,9 +281,13 @@ export const getMyPerformance = async (req: Request, res: Response): Promise<Res
     if (!(gate.attempts || []).length) continue;
     const item = itemMap.get(String(gate.lessonId));
     if (!item) continue;
+    const date = gate.updatedAt || gate.createdAt;
+    const periodId = resolvePeriodId(periods, item.courseId, date);
+    if (!periodId) continue;
     const score = gateScore(gate);
     activities.push({
       id: String(gate._id),
+      periodId,
       courseId: item.courseId,
       courseTitle: item.courseTitle,
       chapterTitle: item.chapterTitle,
@@ -194,37 +297,87 @@ export const getMyPerformance = async (req: Request, res: Response): Promise<Res
       total: score.total,
       percentage: score.percentage,
       status: gate.gateCompleted ? 'Completed' : 'In Progress',
-      date: gate.updatedAt || gate.createdAt,
+      date: new Date(date || 0),
     });
   }
 
-  activities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  activities.sort((a, b) => b.date.getTime() - a.date.getTime());
+  const avg = (rows: ActivityRow[]) => rows.length
+    ? Math.round(rows.reduce((sum, row) => sum + row.percentage, 0) / rows.length)
+    : 0;
 
-  const interactive = activities.filter((a) => a.type === 'interactive_lesson');
-  const quizzes = activities.filter((a) => a.type === 'quiz');
-  const avg = (rows: ActivityRow[]) => rows.length ? Math.round(rows.reduce((s, r) => s + r.percentage, 0) / rows.length) : 0;
+  const coursePeriodCount = new Map<string, number>();
+  for (const period of periods) {
+    for (const courseId of period.courseIds) {
+      coursePeriodCount.set(courseId, (coursePeriodCount.get(courseId) || 0) + 1);
+    }
+  }
 
-  const courseRows = courses.map((course: any) => {
-    const courseId = String(course._id);
-    const content: any = contentMap.get(courseId);
-    const progress: any = progressMap.get(courseId);
-    const courseActivities = activities.filter((a) => a.courseId === courseId);
-    const completed = Number(progress?.completedLessons || 0) + Number(progress?.completedQuizzes || 0) + Number(progress?.completedAssignments || 0);
-    const totalItems = Number(progress?.totalItems || 0);
+  const periodPayloads = periods.map((period) => {
+    const periodActivities = activities.filter((row) => row.periodId === period.id);
+    const existingCourseIds = period.courseIds.filter((courseId) => courseMap.has(courseId));
+    const periodCourses = existingCourseIds.map((courseId) => {
+      const course: any = courseMap.get(courseId);
+      const content: any = contentMap.get(courseId);
+      const progress: any = progressMap.get(courseId);
+      const courseActivities = periodActivities.filter((row) => row.courseId === courseId);
+      const progressAvailable = (coursePeriodCount.get(courseId) || 0) === 1 || period.isCurrent;
+      const completed = progressAvailable
+        ? Number(progress?.completedLessons || 0) + Number(progress?.completedQuizzes || 0) + Number(progress?.completedAssignments || 0)
+        : 0;
+      const totalItems = progressAvailable ? Number(progress?.totalItems || 0) : 0;
+      return {
+        courseId,
+        title: course.title,
+        lessonsCompleted: progressAvailable ? Number(progress?.completedLessons || 0) : 0,
+        totalLessons: Number(content?.totalLessons || 0),
+        quizzesCompleted: progressAvailable ? Number(progress?.completedQuizzes || 0) : 0,
+        totalQuizzes: Number(content?.totalQuizzes || 0),
+        averageScore: avg(courseActivities),
+        progressPercent: totalItems ? Math.min(100, Math.round((completed / totalItems) * 100)) : 0,
+        progressAvailable,
+      };
+    });
+
+    const interactive = periodActivities.filter((row) => row.type === 'interactive_lesson');
+    const quizzes = periodActivities.filter((row) => row.type === 'quiz');
+    const totalActivities = existingCourseIds.reduce((sum, courseId) => {
+      const content: any = contentMap.get(courseId);
+      if (!content) return sum;
+      let interactiveCount = 0;
+      for (const chapter of content.chapters || []) {
+        for (const item of chapter.items || []) {
+          if (item.type === 'lesson' && item.deliveryMode === 'interactive_gate') interactiveCount += 1;
+        }
+      }
+      return sum + interactiveCount + Number(content.totalQuizzes || 0);
+    }, 0);
+
     return {
-      courseId,
-      title: course.title,
-      lessonsCompleted: Number(progress?.completedLessons || 0),
-      totalLessons: Number(content?.totalLessons || 0),
-      quizzesCompleted: Number(progress?.completedQuizzes || 0),
-      totalQuizzes: Number(content?.totalQuizzes || 0),
-      averageScore: avg(courseActivities),
-      progressPercent: totalItems ? Math.min(100, Math.round((completed / totalItems) * 100)) : 0,
+      id: period.id,
+      academicYear: period.academicYear,
+      class: period.class,
+      grade: period.grade,
+      status: period.status,
+      isCurrent: period.isCurrent,
+      startedAt: period.startedAt || null,
+      endedAt: period.endedAt || null,
+      summary: {
+        overallScore: avg(periodActivities),
+        interactiveLessonAvg: avg(interactive),
+        quizAvg: avg(quizzes),
+        completedActivities: periodActivities.filter((row) => row.status === 'Completed').length,
+        totalActivities,
+      },
+      courses: periodCourses,
+      activities: periodActivities,
     };
   });
 
+  const currentPeriod = periodPayloads.find((period) => period.isCurrent) || periodPayloads[0] || null;
+  const currentActivities: ActivityRow[] = currentPeriod?.activities || [];
   const areaMap = new Map<string, number[]>();
-  for (const row of activities) {
+  for (const row of currentActivities) {
     const list = areaMap.get(row.chapterTitle) || [];
     list.push(row.percentage);
     areaMap.set(row.chapterTitle, list);
@@ -236,38 +389,29 @@ export const getMyPerformance = async (req: Request, res: Response): Promise<Res
 
   const now = new Date();
   const weekly = Array.from({ length: 7 }, (_, index) => {
-    const d = new Date(now);
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - (6 - index));
-    const next = new Date(d); next.setDate(next.getDate() + 1);
-    const rows = activities.filter((a) => {
-      const at = new Date(a.date);
-      return at >= d && at < next;
-    });
-    return { date: d.toISOString(), count: rows.length, averageScore: avg(rows) };
+    const day = new Date(now);
+    day.setHours(0, 0, 0, 0);
+    day.setDate(day.getDate() - (6 - index));
+    const next = new Date(day);
+    next.setDate(next.getDate() + 1);
+    const rows = currentActivities.filter((row) => row.date >= day && row.date < next);
+    return { date: day.toISOString(), count: rows.length, averageScore: avg(rows) };
   });
 
-  const totalActivities = contents.reduce((sum: number, content: any) => {
-    let interactiveCount = 0;
-    for (const chapter of content.chapters || []) {
-      for (const item of chapter.items || []) {
-        if (item.type === 'lesson' && item.deliveryMode === 'interactive_gate') interactiveCount += 1;
-      }
-    }
-    return sum + interactiveCount + Number(content.totalQuizzes || 0);
-  }, 0);
+  const emptySummary = {
+    overallScore: 0,
+    interactiveLessonAvg: 0,
+    quizAvg: 0,
+    completedActivities: 0,
+    totalActivities: 0,
+  };
 
   return ApiResponse.success(res, {
-    student: { class: (student as any).class || null },
-    summary: {
-      overallScore: avg(activities),
-      interactiveLessonAvg: avg(interactive),
-      quizAvg: avg(quizzes),
-      completedActivities: activities.filter((a) => a.status === 'Completed').length,
-      totalActivities,
-    },
-    courses: courseRows,
-    activities,
+    student: { class: classSnapshot(student.class) },
+    summary: currentPeriod?.summary || emptySummary,
+    courses: currentPeriod?.courses || [],
+    activities: currentPeriod?.activities || [],
+    periods: periodPayloads,
     weekly,
     strongAreas: areas.slice(0, 3),
     areasToImprove: [...areas].sort((a, b) => a.score - b.score).slice(0, 3),
