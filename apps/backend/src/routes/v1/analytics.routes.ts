@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as analyticsController from '../../controllers/analytics.controller';
+import * as performanceInsightsController from '../../controllers/performance-insights.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOnly } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -10,5 +11,6 @@ router.use(authMiddleware);
 router.use(adminOnly);
 
 router.get('/dashboard', asyncHandler(analyticsController.getDashboardStats));
+router.get('/performance', asyncHandler(performanceInsightsController.getAdminPerformance));
 
 export default router;
