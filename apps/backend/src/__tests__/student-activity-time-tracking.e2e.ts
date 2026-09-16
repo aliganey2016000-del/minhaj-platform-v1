@@ -178,10 +178,15 @@ async function main() {
   section('SPAN RESOLUTION — a wrong device clock cannot write nonsense');
   const now = new Date('2026-09-16T10:00:00.000Z');
   const ahead = new Date(now.getTime() + 60 * 60_000);
+  // An impossible span collapses to the instant it reported starting at:
+  // the start is still a real observation, the end is not, and the duration
+  // stays unmeasured rather than being stored as negative time.
   const backwards = resolveActivitySpan({ startedAt: now, endedAt: new Date(now.getTime() - 60_000) }, now);
+  assert(backwards.durationSeconds === undefined, `an end before its own start never becomes a duration (got ${backwards.durationSeconds})`);
+  assert(backwards.startedAt?.getTime() === now.getTime(), 'the start it reported is kept');
   assert(
-    backwards.startedAt?.getTime() === now.getTime() && backwards.endedAt === undefined,
-    'an end before its own start is dropped rather than stored as negative time',
+    (backwards.endedAt?.getTime() ?? 0) >= (backwards.startedAt?.getTime() ?? 0),
+    'the stored end never precedes the stored start',
   );
   const future = resolveActivitySpan({ startedAt: ahead, endedAt: ahead, durationSeconds: 30 }, now);
   assert(
