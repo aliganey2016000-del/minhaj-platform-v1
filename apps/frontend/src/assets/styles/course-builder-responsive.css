@@ -33,6 +33,22 @@
 /* Remove the old helper sentence under the builder title. */
 .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > div:first-child > p { display: none; }
 
+/* The builder has one save action only: the bottom Save All Changes button. */
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type {
+  position: relative;
+}
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 > button:first-of-type {
+  display: none;
+}
+
+/* Keep the three-dot builder actions aligned with the title's right corner. */
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+}
+
 /* Duration is intentionally removed from the visual dashboard. */
 .institution-course-builder-approved .grid.grid-cols-2.sm\:grid-cols-4.lg\:grid-cols-6 > :nth-child(7) { display: none; }
 
@@ -58,8 +74,16 @@
   }
 
   .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type { margin-bottom: 76px; gap: 10px; }
-  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h1 { font-size: 1.5rem; line-height: 1.16; letter-spacing: -.025em; padding-right: 42px; }
-  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 { flex-wrap: wrap; }
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h1 { font-size: 1.5rem; line-height: 1.16; letter-spacing: -.025em; padding-right: 52px; }
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 {
+    right: 0;
+    bottom: 0;
+    flex-wrap: nowrap;
+  }
+  /* Saved timestamp is redundant beside the title; the bottom save button remains the single save control. */
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 > span {
+    display: none;
+  }
 
   .institution-course-builder-approved button,
   .institution-course-builder-approved input,
