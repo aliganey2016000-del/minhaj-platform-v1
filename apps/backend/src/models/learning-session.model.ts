@@ -4,7 +4,13 @@
  */
 import mongoose, { Document, Schema } from 'mongoose';
 
-export type LearningSessionKind = 'lesson' | 'video' | 'audio' | 'pdf' | 'course' | 'general';
+/**
+ * 'page' covers time on any student screen that is not a lesson — the
+ * dashboard, assignments, the schedule, a quiz. Without it the tracker had
+ * nowhere to record that time, so a sign-in spent anywhere but inside a
+ * lesson came back as "signed in, no activity recorded".
+ */
+export type LearningSessionKind = 'lesson' | 'video' | 'audio' | 'pdf' | 'course' | 'page' | 'general';
 
 export interface ILearningSession extends Document {
   _id: mongoose.Types.ObjectId;
@@ -37,7 +43,7 @@ const schema = new Schema<ILearningSession>({
   user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
   school: { type: Schema.Types.ObjectId, ref: 'School', index: true },
-  kind: { type: String, enum: ['lesson', 'video', 'audio', 'pdf', 'course', 'general'], required: true, index: true },
+  kind: { type: String, enum: ['lesson', 'video', 'audio', 'pdf', 'course', 'page', 'general'], required: true, index: true },
   course: { type: Schema.Types.ObjectId, ref: 'Course', index: true },
   lessonId: { type: String, index: true },
   lessonTitle: { type: String, default: '' },

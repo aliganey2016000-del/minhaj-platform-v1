@@ -21,6 +21,71 @@ function useBrowserPathname() {
   return pathname;
 }
 
+const LEARN_ROUTE = /^\/student\/courses\/[^/]+\/learn(?:\/|$)/i;
+
+/**
+ * Readable names for the student screens, so a session reads "Assignments"
+ * rather than a URL. Anything unlisted falls back to its last path segment.
+ */
+const PAGE_NAMES: Record<string, string> = {
+  dashboard: 'Dashboard',
+  courses: 'My Courses',
+  available: 'Browse Courses',
+  assignments: 'Assignments',
+  downloads: 'Downloads',
+  exams: 'Exams',
+  attendance: 'Attendance',
+  certificates: 'Certificates',
+  bookmarks: 'Bookmarks',
+  notifications: 'Notifications',
+  profile: 'Profile',
+  settings: 'Settings',
+  schedule: 'My Schedule',
+  payments: 'Payments',
+  analytics: 'My Progress',
+  quiz: 'Quiz',
+  'ai-tutor': 'AI Tutor',
+};
+
+function readablePageName(pathname: string): string {
+  const segments = pathname.split('/').filter(Boolean).slice(1); // drop "student"
+  if (!segments.length) return 'Dashboard';
+  // Prefer the deepest segment that names a screen rather than an id, so
+  // /student/courses/<id> reads "My Courses" and /student/exams/<id>/review
+  // reads "Exams" instead of a bare object id.
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const named = PAGE_NAMES[segments[index].toLowerCase()];
+    if (named) return named;
+  }
+  const last = segments[segments.length - 1];
+  return last.charAt(0).toUpperCase() + last.slice(1).replace(/[-_]/g, ' ');
+}
+
+/**
+ * Posts while the page is being torn down. A normal axios call is abandoned
+ * the moment the tab closes, which is exactly when the tail of a visit would
+ * otherwise be lost; `keepalive` lets the browser finish the request after the
+ * document is gone. Mirrors the auth headers the axios instance adds.
+ */
+function sendOnUnload(path: string, body: unknown): void {
+  const token = localStorage.getItem('accessToken');
+  const loginSessionId = localStorage.getItem('loginSessionId');
+  try {
+    void fetch(`/api/v1${path}`, {
+      method: 'POST',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(loginSessionId ? { 'X-Login-Session-Id': loginSessionId } : {}),
+      },
+      body: JSON.stringify(body),
+    }).catch(() => {});
+  } catch {
+    // A keepalive fetch can throw synchronously mid-unload in some browsers.
+  }
+}
+
 interface ActiveItem { courseId?: string; lessonId?: string; title: string; kind?: string }
 
 let announcedItem: ActiveItem | null = null;
@@ -55,7 +120,7 @@ export function LearningSessionTracker() {
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== 'student') return;
-    if (!/^\/student\/courses\/[^/]+\/learn(?:\/|$)/i.test(pathname)) return;
+    if (!LEARN_ROUTE.test(pathname)) return;
 
     let cancelled = false;
     const courseId = pathname.match(/^\/student\/courses\/([^/]+)\/learn/i)?.[1];
@@ -170,6 +235,102 @@ export function LearningSessionTracker() {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
       void endCurrent();
+    };
+  }, [isAuthenticated, user?.id, user?.role, pathname]);
+
+  /**
+   * Every other student screen. Lesson pages are handled above — tracking them
+   * here too would count the same minutes twice — but everything else (the
+   * dashboard, assignments, the schedule, a quiz) had no timer at all, which
+   * is why a sign-in spent anywhere but inside a lesson reported no study time
+   * and its day read "Time not recorded".
+   */
+  useEffect(() => {
+    if (!isAuthenticated || user?.role !== 'student') return;
+    if (!pathname.startsWith('/student')) return;
+    if (LEARN_ROUTE.test(pathname)) return;
+
+    const enteredAt = new Date();
+    const title = readablePageName(pathname);
+    const clientSessionId = `web-page-${user.id}-${enteredAt.getTime()}-${Math.random().toString(36).slice(2, 10)}`;
+    let startPromise: Promise<void> | null = null;
+    let started = false;
+    let finished = false;
+
+    // A redirect or an instantly-abandoned click is not a visit. Waiting a
+    // moment before opening a session keeps those out of the record entirely;
+    // the cost is under-counting a real visit by this much, which is the safe
+    // direction to be wrong in for a report of how long a student studied.
+    const startTimer = window.setTimeout(() => {
+      startPromise = api
+        .post('/activity/session/start', {
+          clientSessionId,
+          kind: 'page',
+          resourceName: title,
+          metadata: { path: pathname, trackingVersion: 6 },
+        })
+        .then(() => { started = true; })
+        .catch(() => { /* Tracking must never interrupt learning. */ });
+    }, 2000);
+
+    const heartbeat = async () => {
+      if (!started || finished) return;
+      try {
+        await api.post('/activity/session/heartbeat', {
+          clientSessionId,
+          active: document.visibilityState === 'visible',
+        });
+      } catch {
+        // Tracking must never interrupt learning.
+      }
+    };
+    const timer = window.setInterval(heartbeat, 20_000);
+
+    const finish = (unloading: boolean) => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(startTimer);
+      const leftAt = new Date();
+      const endBody = { clientSessionId, active: document.visibilityState === 'visible' };
+      // The visit itself is worth recording even when the session never
+      // opened (a sub-2s bounce, or a failed start): the event carries the
+      // real span on its own.
+      const visit = {
+        type: 'page_view',
+        resourceName: title,
+        startedAt: enteredAt.toISOString(),
+        endedAt: leftAt.toISOString(),
+        metadata: { path: pathname },
+      };
+      const worthLogging = leftAt.getTime() - enteredAt.getTime() >= 1000;
+
+      if (unloading) {
+        if (started) sendOnUnload('/activity/session/end', endBody);
+        if (worthLogging) sendOnUnload('/activity/event', visit);
+        return;
+      }
+      // The start request may still be in flight when a fast navigation ends
+      // the visit; ending only once it settles avoids leaving the session open
+      // for the stale-session sweeper to close later.
+      void (startPromise || Promise.resolve()).then(() => {
+        if (started) api.post('/activity/session/end', endBody).catch(() => {});
+      });
+      if (worthLogging) api.post('/activity/event', visit).catch(() => {});
+    };
+
+    const onPageHide = () => finish(true);
+    // A backgrounded tab gets its timers throttled, so the last active slice
+    // is banked the moment the page is hidden rather than 20s later.
+    const onVisibility = () => { void heartbeat(); };
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.clearTimeout(startTimer);
+      window.clearInterval(timer);
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+      finish(false);
     };
   }, [isAuthenticated, user?.id, user?.role, pathname]);
 

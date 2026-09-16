@@ -41,6 +41,18 @@ export interface ILearningActivity extends Document {
   lessonTitle?: string;
   resourceName?: string;
   status?: string;
+  /**
+   * When the activity actually began and ended. `createdAt` only says when the
+   * event reached the server, which for anything with a duration (reading a
+   * lesson, watching a video, sitting on a page) is its END, not its start —
+   * so a timeline built on createdAt alone can state neither when a student
+   * started something nor how long they stayed. Both are recorded explicitly:
+   * a client that knows its own span sends it, and anything that reports only
+   * a duration has its span derived once, at write time, rather than being
+   * re-derived differently by each reader.
+   */
+  startedAt?: Date;
+  endedAt?: Date;
   durationSeconds?: number;
   percent?: number;
   metadata?: Record<string, unknown>;
@@ -75,6 +87,8 @@ const learningActivitySchema = new Schema<ILearningActivity>(
     lessonTitle: { type: String, default: '' },
     resourceName: { type: String, default: '' },
     status: { type: String, default: '' },
+    startedAt: { type: Date, index: true },
+    endedAt: { type: Date },
     durationSeconds: { type: Number },
     percent: { type: Number, min: 0, max: 100 },
     metadata: { type: Schema.Types.Mixed },

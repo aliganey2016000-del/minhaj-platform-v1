@@ -17,6 +17,14 @@ export interface IBlockAttempt {
   selectedAnswer: number | boolean; // mcq option index, or true/false
   correct: boolean;
   attemptedAt: Date;
+  /**
+   * How long the student sat with this question before answering. Whether an
+   * answer was hard for them cannot be read from correct/incorrect alone — a
+   * question answered right after two minutes of thinking is a different
+   * signal from one answered right away — so the time is kept per attempt.
+   * Absent on attempts recorded before this was tracked.
+   */
+  timeSpentSeconds?: number;
 }
 
 export interface ILessonBlockProgress extends Document {
@@ -41,6 +49,7 @@ const blockAttemptSchema = new Schema<IBlockAttempt>(
     selectedAnswer: { type: Schema.Types.Mixed },
     correct: { type: Boolean, required: true },
     attemptedAt: { type: Date, default: Date.now },
+    timeSpentSeconds: { type: Number, min: 0 },
   },
   { _id: false }
 );

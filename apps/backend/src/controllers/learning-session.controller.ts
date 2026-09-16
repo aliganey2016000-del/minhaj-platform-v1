@@ -69,7 +69,7 @@ export const startSession = async (req: Request, res: Response): Promise<Respons
   const student = await ownStudent(req);
   const { clientSessionId, kind, course, lessonId, lessonTitle, resourceName, metadata } = req.body;
   if (!clientSessionId || typeof clientSessionId !== 'string') throw new BadRequestError('clientSessionId is required.');
-  if (!['lesson', 'video', 'audio', 'pdf', 'course', 'general'].includes(kind)) throw new BadRequestError('Invalid session kind.');
+  if (!['lesson', 'video', 'audio', 'pdf', 'course', 'page', 'general'].includes(kind)) throw new BadRequestError('Invalid session kind.');
   // Check the stored enrollment directly. Read-time student normalization is
   // intentionally not used for this authorization gate because it is a
   // presentation concern; the stored enrollment is the source of truth for
@@ -177,7 +177,14 @@ export const getStudentAnalytics = async (req: Request, res: Response): Promise<
   const to = req.query.to ? new Date(String(req.query.to)) : undefined;
   const match: Record<string, unknown> = { student: sid };
   const visibleCourseIds = await visibleCourseIdsForStudent(req, studentId);
-  if (visibleCourseIds) match.course = { $in: visibleCourseIds };
+  // A course scope (teacher) must not silently swallow the sessions that carry
+  // no course at all — time on the dashboard, the schedule, an assignment
+  // list. `course: { $in: [...] }` never matches a document without the field,
+  // so those sessions used to vanish from the totals entirely and the day read
+  // as empty. They name no course, so including them leaks nothing.
+  if (visibleCourseIds) {
+    match.$or = [{ course: { $in: visibleCourseIds } }, { course: { $exists: false } }, { course: null }];
+  }
   if (from || to) match.startedAt = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
   const timezone = safeTimezone(req.headers['x-timezone']);
 
