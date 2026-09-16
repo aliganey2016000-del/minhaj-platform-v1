@@ -72,6 +72,9 @@ jobs:
       - name: Student performance flow regression
         run: npm run test:student-performance
 
+      - name: Student historical performance regression
+        run: npm run test:student-performance-history
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
