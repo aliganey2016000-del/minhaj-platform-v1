@@ -1,0 +1,1 @@
+Course Builder presentation refined: compact six-card stats layout, Duration card hidden, and responsive module/item spacing improved.
