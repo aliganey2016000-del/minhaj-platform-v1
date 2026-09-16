@@ -39,12 +39,13 @@ export function StudentSidebar() {
       { path: '/student/attendance', label: 'Attendance', icon: '📅' },
       { path: '/student/assignments', label: 'Assignments', icon: '📝' },
     ]},
-    { title: 'EXAMS', icon: '📝', items: [
+    { title: 'RESULTS & PERFORMANCE', icon: '📊', items: [
       { path: '/student/exams', label: 'Exam Schedule', icon: '🗓️' },
-      { path: '/student/exams/seating', label: 'Exam Seat', icon: '🪑' },
-      { path: '/student/exams/attendance', label: 'Exam Attendance', icon: '✅' },
-      { path: '/student/exams/results', label: 'Results', icon: '📊' },
-      { path: '/student/exams/appeals', label: 'Appeals', icon: '⚖️' },
+      { path: '/student/exams/seating', label: 'Seat & Hall', icon: '🪑' },
+      { path: '/student/exams/attendance', label: 'Attendance History', icon: '✅' },
+      { path: '/student/exams/results', label: 'Exam Results & Grades', icon: '📊' },
+      { path: '/student/analytics', label: 'Quiz & Lesson Performance', icon: '📈' },
+      { path: '/student/exams/appeals', label: 'Academic Appeals', icon: '⚖️' },
       { path: '/student/certificates', label: 'Certificates', icon: '🏆' },
     ]},
     { title: 'FINANCE', icon: '💰', items: [
