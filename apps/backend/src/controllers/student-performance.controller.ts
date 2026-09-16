@@ -196,7 +196,7 @@ export const getMyPerformance = async (req: Request, res: Response): Promise<Res
   } else if (currentEnrolledCourseIds.length > 0) {
     const currentClass = classSnapshot(student.class);
     periods.push({
-      id: `current:${currentClass?._id || 'unassigned'}`,
+      id: `current-${currentClass?._id || 'unassigned'}`,
       academicYear: currentClass?.academicYear || 'Current',
       class: currentClass,
       grade: currentClass?.title,
