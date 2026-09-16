@@ -14,6 +14,7 @@ import './assets/styles/globals.css';
 import './assets/styles/timetable-mobile-fix.css';
 import './assets/styles/classes-alternating-colors.css';
 import './assets/styles/classes-desktop-fix.css';
+import './assets/styles/course-builder-responsive.css';
 import './features/teacher/components/modern-dashboard.css';
 
 // ---------------------------------------------------------------------------
