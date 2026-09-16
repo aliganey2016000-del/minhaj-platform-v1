@@ -309,16 +309,18 @@ export function StudentAnalytics() {
           )}
         </section>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-5 shadow-sm">
-            <div className="mb-5 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400"><TrendingUp className="h-5 w-5" /></span><div><h3 className="font-black text-[var(--color-text-primary)]">Strong Areas</h3><p className="text-xs text-[var(--color-text-tertiary)]">Topics where you perform best</p></div></div>
-            <div className="space-y-4">{data.strongAreas.map((area) => <div key={area.name}><div className="mb-1.5 flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold text-[var(--color-text-secondary)]">{area.name}</span><span className="text-xs font-black text-[var(--color-text-primary)]">{area.score}%</span></div><div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${area.score}%` }} /></div></div>)}{data.strongAreas.length === 0 && <p className="text-sm text-[var(--color-text-tertiary)]">More activity is needed to identify strong areas.</p>}</div>
+        {activeTab === 'chart' && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-5 shadow-sm">
+              <div className="mb-5 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400"><TrendingUp className="h-5 w-5" /></span><div><h3 className="font-black text-[var(--color-text-primary)]">Strong Areas</h3><p className="text-xs text-[var(--color-text-tertiary)]">Topics where you perform best</p></div></div>
+              <div className="space-y-4">{data.strongAreas.map((area) => <div key={area.name}><div className="mb-1.5 flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold text-[var(--color-text-secondary)]">{area.name}</span><span className="text-xs font-black text-[var(--color-text-primary)]">{area.score}%</span></div><div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${area.score}%` }} /></div></div>)}{data.strongAreas.length === 0 && <p className="text-sm text-[var(--color-text-tertiary)]">More activity is needed to identify strong areas.</p>}</div>
+            </div>
+            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-5 shadow-sm">
+              <div className="mb-5 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/15 text-red-400"><TrendingDown className="h-5 w-5" /></span><div><h3 className="font-black text-[var(--color-text-primary)]">Areas to Improve</h3><p className="text-xs text-[var(--color-text-tertiary)]">Topics that may need more practice</p></div></div>
+              <div className="space-y-4">{data.areasToImprove.map((area) => <div key={area.name}><div className="mb-1.5 flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold text-[var(--color-text-secondary)]">{area.name}</span><span className="text-xs font-black text-[var(--color-text-primary)]">{area.score}%</span></div><div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]"><div className={`h-full rounded-full ${scoreTone(area.score)}`} style={{ width: `${area.score}%` }} /></div></div>)}{data.areasToImprove.length === 0 && <p className="text-sm text-[var(--color-text-tertiary)]">More activity is needed to identify improvement areas.</p>}</div>
+            </div>
           </div>
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-5 shadow-sm">
-            <div className="mb-5 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/15 text-red-400"><TrendingDown className="h-5 w-5" /></span><div><h3 className="font-black text-[var(--color-text-primary)]">Areas to Improve</h3><p className="text-xs text-[var(--color-text-tertiary)]">Topics that may need more practice</p></div></div>
-            <div className="space-y-4">{data.areasToImprove.map((area) => <div key={area.name}><div className="mb-1.5 flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold text-[var(--color-text-secondary)]">{area.name}</span><span className="text-xs font-black text-[var(--color-text-primary)]">{area.score}%</span></div><div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]"><div className={`h-full rounded-full ${scoreTone(area.score)}`} style={{ width: `${area.score}%` }} /></div></div>)}{data.areasToImprove.length === 0 && <p className="text-sm text-[var(--color-text-tertiary)]">More activity is needed to identify improvement areas.</p>}</div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
