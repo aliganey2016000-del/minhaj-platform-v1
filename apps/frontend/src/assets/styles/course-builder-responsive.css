@@ -29,115 +29,52 @@
 }
 .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 * { min-width: 0; }
 .institution-course-builder-approved .rounded-2xl { border-radius: 18px; }
-
-/* Remove the old helper sentence under the builder title. */
 .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > div:first-child > p { display: none; }
-
-/* The builder has one save action only: the bottom Save All Changes button. */
-.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type {
-  position: relative;
-}
-.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 > button:first-of-type {
-  display: none;
-}
-
-/* Keep the three-dot builder actions aligned with the title's right corner. */
-.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  z-index: 5;
-}
-
-/* Duration is intentionally removed from the visual dashboard. */
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type { position: relative; }
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 > button:first-of-type { display: none; }
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 { position: absolute; right: 0; bottom: 0; z-index: 5; }
 .institution-course-builder-approved .grid.grid-cols-2.sm\:grid-cols-4.lg\:grid-cols-6 > :nth-child(7) { display: none; }
-
-/* Cleaner stat cards: compact information rather than tall empty boxes. */
-.institution-course-builder-approved .grid.grid-cols-2.sm\:grid-cols-4.lg\:grid-cols-6 > * {
-  min-height: 82px;
-  padding: 12px;
-}
+.institution-course-builder-approved .grid.grid-cols-2.sm\:grid-cols-4.lg\:grid-cols-6 > * { min-height: 82px; padding: 12px; }
 
 @media (max-width: 639px) {
   .institution-course-builder-approved .course-builder-context-data {
-    top: 126px;
+    position: relative;
+    top: auto;
+    left: auto;
+    transform: none;
     width: calc(100% - 28px);
+    margin: 0 auto 16px;
     padding: 11px 12px;
   }
   .course-builder-context-heading h2 { font-size: 14px; }
-
-  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 {
-    padding-inline: 14px;
-    padding-top: 18px;
-    padding-bottom: 96px;
-    gap: 15px;
-  }
-
-  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type { margin-bottom: 76px; gap: 10px; }
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 { padding-inline: 14px; padding-top: 18px; padding-bottom: 96px; gap: 15px; }
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type { margin-bottom: 0; gap: 10px; }
   .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h1 { font-size: 1.5rem; line-height: 1.16; letter-spacing: -.025em; padding-right: 52px; }
-  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 {
-    right: 0;
-    bottom: 0;
-    flex-wrap: nowrap;
-  }
-  /* Saved timestamp is redundant beside the title; the bottom save button remains the single save control. */
-  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 > span {
-    display: none;
-  }
-
-  .institution-course-builder-approved button,
-  .institution-course-builder-approved input,
-  .institution-course-builder-approved select { max-width: 100%; }
-
-  /* Six compact stats, balanced 3 x 2 like the approved mockup. */
-  .institution-course-builder-approved .grid.grid-cols-2.sm\:grid-cols-4.lg\:grid-cols-6 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-  }
-  .institution-course-builder-approved .grid.grid-cols-2.sm\:grid-cols-4.lg\:grid-cols-6 > * {
-    min-height: 76px;
-    padding: 9px 10px;
-    border-radius: 15px;
-  }
-
-  /* Module header stays readable: title first, metadata below. */
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 { right: 0; bottom: 0; flex-wrap: nowrap; }
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type > .flex.items-center.gap-3 > span { display: none; }
+  .institution-course-builder-approved button, .institution-course-builder-approved input, .institution-course-builder-approved select { max-width: 100%; }
+  .institution-course-builder-approved .grid.grid-cols-2.sm\:grid-cols-4.lg\:grid-cols-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .institution-course-builder-approved .grid.grid-cols-2.sm\:grid-cols-4.lg\:grid-cols-6 > * { min-height: 76px; padding: 9px 10px; border-radius: 15px; }
   .institution-course-builder-approved .px-5.py-4 { padding: 12px 11px; gap: 8px; flex-wrap: nowrap; align-items: flex-start; }
   .institution-course-builder-approved .px-5.py-4 > .flex-1 { display: grid !important; grid-template-columns: auto minmax(100px, 1fr) auto; gap: 5px 8px !important; align-items: center; }
   .institution-course-builder-approved .px-5.py-4 > .flex-1 h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* Chapter status is managed from the module three-dot menu, so don't duplicate it beside the title. */
   .institution-course-builder-approved .px-5.py-4 > .flex-1 > span:nth-of-type(2) { display: none; }
-  .institution-course-builder-approved .px-5.py-4 > .flex-1 > span:nth-of-type(3),
-  .institution-course-builder-approved .px-5.py-4 > .flex-1 > select { grid-row: 2; }
+  .institution-course-builder-approved .px-5.py-4 > .flex-1 > span:nth-of-type(3), .institution-course-builder-approved .px-5.py-4 > .flex-1 > select { grid-row: 2; }
   .institution-course-builder-approved .px-5.py-4 > .flex-1 > select { grid-column: 2 / 4; width: fit-content; max-width: 100%; }
   .institution-course-builder-approved .px-5.pb-4 { padding-inline: 11px; padding-bottom: 12px; }
-
-  /* Item cards: clear badge + title + one compact action lane. */
-  .institution-course-builder-approved .group.rounded-xl.border.p-3 {
-    display: grid !important;
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 8px;
-    padding: 10px;
-    min-height: 64px;
-  }
+  .institution-course-builder-approved .group.rounded-xl.border.p-3 { display: grid !important; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px; min-height: 64px; }
   .institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 > div { flex-wrap: wrap; row-gap: 2px; }
-  /* Duration and item draft/published labels are deliberately hidden from card body to reduce noise. */
-  .institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 > div > span:nth-child(1),
-  .institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 > div > span:nth-child(2),
-  .institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 > div > span:nth-child(3) { display: none; }
-
+  .institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 > div > span:nth-child(1), .institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 > div > span:nth-child(2), .institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 > div > span:nth-child(3) { display: none; }
   .institution-course-builder-approved .group .opacity-0.group-hover\:opacity-100 { opacity: 1; }
   .institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex.items-center.gap-1 { gap: 0; }
   .institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex.items-center.gap-1 button { width: 30px; height: 30px; min-height: 30px; }
-
   .institution-course-builder-approved button { min-height: 38px; }
   .institution-course-builder-approved .border-t { gap: 10px; }
 }
 
 @media (max-width: 380px) {
-  .institution-course-builder-approved .course-builder-context-data,
-  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 { width: calc(100% - 20px); padding-inline: 10px; }
+  .institution-course-builder-approved .course-builder-context-data, .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 { width: calc(100% - 20px); padding-inline: 10px; }
   .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h1 { font-size: 1.35rem; }
   .institution-course-builder-approved .group.rounded-xl.border.p-3 { grid-template-columns: auto minmax(0, 1fr) auto; }
   .institution-course-builder-approved .group.rounded-xl.border.p-3 > span:nth-of-type(2) { grid-column: 2; width: fit-content; }
