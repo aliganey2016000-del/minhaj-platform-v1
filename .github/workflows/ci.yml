@@ -75,6 +75,9 @@ jobs:
       - name: Student historical performance regression
         run: npm run test:student-performance-history
 
+      - name: Admin and teacher performance regression
+        run: npx ts-node src/__tests__/staff-performance.e2e.ts
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
