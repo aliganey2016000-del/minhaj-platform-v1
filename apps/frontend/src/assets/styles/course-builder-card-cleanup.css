@@ -1,0 +1,8 @@
+/* Course Builder card cleanup: keep module/item rows focused on names and actions. */
+.institution-course-builder-approved .px-5.py-4 > .flex-1 > span:nth-of-type(2) { display: none; }
+
+/* Item metadata starts with duration, separator, status. Hide those three fields.
+   Quiz question counts, assignment points, and exam marks/date remain visible. */
+.institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 > div > span:nth-child(1),
+.institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 > div > span:nth-child(2),
+.institution-course-builder-approved .group.rounded-xl.border.p-3 > .flex-1 > div > span:nth-child(3) { display: none; }
