@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, GraduationCap, Layers3 } from 'lucide-react';
+import { GraduationCap } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { CourseBuilder } from './course-builder';
@@ -8,31 +8,11 @@ import { type InstitutionType, resolveInstitutionType } from '../../../lib/insti
 type Course = { title?: { en?: string }; school?: string | { _id?: string; name?: string } };
 type Org = { _id: string; name: string; institutionType?: InstitutionType; organizationType?: InstitutionType };
 
-const config: Record<InstitutionType, { label: string; hierarchy: string; model: string; description: string }> = {
-  school: {
-    label: 'School Curriculum',
-    hierarchy: 'Grade → Class → Section → Course / Subject',
-    model: 'Subject → Modules → Lessons → Quizzes / Assignments / Exams',
-    description: 'Content is organized around school subjects and the assigned class or section.',
-  },
-  college: {
-    label: 'College Curriculum',
-    hierarchy: 'Department → Program → Cohort / Class → Course',
-    model: 'Course → Modules → Lessons → Quizzes / Assignments / Exams',
-    description: 'Content is organized by program-level courses and learner cohorts.',
-  },
-  university: {
-    label: 'University Curriculum',
-    hierarchy: 'Faculty → Department → Program → Cohort / Class → Course',
-    model: 'Course → Modules → Lessons → Quizzes / Assignments / Exams',
-    description: 'Content is organized by academic program, cohort and course; semester context remains owned by the academic structure.',
-  },
-  training_center: {
-    label: 'Training Curriculum',
-    hierarchy: 'Program → Course / Module → Batch / Cohort → Learners',
-    model: 'Course / Module → Lessons → Practical Tasks → Quizzes / Assessments',
-    description: 'Content is organized around training programs, practical modules and learner batches rather than school grades.',
-  },
+const config: Record<InstitutionType, { label: string }> = {
+  school: { label: 'School Curriculum' },
+  college: { label: 'College Curriculum' },
+  university: { label: 'University Curriculum' },
+  training_center: { label: 'Training Curriculum' },
 };
 
 export function InstitutionCourseBuilder() {
@@ -65,21 +45,29 @@ export function InstitutionCourseBuilder() {
 
   if (loading) return <div className="p-6 text-sm text-[var(--color-text-tertiary)]">Loading curriculum...</div>;
 
-  return <div className="space-y-3">
-    <div className="mx-4 mt-4 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 sm:mx-6">
-      <div className="flex items-start gap-3">
-        <div className="rounded-xl bg-primary-50 p-2.5"><GraduationCap className="h-5 w-5 text-primary-600" /></div>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-primary-600">{current.label}</p>
-          <h1 className="mt-0.5 truncate text-base font-bold">{course?.title?.en || 'Course Curriculum'}</h1>
-          <p className="mt-1 text-xs text-[var(--color-text-secondary)]">{current.description}</p>
+  return (
+    <div className="institution-course-builder-approved">
+      <div className="course-context-compact mx-auto max-w-[1180px] px-4 pt-4 sm:px-6">
+        <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3.5 shadow-sm">
+          <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 dark:bg-primary-950/30">
+            <GraduationCap className="h-5 w-5 text-primary-600" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h2 className="truncate text-sm font-bold text-[var(--color-text-primary)] sm:text-base">
+                {course?.title?.en || 'Course Curriculum'}
+              </h2>
+              <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-950/30 dark:text-green-300">
+                {current.label}
+              </span>
+            </div>
+            <p className="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">
+              Build modules, lessons, quizzes, assignments and exams
+            </p>
+          </div>
         </div>
       </div>
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div className="rounded-xl bg-[var(--color-surface-tertiary)] p-3"><div className="flex items-center gap-2 text-xs font-semibold"><Layers3 className="h-4 w-4" /> Academic hierarchy</div><p className="mt-1 text-xs text-[var(--color-text-secondary)]">{current.hierarchy}</p></div>
-        <div className="rounded-xl bg-[var(--color-surface-tertiary)] p-3"><div className="flex items-center gap-2 text-xs font-semibold"><BookOpen className="h-4 w-4" /> Curriculum model</div><p className="mt-1 text-xs text-[var(--color-text-secondary)]">{current.model}</p></div>
-      </div>
+      <CourseBuilder />
     </div>
-    <CourseBuilder />
-  </div>;
+  );
 }

@@ -1,110 +1,110 @@
-/* Course Content Builder — presentation-only responsive refinements.
-   Scoped to the builder's unique max-width/spacing shell so no behavior,
-   data flow, routes, drag/drop, saving, or other pages are affected. */
+/* Course Builder — approved compact responsive presentation only.
+   No behavior, API, save, CRUD, publish, routing or drag/drop logic is changed. */
 
-/* Give the builder more breathing room on desktop. */
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 {
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 {
   width: 100%;
   max-width: 1180px;
   padding-inline: clamp(14px, 3vw, 32px);
+  padding-top: 22px;
+  padding-bottom: 48px;
 }
 
-/* Cards and module shells: prevent long names/metadata from forcing overflow. */
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 * {
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 * {
   min-width: 0;
 }
 
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h1,
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h2,
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h3,
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 p,
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 span {
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h1,
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h2,
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h3,
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 p,
+.institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 span {
   overflow-wrap: anywhere;
 }
 
-/* Make the builder's large bordered surfaces feel cleaner without changing structure. */
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .rounded-2xl {
-  border-radius: 18px;
-}
-
-/* Module/item rows should be comfortable and readable on touch screens. */
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 button,
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 input,
-.mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 select {
-  max-width: 100%;
-}
+.institution-course-builder-approved .rounded-2xl { border-radius: 18px; }
 
 @media (max-width: 639px) {
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 {
-    padding-inline: 12px;
-    padding-top: 72px;
-    padding-bottom: 28px;
+  .institution-course-builder-approved .course-context-compact {
+    padding-inline: 14px;
+    padding-top: 14px;
+  }
+
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 {
+    padding-inline: 14px;
+    padding-top: 18px;
+    padding-bottom: 96px;
     gap: 16px;
   }
 
-  /* Header: keep title readable and actions from squeezing one another. */
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h1 {
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h1 {
     font-size: 1.55rem;
-    line-height: 1.2;
-    letter-spacing: -0.02em;
+    line-height: 1.18;
+    letter-spacing: -0.025em;
   }
 
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type {
-    gap: 14px;
+  /* Keep header actions readable rather than squeezed. */
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 > div:first-of-type {
+    gap: 12px;
   }
 
-  /* Statistics cards stay balanced as a two-column mobile grid. */
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .grid {
-    gap: 10px;
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 button,
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 input,
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 select {
+    max-width: 100%;
   }
 
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .grid > * {
-    min-width: 0;
+  /* Compact dashboard stats: three columns like the approved reference. */
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .grid.grid-cols-2.sm\:grid-cols-4.lg\:grid-cols-6 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
   }
 
-  /* Module and lesson/quiz cards: reduce excessive padding and allow natural wrapping. */
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .p-6 {
-    padding: 16px;
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .grid.grid-cols-2.sm\:grid-cols-4.lg\:grid-cols-6 > * {
+    min-height: 92px;
+    padding: 11px;
   }
 
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .p-5 {
-    padding: 14px;
-  }
-
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .p-4 {
-    padding: 12px;
-  }
-
-  /* Action clusters can wrap instead of compressing card names/status text. */
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .flex.items-center.gap-3,
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .flex.items-center.gap-2 {
+  /* Module headers wrap naturally: title remains dominant, metadata stays secondary. */
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .px-5.py-4 {
+    padding: 13px 12px;
+    gap: 8px;
     flex-wrap: wrap;
   }
 
-  /* Keep primary controls touch-friendly. */
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 button {
-    min-height: 42px;
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .px-5.pb-4 {
+    padding-inline: 12px;
+    padding-bottom: 12px;
   }
 
-  /* The final save area must stack cleanly on narrow phones. */
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .border-t {
-    gap: 12px;
+  /* Lesson/quiz rows become clean touch cards. */
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .group.rounded-xl.border.p-3 {
+    padding: 12px;
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+
+  /* On touch devices actions must not depend on hover. */
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .group .opacity-0.group-hover\:opacity-100 {
+    opacity: 1;
+  }
+
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 button {
+    min-height: 40px;
+  }
+
+  /* Save area remains usable without consuming excessive vertical space. */
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 .border-t {
+    gap: 10px;
   }
 }
 
 @media (max-width: 380px) {
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 {
+  .institution-course-builder-approved .course-context-compact,
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 {
     padding-inline: 10px;
   }
 
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h1 {
+  .institution-course-builder-approved .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 h1 {
     font-size: 1.4rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .mx-auto.max-w-5xl.px-4.py-20.lg\:py-10.space-y-6 {
-    padding-top: 40px;
-    padding-bottom: 48px;
   }
 }
