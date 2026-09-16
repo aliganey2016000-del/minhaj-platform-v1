@@ -6,6 +6,7 @@ import {
   BookOpen,
   ChevronRight,
   CircleHelp,
+  Eye,
   Filter,
   ListChecks,
   Target,
@@ -13,6 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { StudentAttemptDetail } from './student-attempt-detail';
 
 type LocalizedTitle = { en?: string; so?: string; ar?: string } | string;
 type ActivityType = 'interactive_lesson' | 'quiz';
@@ -82,6 +84,11 @@ function scoreTone(score: number) {
 export function StudentAnalytics() {
   const [searchParams] = useSearchParams();
   const courseId = searchParams.get('courseId');
+  const activityTypeParam = searchParams.get('activityType');
+  const activityType: ActivityType | null =
+    activityTypeParam === 'quiz' || activityTypeParam === 'interactive_lesson' ? activityTypeParam : null;
+  const activityId = searchParams.get('activityId');
+
   const [data, setData] = useState<PerformanceResponse>(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -183,6 +190,16 @@ export function StudentAnalytics() {
           </Link>
         </div>
       </div>
+    );
+  }
+
+  if (courseId && selectedCourse && activityType && activityId) {
+    return (
+      <StudentAttemptDetail
+        courseId={courseId}
+        activityType={activityType}
+        activityId={activityId}
+      />
     );
   }
 
@@ -360,6 +377,15 @@ export function StudentAnalytics() {
                           <div><p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">Percentage</p><p className="mt-1 text-sm font-black text-[var(--color-text-primary)]">{row.percentage}%</p></div>
                           <div><p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">Status</p><p className={`mt-1 text-sm font-black ${row.status === 'Completed' ? 'text-emerald-400' : 'text-amber-400'}`}>{row.status}</p></div>
                           <div><p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">Attempts</p><p className="mt-1 text-sm font-black text-[var(--color-text-primary)]">{row.attempts || 1}</p></div>
+                        </div>
+
+                        <div className="mt-4 flex justify-end">
+                          <Link
+                            to={`/student/analytics?courseId=${encodeURIComponent(courseId!)}&activityType=${encodeURIComponent(row.type)}&activityId=${encodeURIComponent(row.id)}`}
+                            className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs font-black text-[var(--color-text-primary)] hover:border-emerald-500/50 hover:text-emerald-500"
+                          >
+                            <Eye className="h-4 w-4" /> View details
+                          </Link>
                         </div>
                       </div>
                     </div>
