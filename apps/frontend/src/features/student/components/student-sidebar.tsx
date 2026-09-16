@@ -57,20 +57,20 @@ export function StudentSidebar() {
 
   const isVisible = (key: string) => visibility?.[key] !== false;
 
-  const navSections: { title: string; items: NavEntry[] }[] = [
+  const navSections: { title: string; twoColumn?: boolean; items: NavEntry[] }[] = [
     {
-      title: t('learning'),
+      // Learning and Performance are one menu: studying and how that studying
+      // is going are the same errand for a student, and splitting them meant
+      // two of the four sections had to be opened and closed to move between
+      // a course and its result. Laid out in two columns so the combined list
+      // still fits without turning the sidebar into a long scroll.
+      title: `${t('learning')} & ${t('performance')}`,
+      twoColumn: true,
       items: [
         { path: '/student/courses', label: t('my_courses'), icon: '📚' },
         { path: '/student/schedule', label: 'My Schedule', icon: '🕐' },
         { path: '/student/available', label: t('browse_courses'), icon: '🆕' },
         { path: '/student/assignments', label: t('assignments'), icon: '📝' },
-        { path: '/student/downloads', label: t('downloads'), icon: '📥' },
-      ],
-    },
-    {
-      title: t('performance'),
-      items: [
         { path: '/student/analytics', label: 'Progress Analytics', icon: '📈' },
         {
           key: 'group:exams', label: t('exams'), icon: '📖',
@@ -84,7 +84,6 @@ export function StudentSidebar() {
         },
         { path: '/student/attendance', label: t('attendance'), icon: '📅' },
         { path: '/student/certificates', label: t('certificates'), icon: '🏆' },
-        { path: '/student/bookmarks', label: t('bookmarks'), icon: '🔖' },
         { path: '/student/payments', label: 'My Fees & Payments', icon: '💰' },
       ],
     },
@@ -109,6 +108,7 @@ export function StudentSidebar() {
   const visibleSections = navSections
     .map((section) => ({
       title: section.title,
+      twoColumn: section.twoColumn,
       items: section.items
         .map((item) => {
           if (isGroup(item)) {
@@ -180,6 +180,13 @@ export function StudentSidebar() {
         {visibleSections.map((section) => {
           const open = openSection === section.title;
           const active = sectionHasActiveItem(section);
+          // Two columns halve the width each item gets, so its icon, padding
+          // and text step down and the label is allowed to wrap onto a second
+          // line instead of being truncated to something unreadable.
+          const compact = Boolean(section.twoColumn);
+          const itemClass = compact ? 'gap-2 px-2.5 py-2 text-[13px]' : 'gap-3 px-3 py-2.5 text-sm';
+          const iconClass = compact ? 'text-base w-5' : 'text-lg w-7';
+          const labelClass = compact ? 'leading-tight' : 'truncate';
           return (
             <div key={section.title} className="mb-1">
               <button
@@ -203,26 +210,29 @@ export function StudentSidebar() {
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.2 }}
-                    className="overflow-hidden space-y-0.5 mb-3"
+                    className={`overflow-hidden mb-3 ${section.twoColumn ? 'grid grid-cols-2 gap-1' : 'space-y-0.5'}`}
                   >
                     {section.items.map((item) => {
                       if (isGroup(item)) {
                         const groupOpen = openGroup === item.key;
                         const groupActive = groupHasActiveChild(item);
                         return (
-                          <li key={item.key}>
+                          // An expanded sub-menu takes the full width rather
+                          // than stretching one column into a tall ladder
+                          // beside an empty gap.
+                          <li key={item.key} className={section.twoColumn && groupOpen ? 'col-span-2' : ''}>
                             <button
                               type="button"
                               onClick={() => toggleGroup(item.key)}
-                              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                              className={`flex w-full items-center rounded-xl font-medium transition-all duration-200 ${itemClass} ${
                                 groupActive
                                   ? 'text-primary-700 dark:text-primary-300'
                                   : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
                               }`}
                               aria-expanded={groupOpen}
                             >
-                              <span className="text-lg flex-shrink-0 w-7 text-center">{item.icon}</span>
-                              <span className="truncate flex-1 text-start">{item.label}</span>
+                              <span className={`flex-shrink-0 text-center ${iconClass}`}>{item.icon}</span>
+                              <span className={`flex-1 text-start ${labelClass}`}>{item.label}</span>
                               <svg className={`h-4 w-4 flex-shrink-0 transition-transform duration-200 ${groupOpen ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                               </svg>
@@ -265,15 +275,18 @@ export function StudentSidebar() {
                           <Link
                             to={item.path}
                             onClick={() => setIsMobileOpen(false)}
-                            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                            className={`flex h-full items-center rounded-xl font-medium transition-all duration-200 ${itemClass} ${
                               isActive(item.path)
                                 ? 'bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 shadow-sm'
                                 : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]'
                             }`}
                           >
-                            <span className="text-lg flex-shrink-0 w-7 text-center">{item.icon}</span>
-                            <span className="truncate">{item.label}</span>
-                            {isActive(item.path) && <span className="ms-auto h-1.5 w-1.5 rounded-full bg-primary-500 flex-shrink-0" />}
+                            <span className={`flex-shrink-0 text-center ${iconClass}`}>{item.icon}</span>
+                            <span className={labelClass}>{item.label}</span>
+                            {/* The highlight already marks the current page; in
+                                a half-width item the dot would only crowd a
+                                label that may already be wrapping. */}
+                            {isActive(item.path) && !compact && <span className="ms-auto h-1.5 w-1.5 rounded-full bg-primary-500 flex-shrink-0" />}
                           </Link>
                         </li>
                       );

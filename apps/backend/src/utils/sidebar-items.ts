@@ -18,23 +18,26 @@ export interface SidebarItemDef {
 
 export type SidebarPortal = 'student' | 'admin';
 
+// Learning and Performance are a single menu in the student portal, so they
+// are one section here too — an admin toggling items should be looking at the
+// same grouping the student will see. Downloads and Bookmarks were removed
+// from the portal; an item that no longer exists must not keep offering a
+// switch that does nothing.
 export const STUDENT_SIDEBAR_ITEMS: SidebarItemDef[] = [
-  { key: 'student/courses', label: 'My Courses', section: 'Learning' },
-  { key: 'student/available', label: 'Browse Courses', section: 'Learning' },
-  { key: 'student/assignments', label: 'Assignments', section: 'Learning' },
-  { key: 'student/downloads', label: 'Downloads', section: 'Learning' },
+  { key: 'student/courses', label: 'My Courses', section: 'Learning & Performance' },
+  { key: 'student/available', label: 'Browse Courses', section: 'Learning & Performance' },
+  { key: 'student/assignments', label: 'Assignments', section: 'Learning & Performance' },
 
-  { key: 'group:exams', label: 'Exams (entire menu)', section: 'Performance' },
-  { key: 'student/exams', label: 'My Exam Schedule', section: 'Performance' },
-  { key: 'student/exams/seating', label: 'Seat & Hall Allocation', section: 'Performance' },
-  { key: 'student/exams/active', label: 'Active Exams', section: 'Performance' },
-  { key: 'student/exams/attendance', label: 'Attendance History', section: 'Performance' },
-  { key: 'student/exams/results', label: 'Exam Results & Grades', section: 'Performance' },
-  { key: 'student/exams/appeals', label: 'Academic Appeals', section: 'Performance' },
-  { key: 'student/attendance', label: 'Attendance', section: 'Performance' },
-  { key: 'student/certificates', label: 'Certificates', section: 'Performance' },
-  { key: 'student/bookmarks', label: 'Bookmarks', section: 'Performance' },
-  { key: 'student/payments', label: 'My Fees & Payments', section: 'Performance' },
+  { key: 'group:exams', label: 'Exams (entire menu)', section: 'Learning & Performance' },
+  { key: 'student/exams', label: 'My Exam Schedule', section: 'Learning & Performance' },
+  { key: 'student/exams/seating', label: 'Seat & Hall Allocation', section: 'Learning & Performance' },
+  { key: 'student/exams/active', label: 'Active Exams', section: 'Learning & Performance' },
+  { key: 'student/exams/attendance', label: 'Attendance History', section: 'Learning & Performance' },
+  { key: 'student/exams/results', label: 'Exam Results & Grades', section: 'Learning & Performance' },
+  { key: 'student/exams/appeals', label: 'Academic Appeals', section: 'Learning & Performance' },
+  { key: 'student/attendance', label: 'Attendance', section: 'Learning & Performance' },
+  { key: 'student/certificates', label: 'Certificates', section: 'Learning & Performance' },
+  { key: 'student/payments', label: 'My Fees & Payments', section: 'Learning & Performance' },
 
   { key: 'student/forum', label: 'Forum', section: 'Communication' },
 
