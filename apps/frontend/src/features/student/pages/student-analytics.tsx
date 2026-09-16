@@ -16,7 +16,7 @@ import {
 import api from '../../../lib/axios';
 
 type LocalizedTitle = { en?: string; so?: string; ar?: string } | string;
-type TabKey = 'courses' | 'activity' | 'weekly' | 'chart';
+type TabKey = 'courses' | 'activity' | 'chart';
 type ActivityType = 'interactive_lesson' | 'quiz';
 
 interface PerformanceActivity {
@@ -160,7 +160,6 @@ export function StudentAnalytics() {
   const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
     { key: 'courses', label: 'Performance by Course', icon: <BarChart3 className="h-4 w-4" /> },
     { key: 'activity', label: 'Quiz & Lesson Activity', icon: <ListChecks className="h-4 w-4" /> },
-    { key: 'weekly', label: "This Week's Activity", icon: <TrendingUp className="h-4 w-4" /> },
     { key: 'chart', label: 'Progress Chart', icon: <Target className="h-4 w-4" /> },
   ];
 
@@ -288,19 +287,6 @@ export function StudentAnalytics() {
                     {filteredActivities.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-[var(--color-text-tertiary)]">No quiz or interactive lesson activity yet.</td></tr>}
                   </tbody>
                 </table>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'weekly' && (
-            <div className="p-5">
-              <h2 className="text-lg font-black text-[var(--color-text-primary)]">This Week's Activity</h2>
-              <p className="mb-8 text-xs text-[var(--color-text-tertiary)]">Daily completed quiz and interactive lesson activity</p>
-              <div className="flex h-64 items-end gap-3 sm:gap-5">
-                {data.weekly.map((day) => {
-                  const height = day.count === 0 ? 4 : Math.max(18, Math.min(100, day.averageScore));
-                  return <div key={day.date} className="flex flex-1 flex-col items-center gap-2"><span className="text-xs font-bold text-[var(--color-text-secondary)]">{day.count ? `${day.averageScore}%` : ''}</span><div className="flex h-44 w-full max-w-14 items-end rounded-t-lg bg-[var(--color-surface-tertiary)]"><div className="w-full rounded-t-lg bg-gradient-to-t from-emerald-600 to-emerald-400" style={{ height: `${height}%` }} /></div><span className="text-[11px] text-[var(--color-text-tertiary)]">{new Date(day.date).toLocaleDateString(undefined, { weekday: 'short' })}</span></div>;
-                })}
               </div>
             </div>
           )}
