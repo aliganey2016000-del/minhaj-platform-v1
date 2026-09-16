@@ -1,0 +1,1 @@
+Module status is managed from the existing three-dot Module Actions menu. The course-builder responsive presentation hides redundant status/duration information from the card surface so the module title remains the primary row content.
