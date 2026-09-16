@@ -47,24 +47,14 @@ export function InstitutionCourseBuilder() {
 
   return (
     <div className="institution-course-builder-approved">
-      <div className="course-context-compact mx-auto max-w-[1180px] px-4 pt-4 sm:px-6">
-        <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3.5 shadow-sm">
-          <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary-50 dark:bg-primary-950/30">
-            <GraduationCap className="h-5 w-5 text-primary-600" />
+      <div className="course-builder-context-data" aria-label="Course curriculum context">
+        <GraduationCap className="course-builder-context-icon" />
+        <div className="course-builder-context-copy">
+          <div className="course-builder-context-heading">
+            <h2>{course?.title?.en || 'Course Curriculum'}</h2>
+            <span>{current.label}</span>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h2 className="truncate text-sm font-bold text-[var(--color-text-primary)] sm:text-base">
-                {course?.title?.en || 'Course Curriculum'}
-              </h2>
-              <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-950/30 dark:text-green-300">
-                {current.label}
-              </span>
-            </div>
-            <p className="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">
-              Build modules, lessons, quizzes, assignments and exams
-            </p>
-          </div>
+          <p>Build modules, lessons, quizzes, assignments.</p>
         </div>
       </div>
       <CourseBuilder />
