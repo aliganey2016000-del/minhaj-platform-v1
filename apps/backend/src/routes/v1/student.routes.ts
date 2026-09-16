@@ -104,6 +104,11 @@ router.delete('/bulk', adminOnly, asyncHandler(studentController.bulkRemove));
 router.get('/my/dashboard', roleMiddleware(['student']), asyncHandler(studentController.getMyDashboard));
 router.get('/my/courses', roleMiddleware(['student']), asyncHandler(studentController.getMyCourses));
 router.get('/my/performance', roleMiddleware(['student']), asyncHandler(studentPerformanceController.getMyPerformance));
+router.get(
+  '/my/performance/attempt/:type/:id',
+  roleMiddleware(['student']),
+  asyncHandler(studentPerformanceController.getMyAttemptDetail)
+);
 router.post('/my/progress', roleMiddleware(['student']), asyncHandler(studentController.recordProgress));
 
 router.get('/:id', anyAuthenticatedUser, asyncHandler(studentController.getById));
