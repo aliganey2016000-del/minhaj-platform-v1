@@ -69,6 +69,9 @@ jobs:
       - name: Student activity time-tracking tests
         run: npm run test:activity-tracking
 
+      - name: Student performance flow regression
+        run: npm run test:student-performance
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
