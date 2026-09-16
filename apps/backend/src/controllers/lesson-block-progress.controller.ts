@@ -100,7 +100,15 @@ export const submitBlockAnswer = async (req: Request, res: Response): Promise<Re
 
   const correct = question ? isCorrectGateAnswer(question, answer) : true; // no question on this block — reaching it is enough to advance
 
-  progress.attempts.push({ blockIndex, questionIndex, selectedAnswer: answer, correct, attemptedAt: new Date() });
+  // How long they spent on this question, as reported by the page that showed
+  // it. Clamped: a tab left open overnight is not two hours of thinking, and a
+  // negative or non-numeric value is simply not a measurement.
+  const reportedSeconds = Number(req.body.timeSpentSeconds);
+  const timeSpentSeconds = Number.isFinite(reportedSeconds) && reportedSeconds >= 0
+    ? Math.min(Math.floor(reportedSeconds), 3600)
+    : undefined;
+
+  progress.attempts.push({ blockIndex, questionIndex, selectedAnswer: answer, correct, attemptedAt: new Date(), timeSpentSeconds });
 
   // A block with several questions only unlocks the next block once every
   // one of them has a correct attempt on record — order doesn't matter, only
@@ -141,6 +149,9 @@ export const submitBlockAnswer = async (req: Request, res: Response): Promise<Re
       resourceName: question.question || lesson.title,
       status: correct ? 'passed' : 'failed',
       percent: correct ? 100 : 0,
+      // Gives the timeline the question's own span (started thinking → answered)
+      // rather than a bare instant.
+      durationSeconds: timeSpentSeconds,
       metadata: { source: 'interactive_gate', blockIndex, questionIndex },
     });
   }

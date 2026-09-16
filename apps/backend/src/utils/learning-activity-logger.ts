@@ -22,6 +22,8 @@ export interface LogActivityInput {
   lessonTitle?: string;
   resourceName?: string;
   status?: string;
+  startedAt?: Date | string;
+  endedAt?: Date | string;
   durationSeconds?: number;
   percent?: number;
   metadata?: Record<string, unknown>;
@@ -29,9 +31,58 @@ export interface LogActivityInput {
   userAgent?: string;
 }
 
+function toDate(value: Date | string | undefined): Date | undefined {
+  if (!value) return undefined;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+/**
+ * Settles one event's exact span. Callers supply whatever they actually know —
+ * a real start and end, only a duration, or neither — and every reader
+ * downstream gets the same answer instead of each one guessing differently.
+ *
+ * A client-reported span is only trusted when it is self-consistent and not in
+ * the future: a wrong device clock would otherwise write a lesson that ended
+ * before it started, or one "finished" next week.
+ */
+export function resolveActivitySpan(
+  input: { startedAt?: Date | string; endedAt?: Date | string; durationSeconds?: number },
+  now: Date = new Date(),
+): { startedAt?: Date; endedAt?: Date; durationSeconds?: number } {
+  const duration = Number.isFinite(input.durationSeconds as number) && (input.durationSeconds as number) >= 0
+    ? Math.floor(input.durationSeconds as number)
+    : undefined;
+  let startedAt = toDate(input.startedAt);
+  let endedAt = toDate(input.endedAt);
+
+  if (startedAt && startedAt.getTime() > now.getTime()) startedAt = undefined;
+  if (endedAt && endedAt.getTime() > now.getTime()) endedAt = now;
+  if (startedAt && endedAt && endedAt.getTime() < startedAt.getTime()) endedAt = undefined;
+
+  if (startedAt && endedAt) {
+    return { startedAt, endedAt, durationSeconds: Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000) };
+  }
+  if (startedAt && duration !== undefined) {
+    return { startedAt, endedAt: new Date(startedAt.getTime() + duration * 1000), durationSeconds: duration };
+  }
+  if (endedAt && duration !== undefined) {
+    return { startedAt: new Date(endedAt.getTime() - duration * 1000), endedAt, durationSeconds: duration };
+  }
+  // Only a duration: the event reaches the server as the activity ends, so
+  // "now" is its end and the start is that far back.
+  if (duration !== undefined) {
+    return { startedAt: new Date(now.getTime() - duration * 1000), endedAt: now, durationSeconds: duration };
+  }
+  // An instant (a click, a login): a real point in time, with no span.
+  const at = startedAt || endedAt || now;
+  return { startedAt: at, endedAt: at, durationSeconds: undefined };
+}
+
 export async function logLearningActivity(input: LogActivityInput): Promise<void> {
   try {
     const { device, browser, os } = parseUserAgent(input.userAgent || '');
+    const span = resolveActivitySpan(input);
     const created = await LearningActivity.create({
       user: input.userId,
       student: input.student,
@@ -43,7 +94,9 @@ export async function logLearningActivity(input: LogActivityInput): Promise<void
       lessonTitle: input.lessonTitle,
       resourceName: input.resourceName,
       status: input.status,
-      durationSeconds: input.durationSeconds,
+      startedAt: span.startedAt,
+      endedAt: span.endedAt,
+      durationSeconds: span.durationSeconds,
       percent: input.percent,
       metadata: input.metadata,
       ip: input.ip,
@@ -73,6 +126,8 @@ export async function logLearningActivity(input: LogActivityInput): Promise<void
         resourceName: created.resourceName,
         status: created.status,
         percent: created.percent,
+        startedAt: created.startedAt,
+        endedAt: created.endedAt,
         durationSeconds: created.durationSeconds,
         metadata: created.metadata,
         createdAt: created.createdAt,

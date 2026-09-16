@@ -32,6 +32,7 @@
     "test:faculty-usesfaculty-defaults": "ts-node src/__tests__/faculty-usesfaculty-defaults.e2e.ts",
     "test:student-search-phone": "ts-node src/__tests__/student-search-phone.e2e.ts",
     "test:activity-deleted-course": "ts-node src/__tests__/activity-deleted-course-and-regex.e2e.ts",
+    "test:activity-tracking": "ts-node src/__tests__/student-activity-time-tracking.e2e.ts",
     "test:student-course-source-of-truth": "ts-node src/__tests__/student-course-source-of-truth.e2e.ts",
     "test:semester-progression": "ts-node src/__tests__/semester-progression.e2e.ts",
     "test:course-completion": "ts-node src/__tests__/course-completion.e2e.ts",

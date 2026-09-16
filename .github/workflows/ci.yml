@@ -66,6 +66,9 @@ jobs:
       - name: User Management orphan cleanup tests
         run: npm run test:user-orphan-cleanup
 
+      - name: Student activity time-tracking tests
+        run: npm run test:activity-tracking
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest

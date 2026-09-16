@@ -126,7 +126,7 @@ function resolveDateRange(query: Request['query']): { from?: Date; to?: Date } {
 // resolved server-side from the token, never trusted from the request body.
 // ---------------------------------------------------------------------------
 export const logEvent = async (req: Request, res: Response): Promise<Response> => {
-  const { type, course, lessonId, resourceName, status, durationSeconds, percent, metadata } = req.body;
+  const { type, course, lessonId, lessonTitle, resourceName, status, startedAt, endedAt, durationSeconds, percent, metadata } = req.body;
   if (!type) throw new BadRequestError('Activity type is required.');
 
   const studentRecord = await Student.findOne({ user: req.user!.userId }).select('_id school').lean();
@@ -137,8 +137,13 @@ export const logEvent = async (req: Request, res: Response): Promise<Response> =
     type,
     course,
     lessonId,
+    lessonTitle,
     resourceName,
     status,
+    // A client that knows exactly when it opened and left a page says so;
+    // resolveActivitySpan settles anything partial or implausible.
+    startedAt,
+    endedAt,
     durationSeconds,
     percent,
     metadata,
@@ -439,8 +444,13 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
   const includeSensitiveDeviceData = req.user?.role === 'admin' || req.user?.role === 'org_admin';
   const headers = ['Date', 'Activity Type', 'Resource', 'Course', 'Status', 'Start', 'End', 'Duration (s)', 'Percent', ...(includeSensitiveDeviceData ? ['Device', 'Browser', 'OS', 'IP'] : [])];
   const rows = events.map((e: any) => {
-    const end = new Date(e.createdAt);
-    const start = e.durationSeconds ? new Date(end.getTime() - e.durationSeconds * 1000) : end;
+    // Events written before startedAt/endedAt existed still only carry
+    // createdAt (the moment the activity ended) plus a duration, so they keep
+    // being derived the same way they always were.
+    const end = e.endedAt ? new Date(e.endedAt) : new Date(e.createdAt);
+    const start = e.startedAt
+      ? new Date(e.startedAt)
+      : (e.durationSeconds ? new Date(end.getTime() - e.durationSeconds * 1000) : end);
     return [
       end.toLocaleDateString(),
       e.type,

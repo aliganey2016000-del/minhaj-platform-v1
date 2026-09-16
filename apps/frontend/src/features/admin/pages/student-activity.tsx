@@ -3,7 +3,7 @@ import api from '../../../lib/axios';
 import { useRealtime } from '../../../store/realtime-context';
 
 interface RosterRow { _id: string; userId: string | null; studentId: string; name: string; online: boolean; lastSeenAt: string | null; }
-interface ActivityEvent { _id: string; type: string; loginSessionId?: string; course?: { _id?: string; title?: { en?: string } } | null; lessonId?: string; lessonTitle?: string; resourceName?: string; status?: string; percent?: number; durationSeconds?: number; metadata?: Record<string, any>; createdAt: string; }
+interface ActivityEvent { _id: string; type: string; loginSessionId?: string; course?: { _id?: string; title?: { en?: string } } | null; lessonId?: string; lessonTitle?: string; resourceName?: string; status?: string; percent?: number; startedAt?: string; endedAt?: string; durationSeconds?: number; metadata?: Record<string, any>; createdAt: string; }
 interface SessionRow { _id: string; loginSessionId?: string; kind: string; course?: string; lessonId?: string; lessonTitle?: string; resourceName?: string; startedAt: string; endedAt?: string; activeSeconds: number; idleSeconds: number; watchSeconds: number; status: string; }
 interface SessionAnalytics { totalActiveSeconds: number; totalIdleSeconds: number; totalWatchSeconds: number; sessionCount: number; daily: Array<{ date: string; activeSeconds: number; watchSeconds: number }>; sessions: SessionRow[]; }
 interface Analytics { avgQuizScore: number | null; learningStreakDays: number; }
@@ -65,6 +65,23 @@ const fmtShortDuration = (seconds = 0) => {
 };
 const dateTime = (value?: string | null) => value ? new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 const timeOnly = (value?: string | null) => value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+
+/**
+ * When an activity occupied real time (reading a lesson, sitting on a page,
+ * working through a question) the row states its whole span — started, ended
+ * and how long — instead of the single timestamp it used to show, which said
+ * only when the event reached the server and never how long anything took.
+ * Events older than explicit start/end still derive theirs from the duration,
+ * and a genuine instant (a login, a click) keeps showing one time.
+ */
+const eventSpan = (event: { startedAt?: string; endedAt?: string; durationSeconds?: number; createdAt: string }) => {
+  const end = event.endedAt || event.createdAt;
+  const start = event.startedAt
+    || (event.durationSeconds ? new Date(new Date(end).getTime() - event.durationSeconds * 1000).toISOString() : end);
+  const seconds = event.durationSeconds ?? Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000));
+  if (seconds < 1) return { label: timeOnly(end), duration: null as string | null };
+  return { label: `${timeOnly(start)} → ${timeOnly(end)}`, duration: fmt(seconds) };
+};
 const spanSeconds = (start?: string, end?: string) => {
   if (!start) return 0;
   return Math.max(0, Math.floor(((end ? new Date(end).getTime() : Date.now()) - new Date(start).getTime()) / 1000));
@@ -461,6 +478,11 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
         quizCount: quizzes.length,
         correctCount: correct,
         courseNames,
+        // Page sessions ('page') are time on a screen, lesson sessions are
+        // time studying — both count towards active study, only the second
+        // counts as a lesson.
+        lessonCount: group.lessons.filter((l) => l.kind !== 'page').length,
+        pageCount: group.lessons.filter((l) => l.kind === 'page').length,
         activeSeconds: group.lessons.reduce((sum, l) => sum + (l.activeSeconds || 0), 0),
         watchSeconds: group.lessons.reduce((sum, l) => sum + (l.watchSeconds || 0), 0),
       };
@@ -590,7 +612,15 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                       <h3 className="font-bold">Learning summary</h3>
                       <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Real tracked time, score and course completion.</p>
                       <div className="mt-5 grid grid-cols-2 gap-3">
-                        {[['Active study', fmt(courses?.totalActiveSeconds || 0)], ['Video watched', fmt(sessions?.totalWatchSeconds || 0)], ['Sessions', String(sessions?.sessionCount || 0)], ['Streak', `${analytics?.learningStreakDays || 0}d`]].map(([label, value]) => (
+                        {/*
+                          All four read the same ranged session data. "Active study"
+                          used to come from the per-course rollup instead, which is
+                          all-time (ignoring the range selector next to it) and counts
+                          only time inside a course — so time spent anywhere else in
+                          the app was missing from the very figure that claims to be
+                          how long the student studied.
+                        */}
+                        {[['Active study', fmt(sessions?.totalActiveSeconds || 0)], ['Video watched', fmt(sessions?.totalWatchSeconds || 0)], ['Sessions', String(sessions?.sessionCount || 0)], ['Streak', `${analytics?.learningStreakDays || 0}d`]].map(([label, value]) => (
                           <div key={label} className="rounded-xl bg-[var(--color-surface-secondary)] p-4">
                             <span className="text-xs text-[var(--color-text-tertiary)]">{label}</span>
                             <p className="mt-1 font-bold">{value}</p>
@@ -835,8 +865,12 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                                 </div>
 
                                 <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-                                  {group.lessons.length > 0 && (
-                                    <span className="rounded-full bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 font-semibold text-blue-700 dark:text-blue-300">📖 {group.lessons.length} lesson{group.lessons.length === 1 ? '' : 's'}</span>
+                                  {/* Counted apart: a screen the student sat on is not a lesson they studied. */}
+                                  {group.lessonCount > 0 && (
+                                    <span className="rounded-full bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 font-semibold text-blue-700 dark:text-blue-300">📖 {group.lessonCount} lesson{group.lessonCount === 1 ? '' : 's'}</span>
+                                  )}
+                                  {group.pageCount > 0 && (
+                                    <span className="rounded-full bg-slate-100 dark:bg-slate-800/60 px-2.5 py-1 font-semibold text-slate-700 dark:text-slate-300">🧭 {group.pageCount} page{group.pageCount === 1 ? '' : 's'}</span>
                                   )}
                                   {group.quizCount > 0 && (
                                     <span className="rounded-full bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 font-semibold text-amber-700 dark:text-amber-300">❓ {group.correctCount}/{group.quizCount} correct</span>
@@ -860,18 +894,28 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                                       {group.timeline.map((row, idx) => {
                                         if (row.kind === 'lesson') {
                                           const l = row.lesson;
+                                          const isPage = l.kind === 'page';
                                           return (
                                             <li key={`lesson-${l._id}-${idx}`} className="relative">
-                                              <span className="absolute -left-[25px] flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[9px] text-white">📖</span>
+                                              <span className={`absolute -left-[25px] flex h-4 w-4 items-center justify-center rounded-full text-[9px] text-white ${isPage ? 'bg-slate-400' : 'bg-blue-500'}`}>{isPage ? '🧭' : '📖'}</span>
                                               <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                                  <b className="text-sm break-words">{l.lessonTitle || l.resourceName || 'Lesson'}</b>
-                                                  <span className="text-[11px] text-[var(--color-text-tertiary)]">{timeOnly(l.startedAt)} → {l.endedAt ? timeOnly(l.endedAt) : '…'}</span>
+                                                  <b className="text-sm break-words">
+                                                    {isPage && <span className="text-[var(--color-text-tertiary)] font-semibold">Page · </span>}
+                                                    {l.lessonTitle || l.resourceName || (isPage ? 'Page' : 'Lesson')}
+                                                  </b>
+                                                  <span className="text-[11px] text-[var(--color-text-tertiary)]">
+                                                    {timeOnly(l.startedAt)} → {l.endedAt ? timeOnly(l.endedAt) : '…'}
+                                                    {l.endedAt && <> · <b className="text-[var(--color-text-secondary)]">{fmt(spanSeconds(l.startedAt, l.endedAt))}</b></>}
+                                                  </span>
                                                 </div>
                                                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
                                                   <div><span className="text-[var(--color-text-tertiary)]">Active</span><br /><b>{fmt(l.activeSeconds)}</b></div>
                                                   <div><span className="text-[var(--color-text-tertiary)]">Idle</span><br /><b>{fmt(l.idleSeconds)}</b></div>
-                                                  <div><span className="text-[var(--color-text-tertiary)]">Video</span><br /><b>{fmt(l.watchSeconds)}</b></div>
+                                                  {/* Video time is a lesson concern — on a page row the slot states what the screen was instead. */}
+                                                  {isPage
+                                                    ? <div><span className="text-[var(--color-text-tertiary)]">Screen</span><br /><b className="break-all">{String(l.resourceName || '—')}</b></div>
+                                                    : <div><span className="text-[var(--color-text-tertiary)]">Video</span><br /><b>{fmt(l.watchSeconds)}</b></div>}
                                                   <div><span className="text-[var(--color-text-tertiary)]">Status</span><br /><b className="capitalize">{l.status}</b></div>
                                                 </div>
                                               </div>
@@ -903,7 +947,15 @@ export function StudentActivity({ basePath = '/admin' }: { basePath?: string }) 
                                                   <span className="ml-2 text-[11px] font-semibold text-[var(--color-text-tertiary)]">{Math.round(e.percent)}%</span>
                                                 )}
                                               </div>
-                                              <span className="shrink-0 text-[11px] text-[var(--color-text-tertiary)]">{timeOnly(e.createdAt)}</span>
+                                              {(() => {
+                                                const span = eventSpan(e);
+                                                return (
+                                                  <span className="shrink-0 text-right text-[11px] text-[var(--color-text-tertiary)]">
+                                                    {span.label}
+                                                    {span.duration && <><br /><b className="text-[var(--color-text-secondary)]">{span.duration}</b></>}
+                                                  </span>
+                                                );
+                                              })()}
                                             </div>
                                           </li>
                                         );

@@ -153,6 +153,20 @@ export function InteractiveGateLessonView({ lesson, courseId, onGateCleared, onF
   const [retryExplanation, setRetryExplanation] = useState('');
   const [answerCache, setAnswerCache] = useState<Record<number, number | boolean | null>>({});
   const [phaseCache, setPhaseCache] = useState<Record<number, Phase>>({});
+  /**
+   * When the question currently on screen was first shown. Sent with the
+   * answer so the record can say how long the student spent on it — without
+   * it, a question they laboured over and one they answered instantly are
+   * indistinguishable, and "what was hard for this student" is unanswerable.
+   * Restarts per question, and again on a retry, so each attempt is timed on
+   * its own rather than accumulating.
+   */
+  const questionShownAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (phase === 'question_open' || phase === 'question_retry') questionShownAtRef.current = Date.now();
+    else questionShownAtRef.current = null;
+  }, [phase, currentBlockIndex, currentQuestionIndex]);
 
   const restoreBlockState = (index: number, fallbackPhase: Phase = 'reading') => {
     setCurrentBlockIndex(index);
@@ -440,7 +454,16 @@ export function InteractiveGateLessonView({ lesson, courseId, onGateCleared, onF
     }
 
     try {
-      const { data } = await api.post(url, { answer: answerToSubmit, questionIndex: currentQuestionIndex });
+      const shownAt = questionShownAtRef.current;
+      const { data } = await api.post(url, {
+        answer: answerToSubmit,
+        questionIndex: currentQuestionIndex,
+        // Omitted rather than sent as 0 when the question was never actually
+        // displayed (a question-less block advancing on its own): a zero would
+        // read as "answered instantly", which is a different claim from "not
+        // measured".
+        ...(shownAt ? { timeSpentSeconds: Math.round((Date.now() - shownAt) / 1000) } : {}),
+      });
       if (activeQuestion) {
         setAttempts((prev) => [...prev, { blockIndex: currentBlockIndex, questionIndex: currentQuestionIndex, correct: data.data.correct, attemptedAt: new Date().toISOString() }]);
       }
