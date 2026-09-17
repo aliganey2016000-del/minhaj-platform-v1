@@ -1,15 +1,4 @@
-/**
- * Canonical registries of sidebar items that can be shown/hidden per
- * organization via the Sidebar Settings managers. Keep these in sync with
- * the frontend's nav configs:
- *   - student-sidebar.tsx  (portal: 'student')
- *   - admin-sidebar.tsx    (portal: 'admin' — the shared org_admin/teacher portal)
- * The `key` values here are the source of truth the frontend filters by.
- *
- * The dashboard home link and Logout are intentionally excluded from both:
- * they must always remain visible regardless of tenant configuration.
- */
-
+/** Canonical sidebar registries for tenant visibility controls. */
 export interface SidebarItemDef {
   key: string;
   label: string;
@@ -18,16 +7,11 @@ export interface SidebarItemDef {
 
 export type SidebarPortal = 'student' | 'admin';
 
-// Learning and Performance are a single menu in the student portal, so they
-// are one section here too — an admin toggling items should be looking at the
-// same grouping the student will see. Downloads and Bookmarks were removed
-// from the portal; an item that no longer exists must not keep offering a
-// switch that does nothing.
 export const STUDENT_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'student/courses', label: 'My Courses', section: 'Learning & Performance' },
   { key: 'student/available', label: 'Browse Courses', section: 'Learning & Performance' },
   { key: 'student/assignments', label: 'Assignments', section: 'Learning & Performance' },
-
+  { key: 'student/analytics', label: 'Quiz & Lesson Performance', section: 'Learning & Performance' },
   { key: 'group:exams', label: 'Exams (entire menu)', section: 'Learning & Performance' },
   { key: 'student/exams', label: 'My Exam Schedule', section: 'Learning & Performance' },
   { key: 'student/exams/seating', label: 'Seat & Hall Allocation', section: 'Learning & Performance' },
@@ -38,9 +22,7 @@ export const STUDENT_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'student/attendance', label: 'Attendance', section: 'Learning & Performance' },
   { key: 'student/certificates', label: 'Certificates', section: 'Learning & Performance' },
   { key: 'student/payments', label: 'My Fees & Payments', section: 'Learning & Performance' },
-
   { key: 'student/forum', label: 'Forum', section: 'Communication' },
-
   { key: 'student/notifications', label: 'Notifications', section: 'Account' },
   { key: 'student/profile', label: 'Profile', section: 'Account' },
   { key: 'student/settings', label: 'Settings', section: 'Account' },
@@ -54,11 +36,6 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/teachers', label: 'Manage Teachers', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/courses', label: 'Manage Courses', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/hr?tab=structure', label: 'Institution Structure', section: 'INSTITUTION MANAGEMENT' },
-
-  { key: 'group:hr-management', label: 'HR Management (entire menu)', section: 'HR' },
-  { key: 'admin/hr', label: 'HR Dashboard', section: 'HR' },
-  { key: 'admin/staff', label: 'Staff Directory', section: 'HR' },
-  { key: 'admin/hr/access', label: 'Access & Permissions', section: 'HR' },
   { key: 'admin/courses/builder', label: 'Course Builder', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/courses/gradebook', label: 'Course Gradebook', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/courses/gate-report', label: 'Course Gate Report', section: 'INSTITUTION MANAGEMENT' },
@@ -72,8 +49,14 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
 
   { key: 'admin/schedules', label: 'Class Schedules', section: 'Academic' },
   { key: 'admin/attendance', label: 'Attendance', section: 'Academic' },
-  { key: 'admin/assignments', label: 'Manage Assignments', section: 'Academic' },
-  { key: 'group:exam-management', label: 'Exam Management (entire menu)', section: 'Academic' },
+  { key: 'group:learning-assessments', label: 'Learning & Assessments (entire menu)', section: 'Academic' },
+  { key: 'admin/analytics', label: 'Learning & Assessments Overview', section: 'Academic' },
+  { key: 'admin/analytics?tab=lessons', label: 'Lessons', section: 'Academic' },
+  { key: 'admin/analytics?tab=quizzes', label: 'Quizzes', section: 'Academic' },
+  { key: 'admin/analytics?tab=questions', label: 'Question Bank', section: 'Academic' },
+  { key: 'admin/assignments', label: 'Assignments', section: 'Academic' },
+  { key: 'admin/analytics?tab=performance', label: 'Learning Results', section: 'Academic' },
+  { key: 'group:exam-management', label: 'Examinations (entire menu)', section: 'Academic' },
   { key: 'admin/exams', label: 'Exam Scheduling', section: 'Academic' },
   { key: 'admin/exams/rooms', label: 'Room Allocation', section: 'Academic' },
   { key: 'admin/exams/attendance', label: 'Exam Attendance', section: 'Academic' },
@@ -100,35 +83,38 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/forum', label: 'Forum', section: 'Communication' },
   { key: 'admin/whatsapp', label: 'WhatsApp', section: 'Communication' },
   { key: 'admin/telegram', label: 'Telegram', section: 'Communication' },
-
   { key: 'admin/announcements', label: 'Announcements', section: 'Content' },
   { key: 'admin/news', label: 'News', section: 'Content' },
   { key: 'admin/events', label: 'Events', section: 'Content' },
   { key: 'admin/gallery', label: 'Gallery', section: 'Content' },
 
+  { key: 'group:hr-management', label: 'HR Management (entire menu)', section: 'HR' },
+  { key: 'admin/hr', label: 'HR Dashboard', section: 'HR' },
+  { key: 'admin/staff', label: 'Staff Directory', section: 'HR' },
+  { key: 'admin/hr/access', label: 'Access & Permissions', section: 'HR' },
+
   { key: 'admin/roles', label: 'Roles & Permissions', section: 'System' },
   { key: 'admin/settings', label: 'Settings', section: 'System' },
   { key: 'admin/settings/sidebar', label: 'Tenant Sidebar Config', section: 'System' },
-  { key: 'admin/analytics', label: 'Analytics', section: 'System' },
+  { key: 'admin/analytics?tab=overview', label: 'Institution Analytics', section: 'System' },
   { key: 'admin/logs', label: 'Activity Logs', section: 'System' },
   { key: 'admin/trash', label: 'Trash', section: 'System' },
   { key: 'admin/profile', label: 'Profile', section: 'System' },
 ];
 
-export const STUDENT_SIDEBAR_ITEM_KEYS = new Set(STUDENT_SIDEBAR_ITEMS.map((i) => i.key));
-export const ADMIN_SIDEBAR_ITEM_KEYS = new Set(ADMIN_SIDEBAR_ITEMS.map((i) => i.key));
+export const STUDENT_SIDEBAR_ITEM_KEYS = new Set(STUDENT_SIDEBAR_ITEMS.map((item) => item.key));
+export const ADMIN_SIDEBAR_ITEM_KEYS = new Set(ADMIN_SIDEBAR_ITEMS.map((item) => item.key));
 
 export function moduleForSidebarKey(key: string): 'finance' | 'exams' | 'admissions' | 'courses' | 'organization' | 'academic' | 'content' | 'communication' | 'system' | null {
   if (key.startsWith('admin/payments')) return 'finance';
-  if (key.startsWith('admin/exams') || key.startsWith('admin/results') || key === 'admin/certificates') return 'exams';
+  if (key.startsWith('admin/exams') || key.startsWith('admin/results') || key === 'admin/certificates' || key === 'group:exam-management') return 'exams';
   if (key.startsWith('admin/students') || key === 'admin/activity') return 'admissions';
-  if (key.startsWith('admin/courses')) return 'courses';
-  if (['admin/parents', 'admin/teachers', 'admin/staff', 'admin/schools', 'admin/users', 'admin/classes', 'admin/hr?tab=structure'].includes(key)) return 'organization';
-  if (key === 'admin/hr' || key === 'admin/hr/access' || key === 'group:hr-management') return 'organization';
+  if (key.startsWith('admin/courses') || key === 'group:learning-assessments' || key === 'admin/analytics' || key.startsWith('admin/analytics?tab=lessons') || key.startsWith('admin/analytics?tab=quizzes') || key.startsWith('admin/analytics?tab=questions') || key.startsWith('admin/analytics?tab=performance')) return 'courses';
+  if (['admin/parents', 'admin/teachers', 'admin/staff', 'admin/schools', 'admin/users', 'admin/classes', 'admin/hr?tab=structure', 'admin/hr', 'admin/hr/access', 'group:hr-management'].includes(key)) return 'organization';
   if (['admin/schedules', 'admin/attendance', 'admin/assignments'].includes(key)) return 'academic';
   if (['admin/announcements', 'admin/news', 'admin/events', 'admin/gallery'].includes(key)) return 'content';
   if (['admin/forum', 'admin/whatsapp', 'admin/telegram'].includes(key)) return 'communication';
-  if (['admin/roles', 'admin/settings', 'admin/settings/sidebar', 'admin/analytics', 'admin/logs', 'admin/trash', 'admin/profile'].includes(key)) return 'system';
+  if (['admin/roles', 'admin/settings', 'admin/settings/sidebar', 'admin/analytics?tab=overview', 'admin/logs', 'admin/trash', 'admin/profile'].includes(key)) return 'system';
   return null;
 }
 
@@ -140,13 +126,7 @@ export function keysFor(portal: SidebarPortal): Set<string> {
   return portal === 'admin' ? ADMIN_SIDEBAR_ITEM_KEYS : STUDENT_SIDEBAR_ITEM_KEYS;
 }
 
-export function mergeSidebarOverrides(
-  overrides: { key: string; visible: boolean }[],
-  portal: SidebarPortal = 'student'
-) {
-  const overrideMap = new Map(overrides.map((o) => [o.key, o.visible]));
-  return registryFor(portal).map((item) => ({
-    ...item,
-    visible: overrideMap.has(item.key) ? !!overrideMap.get(item.key) : true,
-  }));
+export function mergeSidebarOverrides(overrides: { key: string; visible: boolean }[], portal: SidebarPortal = 'student') {
+  const overrideMap = new Map(overrides.map((override) => [override.key, override.visible]));
+  return registryFor(portal).map((item) => ({ ...item, visible: overrideMap.has(item.key) ? !!overrideMap.get(item.key) : true }));
 }
