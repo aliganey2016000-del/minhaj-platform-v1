@@ -421,6 +421,115 @@ export function SchedulesTimetable() {
 
   return (
     <div className="min-h-full bg-[var(--color-surface-primary)] p-4 pt-20 sm:p-6 lg:pt-8">
+      <style>{`
+        @page {
+          size: A4 landscape;
+          margin: 6mm;
+        }
+
+        @media print {
+          html,
+          body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          body * {
+            visibility: hidden !important;
+          }
+
+          #schedule-timetable-print,
+          #schedule-timetable-print * {
+            visibility: visible !important;
+          }
+
+          #schedule-timetable-print {
+            position: fixed !important;
+            inset: 0 !important;
+            z-index: 2147483647 !important;
+            width: 100% !important;
+            max-width: none !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            background: #ffffff !important;
+          }
+
+          #schedule-timetable-print .schedule-timetable-print-scroll {
+            width: 100% !important;
+            overflow: visible !important;
+          }
+
+          #schedule-timetable-print table {
+            width: 100% !important;
+            min-width: 0 !important;
+            table-layout: fixed !important;
+            border-collapse: collapse !important;
+            font-size: 7px !important;
+            line-height: 1.15 !important;
+          }
+
+          #schedule-timetable-print thead {
+            display: table-header-group !important;
+          }
+
+          #schedule-timetable-print tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          #schedule-timetable-print th,
+          #schedule-timetable-print td {
+            padding: 4px 3px !important;
+            border: 1px solid #cbd5e1 !important;
+            vertical-align: middle !important;
+            text-align: center !important;
+            overflow-wrap: anywhere !important;
+            word-break: normal !important;
+          }
+
+          #schedule-timetable-print th {
+            background: #f8fafc !important;
+            font-size: 7px !important;
+            font-weight: 700 !important;
+          }
+
+          #schedule-timetable-print th:first-child,
+          #schedule-timetable-print td:first-child {
+            width: 58px !important;
+          }
+
+          #schedule-timetable-print td > div {
+            max-width: 100% !important;
+          }
+
+          #schedule-timetable-print td .space-y-1\\.5 {
+            display: block !important;
+          }
+
+          #schedule-timetable-print td .rounded-lg {
+            border-radius: 4px !important;
+          }
+
+          #schedule-timetable-print td .px-2 {
+            padding-left: 3px !important;
+            padding-right: 3px !important;
+          }
+
+          #schedule-timetable-print td .py-2,
+          #schedule-timetable-print td .py-3 {
+            padding-top: 3px !important;
+            padding-bottom: 3px !important;
+          }
+        }
+      `}</style>
       <div className="mx-auto w-full max-w-screen-2xl space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
@@ -451,8 +560,8 @@ export function SchedulesTimetable() {
 
         <div className="flex gap-1 overflow-x-auto rounded-xl border bg-[var(--color-surface-primary)] p-1.5">{DISPLAY_ORDER.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-20 flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${selectedDay === day ? 'bg-primary-600 text-white' : 'hover:bg-[var(--color-surface-secondary)]'}`}>{DAY_SHORT[day]}</button>)}</div>
 
-        <div className="overflow-hidden rounded-2xl border bg-[var(--color-surface-primary)] shadow-sm">
-          {loading ? <div className="flex min-h-72 items-center justify-center"><RefreshCw className="mr-2 h-5 w-5 animate-spin" />Loading timetable...</div> : !effectiveSchoolId ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Select an organization to view the timetable.</div> : periods.length === 0 ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{columns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="break-words font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, columns.length + 1)} className="border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} · {formatTime(period.startTime)}–{formatTime(period.endTime)}</td> : <><td className="border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />{formatTime(period.endTime)}</div></td>{columns.map(cls => {
+        <div id="schedule-timetable-print" className="overflow-hidden rounded-2xl border bg-[var(--color-surface-primary)] shadow-sm">
+          {loading ? <div className="flex min-h-72 items-center justify-center"><RefreshCw className="mr-2 h-5 w-5 animate-spin" />Loading timetable...</div> : !effectiveSchoolId ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Select an organization to view the timetable.</div> : periods.length === 0 ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div> : <div className="schedule-timetable-print-scroll overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{columns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="break-words font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, columns.length + 1)} className="border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} · {formatTime(period.startTime)}–{formatTime(period.endTime)}</td> : <><td className="border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />{formatTime(period.endTime)}</div></td>{columns.map(cls => {
                     const existing = cellSchedules(cls._id, period);
                     const selected = currentCourseId(cls._id, period);
                     const hasDraft = Object.prototype.hasOwnProperty.call(draft, draftKey(cls._id, period));
