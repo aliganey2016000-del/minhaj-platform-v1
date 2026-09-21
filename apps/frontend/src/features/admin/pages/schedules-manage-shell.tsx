@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, Download, List, MoreVertical, Pencil, Plus, Printer, RefreshCw, Settings, Upload } from 'lucide-react';
+import { CalendarDays, Download, List, MoreVertical, Pencil, Plus, Printer, RefreshCw, School, Settings, Upload, Users } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { resolveInstitutionType } from '../../../lib/institution-type';
@@ -282,6 +282,35 @@ export function SchedulesManageShell() {
     </div>
   );
 
+  const schedulePerspectiveTabs = (
+    <div className="flex w-full items-center gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-sm">
+      <button
+        type="button"
+        className="inline-flex min-h-9 flex-1 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white shadow-sm sm:flex-none sm:min-w-28"
+        aria-current="page"
+      >
+        <CalendarDays className="h-4 w-4" />
+        By Day
+      </button>
+      <button
+        type="button"
+        disabled
+        className="inline-flex min-h-9 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] sm:flex-none sm:min-w-28"
+      >
+        <School className="h-4 w-4" />
+        By Class
+      </button>
+      <button
+        type="button"
+        disabled
+        className="inline-flex min-h-9 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] sm:flex-none sm:min-w-28"
+      >
+        <Users className="h-4 w-4" />
+        By Teacher
+      </button>
+    </div>
+  );
+
   const persistentActions = (
     <>
       <button
@@ -356,6 +385,12 @@ export function SchedulesManageShell() {
       {schoolMode && view === 'table' && listToolbarHost
         ? createPortal(persistentActions, listToolbarHost)
         : null}
+
+      {schoolMode && view === 'timetable' && (
+        <div className="px-4 pt-3 print:hidden sm:px-6">
+          {schedulePerspectiveTabs}
+        </div>
+      )}
 
       {view === 'table'
         ? (schoolMode ? <SchoolSchedulesManage key={listRefreshKey} /> : <SchedulesManage />)
