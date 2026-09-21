@@ -131,6 +131,7 @@ export function SchedulesTimetable() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [schools, setSchools] = useState<{ _id: string; name: string }[]>([]);
+  const [printBranding, setPrintBranding] = useState<{ name?: string; branding?: { logo?: string } }>({});
   const [configuredPeriods, setConfiguredPeriods] = useState<TimetablePeriod[]>([]);
   const [schoolId, setSchoolId] = useState(isOrgAdmin ? organizationId : '');
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
@@ -214,6 +215,23 @@ export function SchedulesTimetable() {
       } catch { /* scoped users can still use timetable */ }
     })();
   }, [isOrgAdmin, organizationId, schoolId]);
+
+  useEffect(() => {
+    if (!effectiveSchoolId) {
+      setPrintBranding({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api.get(`/schools/${effectiveSchoolId}/branding`);
+        if (!cancelled) setPrintBranding(response.data?.data?.school || {});
+      } catch {
+        if (!cancelled) setPrintBranding({});
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveSchoolId]);
 
   useEffect(() => {
     setDepartmentFilter(ALL_DEPARTMENTS);
@@ -419,21 +437,18 @@ export function SchedulesTimetable() {
   });
 
   const visibleSessionCount = daySchedules.filter(item => columns.some(cls => cls._id === classIdOf(item.class))).length;
-  const printSchoolName = schools.find(school => school._id === effectiveSchoolId)?.name || user?.organizationName || 'School';
-  const printAcademicYear = columns.find(cls => cls.academicYear)?.academicYear
-    || classes.find(cls => cls.academicYear)?.academicYear
-    || '';
-  const visibleShiftNames = Array.from(new Set(
-    columns
-      .map(shiftValue)
-      .filter(value => value !== UNASSIGNED_SHIFT)
-      .map(shiftLabel)
-  ));
+  const printSchoolName = printBranding.name || schools.find(school => school._id === effectiveSchoolId)?.name || user?.organizationName || 'School';
+  const printLogo = printBranding.branding?.logo || '';
+  const printAcademicYears = Array.from(new Set(columns.map(cls => String(cls.academicYear || '').trim()).filter(Boolean)));
+  const printAcademicYear = printAcademicYears.length ? printAcademicYears.join(' / ') : '—';
+  const visibleShifts = Array.from(new Set(columns.map(shiftValue).filter(value => value !== UNASSIGNED_SHIFT)));
   const printShiftName = shiftFilter !== ALL_SHIFTS
     ? shiftLabel(shiftFilter)
-    : visibleShiftNames.length === 1
-      ? visibleShiftNames[0]
-      : 'All Shifts';
+    : visibleShifts.length === 1
+      ? shiftLabel(visibleShifts[0])
+      : visibleShifts.length > 1
+        ? 'Multiple Shifts'
+        : 'School Shift';
   const printGeneratedDate = new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
     month: 'long',
@@ -512,6 +527,21 @@ export function SchedulesTimetable() {
             height: 46px !important;
             object-fit: contain !important;
             flex: 0 0 auto !important;
+          }
+
+          #schedule-timetable-print .schedule-print-logo-fallback {
+            display: flex !important;
+            width: 46px !important;
+            height: 46px !important;
+            flex: 0 0 46px !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border: 2px solid #0f766e !important;
+            border-radius: 10px !important;
+            background: #ecfdf5 !important;
+            color: #0f766e !important;
+            font-size: 20px !important;
+            font-weight: 900 !important;
           }
 
           #schedule-timetable-print .schedule-print-school {
@@ -752,7 +782,11 @@ export function SchedulesTimetable() {
         <div id="schedule-timetable-print" className="overflow-hidden rounded-2xl border bg-[var(--color-surface-primary)] shadow-sm">
           <div className="schedule-print-header">
             <div className="schedule-print-brand">
-              <img className="schedule-print-logo" src="/logo.svg" alt="" />
+              {printLogo ? (
+                <img className="schedule-print-logo" src={printLogo} alt="" />
+              ) : (
+                <div className="schedule-print-logo-fallback">{printSchoolName.charAt(0).toUpperCase()}</div>
+              )}
               <div className="schedule-print-school">
                 <div className="schedule-print-school-name">{printSchoolName}</div>
                 <div className="schedule-print-school-subtitle">Class Schedule • Weekly Academic Timetable</div>
@@ -760,10 +794,11 @@ export function SchedulesTimetable() {
             </div>
             <div className="schedule-print-title">
               <h2>CLASS SCHEDULE</h2>
-              <p>Weekly Timetable - {printShiftName}</p>
+              <p>Weekly Timetable - {printShiftName}{printShiftName.toLowerCase().includes('shift') ? '' : ' Shift'}</p>
             </div>
             <div className="schedule-print-meta">
-              {printAcademicYear && <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Academic Year:</span><span>{printAcademicYear}</span></div>}
+              <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Academic Year:</span><span>{printAcademicYear}</span></div>
+              <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Shift:</span><span>{printShiftName}</span></div>
               <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Day:</span><span>{DAYS[selectedDay]}</span></div>
               <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Generated:</span><span>{printGeneratedDate}</span></div>
             </div>
