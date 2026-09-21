@@ -82,6 +82,41 @@ async function main() {
   const courseAAfter = await Course.findOne({ school: schoolA._id, courseCode: 'MATH-5' }).lean();
   assert(reimportA.status === 200 && courseAAfter?.slug === originalSlug, 're-import updates without changing the established public URL');
 
+  console.log('\n=== COURSE CODE REUSE ACROSS SECTIONS ===');
+  const classASectionB = await ClassModel.create({
+    school: schoolA._id,
+    department: deptA._id,
+    title: 'Grade 5',
+    section: 'B',
+    room: '2',
+    gradeLevel: 5,
+    academicYear: '2026/27',
+    status: 'active',
+  });
+  function sharedCodeSectionsWorkbookBuffer() {
+    const sheet = XLSX.utils.json_to_sheet([
+      { 'Course / Subject Name': 'Science', 'Course Code': 'SCI-5', 'Class / Section': 'Grade 5 — A', 'Teacher / Instructor': '', Description: '' },
+      { 'Course / Subject Name': 'Science', 'Course Code': 'SCI-5', 'Class / Section': 'Grade 5 — B', 'Teacher / Instructor': '', Description: '' },
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Courses');
+    return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  }
+  const sharedCodeImport = await request(app)
+    .post('/api/v1/courses/import')
+    .set('Authorization', `Bearer ${tokenA}`)
+    .attach('file', sharedCodeSectionsWorkbookBuffer(), 'shared-code-sections.xlsx');
+  const sharedCodeCourses = await Course.find({ school: schoolA._id, courseCode: 'SCI-5' }).sort({ class: 1 }).lean();
+  const sharedClassIds = new Set(sharedCodeCourses.map((course: any) => String(course.class)));
+  assert(
+    sharedCodeImport.status === 200
+      && sharedCodeImport.body?.data?.failed === 0
+      && sharedCodeCourses.length === 2
+      && sharedClassIds.has(String(classA._id))
+      && sharedClassIds.has(String(classASectionB._id)),
+    'the same Course Code imports successfully into different class sections'
+  );
+
   await mongoose.disconnect();
   await mongod.stop();
   if (failures) process.exit(1);

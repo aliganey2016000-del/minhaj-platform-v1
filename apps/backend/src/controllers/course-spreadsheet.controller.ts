@@ -377,7 +377,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       .populate('user', 'email')
       .populate('profile', 'firstName lastName')
       .lean(),
-    Course.find({ school: context.schoolId }).select('_id slug courseCode school').lean(),
+    Course.find({ school: context.schoolId }).select('_id slug courseCode school class').lean(),
     Course.find({}).select('_id slug school').lean(),
   ]);
 
@@ -409,10 +409,19 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     if (fullName) teacherMap.set(fullName, teacher._id);
   }
 
+  // Course Code is reusable across different classes/sections. For example,
+  // Grade 8 A and Grade 8 B may both legitimately have MATH-8. Treat
+  // (courseCode + class) as the import identity, not courseCode alone.
+  const courseCodeClassKey = (code: unknown, classId: unknown) => {
+    const normalizedCode = normalizeLookup(code);
+    if (!normalizedCode) return '';
+    return `${normalizedCode}::${classId ? String(classId) : '__unscoped__'}`;
+  };
+
   const codeMap = new Map<string, any>();
   for (const course of existingScoped as any[]) {
-    const code = normalizeLookup(course.courseCode);
-    if (code) codeMap.set(code, course);
+    const key = courseCodeClassKey(course.courseCode, course.class);
+    if (key) codeMap.set(key, course);
   }
   const slugMap = new Map<string, any>();
   for (const course of existingSlugs as any[]) slugMap.set(String(course.slug), course);
@@ -425,7 +434,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   const updateOps: any[] = [];
   const seenSlugs = new Set<string>();
   const seenExistingIds = new Set<string>();
-  const seenCourseCodes = new Set<string>();
+  const seenCourseCodeClasses = new Set<string>();
   let teachersCreated = 0;
 
   for (let index = 0; index < rows.length; index += 1) {
@@ -471,7 +480,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const slugDifferentiator = placement ? slugify(placement) : (courseCode ? slugify(courseCode) : '');
       const legacySlug = slugDifferentiator ? `${baseSlug}-${slugDifferentiator}` : baseSlug;
       let slug = tenantSlug(legacySlug, context.schoolId);
-      const existingByCode = courseCode ? codeMap.get(normalizeLookup(courseCode)) : undefined;
+      const courseCodeClassIdentity = courseCodeClassKey(courseCode, classId);
+      const existingByCode = courseCodeClassIdentity ? codeMap.get(courseCodeClassIdentity) : undefined;
       // Distinct Course Codes are allowed in the same class/placement. If an
       // earlier new row already claimed the normal name+placement slug, add the
       // Course Code only for the colliding row so existing URL conventions stay
@@ -491,11 +501,12 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         if (slugOwner) {
           throw new Error(`Another course already uses the generated course URL "${slug}"`);
         }
-        // Course Code is the actual unique identifier for a row (e.g. MATH-1..MATH-12
-        // for the same subject repeated across grades). Only fall back to the
-        // generated name+placement slug when a row has no code to key off.
-        if (codeKey) {
-          if (seenCourseCodes.has(codeKey)) throw new Error('This course appears more than once in the import file');
+        // Course Code is unique only within the selected class/section. The
+        // same code is valid in another class (e.g. MATH-8 in Grade 8 A and
+        // Grade 8 B). Rows without a code still fall back to the generated
+        // name+placement slug.
+        if (courseCodeClassIdentity) {
+          if (seenCourseCodeClasses.has(courseCodeClassIdentity)) throw new Error('This course appears more than once in the import file for the same class / section');
         } else if (seenSlugs.has(slug)) {
           throw new Error('This course appears more than once in the import file');
         }
@@ -541,7 +552,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       }
 
       seenSlugs.add(slug);
-      if (codeKey) seenCourseCodes.add(codeKey);
+      if (courseCodeClassIdentity) seenCourseCodeClasses.add(courseCodeClassIdentity);
       insertRowNumbers.push(rowNumber);
       insertDocs.push({
         ...commonFields,
