@@ -29,10 +29,10 @@ export function SchoolAttendanceManage() {
               key={key}
               type="button"
               onClick={() => setWorkspace(key)}
-              className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl px-2 text-xs font-semibold transition-colors sm:px-3 sm:text-sm ${
+              className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl px-2 text-xs font-semibold transition-all sm:px-3 sm:text-sm ${
                 workspace === key
                   ? 'bg-primary-600 text-white shadow-sm'
-                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)] hover:text-[var(--color-text-primary)]'
               }`}
             >
               <Icon className="h-4 w-4 shrink-0" />
@@ -42,7 +42,12 @@ export function SchoolAttendanceManage() {
         </div>
       </div>
 
-      {workspace === 'dashboard' && <SchoolAttendanceDashboardPanel />}
+      {workspace === 'dashboard' && (
+        <SchoolAttendanceDashboardPanel
+          onOpenPeriod={() => setWorkspace('period')}
+          onOpenDaily={() => setWorkspace('daily')}
+        />
+      )}
       {workspace === 'period' && <SchoolPeriodAttendanceManage />}
       {workspace === 'daily' && <SchoolDailyAttendancePanel />}
       {workspace === 'substitutes' && <SchoolSubstitutesPanel />}
