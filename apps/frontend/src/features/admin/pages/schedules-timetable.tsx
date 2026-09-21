@@ -24,6 +24,7 @@ interface ClassItem {
   name?: string;
   section?: string;
   gradeLevel?: number;
+  academicYear?: string;
   department?: { _id?: string; name?: string } | string | null;
   departmentId?: string;
   shiftMode?: string;
@@ -130,6 +131,7 @@ export function SchedulesTimetable() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [schools, setSchools] = useState<{ _id: string; name: string }[]>([]);
+  const [printBranding, setPrintBranding] = useState<{ name?: string; branding?: { logo?: string } }>({});
   const [configuredPeriods, setConfiguredPeriods] = useState<TimetablePeriod[]>([]);
   const [schoolId, setSchoolId] = useState(isOrgAdmin ? organizationId : '');
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
@@ -213,6 +215,23 @@ export function SchedulesTimetable() {
       } catch { /* scoped users can still use timetable */ }
     })();
   }, [isOrgAdmin, organizationId, schoolId]);
+
+  useEffect(() => {
+    if (!effectiveSchoolId) {
+      setPrintBranding({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api.get(`/schools/${effectiveSchoolId}/branding`);
+        if (!cancelled) setPrintBranding(response.data?.data?.school || {});
+      } catch {
+        if (!cancelled) setPrintBranding({});
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveSchoolId]);
 
   useEffect(() => {
     setDepartmentFilter(ALL_DEPARTMENTS);
@@ -418,10 +437,31 @@ export function SchedulesTimetable() {
   });
 
   const visibleSessionCount = daySchedules.filter(item => columns.some(cls => cls._id === classIdOf(item.class))).length;
+  const printSchoolName = printBranding.name || schools.find(school => school._id === effectiveSchoolId)?.name || 'School';
+  const printLogo = printBranding.branding?.logo || '';
+  const printAcademicYears = Array.from(new Set(columns.map(cls => String(cls.academicYear || '').trim()).filter(Boolean)));
+  const printAcademicYear = printAcademicYears.length ? printAcademicYears.join(' / ') : '—';
+  const visibleShifts = Array.from(new Set(columns.map(shiftValue).filter(value => value !== UNASSIGNED_SHIFT)));
+  const printShift = shiftFilter !== ALL_SHIFTS
+    ? shiftLabel(shiftFilter)
+    : visibleShifts.length === 1
+      ? shiftLabel(visibleShifts[0])
+      : visibleShifts.length > 1
+        ? 'Multiple Shifts'
+        : 'School Shift';
+  const printGeneratedDate = new Date().toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
 
   return (
     <div className="min-h-full bg-[var(--color-surface-primary)] p-4 pt-20 sm:p-6 lg:pt-8">
       <style>{`
+        .schedule-print-header {
+          display: none;
+        }
+
         @page {
           size: A4 landscape;
           margin: 6mm;
@@ -460,6 +500,102 @@ export function SchedulesTimetable() {
             border-radius: 0 !important;
             box-shadow: none !important;
             background: #ffffff !important;
+          }
+
+          #schedule-timetable-print .schedule-print-header {
+            display: grid !important;
+            grid-template-columns: minmax(0, 1fr) minmax(220px, 1.15fr) minmax(190px, 0.9fr) !important;
+            align-items: center !important;
+            gap: 14px !important;
+            width: 100% !important;
+            margin: 0 0 14px !important;
+            padding: 3px 2px 0 !important;
+            color: #0f2354 !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          #schedule-timetable-print .schedule-print-school {
+            display: flex !important;
+            align-items: center !important;
+            gap: 10px !important;
+            min-width: 0 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-logo {
+            width: 54px !important;
+            height: 54px !important;
+            flex: 0 0 54px !important;
+            object-fit: contain !important;
+          }
+
+          #schedule-timetable-print .schedule-print-logo-fallback {
+            display: flex !important;
+            width: 54px !important;
+            height: 54px !important;
+            flex: 0 0 54px !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border: 2px solid #0f766e !important;
+            border-radius: 12px !important;
+            background: #ecfdf5 !important;
+            color: #0f766e !important;
+            font-size: 24px !important;
+            font-weight: 900 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-school-name {
+            margin: 0 !important;
+            font-size: 14px !important;
+            line-height: 1.2 !important;
+            font-weight: 800 !important;
+            color: #0f2354 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-school-subtitle {
+            margin: 4px 0 0 !important;
+            font-size: 8px !important;
+            line-height: 1.3 !important;
+            color: #2563a6 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-title {
+            text-align: center !important;
+          }
+
+          #schedule-timetable-print .schedule-print-title h2 {
+            margin: 0 !important;
+            font-size: 25px !important;
+            line-height: 1 !important;
+            font-weight: 900 !important;
+            letter-spacing: -0.5px !important;
+            color: #0b2259 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-title p {
+            margin: 5px 0 0 !important;
+            font-size: 13px !important;
+            line-height: 1.2 !important;
+            font-weight: 500 !important;
+            color: #18325f !important;
+          }
+
+          #schedule-timetable-print .schedule-print-meta {
+            justify-self: end !important;
+            min-width: 190px !important;
+            font-size: 8.5px !important;
+            line-height: 1.45 !important;
+            color: #0f2354 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-meta-row {
+            display: grid !important;
+            grid-template-columns: auto 1fr !important;
+            gap: 5px !important;
+          }
+
+          #schedule-timetable-print .schedule-print-meta strong {
+            font-weight: 800 !important;
           }
 
           #schedule-timetable-print .schedule-timetable-print-scroll {
@@ -561,6 +697,31 @@ export function SchedulesTimetable() {
         <div className="flex gap-1 overflow-x-auto rounded-xl border bg-[var(--color-surface-primary)] p-1.5">{DISPLAY_ORDER.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-20 flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${selectedDay === day ? 'bg-primary-600 text-white' : 'hover:bg-[var(--color-surface-secondary)]'}`}>{DAY_SHORT[day]}</button>)}</div>
 
         <div id="schedule-timetable-print" className="overflow-hidden rounded-2xl border bg-[var(--color-surface-primary)] shadow-sm">
+          <div className="schedule-print-header" aria-hidden="true">
+            <div className="schedule-print-school">
+              {printLogo ? (
+                <img src={printLogo} alt="" className="schedule-print-logo" />
+              ) : (
+                <div className="schedule-print-logo-fallback">{printSchoolName.charAt(0).toUpperCase()}</div>
+              )}
+              <div>
+                <p className="schedule-print-school-name">{printSchoolName}</p>
+                <p className="schedule-print-school-subtitle">Knowledge • Learning • Excellence</p>
+              </div>
+            </div>
+
+            <div className="schedule-print-title">
+              <h2>CLASS SCHEDULE</h2>
+              <p>Weekly Timetable - {printShift}{printShift.toLowerCase().includes('shift') ? '' : ' Shift'}</p>
+            </div>
+
+            <div className="schedule-print-meta">
+              <div className="schedule-print-meta-row"><strong>Academic Year:</strong><span>{printAcademicYear}</span></div>
+              <div className="schedule-print-meta-row"><strong>Shift:</strong><span>{printShift}</span></div>
+              <div className="schedule-print-meta-row"><strong>Day:</strong><span>{DAYS[selectedDay]}</span></div>
+              <div className="schedule-print-meta-row"><strong>Generated:</strong><span>{printGeneratedDate}</span></div>
+            </div>
+          </div>
           {loading ? <div className="flex min-h-72 items-center justify-center"><RefreshCw className="mr-2 h-5 w-5 animate-spin" />Loading timetable...</div> : !effectiveSchoolId ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Select an organization to view the timetable.</div> : periods.length === 0 ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div> : <div className="schedule-timetable-print-scroll overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{columns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="break-words font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, columns.length + 1)} className="border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} · {formatTime(period.startTime)}–{formatTime(period.endTime)}</td> : <><td className="border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />{formatTime(period.endTime)}</div></td>{columns.map(cls => {
                     const existing = cellSchedules(cls._id, period);
                     const selected = currentCourseId(cls._id, period);
