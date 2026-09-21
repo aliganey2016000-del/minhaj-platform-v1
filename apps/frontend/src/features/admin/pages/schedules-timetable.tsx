@@ -437,28 +437,29 @@ export function SchedulesTimetable() {
   });
 
   const visibleSessionCount = daySchedules.filter(item => columns.some(cls => cls._id === classIdOf(item.class))).length;
-  const printSchoolName = printBranding.name || schools.find(school => school._id === effectiveSchoolId)?.name || 'School';
+  const printSchoolName = printBranding.name || schools.find(school => school._id === effectiveSchoolId)?.name || user?.organizationName || 'School';
   const printLogo = printBranding.branding?.logo || '';
   const printAcademicYears = Array.from(new Set(columns.map(cls => String(cls.academicYear || '').trim()).filter(Boolean)));
   const printAcademicYear = printAcademicYears.length ? printAcademicYears.join(' / ') : '—';
   const visibleShifts = Array.from(new Set(columns.map(shiftValue).filter(value => value !== UNASSIGNED_SHIFT)));
-  const printShift = shiftFilter !== ALL_SHIFTS
+  const printShiftName = shiftFilter !== ALL_SHIFTS
     ? shiftLabel(shiftFilter)
     : visibleShifts.length === 1
       ? shiftLabel(visibleShifts[0])
       : visibleShifts.length > 1
         ? 'Multiple Shifts'
         : 'School Shift';
-  const printGeneratedDate = new Date().toLocaleDateString('en-GB', {
+  const printGeneratedDate = new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
-  });
+  }).format(new Date());
 
   return (
     <div className="min-h-full bg-[var(--color-surface-primary)] p-4 pt-20 sm:p-6 lg:pt-8">
       <style>{`
-        .schedule-print-header {
+        .schedule-print-header,
+        .schedule-print-footer {
           display: none;
         }
 
@@ -490,8 +491,11 @@ export function SchedulesTimetable() {
             position: fixed !important;
             inset: 0 !important;
             z-index: 2147483647 !important;
+            display: flex !important;
+            flex-direction: column !important;
             width: 100% !important;
             max-width: none !important;
+            min-height: 100% !important;
             height: auto !important;
             margin: 0 !important;
             padding: 0 !important;
@@ -500,22 +504,18 @@ export function SchedulesTimetable() {
             border-radius: 0 !important;
             box-shadow: none !important;
             background: #ffffff !important;
+            color: #0f2348 !important;
           }
 
           #schedule-timetable-print .schedule-print-header {
             display: grid !important;
-            grid-template-columns: minmax(0, 1fr) minmax(220px, 1.15fr) minmax(190px, 0.9fr) !important;
-            align-items: center !important;
+            grid-template-columns: minmax(240px, 1fr) minmax(320px, 1.25fr) minmax(225px, 0.9fr) !important;
+            align-items: start !important;
             gap: 14px !important;
-            width: 100% !important;
-            margin: 0 0 14px !important;
-            padding: 3px 2px 0 !important;
-            color: #0f2354 !important;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
+            padding: 4mm 2mm 5mm !important;
           }
 
-          #schedule-timetable-print .schedule-print-school {
+          #schedule-timetable-print .schedule-print-brand {
             display: flex !important;
             align-items: center !important;
             gap: 10px !important;
@@ -523,93 +523,102 @@ export function SchedulesTimetable() {
           }
 
           #schedule-timetable-print .schedule-print-logo {
-            width: 54px !important;
-            height: 54px !important;
-            flex: 0 0 54px !important;
+            width: 46px !important;
+            height: 46px !important;
             object-fit: contain !important;
+            flex: 0 0 auto !important;
           }
 
           #schedule-timetable-print .schedule-print-logo-fallback {
             display: flex !important;
-            width: 54px !important;
-            height: 54px !important;
-            flex: 0 0 54px !important;
+            width: 46px !important;
+            height: 46px !important;
+            flex: 0 0 46px !important;
             align-items: center !important;
             justify-content: center !important;
             border: 2px solid #0f766e !important;
-            border-radius: 12px !important;
+            border-radius: 10px !important;
             background: #ecfdf5 !important;
             color: #0f766e !important;
-            font-size: 24px !important;
+            font-size: 20px !important;
             font-weight: 900 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-school {
+            min-width: 0 !important;
           }
 
           #schedule-timetable-print .schedule-print-school-name {
             margin: 0 !important;
-            font-size: 14px !important;
-            line-height: 1.2 !important;
+            font-size: 13px !important;
+            line-height: 1.15 !important;
             font-weight: 800 !important;
-            color: #0f2354 !important;
+            color: #0b2454 !important;
           }
 
           #schedule-timetable-print .schedule-print-school-subtitle {
-            margin: 4px 0 0 !important;
-            font-size: 8px !important;
-            line-height: 1.3 !important;
-            color: #2563a6 !important;
+            margin-top: 4px !important;
+            font-size: 9px !important;
+            line-height: 1.2 !important;
+            color: #24558c !important;
           }
 
           #schedule-timetable-print .schedule-print-title {
             text-align: center !important;
+            align-self: center !important;
           }
 
           #schedule-timetable-print .schedule-print-title h2 {
             margin: 0 !important;
-            font-size: 25px !important;
+            font-size: 22px !important;
             line-height: 1 !important;
+            letter-spacing: -0.02em !important;
             font-weight: 900 !important;
-            letter-spacing: -0.5px !important;
-            color: #0b2259 !important;
+            color: #0a2456 !important;
           }
 
           #schedule-timetable-print .schedule-print-title p {
             margin: 5px 0 0 !important;
-            font-size: 13px !important;
-            line-height: 1.2 !important;
-            font-weight: 500 !important;
-            color: #18325f !important;
+            font-size: 12px !important;
+            line-height: 1.15 !important;
+            color: #173765 !important;
           }
 
           #schedule-timetable-print .schedule-print-meta {
             justify-self: end !important;
-            min-width: 190px !important;
-            font-size: 8.5px !important;
+            min-width: 210px !important;
+            font-size: 9px !important;
             line-height: 1.45 !important;
-            color: #0f2354 !important;
+            color: #12284f !important;
           }
 
           #schedule-timetable-print .schedule-print-meta-row {
             display: grid !important;
             grid-template-columns: auto 1fr !important;
-            gap: 5px !important;
+            gap: 4px !important;
           }
 
-          #schedule-timetable-print .schedule-print-meta strong {
+          #schedule-timetable-print .schedule-print-meta-label {
             font-weight: 800 !important;
           }
 
           #schedule-timetable-print .schedule-timetable-print-scroll {
             width: 100% !important;
             overflow: visible !important;
+            flex: 1 1 auto !important;
           }
 
           #schedule-timetable-print table {
             width: 100% !important;
             min-width: 0 !important;
             table-layout: fixed !important;
-            border-collapse: collapse !important;
-            font-size: 7px !important;
-            line-height: 1.15 !important;
+            border-collapse: separate !important;
+            border-spacing: 0 !important;
+            border: 1px solid #b8cee6 !important;
+            border-radius: 4px !important;
+            overflow: hidden !important;
+            font-size: 7.3px !important;
+            line-height: 1.18 !important;
           }
 
           #schedule-timetable-print thead {
@@ -623,23 +632,104 @@ export function SchedulesTimetable() {
 
           #schedule-timetable-print th,
           #schedule-timetable-print td {
-            padding: 4px 3px !important;
-            border: 1px solid #cbd5e1 !important;
+            padding: 5px 3px !important;
+            border-right: 1px solid #c6d8ea !important;
+            border-bottom: 1px solid #c6d8ea !important;
+            border-top: 0 !important;
+            border-left: 0 !important;
             vertical-align: middle !important;
             text-align: center !important;
             overflow-wrap: anywhere !important;
             word-break: normal !important;
+            color: #0e2448 !important;
+          }
+
+          #schedule-timetable-print tr > :last-child {
+            border-right: 0 !important;
+          }
+
+          #schedule-timetable-print tbody tr:last-child td {
+            border-bottom: 0 !important;
           }
 
           #schedule-timetable-print th {
-            background: #f8fafc !important;
-            font-size: 7px !important;
-            font-weight: 700 !important;
+            background: #edf6fd !important;
+            font-size: 7.4px !important;
+            font-weight: 800 !important;
+            color: #10274e !important;
           }
 
           #schedule-timetable-print th:first-child,
           #schedule-timetable-print td:first-child {
-            width: 58px !important;
+            width: 62px !important;
+          }
+
+          #schedule-timetable-print .schedule-period-cell {
+            background: #f6faff !important;
+            color: #0e274f !important;
+          }
+
+          #schedule-timetable-print .schedule-period-cell > div:first-child {
+            font-size: 7.5px !important;
+            font-weight: 800 !important;
+          }
+
+          #schedule-timetable-print .schedule-period-time {
+            margin-top: 3px !important;
+            font-size: 6.4px !important;
+            line-height: 1.25 !important;
+            color: #375477 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-subject {
+            min-height: 30px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 4px 3px !important;
+            border-radius: 4px !important;
+            font-size: 7px !important;
+            line-height: 1.15 !important;
+            font-weight: 800 !important;
+            color: #10284d !important;
+          }
+
+          #schedule-timetable-print .schedule-print-subject-1 {
+            background: #ddf8e8 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-subject-2 {
+            background: #dceeff !important;
+          }
+
+          #schedule-timetable-print .schedule-print-subject-3 {
+            background: #fff1b9 !important;
+          }
+
+          #schedule-timetable-print .schedule-break-row {
+            background: #fff0f0 !important;
+            color: #8a1717 !important;
+            font-size: 8px !important;
+            font-weight: 900 !important;
+            padding: 6px 4px !important;
+          }
+
+          #schedule-timetable-print .schedule-empty-cell {
+            color: #45627e !important;
+            font-size: 8px !important;
+          }
+
+          #schedule-timetable-print .schedule-print-footer {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            gap: 12px !important;
+            margin-top: 5mm !important;
+            padding: 3mm 1mm 0 !important;
+            border-top: 1px solid #a9bfd8 !important;
+            font-size: 7.5px !important;
+            line-height: 1.2 !important;
+            color: #17345c !important;
           }
 
           #schedule-timetable-print td > div {
@@ -650,19 +740,12 @@ export function SchedulesTimetable() {
             display: block !important;
           }
 
-          #schedule-timetable-print td .rounded-lg {
-            border-radius: 4px !important;
+          #schedule-timetable-print td .space-y-1\\.5 > * + * {
+            margin-top: 3px !important;
           }
 
-          #schedule-timetable-print td .px-2 {
-            padding-left: 3px !important;
-            padding-right: 3px !important;
-          }
-
-          #schedule-timetable-print td .py-2,
-          #schedule-timetable-print td .py-3 {
-            padding-top: 3px !important;
-            padding-bottom: 3px !important;
+          #schedule-timetable-print .schedule-screen-only {
+            display: none !important;
           }
         }
       `}</style>
@@ -697,39 +780,41 @@ export function SchedulesTimetable() {
         <div className="flex gap-1 overflow-x-auto rounded-xl border bg-[var(--color-surface-primary)] p-1.5">{DISPLAY_ORDER.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-20 flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${selectedDay === day ? 'bg-primary-600 text-white' : 'hover:bg-[var(--color-surface-secondary)]'}`}>{DAY_SHORT[day]}</button>)}</div>
 
         <div id="schedule-timetable-print" className="overflow-hidden rounded-2xl border bg-[var(--color-surface-primary)] shadow-sm">
-          <div className="schedule-print-header" aria-hidden="true">
-            <div className="schedule-print-school">
+          <div className="schedule-print-header">
+            <div className="schedule-print-brand">
               {printLogo ? (
-                <img src={printLogo} alt="" className="schedule-print-logo" />
+                <img className="schedule-print-logo" src={printLogo} alt="" />
               ) : (
                 <div className="schedule-print-logo-fallback">{printSchoolName.charAt(0).toUpperCase()}</div>
               )}
-              <div>
-                <p className="schedule-print-school-name">{printSchoolName}</p>
-                <p className="schedule-print-school-subtitle">Knowledge • Learning • Excellence</p>
+              <div className="schedule-print-school">
+                <div className="schedule-print-school-name">{printSchoolName}</div>
+                <div className="schedule-print-school-subtitle">Class Schedule • Weekly Academic Timetable</div>
               </div>
             </div>
-
             <div className="schedule-print-title">
               <h2>CLASS SCHEDULE</h2>
-              <p>Weekly Timetable - {printShift}{printShift.toLowerCase().includes('shift') ? '' : ' Shift'}</p>
+              <p>Weekly Timetable - {printShiftName}{printShiftName.toLowerCase().includes('shift') ? '' : ' Shift'}</p>
             </div>
-
             <div className="schedule-print-meta">
-              <div className="schedule-print-meta-row"><strong>Academic Year:</strong><span>{printAcademicYear}</span></div>
-              <div className="schedule-print-meta-row"><strong>Shift:</strong><span>{printShift}</span></div>
-              <div className="schedule-print-meta-row"><strong>Day:</strong><span>{DAYS[selectedDay]}</span></div>
-              <div className="schedule-print-meta-row"><strong>Generated:</strong><span>{printGeneratedDate}</span></div>
+              <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Academic Year:</span><span>{printAcademicYear}</span></div>
+              <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Shift:</span><span>{printShiftName}</span></div>
+              <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Day:</span><span>{DAYS[selectedDay]}</span></div>
+              <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Generated:</span><span>{printGeneratedDate}</span></div>
             </div>
           </div>
-          {loading ? <div className="flex min-h-72 items-center justify-center"><RefreshCw className="mr-2 h-5 w-5 animate-spin" />Loading timetable...</div> : !effectiveSchoolId ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Select an organization to view the timetable.</div> : periods.length === 0 ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div> : <div className="schedule-timetable-print-scroll overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{columns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="break-words font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, columns.length + 1)} className="border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} · {formatTime(period.startTime)}–{formatTime(period.endTime)}</td> : <><td className="border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />{formatTime(period.endTime)}</div></td>{columns.map(cls => {
+          {loading ? <div className="flex min-h-72 items-center justify-center"><RefreshCw className="mr-2 h-5 w-5 animate-spin" />Loading timetable...</div> : !effectiveSchoolId ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Select an organization to view the timetable.</div> : periods.length === 0 ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div> : <div className="schedule-timetable-print-scroll overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{columns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="break-words font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, columns.length + 1)} className="schedule-break-row border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} ({formatTime(period.startTime)} – {formatTime(period.endTime)})</td> : <><td className="schedule-period-cell border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="schedule-period-time mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div></td>{columns.map(cls => {
                     const existing = cellSchedules(cls._id, period);
                     const selected = currentCourseId(cls._id, period);
                     const hasDraft = Object.prototype.hasOwnProperty.call(draft, draftKey(cls._id, period));
                     return <td key={`${cls._id}-${period.key}`} className={`border p-2 align-top ${hasDraft ? 'bg-amber-50/70' : ''}`}>
-                      {editMode ? <select value={selected} onFocus={() => void loadClassCourses(cls._id)} onChange={e => setDraft(current => ({ ...current, [draftKey(cls._id, period)]: e.target.value }))} className="min-h-11 w-full rounded-lg border bg-[var(--color-surface-primary)] px-2 py-2 text-xs"><option value="">— No course —</option>{loadingCourses.has(cls._id) && <option disabled>Loading...</option>}{(coursesByClass[cls._id] || []).map(course => <option key={course._id} value={course._id}>{courseLabel(course)}{course.courseCode ? ` · ${course.courseCode}` : ''}</option>)}</select> : existing.length ? <div className="space-y-1.5">{existing.map(item => <div key={item._id} className="rounded-lg bg-primary-50 px-2 py-2 text-center text-xs text-primary-900 dark:bg-primary-950/30 dark:text-primary-100"><div className="break-words font-bold">{courseLabel(item.course)}</div>{item.room && <div className="mt-1 text-[10px] opacity-70">Room {item.room}</div>}</div>)}</div> : <div className="py-3 text-center text-xs text-[var(--color-text-tertiary)]">—</div>}
+                      {editMode ? <select value={selected} onFocus={() => void loadClassCourses(cls._id)} onChange={e => setDraft(current => ({ ...current, [draftKey(cls._id, period)]: e.target.value }))} className="min-h-11 w-full rounded-lg border bg-[var(--color-surface-primary)] px-2 py-2 text-xs"><option value="">— No course —</option>{loadingCourses.has(cls._id) && <option disabled>Loading...</option>}{(coursesByClass[cls._id] || []).map(course => <option key={course._id} value={course._id}>{courseLabel(course)}{course.courseCode ? ` · ${course.courseCode}` : ''}</option>)}</select> : existing.length ? <div className="space-y-1.5">{existing.map(item => <div key={item._id} className={`schedule-print-subject schedule-print-subject-${((period.lessonNumber || 1) - 1) % 3 + 1} rounded-lg bg-primary-50 px-2 py-2 text-center text-xs text-primary-900 dark:bg-primary-950/30 dark:text-primary-100`}><div className="break-words font-bold">{courseLabel(item.course)}</div>{item.room && <div className="schedule-screen-only mt-1 text-[10px] opacity-70">Room {item.room}</div>}</div>)}</div> : <div className="schedule-empty-cell py-3 text-center text-xs text-[var(--color-text-tertiary)]">—</div>}
                     </td>;
                   })}</>}</tr>)}</tbody></table></div>}
+          <div className="schedule-print-footer">
+            <span>{printSchoolName} &nbsp;|&nbsp; Class Schedule - {DAYS[selectedDay]}</span>
+            <span>Page 1 of 1</span>
+          </div>
         </div>
 
         {editMode && <div className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-white/95 p-3 shadow-xl backdrop-blur dark:bg-slate-950/95"><div className="text-xs"><strong>{Object.keys(draft).length}</strong> unsaved timetable change(s)</div><div className="flex gap-2"><button onClick={cancelEdit} disabled={saving} className="rounded-xl border px-4 py-2 text-sm font-semibold">Cancel</button><button onClick={() => void saveTimetable()} disabled={saving || Object.keys(draft).length === 0} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-50"><Check className="h-4 w-4" />{saving ? 'Saving...' : 'Save Timetable'}</button></div></div>}
