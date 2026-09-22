@@ -590,7 +590,7 @@ export const getSchoolClassPeriodReport = async (req: Request, res: Response): P
     return {
       _id: student._id,
       studentId: student.studentId,
-      name: `\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}`.trim() || student.studentId,
+      name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
       status,
       excused: status === 'absent' && (record?.status === 'excused' || !!record?.reasonCode),
     };
@@ -603,7 +603,7 @@ export const getSchoolClassPeriodReport = async (req: Request, res: Response): P
     class: firstSchedule?.class
       ? { _id: firstSchedule.class._id, name: className(firstSchedule.class) }
       : { _id: classId, name: 'Class' },
-    period: `\${startTime}–\${endTime}`,
+    period: `${startTime}–${endTime}`,
     subjects: schedules.map((schedule) => schedule.course?.title?.en || schedule.course?.courseCode || 'Subject'),
     summary: {
       students: students.length,
@@ -622,10 +622,14 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
   const search = String(req.query.search || '').trim();
   if (search.length < 2) return ApiResponse.success(res, []);
 
-  const escaped = search.replace(/[.*+?^$(){}|[\]\\]/g, '\\export const getSchoolOptions = async (req: Request, res: Response): Promise<Response> => {');
-  const regex = new RegExp(escaped, 'i');
+  const escapeRegex = (value: string) => value.replace(/[.*+?^$(){}|[\]\\]/g, (match) => `\\${match}`);
+  const regex = new RegExp(escapeRegex(search), 'i');
+  const terms = search.split(/\s+/).filter(Boolean).slice(0, 4);
   const profileIds = await Profile.find({
-    $or: [{ firstName: regex }, { lastName: regex }],
+    $and: terms.map((term) => {
+      const termRegex = new RegExp(escapeRegex(term), 'i');
+      return { $or: [{ firstName: termRegex }, { lastName: termRegex }] };
+    }),
   })
     .select('_id')
     .limit(60)
@@ -650,7 +654,7 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
   return ApiResponse.success(res, students.map((student) => ({
     _id: student._id,
     studentId: student.studentId,
-    name: `\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}`.trim() || student.studentId,
+    name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
     className: student.class ? className(student.class) : 'Unassigned',
   })));
 };
@@ -692,7 +696,7 @@ export const getSchoolStudentOverallReport = async (req: Request, res: Response)
     student: {
       _id: student._id,
       studentId: student.studentId,
-      name: `\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}`.trim() || student.studentId,
+      name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
       className: student.class ? className(student.class) : 'Unassigned',
     },
     summary: {
@@ -710,7 +714,7 @@ export const getSchoolStudentOverallReport = async (req: Request, res: Response)
       notes: record.notes || '',
       courseName: record.course?.title?.en || record.course?.courseCode || 'Subject',
       period: record.schedule?.startTime && record.schedule?.endTime
-        ? `\${record.schedule.startTime}–\${record.schedule.endTime}`
+        ? `${record.schedule.startTime}–${record.schedule.endTime}`
         : '',
     })),
   });
