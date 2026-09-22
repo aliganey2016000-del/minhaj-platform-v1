@@ -100,11 +100,17 @@ export const getChildAttendance = async (req: Request, res: Response): Promise<R
     .populate('course', 'title courseCode')
     .sort({ date: -1 }).limit(200).lean();
   const summary = records.reduce((acc: Record<string, number>, row: any) => {
-    acc[row.status] = (acc[row.status] || 0) + 1;
-    acc.total = (acc.total || 0) + 1;
+    if (row.status === 'present' || row.status === 'late') acc.present += 1;
+    else if (row.status === 'absent' || row.status === 'excused') acc.absent += 1;
+    acc.total += 1;
     return acc;
-  }, { total: 0, present: 0, absent: 0, late: 0, excused: 0 });
-  return ApiResponse.success(res, { summary, records });
+  }, { total: 0, present: 0, absent: 0 });
+  const normalizedRecords = records.map((row: any) => ({
+    ...row,
+    status: row.status === 'present' || row.status === 'late' ? 'present' : 'absent',
+    excused: row.status === 'excused' || !!row.reasonCode,
+  }));
+  return ApiResponse.success(res, { summary, records: normalizedRecords });
 };
 
 export const getChildResults = async (req: Request, res: Response): Promise<Response> => {
