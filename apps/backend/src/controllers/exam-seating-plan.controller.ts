@@ -8,6 +8,7 @@ import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { assertOwnOrg, applyOrgFilter } from '../utils/tenant-scope';
 import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
+import { getExamSchedulingRulesForSchool } from '../utils/exam-scheduling-rules';
 
 const COLUMNS = ['Organization','Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Seat'];
 const norm = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
@@ -23,9 +24,78 @@ export const list = async (req: Request,res: Response) => { const q=req.query as
 
 export const rooms = async (req: Request,res: Response) => { const filter=applyOrgFilter(req,{},'school'); const rows=await ExamRoom.find(filter).sort({name:1}).lean(); return ApiResponse.success(res,rows); };
 
-export const add = async (req: Request,res: Response) => { const {organization,studentId,room,seat,academicYear,examType}=req.body as any; if(!studentId||!room||!seat||!academicYear||!examType)throw new BadRequestError('Student ID, Room, Seat, Academic Year and Exam Type are required'); const t=examTypeValue(examType); if(!t)throw new BadRequestError('Exam Type must be Mid Exam or Final'); const student=await Student.findOne({studentId:norm(studentId)}).populate('profile','firstName lastName').populate({path:'class',select:'title section academicYear shiftMode department',populate:{path:'department',select:'name'}}).populate('school','name').lean() as any; if(!student)throw new NotFoundError('Student'); const school=await schoolForStudent(req,student); if(organization&&student.school?.name&&key(organization)!==key(student.school.name))throw new BadRequestError('Organization does not match the student'); const roomDoc=await ExamRoom.findOne({name:norm(room),...(school?{school:school._id||school}:{})}).lean(); if(!roomDoc)throw new NotFoundError('Exam room'); assertOwnOrg(req,roomDoc,'school'); const seatValue=norm(seat); const scope={school:school?._id||school||null,academicYear:norm(academicYear),examType:t}; if(await ExamSeatingPlan.exists({...scope,student:student._id}))throw new BadRequestError('This student already has a seating assignment for this Academic Year and Exam Type'); if(await ExamSeatingPlan.exists({...scope,room:roomDoc._id,deskNumber:seatValue}))throw new BadRequestError(`Seat "${seatValue}" is already occupied in ${roomDoc.name}`); const created=await ExamSeatingPlan.create({student:student._id,room:roomDoc._id,deskNumber:seatValue,academicYear:norm(academicYear),examType:t,school:school?._id||school||null}); const row=await populate(ExamSeatingPlan.findById(created._id)); return ApiResponse.success(res,payload(row),'Seating added'); };
+export const add = async (req: Request,res: Response) => {
+  const {organization,studentId,room,seat,academicYear,examType}=req.body as any;
+  if(!studentId||!room||!seat||!academicYear||!examType) throw new BadRequestError('Student ID, Room, Seat, Academic Year and Exam Type are required');
+  const t=examTypeValue(examType);
+  if(!t) throw new BadRequestError('Exam Type must be Mid Exam or Final');
+  const student=await Student.findOne({studentId:norm(studentId)})
+    .populate('profile','firstName lastName')
+    .populate({path:'class',select:'title section academicYear shiftMode department',populate:{path:'department',select:'name'}})
+    .populate('school','name').lean() as any;
+  if(!student) throw new NotFoundError('Student');
+  const school=await schoolForStudent(req,student);
+  if(organization&&student.school?.name&&key(organization)!==key(student.school.name)) throw new BadRequestError('Organization does not match the student');
+  const schoolId=school?._id||school||null;
+  const roomDoc=await ExamRoom.findOne({name:norm(room),...(schoolId?{school:schoolId}:{})}).lean();
+  if(!roomDoc) throw new NotFoundError('Exam room');
+  assertOwnOrg(req,roomDoc,'school');
+  const seatValue=norm(seat);
+  const scope={school:schoolId,academicYear:norm(academicYear),examType:t};
+  if(await ExamSeatingPlan.exists({...scope,student:student._id})) throw new BadRequestError('This student already has a seating assignment for this Academic Year and Exam Type');
+  if(await ExamSeatingPlan.exists({...scope,room:roomDoc._id,deskNumber:seatValue})) throw new BadRequestError(`Seat "${seatValue}" is already occupied in ${roomDoc.name}`);
 
-export const update = async (req: Request,res: Response) => { const row=await ExamSeatingPlan.findById(req.params.id); if(!row)throw new NotFoundError('Seating assignment'); assertOwnOrg(req,row,'school'); const {room,seat,academicYear,examType}=req.body as any; const t=examType?examTypeValue(examType):row.examType; if(!t)throw new BadRequestError('Invalid Exam Type'); const roomDoc=await ExamRoom.findOne({name:norm(room),...(row.school?{school:row.school}:{})}); if(!roomDoc)throw new NotFoundError('Exam room'); assertOwnOrg(req,roomDoc,'school'); const seatValue=norm(seat); row.room=roomDoc._id; row.deskNumber=seatValue; row.academicYear=norm(academicYear||row.academicYear); row.examType=t; await row.save(); const populated=await populate(ExamSeatingPlan.findById(row._id)); return ApiResponse.success(res,payload(populated),'Seating updated'); };
+  const rules=await getExamSchedulingRulesForSchool(schoolId);
+  if(rules.roomCapacityCheck){
+    const occupied=await ExamSeatingPlan.countDocuments({...scope,room:roomDoc._id});
+    if(occupied>=Number(roomDoc.capacity||0)){
+      throw new BadRequestError(`${roomDoc.name} is full (${occupied}/${roomDoc.capacity} seats used)`);
+    }
+  }
+
+  const created=await ExamSeatingPlan.create({student:student._id,room:roomDoc._id,deskNumber:seatValue,academicYear:norm(academicYear),examType:t,school:schoolId});
+  const row=await populate(ExamSeatingPlan.findById(created._id));
+  return ApiResponse.success(res,payload(row),'Seating added');
+};
+
+export const update = async (req: Request,res: Response) => {
+  const row=await ExamSeatingPlan.findById(req.params.id);
+  if(!row) throw new NotFoundError('Seating assignment');
+  assertOwnOrg(req,row,'school');
+  const {room,seat,academicYear,examType}=req.body as any;
+  const t=examType?examTypeValue(examType):row.examType;
+  if(!t) throw new BadRequestError('Invalid Exam Type');
+  const roomDoc=await ExamRoom.findOne({name:norm(room),...(row.school?{school:row.school}:{})}).lean();
+  if(!roomDoc) throw new NotFoundError('Exam room');
+  assertOwnOrg(req,roomDoc,'school');
+  const seatValue=norm(seat);
+  const nextAcademicYear=norm(academicYear||row.academicYear);
+
+  const seatTaken=await ExamSeatingPlan.exists({
+    _id:{$ne:row._id}, school:row.school||null, academicYear:nextAcademicYear,
+    examType:t, room:roomDoc._id, deskNumber:seatValue,
+  });
+  if(seatTaken) throw new BadRequestError(`Seat "${seatValue}" is already occupied in ${roomDoc.name}`);
+
+  const rules=await getExamSchedulingRulesForSchool(row.school);
+  if(rules.roomCapacityCheck){
+    const occupied=await ExamSeatingPlan.countDocuments({
+      _id:{$ne:row._id}, school:row.school||null, academicYear:nextAcademicYear,
+      examType:t, room:roomDoc._id,
+    });
+    if(occupied>=Number(roomDoc.capacity||0)){
+      throw new BadRequestError(`${roomDoc.name} is full (${occupied}/${roomDoc.capacity} seats used)`);
+    }
+  }
+
+  row.room=roomDoc._id;
+  row.deskNumber=seatValue;
+  row.academicYear=nextAcademicYear;
+  row.examType=t;
+  await row.save();
+  const populated=await populate(ExamSeatingPlan.findById(row._id));
+  return ApiResponse.success(res,payload(populated),'Seating updated');
+};
 export const remove = async (req: Request,res: Response) => { const row=await ExamSeatingPlan.findById(req.params.id); if(!row)throw new NotFoundError('Seating assignment'); assertOwnOrg(req,row,'school'); await row.deleteOne(); return ApiResponse.noContent(res,'Seating removed'); };
 
 // DELETE /exams/seating-plan — bulk-remove a checkbox-selected set of rows.
@@ -74,8 +144,10 @@ async function validateRows(req: Request, rows: Record<string, unknown>[]) {
   const byId = new Map(students.map((s) => [key(s.studentId).toUpperCase(), s]));
 
   let school: any = null, academicYear = '', type = '', docs: any[] = [], allRooms: any[] = [];
+  let scheduleRules: any = null;
   const preview: any[] = [];
   const seenStudents = new Set<string>(), seenSeats = new Set<string>();
+  const roomCounts = new Map<string, number>();
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -94,7 +166,10 @@ async function validateRows(req: Request, rows: Record<string, unknown>[]) {
       if (!academicYear) academicYear = row.academicYear;
       if (!type) type = t;
       if (key(row.academicYear) !== key(academicYear) || t !== type) throw new Error('All rows must use the same Academic Year and Exam Type');
-      if (!school) school = student.school;
+      if (!school) {
+        school = student.school;
+        scheduleRules = await getExamSchedulingRulesForSchool(school?._id || school || null);
+      }
       if (school && allRooms.length === 0) allRooms = await ExamRoom.find({ school: school._id || school }).sort({ name: 1 }).lean();
       if (school?.name && key(row.organization) !== key(school.name)) throw new Error('Organization does not match the student school');
       if (seenStudents.has(studentId)) throw new Error('Duplicate Student ID in file');
@@ -108,6 +183,14 @@ async function validateRows(req: Request, rows: Record<string, unknown>[]) {
         if (suggestion) { row.suggestion = { room: suggestion.room, seat: suggestion.seat }; seenSeats.add(suggestion.seatKey); }
         throw new Error(`Duplicate seat ${row.seat} in ${row.room}`);
       }
+      const roomKey = roomDoc._id.toString();
+      const nextRoomCount = (roomCounts.get(roomKey) || 0) + 1;
+      if ((scheduleRules?.roomCapacityCheck ?? true) && nextRoomCount > Number(roomDoc.capacity || 0)) {
+        const suggestion = suggestSeat(allRooms, seenSeats);
+        if (suggestion) row.suggestion = { room: suggestion.room, seat: suggestion.seat };
+        throw new Error(`Room capacity exceeded: ${roomDoc.name} allows ${roomDoc.capacity} students`);
+      }
+      roomCounts.set(roomKey, nextRoomCount);
       seenSeats.add(seatKey);
       docs.push({ student: student._id, room: roomDoc._id, deskNumber: row.seat, academicYear: row.academicYear, examType: t, school: school?._id || null });
     } catch (e: any) {
