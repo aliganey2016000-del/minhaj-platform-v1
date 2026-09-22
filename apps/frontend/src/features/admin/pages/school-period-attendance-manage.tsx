@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   CheckSquare,
   Clock3,
-  Eye,
   Lock,
   Plus,
   Search,
@@ -43,7 +42,7 @@ interface SessionSummary {
 type AttendanceStatus = 'present' | 'absent';
 type ReasonCode = '' | 'sick' | 'medical' | 'family_emergency' | 'school_activity' | 'suspension' | 'transport_delay' | 'other';
 type CalendarDayType = 'instructional' | 'holiday' | 'closure' | 'exam' | 'special';
-type Tab = 'take' | 'view' | 'report' | 'calendar';
+type Tab = 'take' | 'report' | 'calendar';
 
 interface RosterStudent {
   _id: string;
@@ -147,14 +146,6 @@ function StatusButtons({ value, onChange, disabled }: { value: AttendanceStatus;
   );
 }
 
-function StatusBadge({ status }: { status: AttendanceStatus }) {
-  const cls = {
-    present: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300',
-    absent: 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300',
-  }[status];
-  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${cls}`}>{status}</span>;
-}
-
 export function SchoolAttendanceManage() {
   const [tab, setTab] = useState<Tab>('take');
   const [date, setDate] = useState(localISODate());
@@ -233,11 +224,11 @@ export function SchoolAttendanceManage() {
   }, [calendarFrom, calendarTo]);
 
   useEffect(() => {
-    if (tab === 'take' || tab === 'view') void loadSessionFilterOptions();
+    if (tab === 'take') void loadSessionFilterOptions();
   }, [tab, loadSessionFilterOptions]);
 
   useEffect(() => {
-    if (tab === 'take' || tab === 'view') {
+    if (tab === 'take') {
       if (classFilter && periodFilter) void loadSessions();
       else {
         setSessions([]);
@@ -412,14 +403,13 @@ export function SchoolAttendanceManage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
+      <div className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
         {([
           ['take', 'Take Attendance', CheckSquare],
-          ['view', 'View Records', Eye],
           ['report', 'Reports', BarChart3],
         ] as const).map(([key, label, Icon]) => (
           <button key={key} type="button" onClick={() => setTab(key)} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 text-xs font-semibold sm:text-sm ${tab === key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
-            <Icon className="h-4 w-4" /> <span className="hidden sm:inline">{label}</span><span className="sm:hidden">{key === 'take' ? 'Take' : key === 'view' ? 'View' : 'Report'}</span>
+            <Icon className="h-4 w-4" /> <span className="hidden sm:inline">{label}</span><span className="sm:hidden">{key === 'take' ? 'Take' : 'Report'}</span>
           </button>
         ))}
       </div>
@@ -427,7 +417,7 @@ export function SchoolAttendanceManage() {
       {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
       {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">{message}</div>}
 
-      {(tab === 'take' || tab === 'view') && (
+      {tab === 'take' && (
         <>
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
             <div className="grid gap-3 sm:grid-cols-3">
@@ -569,9 +559,7 @@ export function SchoolAttendanceManage() {
                     <div key={student._id} className="p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
                         <div className="min-w-0 flex-1"><p className="font-semibold text-[var(--color-text-primary)]">{student.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId}</p></div>
-                        {tab === 'take' ? (
-                          <StatusButtons value={draft.status} disabled={detail.locked} onChange={(status) => setRecords((current) => ({ ...current, [student._id]: { ...draft, status, ...(status === 'present' ? { reasonCode: '', arrivalTime: '', departureTime: '' } : {}) } }))} />
-                        ) : <div className="flex items-center gap-2">{student.attendance ? <><StatusBadge status={student.attendance.status} />{student.attendance.status === 'absent' && student.attendance.reasonCode && <span className="rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">Excused</span>}</> : <span className="text-xs text-[var(--color-text-tertiary)]">Not marked</span>}</div>}
+                        <StatusButtons value={draft.status} disabled={detail.locked} onChange={(status) => setRecords((current) => ({ ...current, [student._id]: { ...draft, status, ...(status === 'present' ? { reasonCode: '', arrivalTime: '', departureTime: '' } : {}) } }))} />
                       </div>
                       {tab === 'take' && draft.status === 'absent' && (
                         <div className="mt-3 grid gap-2 sm:grid-cols-[auto_minmax(180px,1fr)_minmax(180px,1fr)] sm:items-center">
@@ -591,9 +579,6 @@ export function SchoolAttendanceManage() {
                           )}
                           <input value={draft.notes} disabled={detail.locked} onChange={(e) => setRecords((current) => ({ ...current, [student._id]: { ...draft, notes: e.target.value } }))} placeholder="Note (optional)" className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-xs disabled:opacity-60" />
                         </div>
-                      )}
-                      {tab === 'view' && student.attendance && (student.attendance.reasonCode || student.attendance.arrivalTime || student.attendance.departureTime || student.attendance.notes) && (
-                        <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">{student.attendance.reasonCode ? `Reason: ${student.attendance.reasonCode.replace(/_/g, ' ')}` : ''}{student.attendance.arrivalTime ? ` · Arrived ${student.attendance.arrivalTime}` : ''}{student.attendance.departureTime ? ` · Left ${student.attendance.departureTime}` : ''}{student.attendance.notes ? ` · ${student.attendance.notes}` : ''}</p>
                       )}
                     </div>
                   );
