@@ -52,6 +52,7 @@ export function SchedulesManageShell() {
   const [showAddSchedule, setShowAddSchedule] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showPeriodSettings, setShowPeriodSettings] = useState(false);
+  const [showPrintOptions, setShowPrintOptions] = useState(false);
 
   useEffect(() => {
     if (!schoolMode || !organizationId) { setClasses([]); setTeachers([]); return; }
@@ -323,6 +324,15 @@ export function SchedulesManageShell() {
     </div>
   );
 
+  const printPerspective = (perspective: 'day' | 'class' | 'teacher') => {
+    setShowPrintOptions(false);
+    setView('timetable');
+    setSchedulePerspective(perspective);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => window.print());
+    });
+  };
+
   const persistentActions = (
     <>
       <button
@@ -341,7 +351,7 @@ export function SchedulesManageShell() {
       </button>
       <button
         type="button"
-        onClick={() => window.print()}
+        onClick={() => view === 'timetable' ? setShowPrintOptions(true) : window.print()}
         className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-700"
       >
         <Printer className="h-3.5 w-3.5" /> Print
@@ -430,6 +440,32 @@ export function SchedulesManageShell() {
         />
       )}
       {showPeriodSettings && <PeriodSettingsModal organizationId={organizationId} onClose={() => setShowPeriodSettings(false)} />}
+
+      {showPrintOptions && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/55 p-3 sm:items-center" onClick={() => setShowPrintOptions(false)}>
+          <div className="w-full max-w-md rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="mb-3">
+              <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Print Schedule</h2>
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Choose the schedule view to print. The filters already applied to that view will be used.</p>
+            </div>
+            <div className="grid gap-2">
+              <button type="button" onClick={() => printPerspective('day')} className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-default)] px-4 py-3 text-left hover:bg-[var(--color-surface-secondary)]">
+                <CalendarDays className="h-5 w-5 text-primary-600" />
+                <div><div className="text-sm font-bold">By Day</div><div className="text-xs text-[var(--color-text-tertiary)]">Print the selected day with Department, Shift and selected Classes filters.</div></div>
+              </button>
+              <button type="button" onClick={() => printPerspective('class')} className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-default)] px-4 py-3 text-left hover:bg-[var(--color-surface-secondary)]">
+                <School className="h-5 w-5 text-primary-600" />
+                <div><div className="text-sm font-bold">By Class</div><div className="text-xs text-[var(--color-text-tertiary)]">Print the selected class weekly timetable with current filters.</div></div>
+              </button>
+              <button type="button" onClick={() => printPerspective('teacher')} className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-default)] px-4 py-3 text-left hover:bg-[var(--color-surface-secondary)]">
+                <Users className="h-5 w-5 text-primary-600" />
+                <div><div className="text-sm font-bold">By Teacher</div><div className="text-xs text-[var(--color-text-tertiary)]">Print the selected teacher weekly timetable with current filters.</div></div>
+              </button>
+            </div>
+            <button type="button" onClick={() => setShowPrintOptions(false)} className="mt-3 w-full rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold">Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
