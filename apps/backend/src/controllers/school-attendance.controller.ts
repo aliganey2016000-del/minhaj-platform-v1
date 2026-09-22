@@ -764,6 +764,162 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
   })));
 };
 
+export const getSchoolAttendanceRiskReport = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await schoolContext(req);
+  const toRaw = String(req.query.to || '').trim();
+  const daysRaw = Number(req.query.days || 30);
+  const days = Number.isFinite(daysRaw) ? Math.min(120, Math.max(7, Math.round(daysRaw))) : 30;
+  const to = toRaw ? attendanceDay(toRaw) : (() => {
+    const value = new Date();
+    value.setHours(23, 59, 59, 999);
+    return value;
+  })();
+  to.setHours(23, 59, 59, 999);
+  const from = new Date(to);
+  from.setDate(from.getDate() - (days - 1));
+  from.setHours(0, 0, 0, 0);
+
+  const students: any[] = await Student.find({
+    school: schoolId,
+    status: 'active',
+    approvalStatus: 'approved',
+  })
+    .populate('profile', 'firstName lastName')
+    .populate('class', 'title section')
+    .select('studentId profile class')
+    .sort({ studentId: 1 })
+    .lean();
+
+  const studentIds = students.map((student) => student._id);
+  const schoolSchedules = await ClassSchedule.find({ school: schoolId }).select('_id').lean();
+  const schoolScheduleIds = schoolSchedules.map((schedule: any) => schedule._id);
+
+  const dailyRows: any[] = studentIds.length && schoolScheduleIds.length
+    ? await Attendance.aggregate([
+        {
+          $match: {
+            student: { $in: studentIds },
+            schedule: { $in: schoolScheduleIds },
+            date: { $gte: from, $lte: to },
+          },
+        },
+        {
+          $group: {
+            _id: { student: '$student', date: '$date' },
+            records: { $sum: 1 },
+            present: { $sum: { $cond: [{ $in: ['$status', ['present', 'late']] }, 1, 0] } },
+            absent: { $sum: { $cond: [{ $in: ['$status', ['absent', 'excused']] }, 1, 0] } },
+            hasPresent: { $max: { $cond: [{ $in: ['$status', ['present', 'late']] }, 1, 0] } },
+            hasAbsent: { $max: { $cond: [{ $in: ['$status', ['absent', 'excused']] }, 1, 0] } },
+          },
+        },
+        { $sort: { '_id.student': 1, '_id.date': 1 } },
+      ])
+    : [];
+
+  type StudentRiskStats = {
+    total: number;
+    present: number;
+    absent: number;
+    days: Array<{ date: Date; fullyAbsent: boolean }>;
+  };
+
+  const statsMap = new Map<string, StudentRiskStats>();
+  for (const row of dailyRows) {
+    const key = String(row._id?.student || '');
+    if (!key) continue;
+    const current = statsMap.get(key) || { total: 0, present: 0, absent: 0, days: [] };
+    current.total += Number(row.records || 0);
+    current.present += Number(row.present || 0);
+    current.absent += Number(row.absent || 0);
+    current.days.push({
+      date: new Date(row._id.date),
+      fullyAbsent: Number(row.hasAbsent || 0) > 0 && Number(row.hasPresent || 0) === 0,
+    });
+    statsMap.set(key, current);
+  }
+
+  const rows = students
+    .map((student) => {
+      const stats = statsMap.get(String(student._id));
+      if (!stats || stats.total === 0) return null;
+
+      const sortedDays = [...stats.days].sort((a, b) => b.date.getTime() - a.date.getTime());
+      let consecutiveAbsentDays = 0;
+      for (const day of sortedDays) {
+        if (!day.fullyAbsent) break;
+        consecutiveAbsentDays += 1;
+      }
+
+      const percentage = Math.round((stats.present / stats.total) * 100);
+      const enoughHistory = stats.total >= 5;
+      const highByPercentage = enoughHistory && percentage < 80;
+      const warningByPercentage = enoughHistory && percentage >= 80 && percentage < 90;
+      const highByConsecutive = consecutiveAbsentDays >= 3;
+      const riskLevel = highByPercentage || highByConsecutive
+        ? 'high'
+        : warningByPercentage
+          ? 'warning'
+          : null;
+
+      if (!riskLevel) return null;
+
+      const reasons: string[] = [];
+      if (highByPercentage) reasons.push('Attendance below 80%');
+      else if (warningByPercentage) reasons.push('Attendance below 90%');
+      if (highByConsecutive) reasons.push(`${consecutiveAbsentDays} consecutive absent days`);
+
+      return {
+        studentId: student._id,
+        admissionNumber: student.studentId,
+        name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
+        classId: student.class?._id || null,
+        className: student.class ? className(student.class) : 'Unassigned',
+        total: stats.total,
+        present: stats.present,
+        absent: stats.absent,
+        percentage,
+        consecutiveAbsentDays,
+        lastAttendanceDate: sortedDays[0]?.date || null,
+        riskLevel,
+        reasons,
+      };
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => {
+      if (a.riskLevel !== b.riskLevel) return a.riskLevel === 'high' ? -1 : 1;
+      if (a.percentage !== b.percentage) return a.percentage - b.percentage;
+      return b.consecutiveAbsentDays - a.consecutiveAbsentDays;
+    });
+
+  const highRisk = rows.filter((row: any) => row.riskLevel === 'high').length;
+  const warning = rows.filter((row: any) => row.riskLevel === 'warning').length;
+  const consecutiveAbsence = rows.filter((row: any) => row.consecutiveAbsentDays >= 3).length;
+
+  return ApiResponse.success(res, {
+    window: {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      days,
+    },
+    thresholds: {
+      highRiskBelowPercentage: 80,
+      warningBelowPercentage: 90,
+      consecutiveAbsentDays: 3,
+      minimumAttendanceRecords: 5,
+    },
+    summary: {
+      activeStudents: students.length,
+      studentsWithAttendance: statsMap.size,
+      atRisk: rows.length,
+      highRisk,
+      warning,
+      consecutiveAbsence,
+    },
+    rows,
+  });
+};
+
 export const getSchoolStudentOverallReport = async (req: Request, res: Response): Promise<Response> => {
   const { schoolId } = await schoolContext(req);
   const studentId = String(req.params.studentId || '').trim();
