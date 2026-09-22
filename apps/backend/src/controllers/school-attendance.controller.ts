@@ -671,8 +671,11 @@ export const getSchoolStudentOverallReport = async (req: Request, res: Response)
     .lean();
   if (!student) throw new NotFoundError('Student');
 
-  const stats: any[] = await Attendance.aggregate([
-    { $match: { student: new mongoose.Types.ObjectId(studentId) } },
+  const schoolSchedules = await ClassSchedule.find({ school: schoolId }).select('_id').lean();
+  const schoolScheduleIds = schoolSchedules.map((schedule: any) => schedule._id);
+
+  const stats: any[] = schoolScheduleIds.length ? await Attendance.aggregate([
+    { $match: { student: new mongoose.Types.ObjectId(studentId), schedule: { $in: schoolScheduleIds } } },
     {
       $group: {
         _id: null,
@@ -681,16 +684,19 @@ export const getSchoolStudentOverallReport = async (req: Request, res: Response)
         absent: { $sum: { $cond: [{ $in: ['$status', ['absent', 'excused']] }, 1, 0] } },
       },
     },
-  ]);
+  ]) : [];
   const summaryRow = stats[0] || { total: 0, present: 0, absent: 0 };
 
-  const records: any[] = await Attendance.find({ student: student._id })
+  const records: any[] = schoolScheduleIds.length ? await Attendance.find({
+    student: student._id,
+    schedule: { $in: schoolScheduleIds },
+  })
     .populate('course', 'title courseCode')
     .populate('schedule', 'startTime endTime')
     .select('date status reasonCode notes course schedule')
     .sort({ date: -1 })
     .limit(200)
-    .lean();
+    .lean() : [];
 
   return ApiResponse.success(res, {
     student: {
