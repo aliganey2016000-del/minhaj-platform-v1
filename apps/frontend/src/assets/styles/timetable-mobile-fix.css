@@ -57,6 +57,9 @@
     overflow-x: auto !important;
     overflow-y: hidden !important;
     -webkit-overflow-scrolling: touch;
-    touch-action: pan-x;
+
+    /* Keep horizontal swiping without trapping vertical page scrolling. */
+    touch-action: pan-x pan-y !important;
+    overscroll-behavior-y: auto !important;
   }
 }
