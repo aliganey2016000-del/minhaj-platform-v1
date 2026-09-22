@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CalendarDays, CheckCircle2, UserRound, XCircle } from 'lucide-react';
+import { ArrowLeft, BookOpen, CalendarDays, CheckCircle2, UserRound, XCircle } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 
@@ -16,6 +16,15 @@ interface StudentAttendanceReport {
     absent: number;
     percentage: number;
   };
+  courses: Array<{
+    _id: string;
+    courseName: string;
+    courseCode?: string;
+    totalDays: number;
+    present: number;
+    absent: number;
+    presentPercentage: number;
+  }>;
   records: Array<{
     _id: string;
     date: string;
@@ -97,11 +106,88 @@ export function SchoolStudentAttendanceReport() {
         </div>
       </div>
 
+      <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
+        <div className="flex items-center gap-3 border-b border-[var(--color-border-default)] p-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-500/10 text-primary-600">
+            <BookOpen className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="font-bold text-[var(--color-text-primary)]">Course Attendance Summary</p>
+            <p className="text-xs text-[var(--color-text-tertiary)]">Attendance by course: total days recorded, present, absent, and present percentage.</p>
+          </div>
+        </div>
+
+        {!report.courses?.length ? (
+          <div className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No enrolled courses found for this student.</div>
+        ) : (
+          <>
+            <div className="space-y-3 p-3 sm:hidden">
+              {report.courses.map((course) => (
+                <div key={course._id} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-bold text-[var(--color-text-primary)]">{course.courseName}</p>
+                    {course.courseCode && <p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">{course.courseCode}</p>}
+                  </div>
+                  <div className="mt-3 grid grid-cols-4 gap-1.5 text-center">
+                    <div className="rounded-lg bg-[var(--color-surface-primary)] px-1 py-2">
+                      <p className="text-[9px] font-medium uppercase text-[var(--color-text-tertiary)]">Days</p>
+                      <p className="mt-0.5 text-sm font-black text-[var(--color-text-primary)]">{course.totalDays}</p>
+                    </div>
+                    <div className="rounded-lg bg-emerald-50 px-1 py-2 dark:bg-emerald-950/30">
+                      <p className="text-[9px] font-medium uppercase text-emerald-700 dark:text-emerald-300">Present</p>
+                      <p className="mt-0.5 text-sm font-black text-emerald-600">{course.present}</p>
+                    </div>
+                    <div className="rounded-lg bg-red-50 px-1 py-2 dark:bg-red-950/30">
+                      <p className="text-[9px] font-medium uppercase text-red-700 dark:text-red-300">Absent</p>
+                      <p className="mt-0.5 text-sm font-black text-red-600">{course.absent}</p>
+                    </div>
+                    <div className="rounded-lg bg-primary-500/10 px-1 py-2">
+                      <p className="text-[9px] font-medium uppercase text-primary-700 dark:text-primary-300">Present %</p>
+                      <p className="mt-0.5 text-sm font-black text-primary-600">{course.presentPercentage}%</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden overflow-x-auto [touch-action:pan-x_pan-y] sm:block">
+              <table className="w-full min-w-[620px] border-collapse text-sm">
+                <thead>
+                  <tr className="bg-[var(--color-surface-secondary)] text-left text-xs text-[var(--color-text-secondary)]">
+                    <th className="px-4 py-3 font-bold">Course</th>
+                    <th className="px-3 py-3 text-center font-bold">Total Days</th>
+                    <th className="px-3 py-3 text-center font-bold">Present</th>
+                    <th className="px-3 py-3 text-center font-bold">Absent</th>
+                    <th className="px-3 py-3 text-center font-bold">Present %</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                  {report.courses.map((course) => (
+                    <tr key={course._id}>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-[var(--color-text-primary)]">{course.courseName}</p>
+                        {course.courseCode && <p className="text-[11px] text-[var(--color-text-tertiary)]">{course.courseCode}</p>}
+                      </td>
+                      <td className="px-3 py-3 text-center font-bold text-[var(--color-text-primary)]">{course.totalDays}</td>
+                      <td className="px-3 py-3 text-center font-bold text-emerald-600">{course.present}</td>
+                      <td className="px-3 py-3 text-center font-bold text-red-600">{course.absent}</td>
+                      <td className="px-3 py-3 text-center">
+                        <span className="inline-flex rounded-full bg-primary-500/10 px-2.5 py-1 font-bold text-primary-600">{course.presentPercentage}%</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <SummaryCard icon={<CalendarDays className="h-4 w-4" />} label="Records" value={report.summary.total} />
+        <SummaryCard icon={<CalendarDays className="h-4 w-4" />} label="Total Attendance" value={report.summary.total} />
         <SummaryCard icon={<CheckCircle2 className="h-4 w-4" />} label="Present" value={report.summary.present} valueClass="text-emerald-600" />
         <SummaryCard icon={<XCircle className="h-4 w-4" />} label="Absent" value={report.summary.absent} valueClass="text-red-600" />
-        <SummaryCard icon={<CheckCircle2 className="h-4 w-4" />} label="Attendance" value={`${report.summary.percentage}%`} valueClass="text-primary-600" />
+        <SummaryCard icon={<CheckCircle2 className="h-4 w-4" />} label="Present %" value={`${report.summary.percentage}%`} valueClass="text-primary-600" />
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
