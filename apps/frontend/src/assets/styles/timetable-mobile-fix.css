@@ -3,55 +3,60 @@
  *
  * globals.css contains a legacy mobile transformation for generic
  * `table.table-fixed` result-entry tables. That rule injects labels such as
- * "Mid Exam" and "Final" into columns 3-6. The Class Timetable also uses
- * Tailwind's `table-fixed` utility, so on narrow screens it was accidentally
- * receiving the exam-result card layout.
+ * "Mid Exam" and "Final" into columns 3-6. Class Schedule tables also use
+ * Tailwind's `table-fixed` utility, so they must be explicitly isolated from
+ * that exam/results-only mobile card transformation.
  *
- * The Class Timetable is the only table with min-w-[920px]. Keep it as the
- * real timetable grid on phones and let its existing overflow-x-auto wrapper
- * provide horizontal scrolling instead of converting rows into exam cards.
+ * Scope this fix to #schedule-timetable-print instead of relying on a specific
+ * min-width utility. The timetable's responsive classes can change without
+ * accidentally re-enabling the exam-result layout on phones.
  */
 @media (max-width: 639px) {
-  table.table-fixed[class*="min-w-[920px]"] {
-    width: 100% !important;
+  #schedule-timetable-print .schedule-timetable-print-scroll table.table-fixed {
+    width: max-content !important;
+    min-width: 100% !important;
     table-layout: fixed !important;
+    border-collapse: collapse !important;
   }
 
-  table.table-fixed[class*="min-w-[920px]"] thead {
+  #schedule-timetable-print .schedule-timetable-print-scroll table.table-fixed thead {
     display: table-header-group !important;
   }
 
-  table.table-fixed[class*="min-w-[920px]"] tbody {
+  #schedule-timetable-print .schedule-timetable-print-scroll table.table-fixed tbody {
     display: table-row-group !important;
     width: auto !important;
   }
 
-  table.table-fixed[class*="min-w-[920px]"] tbody tr {
+  #schedule-timetable-print .schedule-timetable-print-scroll table.table-fixed tbody tr {
     display: table-row !important;
     width: auto !important;
     padding: 0 !important;
     border-bottom: 0 !important;
   }
 
-  table.table-fixed[class*="min-w-[920px]"] tbody tr > td:nth-child(n) {
+  #schedule-timetable-print .schedule-timetable-print-scroll table.table-fixed tbody tr > td:nth-child(n) {
     display: table-cell !important;
-    min-width: 0;
-    width: auto !important;
-    padding: 0.5rem !important;
-    box-sizing: border-box;
+    box-sizing: border-box !important;
     grid-column: auto !important;
   }
 
-  table.table-fixed[class*="min-w-[920px]"] tbody tr > td:first-child {
-    padding: 0.75rem 0.5rem !important;
-    vertical-align: middle !important;
+  #schedule-timetable-print .schedule-timetable-print-scroll table.table-fixed tbody tr > td:nth-child(2) {
+    display: table-cell !important;
   }
 
-  table.table-fixed[class*="min-w-[920px]"] tbody tr > td:nth-child(3)::before,
-  table.table-fixed[class*="min-w-[920px]"] tbody tr > td:nth-child(4)::before,
-  table.table-fixed[class*="min-w-[920px]"] tbody tr > td:nth-child(5)::before,
-  table.table-fixed[class*="min-w-[920px]"] tbody tr > td:nth-child(6)::before {
+  #schedule-timetable-print .schedule-timetable-print-scroll table.table-fixed tbody tr > td:nth-child(3)::before,
+  #schedule-timetable-print .schedule-timetable-print-scroll table.table-fixed tbody tr > td:nth-child(4)::before,
+  #schedule-timetable-print .schedule-timetable-print-scroll table.table-fixed tbody tr > td:nth-child(5)::before,
+  #schedule-timetable-print .schedule-timetable-print-scroll table.table-fixed tbody tr > td:nth-child(6)::before {
     content: none !important;
     display: none !important;
+  }
+
+  #schedule-timetable-print .schedule-timetable-print-scroll {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
   }
 }
