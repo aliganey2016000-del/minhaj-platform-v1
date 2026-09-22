@@ -120,7 +120,8 @@ export function ExamOverview() {
       if (status === 'scheduled' || status === 'ongoing') upcoming += 1;
       if (status === 'completed') completed += 1;
       if (status === 'completed' && expected > 0 && entered < expected) missing += 1;
-      if (status === 'completed' && entered > 0 && !exam.resultsPublished) awaiting += 1;
+      const complete = expected > 0 ? entered >= expected : entered > 0;
+      if (status === 'completed' && complete && !exam.resultsPublished) awaiting += 1;
       if (exam.resultsPublished) published += 1;
     }
     return { upcoming, completed, missing, awaiting, published };
@@ -210,7 +211,7 @@ export function ExamOverview() {
                         <td className="px-4 py-3">{exam.course?.title?.en || '—'}</td>
                         <td className="px-4 py-3">{examDate(exam)}</td>
                         <td className="px-4 py-3">{complete ? badge('Complete', 'green') : entered > 0 ? badge(String(entered) + '/' + String(expected || '?') + ' Entered', 'amber') : badge('Missing', 'red')}</td>
-                        <td className="px-4 py-3">{exam.resultsPublished ? badge('Approved', 'green') : entered > 0 ? badge('Pending Review', 'amber') : badge('Not Ready', 'slate')}</td>
+                        <td className="px-4 py-3">{exam.resultsPublished ? badge('Approved', 'green') : complete ? badge('Pending Review', 'amber') : entered > 0 ? badge('Marks Incomplete', 'amber') : badge('Not Ready', 'slate')}</td>
                         <td className="px-4 py-3">{exam.resultsPublished ? badge('Published', 'blue') : badge('Not Published', 'slate')}</td>
                         <td className="px-4 py-3"><Link to="/admin/exams/review" className="font-bold text-primary-600">Manage</Link></td>
                       </tr>;
