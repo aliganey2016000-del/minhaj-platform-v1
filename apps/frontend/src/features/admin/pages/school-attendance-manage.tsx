@@ -1,27 +1,22 @@
 import { useState } from 'react';
-import { CalendarCheck, ClipboardList, UserRoundCheck } from 'lucide-react';
+import { ClipboardList, UserRoundCheck } from 'lucide-react';
 import SchoolPeriodAttendanceManage from './school-period-attendance-manage';
-import { SchoolDailyAttendancePanel } from './components/school-daily-attendance-panel';
 import { SchoolSubstitutesPanel } from './components/school-substitutes-panel';
 
-type Workspace = 'period' | 'daily' | 'substitutes';
+type Workspace = 'period' | 'substitutes';
 
-// School attendance is intentionally split into operational workspaces so a
-// small-school admin can reach the daily task in one tap without navigating a
-// university-style cascade of organization/department/course filters.
 export function SchoolAttendanceManage() {
   const [workspace, setWorkspace] = useState<Workspace>('period');
 
   const tabs = [
     ['period', 'Period Attendance', ClipboardList],
-    ['daily', 'Daily Attendance', CalendarCheck],
     ['substitutes', 'Substitutes', UserRoundCheck],
   ] as const;
 
   return (
     <div className="min-w-0 space-y-4">
       <div className="sticky top-0 z-20 -mx-1 px-1 pt-1">
-        <div className="grid grid-cols-3 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
+        <div className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
           {tabs.map(([key, label, Icon]) => (
             <button
               key={key}
@@ -41,7 +36,6 @@ export function SchoolAttendanceManage() {
       </div>
 
       {workspace === 'period' && <SchoolPeriodAttendanceManage />}
-      {workspace === 'daily' && <SchoolDailyAttendancePanel />}
       {workspace === 'substitutes' && <SchoolSubstitutesPanel />}
     </div>
   );
