@@ -925,6 +925,7 @@ export function ExamsManage() {
   const [classFilter, setClassFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'schedule' | 'tools'>('schedule');
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
   const [viewingExam, setViewingExam] = useState<Exam | undefined>(undefined);
@@ -1190,32 +1191,55 @@ export function ExamsManage() {
               </div>
             </div>
 
-            <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
+            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm">
+              <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-[var(--color-surface-secondary)] p-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveWorkspaceTab('schedule')}
+                  className={'flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-bold transition-all ' + (activeWorkspaceTab === 'schedule' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-primary)]')}
+                >
+                  <CalendarClock className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Exam Schedule</span>
+                  <span className={'rounded-full px-1.5 py-0.5 text-[10px] font-bold ' + (activeWorkspaceTab === 'schedule' ? 'bg-white/20 text-white' : 'bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)]')}>{visibleExams.length}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveWorkspaceTab('tools')}
+                  className={'flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-bold transition-all ' + (activeWorkspaceTab === 'tools' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-primary)]')}
+                >
+                  <LayoutGrid className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Quick Tools</span>
+                  <span className={'rounded-full px-1.5 py-0.5 text-[10px] font-bold ' + (activeWorkspaceTab === 'tools' ? 'bg-white/20 text-white' : 'bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)]')}>4</span>
+                </button>
+              </div>
+            </div>
+
+            {activeWorkspaceTab === 'tools' && (
+              <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm">
+                <div className="mb-4">
                   <h2 className="font-bold text-[var(--color-text-primary)]">Quick Tools</h2>
-                  <p className="text-xs text-[var(--color-text-tertiary)]">Supporting exam-day tools without crowding the main menu.</p>
+                  <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">Choose the exam tool you need.</p>
                 </div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <a href="/admin/exams/rooms" className="group flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-blue-900/40 dark:bg-blue-950/20">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white"><Building2 className="h-5 w-5" /></span>
-                  <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Room Allocation</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Assign halls and seats</p></div>
-                </a>
-                <a href="/admin/exams/attendance" className="group flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/20">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white"><Users className="h-5 w-5" /></span>
-                  <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Exam Attendance</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Track student attendance</p></div>
-                </a>
-                <a href="/admin/exams/papers" className="group flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white"><FileCheck2 className="h-5 w-5" /></span>
-                  <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Paper Approval</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Review question papers</p></div>
-                </a>
-                <a href="/admin/exams/grading-rules" className="group flex items-center gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-violet-900/40 dark:bg-violet-950/20">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white"><Percent className="h-5 w-5" /></span>
-                  <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Grading Rules</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Configure marks and grades</p></div>
-                </a>
-              </div>
-            </section>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <a href="/admin/exams/rooms" className="group flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-blue-900/40 dark:bg-blue-950/20">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white"><Building2 className="h-5 w-5" /></span>
+                    <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Room Allocation</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Assign halls and seats</p></div>
+                  </a>
+                  <a href="/admin/exams/attendance" className="group flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white"><Users className="h-5 w-5" /></span>
+                    <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Exam Attendance</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Track student attendance</p></div>
+                  </a>
+                  <a href="/admin/exams/papers" className="group flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white"><FileCheck2 className="h-5 w-5" /></span>
+                    <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Paper Approval</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Review question papers</p></div>
+                  </a>
+                  <a href="/admin/exams/grading-rules" className="group flex items-center gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-violet-900/40 dark:bg-violet-950/20">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white"><Percent className="h-5 w-5" /></span>
+                    <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Grading Rules</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Configure marks and grades</p></div>
+                  </a>
+                </div>
+              </section>
+            )}
 
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-600 dark:border-red-900/40 dark:bg-red-950/30">
@@ -1224,77 +1248,79 @@ export function ExamsManage() {
               </div>
             )}
 
-            <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
-              <div className="flex flex-col gap-2 border-b border-[var(--color-border-subtle)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="font-bold text-[var(--color-text-primary)]">Exam Schedule <span className="text-[var(--color-text-tertiary)]">({visibleExams.length})</span></h2>
-                  <p className="text-xs text-[var(--color-text-tertiary)]">Click any row to see the full exam details.</p>
+            {activeWorkspaceTab === 'schedule' && (
+              <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+                <div className="flex flex-col gap-2 border-b border-[var(--color-border-subtle)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="font-bold text-[var(--color-text-primary)]">Scheduled Exams <span className="text-[var(--color-text-tertiary)]">({visibleExams.length})</span></h2>
+                    <p className="text-xs text-[var(--color-text-tertiary)]">Click any row to see the full exam details.</p>
+                  </div>
+                  {selected.size > 0 && <span className="rounded-full bg-primary-50 px-3 py-1 text-xs font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{selected.size} selected</span>}
                 </div>
-                {selected.size > 0 && <span className="rounded-full bg-primary-50 px-3 py-1 text-xs font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{selected.size} selected</span>}
-              </div>
-
-              <div className="hidden overflow-x-auto md:block">
-                <table className="w-full min-w-[940px] text-sm">
-                  <thead className="bg-[var(--color-surface-secondary)] text-left text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">
-                    <tr>
-                      <th className="w-12 px-4 py-3"><input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" /></th>
-                      <th className="px-4 py-3">Exam Title</th>
-                      <th className="px-4 py-3">Class</th>
-                      <th className="px-4 py-3">Course</th>
-                      <th className="px-4 py-3">Date</th>
-                      <th className="px-4 py-3">Time</th>
-                      <th className="px-4 py-3">Room</th>
-                      <th className="px-4 py-3 text-center">Marks</th>
-                      <th className="px-4 py-3 text-center">Status</th>
-                      <th className="w-16 px-4 py-3 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--color-border-subtle)]">
-                    {visibleExams.length === 0 ? (
-                      <tr><td colSpan={10} className="px-4 py-14 text-center text-[var(--color-text-tertiary)]"><p className="font-semibold">No exams found</p><p className="mt-1 text-xs">Change the filters or schedule a new exam.</p></td></tr>
-                    ) : visibleExams.map((exam) => {
-                      const cls = exam.course?.class;
-                      const classLabel = cls?.title ? (cls.section ? cls.title + ' - ' + cls.section : cls.title) : '—';
-                      return (
-                        <tr key={exam._id} onClick={() => setViewingExam(exam)} className="cursor-pointer transition-colors hover:bg-[var(--color-surface-secondary)]">
-                          <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(exam._id)} onChange={() => toggleSelected(exam._id)} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" /></td>
-                          <td className="px-4 py-3.5"><p className="font-bold text-[var(--color-text-primary)]" dir="auto">{toTitleCase(exam.title)}</p><p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">{exam.autoSchedule ? 'Automatic exam window' : exam.duration + ' minutes'}</p></td>
-                          <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{classLabel}</td>
-                          <td className="px-4 py-3.5"><span className="font-medium text-[var(--color-text-secondary)]">{exam.course?.title?.en || 'Course missing'}</span></td>
-                          <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{exam.autoSchedule ? 'Automatic' : exam.examDate ? new Date(exam.examDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
-                          <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{exam.autoSchedule ? 'Personal window' : exam.startTime && exam.endTime ? exam.startTime + ' – ' + exam.endTime : '—'}</td>
-                          <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{exam.room || '—'}</td>
-                          <td className="px-4 py-3.5 text-center font-semibold">{exam.totalMarks}</td>
-                          <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}><StatusPillSelect status={getEffectiveStatus(exam)} onChange={(value) => handleStatusChange(exam._id, value)} /></td>
-                          <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}><RowActionsMenu onView={() => setViewingExam(exam)} onEdit={() => setEditingExam(exam)} onDelete={() => handleDelete(exam._id)} /></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="divide-y divide-[var(--color-border-subtle)] md:hidden">
-                {visibleExams.length === 0 ? (
-                  <div className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No exams found.</div>
-                ) : visibleExams.map((exam) => {
-                  const cls = exam.course?.class;
-                  const classLabel = cls?.title ? (cls.section ? cls.title + ' - ' + cls.section : cls.title) : '—';
-                  return (
-                    <button key={exam._id} type="button" onClick={() => setViewingExam(exam)} className="w-full p-4 text-left transition-colors hover:bg-[var(--color-surface-secondary)]">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0"><p className="truncate font-bold text-[var(--color-text-primary)]">{toTitleCase(exam.title)}</p><p className="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{classLabel} · {exam.course?.title?.en || 'Course missing'}</p></div>
-                        <StatusBadge status={getEffectiveStatus(exam)} />
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <div className="rounded-xl bg-[var(--color-surface-secondary)] p-2.5"><p className="text-[10px] uppercase text-[var(--color-text-tertiary)]">Date</p><p className="mt-1 text-xs font-semibold">{exam.autoSchedule ? 'Automatic' : exam.examDate ? new Date(exam.examDate).toLocaleDateString() : '—'}</p></div>
-                        <div className="rounded-xl bg-[var(--color-surface-secondary)] p-2.5"><p className="text-[10px] uppercase text-[var(--color-text-tertiary)]">Time / Marks</p><p className="mt-1 text-xs font-semibold">{exam.autoSchedule ? 'Personal window' : exam.startTime || '—'} · {exam.totalMarks}</p></div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+  
+                <div className="hidden overflow-x-auto md:block">
+                  <table className="w-full min-w-[940px] text-sm">
+                    <thead className="bg-[var(--color-surface-secondary)] text-left text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                      <tr>
+                        <th className="w-12 px-4 py-3"><input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" /></th>
+                        <th className="px-4 py-3">Exam Title</th>
+                        <th className="px-4 py-3">Class</th>
+                        <th className="px-4 py-3">Course</th>
+                        <th className="px-4 py-3">Date</th>
+                        <th className="px-4 py-3">Time</th>
+                        <th className="px-4 py-3">Room</th>
+                        <th className="px-4 py-3 text-center">Marks</th>
+                        <th className="px-4 py-3 text-center">Status</th>
+                        <th className="w-16 px-4 py-3 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                      {visibleExams.length === 0 ? (
+                        <tr><td colSpan={10} className="px-4 py-14 text-center text-[var(--color-text-tertiary)]"><p className="font-semibold">No exams found</p><p className="mt-1 text-xs">Change the filters or schedule a new exam.</p></td></tr>
+                      ) : visibleExams.map((exam) => {
+                        const cls = exam.course?.class;
+                        const classLabel = cls?.title ? (cls.section ? cls.title + ' - ' + cls.section : cls.title) : '—';
+                        return (
+                          <tr key={exam._id} onClick={() => setViewingExam(exam)} className="cursor-pointer transition-colors hover:bg-[var(--color-surface-secondary)]">
+                            <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(exam._id)} onChange={() => toggleSelected(exam._id)} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" /></td>
+                            <td className="px-4 py-3.5"><p className="font-bold text-[var(--color-text-primary)]" dir="auto">{toTitleCase(exam.title)}</p><p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">{exam.autoSchedule ? 'Automatic exam window' : exam.duration + ' minutes'}</p></td>
+                            <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{classLabel}</td>
+                            <td className="px-4 py-3.5"><span className="font-medium text-[var(--color-text-secondary)]">{exam.course?.title?.en || 'Course missing'}</span></td>
+                            <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{exam.autoSchedule ? 'Automatic' : exam.examDate ? new Date(exam.examDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
+                            <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{exam.autoSchedule ? 'Personal window' : exam.startTime && exam.endTime ? exam.startTime + ' – ' + exam.endTime : '—'}</td>
+                            <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{exam.room || '—'}</td>
+                            <td className="px-4 py-3.5 text-center font-semibold">{exam.totalMarks}</td>
+                            <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}><StatusPillSelect status={getEffectiveStatus(exam)} onChange={(value) => handleStatusChange(exam._id, value)} /></td>
+                            <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}><RowActionsMenu onView={() => setViewingExam(exam)} onEdit={() => setEditingExam(exam)} onDelete={() => handleDelete(exam._id)} /></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+  
+                <div className="divide-y divide-[var(--color-border-subtle)] md:hidden">
+                  {visibleExams.length === 0 ? (
+                    <div className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No exams found.</div>
+                  ) : visibleExams.map((exam) => {
+                    const cls = exam.course?.class;
+                    const classLabel = cls?.title ? (cls.section ? cls.title + ' - ' + cls.section : cls.title) : '—';
+                    return (
+                      <button key={exam._id} type="button" onClick={() => setViewingExam(exam)} className="w-full p-4 text-left transition-colors hover:bg-[var(--color-surface-secondary)]">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0"><p className="truncate font-bold text-[var(--color-text-primary)]">{toTitleCase(exam.title)}</p><p className="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{classLabel} · {exam.course?.title?.en || 'Course missing'}</p></div>
+                          <StatusBadge status={getEffectiveStatus(exam)} />
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <div className="rounded-xl bg-[var(--color-surface-secondary)] p-2.5"><p className="text-[10px] uppercase text-[var(--color-text-tertiary)]">Date</p><p className="mt-1 text-xs font-semibold">{exam.autoSchedule ? 'Automatic' : exam.examDate ? new Date(exam.examDate).toLocaleDateString() : '—'}</p></div>
+                          <div className="rounded-xl bg-[var(--color-surface-secondary)] p-2.5"><p className="text-[10px] uppercase text-[var(--color-text-tertiary)]">Time / Marks</p><p className="mt-1 text-xs font-semibold">{exam.autoSchedule ? 'Personal window' : exam.startTime || '—'} · {exam.totalMarks}</p></div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+              )}
           </main>
 
         </div>
