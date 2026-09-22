@@ -31,6 +31,10 @@ router.get('/template', adminOrTeacher, asyncHandler(examController.downloadTemp
 router.get('/seating-template', adminOrTeacher, asyncHandler(masterSeatController.downloadTemplate));
 router.post('/import', adminOrTeacher, upload.single('file'), asyncHandler(examController.bulkImport));
 
+// Per-organization rules used by fixed exam scheduling and seating checks.
+router.get('/schedule-rules', adminOnly, asyncHandler(examController.getScheduleRules));
+router.patch('/schedule-rules', adminOnly, asyncHandler(examController.updateScheduleRules));
+
 // Master seating: one room + seat for every student across all subjects in an exam period.
 router.get('/seating-plan', adminOrTeacher, asyncHandler(masterSeatController.list));
 router.get('/seating-plan/rooms', adminOrTeacher, asyncHandler(masterSeatController.rooms));
