@@ -3,7 +3,7 @@ import { AlertTriangle, CalendarDays, ChevronRight, Clock3, Search, UserRound, X
 import { useNavigate } from 'react-router-dom';
 import api from '../../../../lib/axios';
 
-type ReportMode = 'date' | 'missing' | 'student';
+type ReportMode = 'date' | 'missing' | 'risk' | 'student';
 
 interface ScheduleOption {
   startTime?: string;
@@ -27,6 +27,39 @@ interface MissingAttendanceSession {
     recordedStudents?: number;
     locked?: boolean;
   };
+}
+
+interface AttendanceRiskReport {
+  window: { from: string; to: string; days: number };
+  thresholds: {
+    highRiskBelowPercentage: number;
+    warningBelowPercentage: number;
+    consecutiveAbsentDays: number;
+    minimumAttendanceRecords: number;
+  };
+  summary: {
+    activeStudents: number;
+    studentsWithAttendance: number;
+    atRisk: number;
+    highRisk: number;
+    warning: number;
+    consecutiveAbsence: number;
+  };
+  rows: Array<{
+    studentId: string;
+    admissionNumber: string;
+    name: string;
+    classId?: string | null;
+    className: string;
+    total: number;
+    present: number;
+    absent: number;
+    percentage: number;
+    consecutiveAbsentDays: number;
+    lastAttendanceDate?: string | null;
+    riskLevel: 'high' | 'warning';
+    reasons: string[];
+  }>;
 }
 
 interface SchoolAttendanceReportPanelProps {
@@ -138,6 +171,12 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
   const [missingClass, setMissingClass] = useState('');
   const [missingTeacher, setMissingTeacher] = useState('');
   const [missingPeriod, setMissingPeriod] = useState('');
+  const [riskReport, setRiskReport] = useState<AttendanceRiskReport | null>(null);
+  const [riskLoading, setRiskLoading] = useState(false);
+  const [riskTo, setRiskTo] = useState(localISODate());
+  const [riskDays, setRiskDays] = useState('30');
+  const [riskClass, setRiskClass] = useState('');
+  const [riskLevel, setRiskLevel] = useState<'all' | 'high' | 'warning'>('all');
   const [cellReport, setCellReport] = useState<ClassReport | null>(null);
   const [cellReportLoading, setCellReportLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
@@ -239,6 +278,43 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
   const incompleteSessions = missingSessions.length - submittedSessions;
   const completionPercentage = missingSessions.length ? Math.round((submittedSessions / missingSessions.length) * 100) : 0;
 
+  useEffect(() => {
+    if (mode !== 'risk') return;
+    let active = true;
+    setRiskLoading(true);
+    setError('');
+    api.get('/attendance/school/report/risk', { params: { to: riskTo, days: riskDays } })
+      .then(({ data }) => {
+        if (!active) return;
+        setRiskReport(data?.data || null);
+      })
+      .catch((e: any) => {
+        if (!active) return;
+        setRiskReport(null);
+        setError(e?.response?.data?.message || 'Could not load attendance risk report.');
+      })
+      .finally(() => {
+        if (active) setRiskLoading(false);
+      });
+    return () => { active = false; };
+  }, [mode, riskTo, riskDays]);
+
+  const riskClassOptions = useMemo(() => {
+    const values = new Map<string, string>();
+    riskReport?.rows.forEach((row) => {
+      if (row.classId) values.set(String(row.classId), row.className);
+    });
+    return [...values.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  }, [riskReport]);
+
+  const filteredRiskRows = useMemo(() => {
+    return (riskReport?.rows || []).filter((row) => {
+      if (riskClass && String(row.classId || '') !== riskClass) return false;
+      if (riskLevel !== 'all' && row.riskLevel !== riskLevel) return false;
+      return true;
+    });
+  }, [riskReport, riskClass, riskLevel]);
+
   const switchMode = (next: ReportMode) => {
     setMode(next);
     setError('');
@@ -317,10 +393,11 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
+      <div className="grid grid-cols-4 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
         {([
           ['date', 'By Date', CalendarDays],
-          ['missing', 'Missing', AlertTriangle],
+          ['missing', 'Missing', Clock3],
+          ['risk', 'Risk', AlertTriangle],
           ['student', 'By Student', UserRound],
         ] as const).map(([key, label, Icon]) => (
           <button
@@ -650,6 +727,146 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {mode === 'risk' && (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">As of Date</span>
+                <input
+                  type="date"
+                  value={riskTo}
+                  onChange={(e) => { setRiskTo(e.target.value); setRiskClass(''); }}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm"
+                />
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Review Window</span>
+                <select value={riskDays} onChange={(e) => { setRiskDays(e.target.value); setRiskClass(''); }} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
+                  <option value="30">Last 30 days</option>
+                  <option value="60">Last 60 days</option>
+                  <option value="90">Last 90 days</option>
+                  <option value="120">Last 120 days</option>
+                </select>
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Class</span>
+                <select value={riskClass} onChange={(e) => setRiskClass(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
+                  <option value="">All Classes</option>
+                  {riskClassOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Risk Level</span>
+                <select value={riskLevel} onChange={(e) => setRiskLevel(e.target.value as 'all' | 'high' | 'warning')} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
+                  <option value="all">All At-Risk</option>
+                  <option value="high">High Risk</option>
+                  <option value="warning">Warning</option>
+                </select>
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">
+              High Risk: attendance below 80% with at least 5 attendance records, or 3+ consecutive fully absent days. Warning: 80–89% attendance.
+            </p>
+          </div>
+
+          {riskLoading ? (
+            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center text-sm text-[var(--color-text-tertiary)]">Analysing attendance risk...</div>
+          ) : riskReport ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <SummaryCard label="At Risk" value={riskReport.summary.atRisk} tone="absent" />
+                <SummaryCard label="High Risk" value={riskReport.summary.highRisk} tone="absent" />
+                <SummaryCard label="Warning" value={riskReport.summary.warning} />
+                <SummaryCard label="3+ Absent Days" value={riskReport.summary.consecutiveAbsence} />
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
+                <div className="border-b border-[var(--color-border-default)] p-4">
+                  <p className="font-bold text-[var(--color-text-primary)]">Attendance Risk / Early Warning</p>
+                  <p className="text-xs text-[var(--color-text-tertiary)]">
+                    {riskReport.summary.studentsWithAttendance} of {riskReport.summary.activeStudents} active students have attendance data in this review window.
+                  </p>
+                </div>
+
+                {filteredRiskRows.length === 0 ? (
+                  <div className="p-10 text-center">
+                    <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                      <UserRound className="h-5 w-5" />
+                    </div>
+                    <p className="mt-3 text-sm font-semibold text-[var(--color-text-primary)]">No students match this risk filter</p>
+                    <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Students at or above 90% attendance are not listed as at-risk.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2 p-3 sm:hidden">
+                      {filteredRiskRows.map((row) => (
+                        <button key={row.studentId} type="button" onClick={() => openStudent(row.studentId)} className="w-full rounded-xl border border-[var(--color-border-default)] p-3 text-left hover:bg-[var(--color-surface-secondary)]">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-bold text-[var(--color-text-primary)]">{row.name}</p>
+                              <p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">{row.admissionNumber} · {row.className}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${row.riskLevel === 'high' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {row.riskLevel === 'high' ? 'High Risk' : 'Warning'}
+                            </span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-4 gap-1.5 text-center">
+                            <div className="rounded-lg bg-[var(--color-surface-secondary)] px-1 py-2"><p className="text-[9px] text-[var(--color-text-tertiary)]">Records</p><p className="text-sm font-black">{row.total}</p></div>
+                            <div className="rounded-lg bg-emerald-50 px-1 py-2 dark:bg-emerald-950/30"><p className="text-[9px] text-emerald-700">Present</p><p className="text-sm font-black text-emerald-600">{row.present}</p></div>
+                            <div className="rounded-lg bg-red-50 px-1 py-2 dark:bg-red-950/30"><p className="text-[9px] text-red-700">Absent</p><p className="text-sm font-black text-red-600">{row.absent}</p></div>
+                            <div className="rounded-lg bg-primary-500/10 px-1 py-2"><p className="text-[9px] text-primary-700">Present %</p><p className="text-sm font-black text-primary-600">{row.percentage}%</p></div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {row.reasons.map((reason) => <span key={reason} className="rounded-full bg-[var(--color-surface-secondary)] px-2 py-1 text-[10px] font-semibold text-[var(--color-text-secondary)]">{reason}</span>)}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="hidden overflow-x-auto [touch-action:pan-x_pan-y] sm:block">
+                      <table className="w-full min-w-[900px] border-collapse text-sm">
+                        <thead>
+                          <tr className="bg-[var(--color-surface-secondary)] text-left text-xs text-[var(--color-text-secondary)]">
+                            <th className="px-4 py-3 font-bold">Student</th>
+                            <th className="px-4 py-3 font-bold">Class</th>
+                            <th className="px-3 py-3 text-center font-bold">Records</th>
+                            <th className="px-3 py-3 text-center font-bold">Present</th>
+                            <th className="px-3 py-3 text-center font-bold">Absent</th>
+                            <th className="px-3 py-3 text-center font-bold">Present %</th>
+                            <th className="px-3 py-3 text-center font-bold">Consecutive</th>
+                            <th className="px-4 py-3 font-bold">Risk</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                          {filteredRiskRows.map((row) => (
+                            <tr key={row.studentId} className="cursor-pointer hover:bg-[var(--color-surface-secondary)]" onClick={() => openStudent(row.studentId)}>
+                              <td className="px-4 py-3"><p className="font-semibold text-[var(--color-text-primary)]">{row.name}</p><p className="text-[11px] text-[var(--color-text-tertiary)]">{row.admissionNumber}</p></td>
+                              <td className="px-4 py-3 text-[var(--color-text-secondary)]">{row.className}</td>
+                              <td className="px-3 py-3 text-center font-semibold">{row.total}</td>
+                              <td className="px-3 py-3 text-center font-semibold text-emerald-600">{row.present}</td>
+                              <td className="px-3 py-3 text-center font-semibold text-red-600">{row.absent}</td>
+                              <td className="px-3 py-3 text-center font-black text-primary-600">{row.percentage}%</td>
+                              <td className="px-3 py-3 text-center">{row.consecutiveAbsentDays ? `${row.consecutiveAbsentDays} day${row.consecutiveAbsentDays === 1 ? '' : 's'}` : '—'}</td>
+                              <td className="px-4 py-3">
+                                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${row.riskLevel === 'high' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {row.riskLevel === 'high' ? 'High Risk' : 'Warning'}
+                                </span>
+                                <p className="mt-1 max-w-[260px] text-[10px] text-[var(--color-text-tertiary)]">{row.reasons.join(' · ')}</p>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          ) : null}
         </div>
       )}
 
