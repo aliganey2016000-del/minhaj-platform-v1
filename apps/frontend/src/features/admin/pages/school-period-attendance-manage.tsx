@@ -459,19 +459,18 @@ export function SchoolAttendanceManage() {
         <CalendarCheck className="h-8 w-8 text-emerald-600" />
         <div>
           <h1 className="text-2xl font-bold text-[var(--color-text-primary)] sm:text-3xl">Attendance Control Center</h1>
-          <p className="text-sm text-[var(--color-text-tertiary)]">Schedule-first attendance, completion checks, corrections, reporting, and school calendar.</p>
+          <p className="text-sm text-[var(--color-text-tertiary)]">Schedule-first attendance, completion checks, corrections, and reporting.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
+      <div className="grid grid-cols-3 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
         {([
           ['take', 'Take Attendance', CheckSquare],
           ['view', 'View Records', Eye],
           ['report', 'Reports', BarChart3],
-          ['calendar', 'Calendar', CalendarDays],
         ] as const).map(([key, label, Icon]) => (
           <button key={key} type="button" onClick={() => setTab(key)} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 text-xs font-semibold sm:text-sm ${tab === key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
-            <Icon className="h-4 w-4" /> <span className="hidden sm:inline">{label}</span><span className="sm:hidden">{key === 'take' ? 'Take' : key === 'view' ? 'View' : key === 'report' ? 'Report' : 'Calendar'}</span>
+            <Icon className="h-4 w-4" /> <span className="hidden sm:inline">{label}</span><span className="sm:hidden">{key === 'take' ? 'Take' : key === 'view' ? 'View' : 'Report'}</span>
           </button>
         ))}
       </div>
