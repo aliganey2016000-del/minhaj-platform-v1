@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X, Building2, Users, FileCheck2, Percent } from 'lucide-react';
+import { CalendarClock, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X, Building2, Users, FileCheck2, Percent } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -192,12 +192,12 @@ function RowActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEd
 }
 
 // ---------------------------------------------------------------------------
-// Page Header Actions — Import / Export / Bulk Delete, tucked behind a
-// single "⋮" button; "+ Schedule Exam" (the primary action) stays outside
-// as its own button.
+// Page Header Actions — all page-level actions live behind one compact
+// three-dot trigger beside the Exam Schedule heading.
 // ---------------------------------------------------------------------------
 
-function ExamsActionsMenu({ onImport, onExport, exporting, onBulkDelete, selectedCount }: {
+function ExamsActionsMenu({ onSchedule, onImport, onExport, exporting, onBulkDelete, selectedCount }: {
+  onSchedule: () => void;
   onImport: () => void;
   onExport: () => void;
   exporting: boolean;
@@ -226,6 +226,10 @@ function ExamsActionsMenu({ onImport, onExport, exporting, onBulkDelete, selecte
       </button>
       {open && (
         <div className="absolute right-0 z-20 mt-1 w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-lg py-1 text-left">
+          <button onClick={() => { setOpen(false); onSchedule(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} /> Schedule Exam
+          </button>
+          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button onClick={() => { setOpen(false); onImport(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <Upload className="h-3.5 w-3.5" strokeWidth={1.75} /> Import Exams
           </button>
@@ -921,10 +925,6 @@ export function ExamsManage() {
   const [classFilter, setClassFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
-  const [calendarMonth, setCalendarMonth] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
   const [viewingExam, setViewingExam] = useState<Exam | undefined>(undefined);
@@ -1061,53 +1061,8 @@ export function ExamsManage() {
     }
   };
 
-  const examDates = useMemo(() => {
-    const map = new Map<string, Exam[]>();
-    for (const exam of exams) {
-      if (!exam.examDate || exam.autoSchedule) continue;
-      const key = new Date(exam.examDate).toISOString().slice(0, 10);
-      const list = map.get(key) || [];
-      list.push(exam);
-      map.set(key, list);
-    }
-    return map;
-  }, [exams]);
-
-  const calendarCells = useMemo(() => {
-    const year = calendarMonth.getFullYear();
-    const month = calendarMonth.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const previousMonthDays = new Date(year, month, 0).getDate();
-    return Array.from({ length: 42 }, (_, index) => {
-      const raw = index - firstDay + 1;
-      let day = raw;
-      let offset = 0;
-      let muted = false;
-      if (raw < 1) {
-        day = previousMonthDays + raw;
-        offset = -1;
-        muted = true;
-      } else if (raw > daysInMonth) {
-        day = raw - daysInMonth;
-        offset = 1;
-        muted = true;
-      }
-      const date = new Date(year, month + offset, day);
-      const key = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
-      const dayExams = examDates.get(key) || [];
-      const statuses = dayExams.map(getEffectiveStatus);
-      const tone = statuses.includes('ongoing') ? 'ongoing' : statuses.includes('scheduled') ? 'scheduled' : statuses.includes('completed') ? 'completed' : statuses.includes('cancelled') ? 'cancelled' : '';
-      return { day, key, muted, count: dayExams.length, tone };
-    });
-  }, [calendarMonth, examDates]);
-
   const setCalendarDate = (value: string) => {
     setDateFilter(value);
-    if (value) {
-      const d = new Date(value + 'T00:00:00');
-      setCalendarMonth(new Date(d.getFullYear(), d.getMonth(), 1));
-    }
   };
 
   const clearFilters = () => {
@@ -1133,33 +1088,28 @@ export function ExamsManage() {
     { key: 'completed', label: 'Completed', count: completedCount, icon: CheckCircle2, tone: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300' },
   ] as const;
 
-  const calendarTitle = calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-
   return (
     <div className="p-4 pt-20 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
       <div className="mx-auto max-w-[1700px]">
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div>
           <main className="min-w-0 space-y-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <BackButton fallback="/admin/exams" />
-                <h1 className="mt-1 text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Schedule</h1>
-                <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Plan, manage and track all school examinations from one workspace.</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button onClick={handleExport} disabled={exporting} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50">
-                  <Download className="h-4 w-4" /> {exporting ? 'Exporting...' : 'Export'}
-                </button>
-                <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-700">
-                  + Schedule Exam
-                </button>
-                <ExamsActionsMenu
-                  onImport={() => setShowImportModal(true)}
-                  onExport={handleExport}
-                  exporting={exporting}
-                  onBulkDelete={() => setShowBulkDeleteModal(true)}
-                  selectedCount={selected.size}
-                />
+            <div>
+              <BackButton fallback="/admin/exams" />
+              <div className="mt-1 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Schedule</h1>
+                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Plan, manage and track all school examinations from one workspace.</p>
+                </div>
+                <div className="shrink-0">
+                  <ExamsActionsMenu
+                    onSchedule={() => setShowCreate(true)}
+                    onImport={() => setShowImportModal(true)}
+                    onExport={handleExport}
+                    exporting={exporting}
+                    onBulkDelete={() => setShowBulkDeleteModal(true)}
+                    selectedCount={selected.size}
+                  />
+                </div>
               </div>
             </div>
 
@@ -1347,50 +1297,6 @@ export function ExamsManage() {
             </section>
           </main>
 
-          <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
-            <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
-              <div className="border-b border-[var(--color-border-subtle)] bg-gradient-to-br from-primary-50 to-blue-50 p-5 dark:from-primary-950/30 dark:to-blue-950/20">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-600 text-white shadow-sm"><CalendarDays className="h-6 w-6" /></div>
-                <h2 className="mt-4 text-lg font-bold text-[var(--color-text-primary)]">Exam Calendar</h2>
-                <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">Use the calendar to spot busy exam days and filter the schedule instantly.</p>
-              </div>
-              <div className="p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <button type="button" onClick={() => setCalendarMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))} className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">‹</button>
-                  <p className="text-sm font-bold text-[var(--color-text-primary)]">{calendarTitle}</p>
-                  <button type="button" onClick={() => setCalendarMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))} className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">›</button>
-                </div>
-                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-[var(--color-text-tertiary)]">{['S','M','T','W','T','F','S'].map((d, i) => <span key={d + i} className="py-1">{d}</span>)}</div>
-                <div className="grid grid-cols-7 gap-1">
-                  {calendarCells.map((cell) => {
-                    const selectedDay = dateFilter === cell.key;
-                    const dot = cell.tone === 'ongoing' ? 'bg-emerald-500' : cell.tone === 'scheduled' ? 'bg-blue-500' : cell.tone === 'completed' ? 'bg-teal-400' : cell.tone === 'cancelled' ? 'bg-red-500' : '';
-                    return (
-                      <button key={cell.key} type="button" onClick={() => setCalendarDate(cell.key)} className={'relative aspect-square rounded-lg text-xs font-semibold transition-colors ' + (selectedDay ? 'bg-primary-600 text-white' : cell.muted ? 'text-[var(--color-text-tertiary)] opacity-40 hover:bg-[var(--color-surface-secondary)]' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]')}>
-                        {cell.day}
-                        {cell.count > 0 && !selectedDay && <span className={'absolute bottom-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full ' + dot} />}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 text-[10px] text-[var(--color-text-tertiary)]">
-                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-blue-500" /> Scheduled</span>
-                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-emerald-500" /> Ongoing</span>
-                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-teal-400" /> Completed</span>
-                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-red-500" /> Cancelled</span>
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm">
-              <h3 className="text-sm font-bold text-[var(--color-text-primary)]">Status snapshot</h3>
-              <div className="mt-3 space-y-2">
-                <div className="flex items-center justify-between rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2.5"><span className="text-xs text-[var(--color-text-tertiary)]">Scheduled</span><strong className="text-sm">{scheduledCount}</strong></div>
-                <div className="flex items-center justify-between rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2.5"><span className="text-xs text-[var(--color-text-tertiary)]">Ongoing</span><strong className="text-sm">{ongoingCount}</strong></div>
-                <div className="flex items-center justify-between rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2.5"><span className="text-xs text-[var(--color-text-tertiary)]">Cancelled</span><strong className="text-sm">{cancelledCount}</strong></div>
-              </div>
-            </section>
-          </aside>
         </div>
       </div>
 
