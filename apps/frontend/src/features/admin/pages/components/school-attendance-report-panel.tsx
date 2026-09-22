@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarDays, ChevronRight, Clock3, Search, UserRound, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, CheckCircle2, ChevronRight, Clock3, Search, UserRound, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../../lib/axios';
 
-type ReportMode = 'date' | 'missing' | 'risk' | 'student';
+type ReportMode = 'date' | 'missing' | 'risk' | 'teacher' | 'student';
 
 interface ScheduleOption {
   startTime?: string;
@@ -59,6 +59,37 @@ interface AttendanceRiskReport {
     lastAttendanceDate?: string | null;
     riskLevel: 'high' | 'warning';
     reasons: string[];
+  }>;
+}
+
+interface TeacherComplianceReport {
+  window: { from: string; to: string; days: number };
+  summary: {
+    teachers: number;
+    scheduled: number;
+    teacherSubmitted: number;
+    submittedByOther: number;
+    completed: number;
+    partial: number;
+    missing: number;
+    unassignedSessions: number;
+    compliancePercentage: number;
+    completionPercentage: number;
+  };
+  rows: Array<{
+    teacherId: string;
+    teacherCode: string;
+    teacherName: string;
+    scheduled: number;
+    teacherSubmitted: number;
+    submittedByOther: number;
+    completed: number;
+    partial: number;
+    missing: number;
+    compliancePercentage: number;
+    completionPercentage: number;
+    classes: string[];
+    courses: string[];
   }>;
 }
 
@@ -177,6 +208,11 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
   const [riskDays, setRiskDays] = useState('30');
   const [riskClass, setRiskClass] = useState('');
   const [riskLevel, setRiskLevel] = useState<'all' | 'high' | 'warning'>('all');
+  const [teacherReport, setTeacherReport] = useState<TeacherComplianceReport | null>(null);
+  const [teacherLoading, setTeacherLoading] = useState(false);
+  const [teacherTo, setTeacherTo] = useState(localISODate());
+  const [teacherDays, setTeacherDays] = useState('30');
+  const [teacherSearch, setTeacherSearch] = useState('');
   const [cellReport, setCellReport] = useState<ClassReport | null>(null);
   const [cellReportLoading, setCellReportLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
@@ -315,6 +351,37 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
     });
   }, [riskReport, riskClass, riskLevel]);
 
+  useEffect(() => {
+    if (mode !== 'teacher') return;
+    let active = true;
+    setTeacherLoading(true);
+    setError('');
+    api.get('/attendance/school/report/teacher-compliance', { params: { to: teacherTo, days: teacherDays } })
+      .then(({ data }) => {
+        if (!active) return;
+        setTeacherReport(data?.data || null);
+      })
+      .catch((e: any) => {
+        if (!active) return;
+        setTeacherReport(null);
+        setError(e?.response?.data?.message || 'Could not load teacher attendance compliance.');
+      })
+      .finally(() => {
+        if (active) setTeacherLoading(false);
+      });
+    return () => { active = false; };
+  }, [mode, teacherTo, teacherDays]);
+
+  const filteredTeacherRows = useMemo(() => {
+    const q = teacherSearch.trim().toLowerCase();
+    if (!q) return teacherReport?.rows || [];
+    return (teacherReport?.rows || []).filter((row) =>
+      row.teacherName.toLowerCase().includes(q)
+      || row.teacherCode.toLowerCase().includes(q)
+      || row.classes.some((name) => name.toLowerCase().includes(q))
+    );
+  }, [teacherReport, teacherSearch]);
+
   const switchMode = (next: ReportMode) => {
     setMode(next);
     setError('');
@@ -393,18 +460,19 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-4 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
+      <div className="grid grid-cols-5 gap-0.5 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-card sm:gap-1 sm:p-1.5">
         {([
           ['date', 'By Date', CalendarDays],
           ['missing', 'Missing', Clock3],
           ['risk', 'Risk', AlertTriangle],
+          ['teacher', 'Teachers', CheckCircle2],
           ['student', 'By Student', UserRound],
         ] as const).map(([key, label, Icon]) => (
           <button
             key={key}
             type="button"
             onClick={() => switchMode(key)}
-            className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-semibold sm:text-sm ${
+            className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-semibold sm:gap-1.5 sm:px-2 sm:text-sm ${
               mode === key
                 ? 'bg-primary-600 text-white shadow-sm'
                 : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
@@ -856,6 +924,143 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                                   {row.riskLevel === 'high' ? 'High Risk' : 'Warning'}
                                 </span>
                                 <p className="mt-1 max-w-[260px] text-[10px] text-[var(--color-text-tertiary)]">{row.reasons.join(' · ')}</p>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          ) : null}
+        </div>
+      )}
+
+      {mode === 'teacher' && (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">As of Date</span>
+                <input
+                  type="date"
+                  value={teacherTo}
+                  onChange={(e) => setTeacherTo(e.target.value)}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm"
+                />
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Review Window</span>
+                <select value={teacherDays} onChange={(e) => setTeacherDays(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
+                  <option value="7">Last 7 days</option>
+                  <option value="30">Last 30 days</option>
+                  <option value="60">Last 60 days</option>
+                  <option value="90">Last 90 days</option>
+                  <option value="120">Last 120 days</option>
+                </select>
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Teacher / Class</span>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
+                  <input
+                    value={teacherSearch}
+                    onChange={(e) => setTeacherSearch(e.target.value)}
+                    placeholder="Search teacher or class"
+                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-3 pl-10 pr-3 text-sm"
+                  />
+                </div>
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">
+              Compliance counts lessons submitted by the teacher responsible for that lesson. Attendance completed by an admin or another user is shown separately as “By Other”.
+            </p>
+          </div>
+
+          {teacherLoading ? (
+            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center text-sm text-[var(--color-text-tertiary)]">Loading teacher attendance compliance...</div>
+          ) : teacherReport ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <SummaryCard label="Scheduled" value={teacherReport.summary.scheduled} />
+                <SummaryCard label="Teacher Submitted" value={teacherReport.summary.teacherSubmitted} tone="present" />
+                <SummaryCard label="Missing" value={teacherReport.summary.missing + teacherReport.summary.partial} tone="absent" />
+                <SummaryCard label="Compliance" value={`${teacherReport.summary.compliancePercentage}%`} />
+              </div>
+
+              {teacherReport.summary.unassignedSessions > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                  {teacherReport.summary.unassignedSessions} scheduled lesson(s) in this period have no teacher assigned and are excluded from teacher compliance.
+                </div>
+              )}
+
+              <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
+                <div className="border-b border-[var(--color-border-default)] p-4">
+                  <p className="font-bold text-[var(--color-text-primary)]">Teacher Attendance Compliance</p>
+                  <p className="text-xs text-[var(--color-text-tertiary)]">
+                    {teacherReport.summary.teachers} teacher(s) with scheduled lessons in this review window. Future lessons today are not counted.
+                  </p>
+                </div>
+
+                {filteredTeacherRows.length === 0 ? (
+                  <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">No teachers match this filter.</div>
+                ) : (
+                  <>
+                    <div className="space-y-2 p-3 sm:hidden">
+                      {filteredTeacherRows.map((row) => (
+                        <div key={row.teacherId} className="rounded-xl border border-[var(--color-border-default)] p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-bold text-[var(--color-text-primary)]">{row.teacherName}</p>
+                              <p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">
+                                {row.teacherCode || 'No teacher ID'}{row.classes.length ? ` · ${row.classes.join(', ')}` : ''}
+                              </p>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${row.compliancePercentage >= 90 ? 'bg-emerald-100 text-emerald-700' : row.compliancePercentage >= 75 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                              {row.compliancePercentage}%
+                            </span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-5 gap-1 text-center">
+                            <div className="rounded-lg bg-[var(--color-surface-secondary)] px-1 py-2"><p className="text-[8px] text-[var(--color-text-tertiary)]">Scheduled</p><p className="text-sm font-black">{row.scheduled}</p></div>
+                            <div className="rounded-lg bg-emerald-50 px-1 py-2 dark:bg-emerald-950/30"><p className="text-[8px] text-emerald-700">Submitted</p><p className="text-sm font-black text-emerald-600">{row.teacherSubmitted}</p></div>
+                            <div className="rounded-lg bg-blue-50 px-1 py-2 dark:bg-blue-950/30"><p className="text-[8px] text-blue-700">By Other</p><p className="text-sm font-black text-blue-600">{row.submittedByOther}</p></div>
+                            <div className="rounded-lg bg-orange-50 px-1 py-2 dark:bg-orange-950/30"><p className="text-[8px] text-orange-700">Partial</p><p className="text-sm font-black text-orange-600">{row.partial}</p></div>
+                            <div className="rounded-lg bg-red-50 px-1 py-2 dark:bg-red-950/30"><p className="text-[8px] text-red-700">Missing</p><p className="text-sm font-black text-red-600">{row.missing}</p></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="hidden overflow-x-auto [touch-action:pan-x_pan-y] sm:block">
+                      <table className="w-full min-w-[980px] border-collapse text-sm">
+                        <thead>
+                          <tr className="bg-[var(--color-surface-secondary)] text-left text-xs text-[var(--color-text-secondary)]">
+                            <th className="px-4 py-3 font-bold">Teacher</th>
+                            <th className="px-4 py-3 font-bold">Classes</th>
+                            <th className="px-3 py-3 text-center font-bold">Scheduled</th>
+                            <th className="px-3 py-3 text-center font-bold">Teacher Submitted</th>
+                            <th className="px-3 py-3 text-center font-bold">By Other</th>
+                            <th className="px-3 py-3 text-center font-bold">Partial</th>
+                            <th className="px-3 py-3 text-center font-bold">Missing</th>
+                            <th className="px-3 py-3 text-center font-bold">Compliance</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                          {filteredTeacherRows.map((row) => (
+                            <tr key={row.teacherId}>
+                              <td className="px-4 py-3"><p className="font-semibold text-[var(--color-text-primary)]">{row.teacherName}</p><p className="text-[11px] text-[var(--color-text-tertiary)]">{row.teacherCode || '—'}</p></td>
+                              <td className="max-w-[280px] px-4 py-3 text-[var(--color-text-secondary)]"><p className="line-clamp-2">{row.classes.join(', ') || '—'}</p></td>
+                              <td className="px-3 py-3 text-center font-semibold">{row.scheduled}</td>
+                              <td className="px-3 py-3 text-center font-bold text-emerald-600">{row.teacherSubmitted}</td>
+                              <td className="px-3 py-3 text-center font-semibold text-blue-600">{row.submittedByOther}</td>
+                              <td className="px-3 py-3 text-center font-semibold text-orange-600">{row.partial}</td>
+                              <td className="px-3 py-3 text-center font-bold text-red-600">{row.missing}</td>
+                              <td className="px-3 py-3 text-center">
+                                <span className={`inline-flex rounded-full px-2.5 py-1 font-bold ${row.compliancePercentage >= 90 ? 'bg-emerald-100 text-emerald-700' : row.compliancePercentage >= 75 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                                  {row.compliancePercentage}%
+                                </span>
                               </td>
                             </tr>
                           ))}
