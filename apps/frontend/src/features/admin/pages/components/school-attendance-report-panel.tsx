@@ -287,57 +287,87 @@ export function SchoolAttendanceReportPanel() {
                 <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center text-sm text-[var(--color-text-tertiary)]">No scheduled classes were found for this date.</div>
               ) : (
                 <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
-                  <div className="border-b border-[var(--color-border-default)] p-4">
-                    <p className="font-bold text-[var(--color-text-primary)]">School Attendance · {dateReport.date}</p>
-                    <p className="text-xs text-[var(--color-text-tertiary)]">Classes are rows and periods are columns. Each cell shows the attendance percentage for that class and period.</p>
+                  <div className="border-b border-[var(--color-border-default)] p-3 sm:p-4">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-[var(--color-text-primary)] sm:text-base">School Attendance · {dateReport.date}</p>
+                        <p className="text-[11px] leading-4 text-[var(--color-text-tertiary)] sm:text-xs">Classes are rows and periods are columns. Each cell shows the attendance percentage.</p>
+                      </div>
+                      <span className="text-[10px] font-medium text-[var(--color-text-tertiary)] sm:hidden">Swipe horizontally →</span>
+                    </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[760px] border-collapse text-sm">
+                  <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] touch-pan-x">
+                    <table className="w-max min-w-full border-collapse text-xs sm:text-sm">
                       <thead>
                         <tr className="bg-[var(--color-surface-secondary)]">
-                          <th className="sticky left-0 z-20 min-w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-xs font-bold text-[var(--color-text-secondary)]">Class</th>
+                          <th className="sticky left-0 z-20 w-[108px] min-w-[108px] max-w-[108px] border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2 py-2.5 text-left text-[11px] font-bold text-[var(--color-text-secondary)] shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-40 sm:min-w-40 sm:max-w-none sm:px-3 sm:py-3 sm:text-xs">Class</th>
                           {dateReport.periods.map((period) => (
-                            <th key={period.key} className="min-w-28 border-b border-r border-[var(--color-border-default)] px-3 py-3 text-center">
-                              <div className="text-xs font-bold text-[var(--color-text-primary)]">{period.label}</div>
-                              <div className="mt-1 text-[10px] font-medium text-[var(--color-text-tertiary)]">{period.startTime}–{period.endTime}</div>
+                            <th key={period.key} className="w-[86px] min-w-[86px] border-b border-r border-[var(--color-border-default)] px-1.5 py-2.5 text-center sm:w-28 sm:min-w-28 sm:px-3 sm:py-3">
+                              <div className="text-[10px] font-bold text-[var(--color-text-primary)] sm:text-xs">
+                                <span className="sm:hidden">{period.label.replace('Period ', 'P')}</span>
+                                <span className="hidden sm:inline">{period.label}</span>
+                              </div>
+                              <div className="mt-0.5 whitespace-nowrap text-[8px] font-medium text-[var(--color-text-tertiary)] sm:mt-1 sm:text-[10px]">{period.startTime}–{period.endTime}</div>
                             </th>
                           ))}
-                          <th className="min-w-24 border-b border-[var(--color-border-default)] px-3 py-3 text-center text-xs font-bold text-[var(--color-text-secondary)]">Overall</th>
+                          <th className="w-[82px] min-w-[82px] border-b border-[var(--color-border-default)] px-1.5 py-2.5 text-center text-[10px] font-bold text-[var(--color-text-secondary)] sm:min-w-24 sm:px-3 sm:py-3 sm:text-xs">Overall</th>
                         </tr>
                       </thead>
                       <tbody>
                         {dateReport.classes.map((row) => (
                           <tr key={row.classId} className="border-b border-[var(--color-border-subtle)] last:border-b-0">
-                            <td className="sticky left-0 z-10 border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3">
-                              <div className="font-semibold text-[var(--color-text-primary)]">{row.className}</div>
-                              <div className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">{row.sessions} period{row.sessions === 1 ? '' : 's'}</div>
+                            <td className="sticky left-0 z-10 w-[108px] min-w-[108px] max-w-[108px] border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-2.5 shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-40 sm:min-w-40 sm:max-w-none sm:px-3 sm:py-3">
+                              <div className="break-words text-[11px] font-semibold leading-4 text-[var(--color-text-primary)] sm:text-sm">{row.className}</div>
+                              <div className="mt-0.5 text-[9px] text-[var(--color-text-tertiary)] sm:text-[10px]">{row.sessions} period{row.sessions === 1 ? '' : 's'}</div>
                             </td>
                             {dateReport.periods.map((period) => {
                               const cell = row.periods?.[period.key];
                               if (!cell?.scheduled) {
-                                return <td key={period.key} className="border-r border-[var(--color-border-subtle)] px-3 py-3 text-center text-[var(--color-text-tertiary)]">—</td>;
+                                return <td key={period.key} className="w-[86px] min-w-[86px] border-r border-[var(--color-border-subtle)] px-1.5 py-2.5 text-center text-[var(--color-text-tertiary)] sm:w-28 sm:min-w-28 sm:px-3 sm:py-3">—</td>;
                               }
                               const hasRecords = cell.records > 0;
                               return (
                                 <td
                                   key={period.key}
-                                  className="border-r border-[var(--color-border-subtle)] px-3 py-3 text-center"
+                                  className="w-[86px] min-w-[86px] border-r border-[var(--color-border-subtle)] px-1.5 py-2.5 text-center sm:w-28 sm:min-w-28 sm:px-3 sm:py-3"
                                   title={hasRecords ? `${cell.present} present of ${cell.records} recorded` : 'Attendance not recorded'}
                                 >
-                                  <div className={`text-base font-bold ${hasRecords ? 'text-emerald-600' : 'text-[var(--color-text-tertiary)]'}`}>
+                                  <div className={`text-sm font-bold sm:text-base ${hasRecords ? 'text-emerald-600' : 'text-[var(--color-text-tertiary)]'}`}>
                                     {hasRecords ? `${cell.percentage}%` : '—'}
                                   </div>
-                                  <div className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">
-                                    {hasRecords ? `${cell.present}/${cell.records} present` : 'Not recorded'}
+                                  <div className="mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:text-[10px]">
+                                    {hasRecords ? (
+                                      <>
+                                        <span className="sm:hidden">{cell.present}/{cell.records}</span>
+                                        <span className="hidden sm:inline">{cell.present}/{cell.records} present</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="sm:hidden">No data</span>
+                                        <span className="hidden sm:inline">Not recorded</span>
+                                      </>
+                                    )}
                                   </div>
                                 </td>
                               );
                             })}
-                            <td className="px-3 py-3 text-center">
-                              <div className={`text-base font-bold ${row.records ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}`}>
+                            <td className="w-[82px] min-w-[82px] px-1.5 py-2.5 text-center sm:min-w-24 sm:px-3 sm:py-3">
+                              <div className={`text-sm font-bold sm:text-base ${row.records ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}`}>
                                 {row.records ? `${row.percentage}%` : '—'}
                               </div>
-                              <div className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">{row.records ? `${row.present}/${row.records} present` : 'Not recorded'}</div>
+                              <div className="mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:text-[10px]">
+                                {row.records ? (
+                                  <>
+                                    <span className="sm:hidden">{row.present}/{row.records}</span>
+                                    <span className="hidden sm:inline">{row.present}/{row.records} present</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="sm:hidden">No data</span>
+                                    <span className="hidden sm:inline">Not recorded</span>
+                                  </>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
