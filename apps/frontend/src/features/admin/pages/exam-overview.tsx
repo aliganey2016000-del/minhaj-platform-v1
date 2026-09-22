@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, BarChart3, CalendarClock, CheckCircle2, ClipboardEdit, FileCheck2, GraduationCap } from 'lucide-react';
+import { AlertTriangle, BarChart3, CalendarClock, CheckCircle2, FileCheck2, GraduationCap } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
