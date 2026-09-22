@@ -11,7 +11,7 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import { resolveViewableOrgId } from '../utils/tenant-scope';
 
-const STATUSES = new Set(['present', 'absent', 'late', 'excused']);
+const STATUSES = new Set(['present', 'absent']);
 const REASONS = new Set(['', 'sick', 'medical', 'family_emergency', 'school_activity', 'suspension', 'transport_delay', 'other']);
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -47,12 +47,10 @@ async function assertInstructionalDay(schoolId: string, date: Date) {
   return calendarDay || null;
 }
 
-function deriveSectionStatus(rows: any[]): 'present' | 'absent' | 'late' | 'excused' | null {
+function deriveSectionStatus(rows: any[]): 'present' | 'absent' | null {
   if (!rows.length) return null;
-  if (rows.some((row) => row.status === 'present')) return 'present';
-  if (rows.some((row) => row.status === 'late')) return 'late';
-  if (rows.every((row) => row.status === 'excused')) return 'excused';
-  if (rows.some((row) => row.status === 'absent')) return 'absent';
+  if (rows.some((row) => row.status === 'present' || row.status === 'late')) return 'present';
+  if (rows.some((row) => row.status === 'absent' || row.status === 'excused')) return 'absent';
   return null;
 }
 
@@ -61,7 +59,7 @@ export const getDailyRoster = async (req: Request, res: Response): Promise<Respo
   const date = dateOnly(req.query.date);
   const calendarDay = await SchoolCalendarDay.findOne({ school: schoolId, date }).select('name type isInstructional notes').lean();
   if (calendarDay && calendarDay.isInstructional === false) {
-    return ApiResponse.success(res, { date: String(req.query.date), calendarDay, summary: { total: 0, present: 0, late: 0, absent: 0, excused: 0, unmarked: 0 }, roster: [] });
+    return ApiResponse.success(res, { date: String(req.query.date), calendarDay, summary: { total: 0, present: 0, absent: 0, unmarked: 0 }, roster: [] });
   }
 
   const filter: Record<string, unknown> = { school: schoolId, status: 'active', approvalStatus: 'approved' };
@@ -93,11 +91,14 @@ export const getDailyRoster = async (req: Request, res: Response): Promise<Respo
     sectionMap.set(key, list);
   }
 
-  const summary = { total: students.length, present: 0, late: 0, absent: 0, excused: 0, unmarked: 0 };
+  const summary = { total: students.length, present: 0, absent: 0, unmarked: 0 };
   const roster = students.map((student) => {
     const daily: any = dailyMap.get(String(student._id));
+    const normalizedDailyStatus = daily
+      ? (daily.status === 'present' || daily.status === 'late' ? 'present' : 'absent')
+      : null;
     const derivedStatus = daily ? null : deriveSectionStatus(sectionMap.get(String(student._id)) || []);
-    const effectiveStatus = daily?.status || derivedStatus || null;
+    const effectiveStatus = normalizedDailyStatus || derivedStatus || null;
     if (effectiveStatus && effectiveStatus in summary) (summary as any)[effectiveStatus] += 1;
     else summary.unmarked += 1;
     return {
@@ -107,8 +108,8 @@ export const getDailyRoster = async (req: Request, res: Response): Promise<Respo
       class: student.class,
       daily: daily ? {
         _id: daily._id,
-        status: daily.status,
-        reasonCode: daily.reasonCode || '',
+        status: normalizedDailyStatus,
+        reasonCode: daily.status === 'absent' || daily.status === 'excused' ? (daily.reasonCode || '') : '',
         arrivalTime: daily.arrivalTime || '',
         departureTime: daily.departureTime || '',
         notes: daily.notes || '',
@@ -140,9 +141,10 @@ export const markDailyBulk = async (req: Request, res: Response): Promise<Respon
     const id = String(row.student);
     const student: any = studentMap.get(id);
     const status = String(row.status || '');
-    const reasonCode = String(row.reasonCode || '').trim();
-    if (!STATUSES.has(status)) throw new BadRequestError(`Invalid daily attendance status for ${id}.`);
+    let reasonCode = String(row.reasonCode || '').trim();
+    if (!STATUSES.has(status)) throw new BadRequestError(`Invalid daily attendance status for ${id}. Use Present or Absent only.`);
     if (!REASONS.has(reasonCode)) throw new BadRequestError(`Invalid attendance reason for ${id}.`);
+    if (status === 'present') reasonCode = '';
     const arrivalTime = String(row.arrivalTime || '').trim();
     const departureTime = String(row.departureTime || '').trim();
     if (arrivalTime && !TIME_RE.test(arrivalTime)) throw new BadRequestError('Arrival time must use HH:MM.');
@@ -186,12 +188,9 @@ export const checkIn = async (req: Request, res: Response): Promise<Response> =>
   const student: any = await findStudent(schoolId, req.body?.student);
   const arrivalTime = timeValue(req.body?.arrivalTime, 'Arrival time');
 
-  const firstSchedule: any = student.class
-    ? await ClassSchedule.findOne({ school: schoolId, class: student.class, dayOfWeek: date.getDay(), isActive: true }).select('startTime').sort({ startTime: 1 }).lean()
-    : null;
-  const status = firstSchedule?.startTime && arrivalTime > firstSchedule.startTime ? 'late' : 'present';
-  const reasonCode = String(req.body?.reasonCode || (status === 'late' ? 'transport_delay' : '')).trim();
-  if (!REASONS.has(reasonCode)) throw new BadRequestError('Invalid attendance reason.');
+  const status = 'present';
+  const reasonCode = '';
+
 
   const row = await DailyAttendance.findOneAndUpdate(
     { school: schoolId, student: student._id, date },
@@ -206,7 +205,7 @@ export const checkIn = async (req: Request, res: Response): Promise<Response> =>
     } },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
-  return ApiResponse.success(res, { studentId: student.studentId, attendance: row }, `Student checked in as ${status}`);
+  return ApiResponse.success(res, { studentId: student.studentId, attendance: row }, 'Student checked in as present');
 };
 
 export const checkOut = async (req: Request, res: Response): Promise<Response> => {
@@ -252,10 +251,8 @@ export const getSchoolDashboard = async (req: Request, res: Response): Promise<R
       { $group: {
         _id: '$student',
         total: { $sum: 1 },
-        present: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
-        late: { $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] } },
-        absent: { $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] } },
-        excused: { $sum: { $cond: [{ $eq: ['$status', 'excused'] }, 1, 0] } },
+        present: { $sum: { $cond: [{ $in: ['$status', ['present', 'late']] }, 1, 0] } },
+        absent: { $sum: { $cond: [{ $in: ['$status', ['absent', 'excused']] }, 1, 0] } },
       } },
       { $match: { total: { $gte: 3 } } },
     ]),
@@ -269,12 +266,15 @@ export const getSchoolDashboard = async (req: Request, res: Response): Promise<R
     else if (row?.status === 'partial') partial += 1;
     else missing += 1;
   }
-  const statusCounts: any = { present: 0, late: 0, absent: 0, excused: 0 };
-  for (const row of todayRows as any[]) if (row._id in statusCounts) statusCounts[row._id] = row.count;
+  const statusCounts: any = { present: 0, absent: 0 };
+  for (const row of todayRows as any[]) {
+    if (row._id === 'present' || row._id === 'late') statusCounts.present += row.count;
+    else if (row._id === 'absent' || row._id === 'excused') statusCounts.absent += row.count;
+  }
 
   const riskIds = (riskStats as any[])
-    .filter((row) => row.total > 0 && Math.round(((row.present + row.late) / row.total) * 100) < threshold)
-    .sort((a, b) => ((a.present + a.late) / a.total) - ((b.present + b.late) / b.total))
+    .filter((row) => row.total > 0 && Math.round((row.present / row.total) * 100) < threshold)
+    .sort((a, b) => (a.present / a.total) - (b.present / b.total))
     .slice(0, 25);
   const students: any[] = riskIds.length
     ? await Student.find({ _id: { $in: riskIds.map((row) => row._id) } }).select('studentId profile class').populate('profile', 'firstName lastName').populate('class', 'title section').lean()
@@ -288,10 +288,8 @@ export const getSchoolDashboard = async (req: Request, res: Response): Promise<R
       className: student?.class ? `${student.class.title || ''}${student.class.section ? ` (${student.class.section})` : ''}` : '',
       total: row.total,
       present: row.present,
-      late: row.late,
       absent: row.absent,
-      excused: row.excused,
-      rate: Math.round(((row.present + row.late) / row.total) * 100),
+      rate: Math.round((row.present / row.total) * 100),
     };
   });
 
