@@ -5,12 +5,12 @@ import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Activity, AlertTriangle, Award, BadgePercent, BarChart3, BookOpen, Building, Building2,
-  CalendarCheck, CalendarClock, CalendarRange, CheckCircle2, CircleHelp, ClipboardEdit,
+  Activity, Award, BadgePercent, BarChart3, BookOpen, Building2,
+  CalendarCheck, CalendarClock, CalendarRange, CircleHelp, ClipboardEdit,
   ClipboardList, Compass, CreditCard, Database, FileBarChart, FileCheck2, FileQuestion,
   FileText, GraduationCap, History, Image, KeyRound, LayoutDashboard, ListChecks, LogOut,
   Megaphone, MessagesSquare, Newspaper, NotebookPen, Palette, PanelLeftClose, PanelLeftOpen,
-  PartyPopper, Percent, PieChart, Presentation, Receipt, School, ScrollText, Settings,
+  PartyPopper, PieChart, Presentation, Receipt, School, ScrollText, Settings,
   ShieldCheck, Trash2, TrendingUp, User, UserCog, UserRound, Users, Zap,
 } from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
@@ -58,14 +58,11 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       {
         key: 'group:exam-management', label: 'Examinations', icon: NotebookPen,
         children: [
-          { path: '/admin/exams', label: 'Exam Scheduling', icon: CalendarRange },
-          { path: '/admin/exams/rooms', label: 'Room Allocation', icon: Building },
-          { path: '/admin/exams/attendance', label: 'Exam Attendance', icon: CheckCircle2 },
-          { path: '/admin/exams/papers', label: 'Papers & Approval', icon: FileCheck2 },
-          { path: '/admin/results', label: 'View Results', icon: BarChart3 },
-          { path: '/admin/results/enter', label: 'Enter Results', icon: ClipboardEdit },
-          { path: '/admin/exams/compliance', label: 'Compliances & Issues', icon: AlertTriangle },
-          { path: '/admin/exams/grading-rules', label: 'Grading Rules', icon: Percent },
+          { path: '/admin/exams', label: 'Overview', icon: LayoutDashboard },
+          { path: '/admin/exams/schedule', label: 'Exam Schedule', icon: CalendarRange },
+          { path: '/admin/results/enter', label: 'Marks Entry', icon: ClipboardEdit },
+          { path: '/admin/exams/review', label: 'Review & Approval', icon: FileCheck2 },
+          { path: '/admin/results', label: 'Results', icon: BarChart3 },
         ],
       },
       { path: '/admin/certificates', label: 'Certificates', icon: Award },
@@ -229,6 +226,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
 
   const isActive = (path: string) => {
     if (path === '/admin') return location.pathname === '/admin';
+    if (path === '/admin/exams' || path === '/admin/results') return location.pathname === path;
     if (path.includes('?')) return `${location.pathname}${location.search}` === path;
     if (path === '/admin/analytics') return location.pathname === path && (!location.search || location.search === '?tab=learning');
     return location.pathname.startsWith(path);

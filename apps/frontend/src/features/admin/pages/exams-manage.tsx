@@ -1042,8 +1042,8 @@ export function ExamsManage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <BackButton fallback="/admin" />
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">📝 Manage Exams</h1>
+            <BackButton fallback="/admin/exams" />
+            <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">📝 Exam Schedule</h1>
             <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
               {exams.length} total — {scheduledCount} scheduled, {ongoingCount} ongoing, {completedCount} completed, {cancelledCount} cancelled
             </p>
@@ -1060,6 +1060,13 @@ export function ExamsManage() {
               selectedCount={selected.size}
             />
           </div>
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          <a href="/admin/exams/rooms" className="whitespace-nowrap rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">Room Allocation</a>
+          <a href="/admin/exams/attendance" className="whitespace-nowrap rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">Exam Attendance</a>
+          <a href="/admin/exams/papers" className="whitespace-nowrap rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">Paper Approval</a>
+          <a href="/admin/exams/grading-rules" className="whitespace-nowrap rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">Grading Rules</a>
         </div>
 
         {/* Stats — gradient tiles doubling as status filter tabs: click one
