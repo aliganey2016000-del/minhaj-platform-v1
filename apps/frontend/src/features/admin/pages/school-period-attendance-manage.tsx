@@ -596,7 +596,7 @@ export function SchoolAttendanceManage() {
                         <div className="rounded-xl bg-[var(--color-surface-secondary)] p-2.5"><p className="text-xs text-[var(--color-text-tertiary)]">Teacher</p><p className="truncate font-medium text-[var(--color-text-primary)]">{session.teacherName}</p></div>
                         <div className="rounded-xl bg-[var(--color-surface-secondary)] p-2.5"><p className="text-xs text-[var(--color-text-tertiary)]">Time</p><p className="font-medium text-[var(--color-text-primary)]">{session.startTime}–{session.endTime}</p></div>
                       </div>
-                      {session.attendance.total > 0 && <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">P {session.attendance.present} · A {session.attendance.absent} · L {session.attendance.late} · E {session.attendance.excused}{session.attendance.expectedStudents != null ? ` · ${session.attendance.recordedStudents}/${session.attendance.expectedStudents}` : ''}</p>}
+                      {session.attendance.total > 0 && <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">Present {session.attendance.present} · Absent {session.attendance.absent}{session.attendance.expectedStudents != null ? ` · ${session.attendance.recordedStudents}/${session.attendance.expectedStudents}` : ''}</p>}
                     </button>
                   );
                 })}
