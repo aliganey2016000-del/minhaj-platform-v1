@@ -3,8 +3,8 @@
  * Lists, creates, edits, deletes exams via /api/v1/exams
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { CalendarClock, PlayCircle, CheckCircle2, XCircle, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X } from 'lucide-react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X, Building2, Users, FileCheck2, Percent } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -19,7 +19,13 @@ interface CourseBrief {
   title: { en: string };
   slug: string;
   category: string;
-  enrolledStudents: number;
+  enrolledStudents: number | unknown[];
+  class?: {
+    _id?: string;
+    title?: string;
+    section?: string;
+    department?: { _id?: string; name?: string } | null;
+  } | null;
 }
 
 interface SchoolBrief { _id: string; name: string; status?: string; }
@@ -912,16 +918,20 @@ export function ExamsManage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [scheduleFilter, setScheduleFilter] = useState<'all' | 'manual' | 'auto'>('all');
+  const [classFilter, setClassFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
   const [viewingExam, setViewingExam] = useState<Exam | undefined>(undefined);
 
-  // Bulk selection / delete
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-
-  // Import / Export
   const [showImportModal, setShowImportModal] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -929,13 +939,8 @@ export function ExamsManage() {
     setLoading(true);
     setError('');
     try {
-      const params: any = {};
+      const params: any = { limit: 200 };
       if (search) params.search = search;
-      // Status filtering happens client-side against the effective
-      // (time-computed) status below, not the raw stored field — an exam
-      // whose window already ended should filter as "Completed" even if
-      // nobody flipped its stored status yet.
-
       const { data } = await api.get('/exams', { params });
       setExams(data.data || []);
       setSelected(new Set());
@@ -950,7 +955,7 @@ export function ExamsManage() {
 
   const handleStatusChange = async (id: string, newStatus: string) => {
     try {
-      await api.patch(`/exams/${id}/status`, { status: newStatus });
+      await api.patch('/exams/' + id + '/status', { status: newStatus });
       setExams((prev) => prev.map((e) => (e._id === id ? { ...e, status: newStatus as Exam['status'] } : e)));
     } catch (err: any) {
       alert(err.response?.data?.message || 'Failed to update status');
@@ -960,7 +965,7 @@ export function ExamsManage() {
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this exam?')) return;
     try {
-      await api.delete(`/exams/${id}`);
+      await api.delete('/exams/' + id);
       setExams((prev) => prev.filter((e) => e._id !== id));
       setSelected((prev) => { const next = new Set(prev); next.delete(id); return next; });
     } catch (err: any) {
@@ -972,17 +977,45 @@ export function ExamsManage() {
   const ongoingCount = exams.filter((e) => getEffectiveStatus(e) === 'ongoing').length;
   const completedCount = exams.filter((e) => getEffectiveStatus(e) === 'completed').length;
   const cancelledCount = exams.filter((e) => getEffectiveStatus(e) === 'cancelled').length;
-
   const manualCount = exams.filter((e) => !e.autoSchedule).length;
   const autoCount = exams.filter((e) => e.autoSchedule).length;
-  const visibleExams = exams.filter((e) => {
-    if (scheduleFilter === 'manual' && e.autoSchedule) return false;
-    if (scheduleFilter === 'auto' && !e.autoSchedule) return false;
-    if (statusFilter && getEffectiveStatus(e) !== statusFilter) return false;
+
+  const classOptions = useMemo(() => {
+    const values = new Map<string, string>();
+    for (const exam of exams) {
+      const cls = exam.course?.class;
+      if (!cls?._id || !cls.title) continue;
+      values.set(cls._id, cls.section ? cls.title + ' - ' + cls.section : cls.title);
+    }
+    return Array.from(values.entries()).map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [exams]);
+
+  const departmentOptions = useMemo(() => {
+    const values = new Map<string, string>();
+    for (const exam of exams) {
+      const dept = exam.course?.class?.department;
+      if (!dept?._id || !dept.name) continue;
+      values.set(dept._id, dept.name);
+    }
+    return Array.from(values.entries()).map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [exams]);
+
+  const visibleExams = exams.filter((exam) => {
+    const cls = exam.course?.class;
+    const dept = cls?.department;
+    if (scheduleFilter === 'manual' && exam.autoSchedule) return false;
+    if (scheduleFilter === 'auto' && !exam.autoSchedule) return false;
+    if (statusFilter && getEffectiveStatus(exam) !== statusFilter) return false;
+    if (classFilter && cls?._id !== classFilter) return false;
+    if (departmentFilter && dept?._id !== departmentFilter) return false;
+    if (dateFilter) {
+      if (!exam.examDate || exam.autoSchedule) return false;
+      const key = new Date(exam.examDate).toISOString().slice(0, 10);
+      if (key !== dateFilter) return false;
+    }
     return true;
   });
 
-  // ── Bulk selection / delete ──
   const allVisibleSelected = visibleExams.length > 0 && visibleExams.every((e) => selected.has(e._id));
   const toggleSelected = (id: string) => {
     setSelected((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
@@ -990,6 +1023,7 @@ export function ExamsManage() {
   const toggleSelectAll = () => {
     setSelected(allVisibleSelected ? new Set() : new Set(visibleExams.map((e) => e._id)));
   };
+
   const handleBulkDelete = async () => {
     setBulkDeleting(true);
     try {
@@ -997,7 +1031,7 @@ export function ExamsManage() {
       setExams((prev) => prev.filter((e) => !selected.has(e._id)));
       setSelected(new Set());
       setShowBulkDeleteModal(false);
-      alert(data?.message || `Deleted ${selected.size} exam(s)`);
+      alert(data?.message || 'Selected exams deleted');
     } catch (err: any) {
       alert(err.response?.data?.message || 'Bulk delete failed');
     } finally {
@@ -1005,18 +1039,17 @@ export function ExamsManage() {
     }
   };
 
-  // ── Export ──
   const handleExport = async () => {
     setExporting(true);
     try {
       const token = localStorage.getItem('accessToken') || '';
-      const response = await fetch(`${api.defaults.baseURL}/exams/export`, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(api.defaults.baseURL + '/exams/export', { headers: { Authorization: 'Bearer ' + token } });
       if (!response.ok) throw new Error('Export failed');
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `exams-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      link.download = 'exams-export-' + new Date().toISOString().slice(0, 10) + '.xlsx';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1028,6 +1061,63 @@ export function ExamsManage() {
     }
   };
 
+  const examDates = useMemo(() => {
+    const map = new Map<string, Exam[]>();
+    for (const exam of exams) {
+      if (!exam.examDate || exam.autoSchedule) continue;
+      const key = new Date(exam.examDate).toISOString().slice(0, 10);
+      const list = map.get(key) || [];
+      list.push(exam);
+      map.set(key, list);
+    }
+    return map;
+  }, [exams]);
+
+  const calendarCells = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const previousMonthDays = new Date(year, month, 0).getDate();
+    return Array.from({ length: 42 }, (_, index) => {
+      const raw = index - firstDay + 1;
+      let day = raw;
+      let offset = 0;
+      let muted = false;
+      if (raw < 1) {
+        day = previousMonthDays + raw;
+        offset = -1;
+        muted = true;
+      } else if (raw > daysInMonth) {
+        day = raw - daysInMonth;
+        offset = 1;
+        muted = true;
+      }
+      const date = new Date(year, month + offset, day);
+      const key = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+      const dayExams = examDates.get(key) || [];
+      const statuses = dayExams.map(getEffectiveStatus);
+      const tone = statuses.includes('ongoing') ? 'ongoing' : statuses.includes('scheduled') ? 'scheduled' : statuses.includes('completed') ? 'completed' : statuses.includes('cancelled') ? 'cancelled' : '';
+      return { day, key, muted, count: dayExams.length, tone };
+    });
+  }, [calendarMonth, examDates]);
+
+  const setCalendarDate = (value: string) => {
+    setDateFilter(value);
+    if (value) {
+      const d = new Date(value + 'T00:00:00');
+      setCalendarMonth(new Date(d.getFullYear(), d.getMonth(), 1));
+    }
+  };
+
+  const clearFilters = () => {
+    setStatusFilter('');
+    setScheduleFilter('all');
+    setClassFilter('');
+    setDepartmentFilter('');
+    setDateFilter('');
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -1036,257 +1126,289 @@ export function ExamsManage() {
     );
   }
 
+  const statCards = [
+    { key: '', label: 'Total Exams', count: exams.length, icon: LayoutGrid, tone: 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300' },
+    { key: 'scheduled', label: 'Scheduled', count: scheduledCount, icon: CalendarClock, tone: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300' },
+    { key: 'ongoing', label: 'Ongoing', count: ongoingCount, icon: PlayCircle, tone: 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300' },
+    { key: 'completed', label: 'Completed', count: completedCount, icon: CheckCircle2, tone: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300' },
+  ] as const;
+
+  const calendarTitle = calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
   return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-screen-2xl space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <BackButton fallback="/admin/exams" />
-            <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">📝 Exam Schedule</h1>
-            <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
-              {exams.length} total — {scheduledCount} scheduled, {ongoingCount} ongoing, {completedCount} completed, {cancelledCount} cancelled
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 transition-colors shadow-sm">
-              + Schedule Exam
-            </button>
-            <ExamsActionsMenu
-              onImport={() => setShowImportModal(true)}
-              onExport={handleExport}
-              exporting={exporting}
-              onBulkDelete={() => setShowBulkDeleteModal(true)}
-              selectedCount={selected.size}
-            />
-          </div>
-        </div>
-
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          <a href="/admin/exams/rooms" className="whitespace-nowrap rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">Room Allocation</a>
-          <a href="/admin/exams/attendance" className="whitespace-nowrap rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">Exam Attendance</a>
-          <a href="/admin/exams/papers" className="whitespace-nowrap rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">Paper Approval</a>
-          <a href="/admin/exams/grading-rules" className="whitespace-nowrap rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">Grading Rules</a>
-        </div>
-
-        {/* Stats — gradient tiles doubling as status filter tabs: click one
-            to narrow the table below to just that status (click again to
-            clear), same interaction as the Manual/Automatic quick filters. */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-          {([
-            { key: '', label: 'All', count: exams.length, icon: LayoutGrid, gradient: 'from-slate-500 to-slate-600' },
-            { key: 'scheduled', label: 'Scheduled', count: scheduledCount, icon: CalendarClock, gradient: 'from-blue-500 to-blue-600' },
-            { key: 'ongoing', label: 'Ongoing', count: ongoingCount, icon: PlayCircle, gradient: 'from-green-500 to-emerald-600' },
-            { key: 'completed', label: 'Completed', count: completedCount, icon: CheckCircle2, gradient: 'from-purple-500 to-purple-600' },
-            { key: 'cancelled', label: 'Cancelled', count: cancelledCount, icon: XCircle, gradient: 'from-red-500 to-rose-600' },
-          ] as const).map((s) => (
-            <button
-              key={s.key || 'all'}
-              type="button"
-              onClick={() => setStatusFilter(s.key)}
-              className={`rounded-2xl bg-gradient-to-br ${s.gradient} p-4 text-white shadow-sm relative overflow-hidden text-left transition-all hover:shadow-md hover:-translate-y-0.5 ${
-                statusFilter === s.key ? 'ring-2 ring-offset-2 ring-offset-[var(--color-surface-primary)] ring-slate-900 dark:ring-white' : ''
-              }`}
-            >
-              <s.icon className="absolute -right-2 -bottom-2 h-16 w-16 opacity-20" strokeWidth={1.5} />
-              <p className="text-2xl font-bold relative">{s.count}</p>
-              <p className="text-xs text-white/85 relative">{s.label}</p>
-            </button>
-          ))}
-        </div>
-        {statusFilter && (
-          <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] -mt-2">
-            <span>Showing only <span className="font-semibold capitalize">{statusFilter}</span> exams.</span>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('')}
-              className="inline-flex items-center gap-1 rounded-full border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-2.5 py-1 text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-            >
-              Clear filter
-            </button>
-          </div>
-        )}
-
-        {/* Search & Filter — combined into one clean bar */}
-        <div className="bg-[var(--color-surface-primary)] rounded-2xl border border-[var(--color-border-default)] p-4 space-y-3 shadow-sm">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" strokeWidth={1.75} />
-              <input
-                type="text"
-                placeholder="Search by title, course, or room..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-              />
+    <div className="p-4 pt-20 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
+      <div className="mx-auto max-w-[1700px]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+          <main className="min-w-0 space-y-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <BackButton fallback="/admin/exams" />
+                <h1 className="mt-1 text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Schedule</h1>
+                <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Plan, manage and track all school examinations from one workspace.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button onClick={handleExport} disabled={exporting} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50">
+                  <Download className="h-4 w-4" /> {exporting ? 'Exporting...' : 'Export'}
+                </button>
+                <button onClick={() => setShowCreate(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-700">
+                  + Schedule Exam
+                </button>
+                <ExamsActionsMenu
+                  onImport={() => setShowImportModal(true)}
+                  onExport={handleExport}
+                  exporting={exporting}
+                  onBulkDelete={() => setShowBulkDeleteModal(true)}
+                  selectedCount={selected.size}
+                />
+              </div>
             </div>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/30">
-              <option value="">All Status</option>
-              <option value="scheduled">Scheduled</option>
-              <option value="ongoing">Ongoing</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </div>
 
-          {/* Manual vs Automatic scheduling — quick filters */}
-          <div className="inline-flex rounded-xl bg-[var(--color-surface-secondary)] p-1 w-full sm:w-auto">
-            {([
-              { key: 'all', label: 'All', count: exams.length },
-              { key: 'manual', label: '📅 Manual', count: manualCount },
-              { key: 'auto', label: '🤖 Automatic', count: autoCount },
-            ] as const).map((t) => (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              {statCards.map((card) => (
+                <button
+                  key={card.label}
+                  type="button"
+                  onClick={() => setStatusFilter(card.key)}
+                  className={'group rounded-2xl border bg-[var(--color-surface-primary)] p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ' + (statusFilter === card.key ? 'border-primary-400 ring-2 ring-primary-500/10' : 'border-[var(--color-border-default)]')}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className={'flex h-10 w-10 items-center justify-center rounded-2xl ' + card.tone}><card.icon className="h-5 w-5" /></span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">{statusFilter === card.key ? 'Active' : 'View'}</span>
+                  </div>
+                  <p className="mt-4 text-2xl font-bold text-[var(--color-text-primary)]">{card.count}</p>
+                  <p className="mt-0.5 text-xs font-semibold text-[var(--color-text-tertiary)]">{card.label}</p>
+                </button>
+              ))}
               <button
-                key={t.key}
-                onClick={() => setScheduleFilter(t.key)}
-                className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap ${
-                  scheduleFilter === t.key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
-                }`}
+                type="button"
+                onClick={() => { setScheduleFilter('auto'); setStatusFilter(''); }}
+                className={'group rounded-2xl border bg-[var(--color-surface-primary)] p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ' + (scheduleFilter === 'auto' ? 'border-violet-400 ring-2 ring-violet-500/10' : 'border-[var(--color-border-default)]')}
               >
-                {t.label}
-                <span className={`rounded-full px-1.5 text-[10px] ${scheduleFilter === t.key ? 'bg-white/20' : 'bg-[var(--color-surface-tertiary)]'}`}>{t.count}</span>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-300"><CalendarDays className="h-5 w-5" /></span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">Auto</span>
+                </div>
+                <p className="mt-4 text-2xl font-bold text-[var(--color-text-primary)]">{autoCount}</p>
+                <p className="mt-0.5 text-xs font-semibold text-[var(--color-text-tertiary)]">Auto Scheduled</p>
               </button>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-center">
-            <p className="text-red-600 text-sm mb-2">{error}</p>
-            <button onClick={fetchData} className="text-primary-600 font-medium text-sm hover:underline">Retry</button>
-          </div>
-        )}
+            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,1.4fr)_repeat(4,minmax(130px,.7fr))]">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search exams, subjects or rooms..."
+                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] py-2.5 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary-500/20"
+                  />
+                </div>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20">
+                  <option value="">All Status</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="ongoing">Ongoing</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+                <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20">
+                  <option value="">All Classes</option>
+                  {classOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                </select>
+                <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20">
+                  <option value="">All Departments</option>
+                  {departmentOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                </select>
+                <input type="date" value={dateFilter} onChange={(e) => setCalendarDate(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20" />
+              </div>
 
-        {/* Table — floating rows (border-spacing) instead of a dense grid,
-            each row its own rounded card with breathing room around it. */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border-separate" style={{ borderSpacing: '0 0.5rem' }}>
-            <thead>
-              <tr>
-                <th className="px-4 py-3 w-10">
-                  <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30 cursor-pointer" />
-                </th>
-                <th className="text-left px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Exam</th>
-                <th className="text-left px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden md:table-cell">Course</th>
-                <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden lg:table-cell">Date</th>
-                <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Time</th>
-                <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase hidden sm:table-cell">Marks</th>
-                <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Status</th>
-                <th className="text-center px-6 py-3 font-semibold text-xs tracking-wider text-slate-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleExams.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-16 text-[var(--color-text-tertiary)] bg-[var(--color-surface-primary)] rounded-2xl">
-                  <p className="text-lg mb-1">📝 No exams found</p>
-                  <p className="text-sm">Click "+ Schedule Exam" to create one.</p>
-                </td></tr>
-              ) : (
-                visibleExams.map((exam) => (
-                  <tr
-                    key={exam._id}
-                    className="bg-[var(--color-surface-primary)] shadow-sm hover:shadow-md transition-all cursor-pointer"
-                    onClick={() => setViewingExam(exam)}
-                  >
-                    <td className="px-4 py-5 rounded-l-2xl border-y border-l border-[var(--color-border-subtle)]" onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.has(exam._id)} onChange={() => toggleSelected(exam._id)} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30 cursor-pointer" />
-                    </td>
-                    <td className="px-6 py-5 border-y border-[var(--color-border-subtle)]">
-                      {/* dir="auto" reads the title's own script (Arabic,
-                          Somali, English, ...) and aligns accordingly
-                          instead of always forcing left-to-right. */}
-                      <p className="font-semibold" dir="auto">{toTitleCase(exam.title)}</p>
-                      <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">{exam.duration} min</p>
-                    </td>
-                    <td className="px-6 py-5 hidden md:table-cell border-y border-[var(--color-border-subtle)]">
-                      {exam.course?.title?.en ? (
-                        <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:text-primary-300">
-                          {exam.course.title.en}
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-amber-50 dark:bg-amber-950/30 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400" title="This exam's course reference is missing or was deleted">
-                          ⚠️ Course Missing
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-5 text-center hidden lg:table-cell text-sm border-y border-[var(--color-border-subtle)]">
-                      {exam.autoSchedule ? <span className="text-[var(--color-text-tertiary)]">—</span> : exam.examDate ? new Date(exam.examDate).toLocaleDateString() : '—'}
-                    </td>
-                    <td className="px-6 py-5 text-center border-y border-[var(--color-border-subtle)]">
-                      {exam.autoSchedule ? (
-                        <span className="rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-1 text-[10px] font-semibold text-violet-700 dark:text-violet-300">🤖 Auto</span>
-                      ) : (
-                        <code className="text-xs bg-[var(--color-surface-tertiary)] rounded-md px-2 py-1">{exam.startTime} - {exam.endTime}</code>
-                      )}
-                    </td>
-                    <td className="px-6 py-5 text-center hidden sm:table-cell border-y border-[var(--color-border-subtle)]">
-                      <span className="text-xs">
-                        <span className="font-medium">{exam.totalMarks}</span>
-                        <span className="text-[var(--color-text-tertiary)]"> / {exam.passingMarks} pass</span>
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 text-center border-y border-[var(--color-border-subtle)]" onClick={(e) => e.stopPropagation()}>
-                      <StatusPillSelect status={getEffectiveStatus(exam)} onChange={(value) => handleStatusChange(exam._id, value)} />
-                    </td>
-                    <td className="px-6 py-5 text-center rounded-r-2xl border-y border-r border-[var(--color-border-subtle)]" onClick={(e) => e.stopPropagation()}>
-                      <RowActionsMenu
-                        onView={() => setViewingExam(exam)}
-                        onEdit={() => setEditingExam(exam)}
-                        onDelete={() => handleDelete(exam._id)}
-                      />
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex rounded-xl bg-[var(--color-surface-secondary)] p-1">
+                  {([
+                    { key: 'all', label: 'All', count: exams.length },
+                    { key: 'manual', label: 'Manual', count: manualCount },
+                    { key: 'auto', label: 'Automatic', count: autoCount },
+                  ] as const).map((tab) => (
+                    <button key={tab.key} type="button" onClick={() => setScheduleFilter(tab.key)} className={'rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ' + (scheduleFilter === tab.key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]')}>
+                      {tab.label} <span className="ml-1 opacity-75">{tab.count}</span>
+                    </button>
+                  ))}
+                </div>
+                {(statusFilter || scheduleFilter !== 'all' || classFilter || departmentFilter || dateFilter) && (
+                  <button type="button" onClick={clearFilters} className="rounded-lg px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">Clear filters</button>
+                )}
+              </div>
+            </div>
+
+            <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-bold text-[var(--color-text-primary)]">Quick Tools</h2>
+                  <p className="text-xs text-[var(--color-text-tertiary)]">Supporting exam-day tools without crowding the main menu.</p>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <a href="/admin/exams/rooms" className="group flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-blue-900/40 dark:bg-blue-950/20">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white"><Building2 className="h-5 w-5" /></span>
+                  <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Room Allocation</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Assign halls and seats</p></div>
+                </a>
+                <a href="/admin/exams/attendance" className="group flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white"><Users className="h-5 w-5" /></span>
+                  <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Exam Attendance</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Track student attendance</p></div>
+                </a>
+                <a href="/admin/exams/papers" className="group flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white"><FileCheck2 className="h-5 w-5" /></span>
+                  <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Paper Approval</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Review question papers</p></div>
+                </a>
+                <a href="/admin/exams/grading-rules" className="group flex items-center gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-violet-900/40 dark:bg-violet-950/20">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white"><Percent className="h-5 w-5" /></span>
+                  <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Grading Rules</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Configure marks and grades</p></div>
+                </a>
+              </div>
+            </section>
+
+            {error && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-600 dark:border-red-900/40 dark:bg-red-950/30">
+                <p>{error}</p>
+                <button onClick={fetchData} className="mt-1 font-bold text-primary-600 hover:underline">Retry</button>
+              </div>
+            )}
+
+            <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+              <div className="flex flex-col gap-2 border-b border-[var(--color-border-subtle)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="font-bold text-[var(--color-text-primary)]">Exam Schedule <span className="text-[var(--color-text-tertiary)]">({visibleExams.length})</span></h2>
+                  <p className="text-xs text-[var(--color-text-tertiary)]">Click any row to see the full exam details.</p>
+                </div>
+                {selected.size > 0 && <span className="rounded-full bg-primary-50 px-3 py-1 text-xs font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{selected.size} selected</span>}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
+                <table className="w-full min-w-[940px] text-sm">
+                  <thead className="bg-[var(--color-surface-secondary)] text-left text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                    <tr>
+                      <th className="w-12 px-4 py-3"><input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" /></th>
+                      <th className="px-4 py-3">Exam Title</th>
+                      <th className="px-4 py-3">Class</th>
+                      <th className="px-4 py-3">Course</th>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Time</th>
+                      <th className="px-4 py-3">Room</th>
+                      <th className="px-4 py-3 text-center">Marks</th>
+                      <th className="px-4 py-3 text-center">Status</th>
+                      <th className="w-16 px-4 py-3 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                    {visibleExams.length === 0 ? (
+                      <tr><td colSpan={10} className="px-4 py-14 text-center text-[var(--color-text-tertiary)]"><p className="font-semibold">No exams found</p><p className="mt-1 text-xs">Change the filters or schedule a new exam.</p></td></tr>
+                    ) : visibleExams.map((exam) => {
+                      const cls = exam.course?.class;
+                      const classLabel = cls?.title ? (cls.section ? cls.title + ' - ' + cls.section : cls.title) : '—';
+                      return (
+                        <tr key={exam._id} onClick={() => setViewingExam(exam)} className="cursor-pointer transition-colors hover:bg-[var(--color-surface-secondary)]">
+                          <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(exam._id)} onChange={() => toggleSelected(exam._id)} className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30" /></td>
+                          <td className="px-4 py-3.5"><p className="font-bold text-[var(--color-text-primary)]" dir="auto">{toTitleCase(exam.title)}</p><p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">{exam.autoSchedule ? 'Automatic exam window' : exam.duration + ' minutes'}</p></td>
+                          <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{classLabel}</td>
+                          <td className="px-4 py-3.5"><span className="font-medium text-[var(--color-text-secondary)]">{exam.course?.title?.en || 'Course missing'}</span></td>
+                          <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{exam.autoSchedule ? 'Automatic' : exam.examDate ? new Date(exam.examDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
+                          <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{exam.autoSchedule ? 'Personal window' : exam.startTime && exam.endTime ? exam.startTime + ' – ' + exam.endTime : '—'}</td>
+                          <td className="px-4 py-3.5 text-[var(--color-text-secondary)]">{exam.room || '—'}</td>
+                          <td className="px-4 py-3.5 text-center font-semibold">{exam.totalMarks}</td>
+                          <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}><StatusPillSelect status={getEffectiveStatus(exam)} onChange={(value) => handleStatusChange(exam._id, value)} /></td>
+                          <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}><RowActionsMenu onView={() => setViewingExam(exam)} onEdit={() => setEditingExam(exam)} onDelete={() => handleDelete(exam._id)} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="divide-y divide-[var(--color-border-subtle)] md:hidden">
+                {visibleExams.length === 0 ? (
+                  <div className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No exams found.</div>
+                ) : visibleExams.map((exam) => {
+                  const cls = exam.course?.class;
+                  const classLabel = cls?.title ? (cls.section ? cls.title + ' - ' + cls.section : cls.title) : '—';
+                  return (
+                    <button key={exam._id} type="button" onClick={() => setViewingExam(exam)} className="w-full p-4 text-left transition-colors hover:bg-[var(--color-surface-secondary)]">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0"><p className="truncate font-bold text-[var(--color-text-primary)]">{toTitleCase(exam.title)}</p><p className="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{classLabel} · {exam.course?.title?.en || 'Course missing'}</p></div>
+                        <StatusBadge status={getEffectiveStatus(exam)} />
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="rounded-xl bg-[var(--color-surface-secondary)] p-2.5"><p className="text-[10px] uppercase text-[var(--color-text-tertiary)]">Date</p><p className="mt-1 text-xs font-semibold">{exam.autoSchedule ? 'Automatic' : exam.examDate ? new Date(exam.examDate).toLocaleDateString() : '—'}</p></div>
+                        <div className="rounded-xl bg-[var(--color-surface-secondary)] p-2.5"><p className="text-[10px] uppercase text-[var(--color-text-tertiary)]">Time / Marks</p><p className="mt-1 text-xs font-semibold">{exam.autoSchedule ? 'Personal window' : exam.startTime || '—'} · {exam.totalMarks}</p></div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          </main>
+
+          <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
+            <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+              <div className="border-b border-[var(--color-border-subtle)] bg-gradient-to-br from-primary-50 to-blue-50 p-5 dark:from-primary-950/30 dark:to-blue-950/20">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-600 text-white shadow-sm"><CalendarDays className="h-6 w-6" /></div>
+                <h2 className="mt-4 text-lg font-bold text-[var(--color-text-primary)]">Exam Calendar</h2>
+                <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">Use the calendar to spot busy exam days and filter the schedule instantly.</p>
+              </div>
+              <div className="p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <button type="button" onClick={() => setCalendarMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))} className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">‹</button>
+                  <p className="text-sm font-bold text-[var(--color-text-primary)]">{calendarTitle}</p>
+                  <button type="button" onClick={() => setCalendarMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))} className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">›</button>
+                </div>
+                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-[var(--color-text-tertiary)]">{['S','M','T','W','T','F','S'].map((d, i) => <span key={d + i} className="py-1">{d}</span>)}</div>
+                <div className="grid grid-cols-7 gap-1">
+                  {calendarCells.map((cell) => {
+                    const selectedDay = dateFilter === cell.key;
+                    const dot = cell.tone === 'ongoing' ? 'bg-emerald-500' : cell.tone === 'scheduled' ? 'bg-blue-500' : cell.tone === 'completed' ? 'bg-teal-400' : cell.tone === 'cancelled' ? 'bg-red-500' : '';
+                    return (
+                      <button key={cell.key} type="button" onClick={() => setCalendarDate(cell.key)} className={'relative aspect-square rounded-lg text-xs font-semibold transition-colors ' + (selectedDay ? 'bg-primary-600 text-white' : cell.muted ? 'text-[var(--color-text-tertiary)] opacity-40 hover:bg-[var(--color-surface-secondary)]' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]')}>
+                        {cell.day}
+                        {cell.count > 0 && !selectedDay && <span className={'absolute bottom-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full ' + dot} />}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 text-[10px] text-[var(--color-text-tertiary)]">
+                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-blue-500" /> Scheduled</span>
+                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-emerald-500" /> Ongoing</span>
+                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-teal-400" /> Completed</span>
+                  <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-red-500" /> Cancelled</span>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm">
+              <h3 className="text-sm font-bold text-[var(--color-text-primary)]">Status snapshot</h3>
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2.5"><span className="text-xs text-[var(--color-text-tertiary)]">Scheduled</span><strong className="text-sm">{scheduledCount}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2.5"><span className="text-xs text-[var(--color-text-tertiary)]">Ongoing</span><strong className="text-sm">{ongoingCount}</strong></div>
+                <div className="flex items-center justify-between rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2.5"><span className="text-xs text-[var(--color-text-tertiary)]">Cancelled</span><strong className="text-sm">{cancelledCount}</strong></div>
+              </div>
+            </section>
+          </aside>
         </div>
       </div>
 
-      {/* Modals */}
-      {showCreate && (
-        <ExamModal
-          onClose={() => setShowCreate(false)}
-          onSaved={() => { setShowCreate(false); fetchData(); }}
-        />
-      )}
-      {editingExam && (
-        <ExamModal
-          exam={editingExam}
-          onClose={() => setEditingExam(undefined)}
-          onSaved={() => { setEditingExam(undefined); fetchData(); }}
-        />
-      )}
-      {viewingExam && (
-        <ViewModal
-          exam={viewingExam}
-          onClose={() => setViewingExam(undefined)}
-        />
-      )}
-      {showImportModal && (
-        <ExamsImportModal
-          onClose={() => setShowImportModal(false)}
-          onImported={fetchData}
-        />
-      )}
+      {showCreate && <ExamModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchData(); }} />}
+      {editingExam && <ExamModal exam={editingExam} onClose={() => setEditingExam(undefined)} onSaved={() => { setEditingExam(undefined); fetchData(); }} />}
+      {viewingExam && <ViewModal exam={viewingExam} onClose={() => setViewingExam(undefined)} />}
+      {showImportModal && <ExamsImportModal onClose={() => setShowImportModal(false)} onImported={fetchData} />}
       {showBulkDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setShowBulkDeleteModal(false)}>
-          <div className="bg-[var(--color-surface-primary)] rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-3">
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/30 text-red-600">
-                <Trash2 className="h-5 w-5" strokeWidth={1.75} />
-              </div>
-              <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Bulk Delete Exams</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => setShowBulkDeleteModal(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-950/30"><Trash2 className="h-5 w-5" /></div>
+              <h2 className="text-lg font-bold">Bulk Delete Exams</h2>
             </div>
-            <p className="text-sm text-[var(--color-text-secondary)] mb-5">
-              Are you sure you want to delete the selected <strong>{selected.size}</strong> exam{selected.size !== 1 ? 's' : ''}? This action cannot be undone.
-            </p>
+            <p className="mb-5 text-sm text-[var(--color-text-secondary)]">Delete the selected <strong>{selected.size}</strong> exam{selected.size !== 1 ? 's' : ''}? This action cannot be undone.</p>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setShowBulkDeleteModal(false)} disabled={bulkDeleting} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-              <button type="button" onClick={handleBulkDelete} disabled={bulkDeleting} className="flex-1 rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors inline-flex items-center justify-center gap-2">
-                {bulkDeleting && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                Delete {selected.size}
-              </button>
+              <button type="button" onClick={() => setShowBulkDeleteModal(false)} disabled={bulkDeleting} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium">Cancel</button>
+              <button type="button" onClick={handleBulkDelete} disabled={bulkDeleting} className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{bulkDeleting ? 'Deleting...' : 'Delete ' + selected.size}</button>
             </div>
           </div>
         </div>
@@ -1294,5 +1416,4 @@ export function ExamsManage() {
     </div>
   );
 }
-
 export default ExamsManage;
