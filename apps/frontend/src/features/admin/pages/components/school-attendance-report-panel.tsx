@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronRight, School, Search, UserRound } from 'lucide-react';
+import { CalendarDays, ChevronRight, School, Search, UserRound, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../../lib/axios';
 
@@ -107,6 +107,8 @@ export function SchoolAttendanceReportPanel() {
 
   const [dateReport, setDateReport] = useState<DateReport | null>(null);
   const [classReport, setClassReport] = useState<ClassReport | null>(null);
+  const [cellReport, setCellReport] = useState<ClassReport | null>(null);
+  const [cellReportLoading, setCellReportLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
 
   const [studentSearch, setStudentSearch] = useState('');
@@ -167,6 +169,7 @@ export function SchoolAttendanceReportPanel() {
     setError('');
     setDateReport(null);
     setClassReport(null);
+    setCellReport(null);
     setStudentRows([]);
   };
 
@@ -199,6 +202,27 @@ export function SchoolAttendanceReportPanel() {
       setError(e?.response?.data?.message || 'Could not generate the class attendance report.');
     } finally {
       setReportLoading(false);
+    }
+  };
+
+  const openCellReport = async (row: DateReport['classes'][number], periodRow: DateReport['periods'][number]) => {
+    setCellReportLoading(true);
+    setError('');
+    setCellReport(null);
+    try {
+      const { data } = await api.get('/attendance/school/report/class-period', {
+        params: {
+          date,
+          classId: row.classId,
+          startTime: periodRow.startTime,
+          endTime: periodRow.endTime,
+        },
+      });
+      setCellReport(data?.data || null);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Could not load this lesson attendance report.');
+    } finally {
+      setCellReportLoading(false);
     }
   };
 
@@ -329,25 +353,31 @@ export function SchoolAttendanceReportPanel() {
                               return (
                                 <td
                                   key={period.key}
-                                  className="w-[86px] min-w-[86px] border-r border-[var(--color-border-subtle)] px-1.5 py-2.5 text-center sm:w-28 sm:min-w-28 sm:px-3 sm:py-3"
-                                  title={hasRecords ? `${cell.present} present of ${cell.records} recorded` : 'Attendance not recorded'}
+                                  className="w-[86px] min-w-[86px] border-r border-[var(--color-border-subtle)] px-1 py-1.5 text-center sm:w-28 sm:min-w-28 sm:px-2 sm:py-2"
+                                  title={hasRecords ? `${cell.present} present of ${cell.records} recorded — tap to view students` : 'Attendance not recorded'}
                                 >
-                                  <div className={`text-sm font-bold sm:text-base ${hasRecords ? 'text-emerald-600' : 'text-[var(--color-text-tertiary)]'}`}>
-                                    {hasRecords ? `${cell.percentage}%` : '—'}
-                                  </div>
-                                  <div className="mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:text-[10px]">
-                                    {hasRecords ? (
-                                      <>
+                                  {hasRecords ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void openCellReport(row, period)}
+                                      className="w-full touch-manipulation rounded-lg px-1 py-1.5 transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 dark:hover:bg-emerald-950/30"
+                                      aria-label={`View ${row.className} attendance for ${period.startTime} to ${period.endTime}`}
+                                    >
+                                      <div className="text-sm font-bold text-emerald-600 sm:text-base">{cell.percentage}%</div>
+                                      <div className="mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:text-[10px]">
                                         <span className="sm:hidden">{cell.present}/{cell.records}</span>
                                         <span className="hidden sm:inline">{cell.present}/{cell.records} present</span>
-                                      </>
-                                    ) : (
-                                      <>
+                                      </div>
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <div className="text-sm font-bold text-[var(--color-text-tertiary)] sm:text-base">—</div>
+                                      <div className="mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:text-[10px]">
                                         <span className="sm:hidden">No data</span>
                                         <span className="hidden sm:inline">Not recorded</span>
-                                      </>
-                                    )}
-                                  </div>
+                                      </div>
+                                    </>
+                                  )}
                                 </td>
                               );
                             })}
@@ -458,6 +488,87 @@ export function SchoolAttendanceReportPanel() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {(cellReportLoading || cellReport) && (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Lesson attendance report">
+          <div className="flex max-h-[88vh] w-full flex-col overflow-hidden rounded-t-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl sm:max-w-2xl sm:rounded-2xl">
+            {cellReportLoading ? (
+              <div className="p-10 text-center">
+                <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
+                <p className="mt-3 text-sm text-[var(--color-text-tertiary)]">Loading lesson attendance...</p>
+              </div>
+            ) : cellReport ? (
+              <>
+                <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border-default)] p-4">
+                  <div className="min-w-0">
+                    <p className="text-lg font-bold text-[var(--color-text-primary)]">{cellReport.class.name}</p>
+                    <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
+                      {cellReport.date} · {cellReport.period}{cellReport.subjects.length ? ` · ${cellReport.subjects.join(', ')}` : ''}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => setCellReport(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]" aria-label="Close report">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 border-b border-[var(--color-border-default)] p-3 sm:p-4">
+                  <SummaryCard label="Students" value={cellReport.summary.students} />
+                  <SummaryCard label="Present" value={cellReport.summary.present} tone="present" />
+                  <SummaryCard label="Absent" value={cellReport.summary.absent} tone="absent" />
+                </div>
+
+                <div className="overflow-y-auto overscroll-contain">
+                  <div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">
+                    <section className="overflow-hidden rounded-xl border border-emerald-200 dark:border-emerald-900">
+                      <div className="flex items-center justify-between bg-emerald-50 px-3 py-2.5 dark:bg-emerald-950/30">
+                        <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">Present Students</p>
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200">{cellReport.summary.present}</span>
+                      </div>
+                      <div className="divide-y divide-emerald-100 dark:divide-emerald-950">
+                        {cellReport.rows.filter((student) => student.status === 'present').length ? cellReport.rows.filter((student) => student.status === 'present').map((student) => (
+                          <button key={student._id} type="button" onClick={() => openStudent(student._id)} className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-[var(--color-text-primary)]">{student.name}</p>
+                              <p className="text-[11px] text-[var(--color-text-tertiary)]">{student.studentId}</p>
+                            </div>
+                            <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">Present</span>
+                          </button>
+                        )) : <p className="px-3 py-5 text-center text-xs text-[var(--color-text-tertiary)]">No present students recorded.</p>}
+                      </div>
+                    </section>
+
+                    <section className="overflow-hidden rounded-xl border border-red-200 dark:border-red-900">
+                      <div className="flex items-center justify-between bg-red-50 px-3 py-2.5 dark:bg-red-950/30">
+                        <p className="text-sm font-bold text-red-700 dark:text-red-300">Absent Students</p>
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700 dark:bg-red-900 dark:text-red-200">{cellReport.summary.absent}</span>
+                      </div>
+                      <div className="divide-y divide-red-100 dark:divide-red-950">
+                        {cellReport.rows.filter((student) => student.status === 'absent').length ? cellReport.rows.filter((student) => student.status === 'absent').map((student) => (
+                          <button key={student._id} type="button" onClick={() => openStudent(student._id)} className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left hover:bg-red-50/60 dark:hover:bg-red-950/20">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-[var(--color-text-primary)]">{student.name}</p>
+                              <p className="text-[11px] text-[var(--color-text-tertiary)]">{student.studentId}</p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
+                              {student.excused && <span className="rounded-full bg-blue-100 px-2 py-1 text-[10px] font-bold text-blue-700">Excused</span>}
+                              <span className="rounded-full bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700">Absent</span>
+                            </div>
+                          </button>
+                        )) : <p className="px-3 py-5 text-center text-xs text-[var(--color-text-tertiary)]">No absent students recorded.</p>}
+                      </div>
+                    </section>
+                  </div>
+                  {cellReport.rows.some((student) => !student.status) && (
+                    <div className="border-t border-[var(--color-border-default)] px-4 py-3 text-xs text-[var(--color-text-tertiary)]">
+                      {cellReport.rows.filter((student) => !student.status).length} student(s) have no attendance record for this lesson.
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : null}
+          </div>
         </div>
       )}
 
