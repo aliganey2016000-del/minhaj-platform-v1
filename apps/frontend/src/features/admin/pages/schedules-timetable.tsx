@@ -61,7 +61,6 @@ const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5] as const;
 const ALL_DEPARTMENTS = '__all__';
 const ALL_SHIFTS = '__all_shifts__';
-const ALL_CLASSES = '__all_classes__';
 const UNASSIGNED_DEPARTMENT = '__unassigned__';
 const UNASSIGNED_SHIFT = '__unassigned_shift__';
 
@@ -162,7 +161,8 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState(ALL_DEPARTMENTS);
   const [shiftFilter, setShiftFilter] = useState(ALL_SHIFTS);
-  const [dayClassFilter, setDayClassFilter] = useState(ALL_CLASSES);
+  const [dayClassFilters, setDayClassFilters] = useState<string[]>([]);
+  const [dayClassPickerOpen, setDayClassPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -262,7 +262,8 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   useEffect(() => {
     setDepartmentFilter(ALL_DEPARTMENTS);
     setShiftFilter(ALL_SHIFTS);
-    setDayClassFilter(ALL_CLASSES);
+    setDayClassFilters([]);
+    setDayClassPickerOpen(false);
     setSelectedClassId('');
     setSelectedTeacherId('');
     setCoursesByClass({});
@@ -312,14 +313,31 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   const columns = useMemo(() => departmentClasses.filter(cls => shiftFilter === ALL_SHIFTS || shiftValue(cls) === shiftFilter), [departmentClasses, shiftFilter]);
 
   useEffect(() => {
-    if (dayClassFilter === ALL_CLASSES || columns.some(cls => cls._id === dayClassFilter)) return;
-    setDayClassFilter(ALL_CLASSES);
-  }, [columns, dayClassFilter]);
+    const availableIds = new Set(columns.map(cls => cls._id));
+    setDayClassFilters(current => {
+      const next = current.filter(id => availableIds.has(id));
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }, [columns]);
 
   const dayColumns = useMemo(
-    () => dayClassFilter === ALL_CLASSES ? columns : columns.filter(cls => cls._id === dayClassFilter),
-    [columns, dayClassFilter],
+    () => dayClassFilters.length === 0 ? columns : columns.filter(cls => dayClassFilters.includes(cls._id)),
+    [columns, dayClassFilters],
   );
+
+  const dayClassFilterLabel = useMemo(() => {
+    if (dayClassFilters.length === 0) return 'All Classes';
+    if (dayClassFilters.length === 1) {
+      return classLabel(columns.find(cls => cls._id === dayClassFilters[0]));
+    }
+    return `${dayClassFilters.length} Classes`;
+  }, [columns, dayClassFilters]);
+
+  const toggleDayClass = (classId: string) => {
+    setDayClassFilters(current => current.includes(classId)
+      ? current.filter(id => id !== classId)
+      : [...current, classId]);
+  };
 
   const scopedActiveSchedules = useMemo(() => {
     const visibleClassIds = new Set(columns.map(cls => cls._id));
@@ -560,7 +578,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
     ? [selectedClass]
     : perspective === 'teacher'
       ? columns.filter(cls => selectedTeacherSchedules.some(item => classIdOf(item.class) === cls._id))
-      : columns;
+      : dayColumns;
   const printAcademicYears = Array.from(new Set(printClasses.map(cls => String(cls.academicYear || '').trim()).filter(Boolean)));
   const printAcademicYear = printAcademicYears.length ? printAcademicYears.join(' / ') : '—';
   const visibleShifts = Array.from(new Set(printClasses.map(shiftValue).filter(value => value !== UNASSIGNED_SHIFT)));
@@ -582,9 +600,9 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
     : perspective === 'class'
       ? `${classLabel(selectedClass)} - Weekly Timetable`
       : `${selectedTeacher?.label || 'Teacher'} - Weekly Timetable`;
-  const printContextLabel = perspective === 'day' ? 'Day' : perspective === 'class' ? 'Class' : 'Teacher';
+  const printContextLabel = perspective === 'day' ? 'Day / Class' : perspective === 'class' ? 'Class' : 'Teacher';
   const printContextValue = perspective === 'day'
-    ? DAYS[selectedDay]
+    ? `${DAYS[selectedDay]} · ${dayClassFilterLabel}`
     : perspective === 'class'
       ? classLabel(selectedClass)
       : selectedTeacher?.label || '—';
@@ -916,7 +934,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
               <div className="grid grid-cols-3 gap-2">
                 <select
                   value={departmentFilter}
-                  onChange={e => { setDepartmentFilter(e.target.value); setShiftFilter(ALL_SHIFTS); setDayClassFilter(ALL_CLASSES); }}
+                  onChange={e => { setDepartmentFilter(e.target.value); setShiftFilter(ALL_SHIFTS); setDayClassFilters([]); setDayClassPickerOpen(false); }}
                   className="min-w-0 w-full rounded-xl border bg-[var(--color-surface-primary)] px-2 py-2.5 text-xs sm:px-3 sm:text-sm"
                   aria-label="Department filter"
                 >
@@ -925,25 +943,73 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                 </select>
                 <select
                   value={shiftFilter}
-                  onChange={e => { setShiftFilter(e.target.value); setDayClassFilter(ALL_CLASSES); }}
+                  onChange={e => { setShiftFilter(e.target.value); setDayClassFilters([]); setDayClassPickerOpen(false); }}
                   className="min-w-0 w-full rounded-xl border bg-[var(--color-surface-primary)] px-2 py-2.5 text-xs sm:px-3 sm:text-sm"
                   aria-label="Shift filter"
                 >
                   <option value={ALL_SHIFTS}>All Shifts</option>
                   {shiftOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
-                <select
-                  value={dayClassFilter}
-                  onChange={e => setDayClassFilter(e.target.value)}
-                  className="min-w-0 w-full rounded-xl border bg-[var(--color-surface-primary)] px-2 py-2.5 text-xs sm:px-3 sm:text-sm"
-                  aria-label="Class filter"
-                >
-                  <option value={ALL_CLASSES}>All Classes</option>
-                  {columns.map(cls => <option key={cls._id} value={cls._id}>{classLabel(cls)}</option>)}
-                </select>
+                <div className="relative min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setDayClassPickerOpen(open => !open)}
+                    className="flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-xl border bg-[var(--color-surface-primary)] px-2 py-2.5 text-left text-xs sm:px-3 sm:text-sm"
+                    aria-haspopup="listbox"
+                    aria-expanded={dayClassPickerOpen}
+                  >
+                    <span className="truncate">{dayClassFilterLabel}</span>
+                    <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${dayClassPickerOpen ? 'rotate-90' : ''}`} />
+                  </button>
+                  {dayClassPickerOpen && (
+                    <div className="absolute right-0 z-50 mt-2 w-[min(88vw,22rem)] overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl">
+                      <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-3 py-2.5">
+                        <div>
+                          <div className="text-sm font-bold">Select Classes</div>
+                          <div className="text-[11px] text-[var(--color-text-tertiary)]">Choose one or more classes</div>
+                        </div>
+                        <button type="button" onClick={() => setDayClassPickerOpen(false)} className="rounded-lg border p-1.5" aria-label="Close class filter"><X className="h-4 w-4" /></button>
+                      </div>
+                      <div className="max-h-72 overflow-y-auto p-2" role="listbox" aria-multiselectable="true">
+                        <button
+                          type="button"
+                          onClick={() => setDayClassFilters([])}
+                          className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"
+                        >
+                          <span className="font-semibold">All Classes</span>
+                          <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${dayClassFilters.length === 0 ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>
+                            {dayClassFilters.length === 0 && <Check className="h-3.5 w-3.5" />}
+                          </span>
+                        </button>
+                        {columns.map(cls => {
+                          const checked = dayClassFilters.includes(cls._id);
+                          return (
+                            <button
+                              type="button"
+                              key={cls._id}
+                              onClick={() => toggleDayClass(cls._id)}
+                              className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"
+                              role="option"
+                              aria-selected={checked}
+                            >
+                              <span>{classLabel(cls)}</span>
+                              <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>
+                                {checked && <Check className="h-3.5 w-3.5" />}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center justify-between border-t border-[var(--color-border-subtle)] px-3 py-2">
+                        <span className="text-xs text-[var(--color-text-tertiary)]">{dayClassFilters.length ? `${dayClassFilters.length} selected` : 'Showing all classes'}</span>
+                        <button type="button" onClick={() => setDayClassPickerOpen(false)} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white">Done</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => { setDepartmentFilter(ALL_DEPARTMENTS); setShiftFilter(ALL_SHIFTS); setDayClassFilter(ALL_CLASSES); }} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm"><RotateCcw className="h-4 w-4" />Reset Filters</button>
+                <button onClick={() => { setDepartmentFilter(ALL_DEPARTMENTS); setShiftFilter(ALL_SHIFTS); setDayClassFilters([]); setDayClassPickerOpen(false); }} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm"><RotateCcw className="h-4 w-4" />Reset Filters</button>
                 <div className="flex flex-1 items-center justify-end gap-2"><button onClick={() => moveDay(-1)} className="rounded-lg border p-2"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-28 text-center sm:min-w-36"><div className="text-xs text-[var(--color-text-tertiary)]">Selected day</div><div className="font-bold">{DAYS[selectedDay]}</div></div><button onClick={() => moveDay(1)} className="rounded-lg border p-2"><ChevronRight className="h-4 w-4" /></button></div>
               </div>
             </>
