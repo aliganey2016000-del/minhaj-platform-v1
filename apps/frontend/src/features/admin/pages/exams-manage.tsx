@@ -1383,7 +1383,7 @@ export function ExamsManage() {
             </section>
 
             <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm">
-              <h3 className="text-sm font-bold text-[var(--color-text-primary)]">Today at a glance</h3>
+              <h3 className="text-sm font-bold text-[var(--color-text-primary)]">Status snapshot</h3>
               <div className="mt-3 space-y-2">
                 <div className="flex items-center justify-between rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2.5"><span className="text-xs text-[var(--color-text-tertiary)]">Scheduled</span><strong className="text-sm">{scheduledCount}</strong></div>
                 <div className="flex items-center justify-between rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2.5"><span className="text-xs text-[var(--color-text-tertiary)]">Ongoing</span><strong className="text-sm">{ongoingCount}</strong></div>
