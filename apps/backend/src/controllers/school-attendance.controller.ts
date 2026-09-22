@@ -426,6 +426,7 @@ export const getSchoolDateReport = async (req: Request, res: Response): Promise<
       date: String(req.query.date),
       calendarDay,
       summary: { students: 0, sessions: 0, records: 0, present: 0, absent: 0, presentPercentage: 0, absentPercentage: 0 },
+      periods: [],
       classes: [],
     });
   }
@@ -433,7 +434,7 @@ export const getSchoolDateReport = async (req: Request, res: Response): Promise<
   const schedules: any[] = await ClassSchedule.find({ school: schoolId, dayOfWeek, isActive: true })
     .populate('class', 'title section')
     .select('_id class startTime endTime')
-    .sort({ startTime: 1 })
+    .sort({ startTime: 1, endTime: 1 })
     .lean();
 
   const scheduleIds = schedules.map((schedule) => schedule._id);
@@ -443,8 +444,27 @@ export const getSchoolDateReport = async (req: Request, res: Response): Promise<
         .lean()
     : [];
 
-  const scheduleMap = new Map(schedules.map((schedule) => [String(schedule._id), schedule]));
-  const classMap = new Map<string, {
+  const periodMap = new Map<string, { key: string; startTime: string; endTime: string }>();
+  for (const schedule of schedules) {
+    const startTime = String(schedule.startTime || '').slice(0, 5);
+    const endTime = String(schedule.endTime || '').slice(0, 5);
+    if (!startTime || !endTime) continue;
+    const key = `${startTime}|${endTime}`;
+    if (!periodMap.has(key)) periodMap.set(key, { key, startTime, endTime });
+  }
+  const periods = [...periodMap.values()]
+    .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime))
+    .map((period, index) => ({ ...period, label: `Period ${index + 1}` }));
+
+  type PeriodAttendance = {
+    scheduled: boolean;
+    sessions: Set<string>;
+    records: number;
+    present: number;
+    absent: number;
+  };
+
+  type ClassAttendance = {
     classId: string;
     className: string;
     sessions: Set<string>;
@@ -452,23 +472,42 @@ export const getSchoolDateReport = async (req: Request, res: Response): Promise<
     records: number;
     present: number;
     absent: number;
-  }>();
+    periods: Map<string, PeriodAttendance>;
+  };
+
+  const scheduleMap = new Map(schedules.map((schedule) => [String(schedule._id), schedule]));
+  const classMap = new Map<string, ClassAttendance>();
 
   for (const schedule of schedules) {
     const cls: any = schedule.class;
     if (!cls?._id) continue;
-    const key = String(cls._id);
-    const current = classMap.get(key) || {
-      classId: key,
+    const classKey = String(cls._id);
+    const periodKey = `${String(schedule.startTime || '').slice(0, 5)}|${String(schedule.endTime || '').slice(0, 5)}`;
+    const current = classMap.get(classKey) || {
+      classId: classKey,
       className: className(cls),
       sessions: new Set<string>(),
       students: new Set<string>(),
       records: 0,
       present: 0,
       absent: 0,
+      periods: new Map<string, PeriodAttendance>(),
     };
+
     current.sessions.add(String(schedule._id));
-    classMap.set(key, current);
+    if (periodMap.has(periodKey)) {
+      const period = current.periods.get(periodKey) || {
+        scheduled: true,
+        sessions: new Set<string>(),
+        records: 0,
+        present: 0,
+        absent: 0,
+      };
+      period.scheduled = true;
+      period.sessions.add(String(schedule._id));
+      current.periods.set(periodKey, period);
+    }
+    classMap.set(classKey, current);
   }
 
   const schoolStudents = new Set<string>();
@@ -479,36 +518,77 @@ export const getSchoolDateReport = async (req: Request, res: Response): Promise<
     const schedule: any = scheduleMap.get(String(row.schedule));
     const cls: any = schedule?.class;
     if (!cls?._id) continue;
-    const key = String(cls._id);
-    const current = classMap.get(key);
+    const classKey = String(cls._id);
+    const current = classMap.get(classKey);
     if (!current) continue;
 
+    const periodKey = `${String(schedule.startTime || '').slice(0, 5)}|${String(schedule.endTime || '').slice(0, 5)}`;
+    const period = current.periods.get(periodKey);
+
     current.records += 1;
+    if (period) period.records += 1;
+
     if (row.student) {
       current.students.add(String(row.student));
       schoolStudents.add(String(row.student));
     }
+
     if (row.status === 'present' || row.status === 'late') {
       current.present += 1;
+      if (period) period.present += 1;
       present += 1;
     } else if (row.status === 'absent' || row.status === 'excused') {
       current.absent += 1;
+      if (period) period.absent += 1;
       absent += 1;
     }
   }
 
   const classes = [...classMap.values()]
-    .map((row) => ({
-      classId: row.classId,
-      className: row.className,
-      sessions: row.sessions.size,
-      students: row.students.size,
-      records: row.records,
-      present: row.present,
-      absent: row.absent,
-      percentage: row.records ? Math.round((row.present / row.records) * 100) : 0,
-    }))
-    .sort((a, b) => a.className.localeCompare(b.className));
+    .map((row) => {
+      const periodStats: Record<string, {
+        scheduled: boolean;
+        sessions: number;
+        records: number;
+        present: number;
+        absent: number;
+        percentage: number;
+      }> = {};
+
+      for (const period of periods) {
+        const stats = row.periods.get(period.key);
+        periodStats[period.key] = stats
+          ? {
+              scheduled: true,
+              sessions: stats.sessions.size,
+              records: stats.records,
+              present: stats.present,
+              absent: stats.absent,
+              percentage: stats.records ? Math.round((stats.present / stats.records) * 100) : 0,
+            }
+          : {
+              scheduled: false,
+              sessions: 0,
+              records: 0,
+              present: 0,
+              absent: 0,
+              percentage: 0,
+            };
+      }
+
+      return {
+        classId: row.classId,
+        className: row.className,
+        sessions: row.sessions.size,
+        students: row.students.size,
+        records: row.records,
+        present: row.present,
+        absent: row.absent,
+        percentage: row.records ? Math.round((row.present / row.records) * 100) : 0,
+        periods: periodStats,
+      };
+    })
+    .sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true }));
 
   const records = present + absent;
   return ApiResponse.success(res, {
@@ -523,6 +603,7 @@ export const getSchoolDateReport = async (req: Request, res: Response): Promise<
       presentPercentage: records ? Math.round((present / records) * 100) : 0,
       absentPercentage: records ? Math.round((absent / records) * 100) : 0,
     },
+    periods,
     classes,
   });
 };
