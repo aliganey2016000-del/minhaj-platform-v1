@@ -82,6 +82,7 @@ interface SessionDetail {
 }
 
 interface ReportOption { classId: string; className: string; courseId: string; courseName: string; courseCode?: string; }
+interface SessionFilterOption extends ReportOption { startTime?: string; endTime?: string; dayOfWeek?: number; }
 interface ReportRow { _id: string; studentId: string; name: string; total: number; present: number; late: number; absent: number; excused: number; percentage: number; }
 interface CalendarDay { _id: string; date: string; type: CalendarDayType; name: string; isInstructional: boolean; notes?: string; }
 
@@ -173,6 +174,8 @@ export function SchoolAttendanceManage() {
   const [date, setDate] = useState(localISODate());
   const [classFilter, setClassFilter] = useState('');
   const [periodFilter, setPeriodFilter] = useState('');
+  const [sessionFilterOptions, setSessionFilterOptions] = useState<SessionFilterOption[]>([]);
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [calendarDay, setCalendarDay] = useState<CalendarDay | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -203,19 +206,40 @@ export function SchoolAttendanceManage() {
     date: localISODate(), type: 'holiday', name: '', isInstructional: false, notes: '',
   });
 
+  const loadSessionFilterOptions = useCallback(async () => {
+    setFilterOptionsLoading(true); setError('');
+    try {
+      const { data } = await api.get('/attendance/school/options', { params: { date } });
+      setSessionFilterOptions(data?.data || []);
+    } catch (e: any) {
+      setSessionFilterOptions([]);
+      setError(e?.response?.data?.message || 'Could not load attendance filters for this date.');
+    } finally {
+      setFilterOptionsLoading(false);
+    }
+  }, [date]);
+
   const loadSessions = useCallback(async () => {
+    if (!classFilter || !periodFilter) {
+      setSessions([]);
+      setCalendarDay(null);
+      return;
+    }
+    const [startTime, endTime] = periodFilter.split('|');
     setSessionsLoading(true); setError('');
     try {
-      const { data } = await api.get('/attendance/school/sessions', { params: { date } });
+      const { data } = await api.get('/attendance/school/sessions', {
+        params: { date, classId: classFilter, startTime, endTime },
+      });
       setSessions(data?.data?.sessions || []);
       setCalendarDay(data?.data?.calendarDay || null);
     } catch (e: any) {
       setSessions([]); setCalendarDay(null);
-      setError(e?.response?.data?.message || 'Could not load scheduled classes for this date.');
+      setError(e?.response?.data?.message || 'Could not load scheduled classes for these filters.');
     } finally {
       setSessionsLoading(false);
     }
-  }, [date]);
+  }, [date, classFilter, periodFilter]);
 
   const loadCalendar = useCallback(async () => {
     setCalendarLoading(true); setError('');
@@ -231,10 +255,21 @@ export function SchoolAttendanceManage() {
   }, [calendarFrom, calendarTo]);
 
   useEffect(() => {
-    if (tab === 'take' || tab === 'view') void loadSessions();
+    if (tab === 'take' || tab === 'view') void loadSessionFilterOptions();
+  }, [tab, loadSessionFilterOptions]);
+
+  useEffect(() => {
+    if (tab === 'take' || tab === 'view') {
+      if (classFilter && periodFilter) void loadSessions();
+      else {
+        setSessions([]);
+        setCalendarDay(null);
+        setSessionsLoading(false);
+      }
+    }
     if (tab === 'calendar') void loadCalendar();
     setSelectedId(''); setDetail(null); setRecords({}); setMessage(''); setError('');
-  }, [tab, loadSessions, loadCalendar]);
+  }, [tab, classFilter, periodFilter, loadSessions, loadCalendar]);
 
   useEffect(() => {
     if (tab !== 'report') return;
@@ -250,33 +285,32 @@ export function SchoolAttendanceManage() {
     })();
   }, [tab]);
 
-  const classOptions = useMemo(
-    () => Array.from(new Set(sessions.map((session) => session.className).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
-    [sessions],
-  );
+  const classOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return sessionFilterOptions
+      .filter((option) => {
+        if (!option.classId || seen.has(option.classId)) return false;
+        seen.add(option.classId);
+        return true;
+      })
+      .map((option) => ({ id: option.classId, name: option.className }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [sessionFilterOptions]);
 
-  const periodOptions = useMemo(
-    () => Array.from(new Set(sessions.map((session) => `${session.startTime}–${session.endTime}`).filter(Boolean))),
-    [sessions],
-  );
-
-  const filteredSessions = useMemo(
-    () => sessions.filter((session) => {
-      const matchesClass = !classFilter || session.className === classFilter;
-      const matchesPeriod = !periodFilter || `${session.startTime}–${session.endTime}` === periodFilter;
-      return matchesClass && matchesPeriod;
-    }),
-    [sessions, classFilter, periodFilter],
-  );
-
-  useEffect(() => {
-    if (!selectedId) return;
-    if (!filteredSessions.some((session) => session._id === selectedId)) {
-      setSelectedId('');
-      setDetail(null);
-      setRecords({});
-    }
-  }, [filteredSessions, selectedId]);
+  const periodOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return sessionFilterOptions
+      .filter((option) => option.classId === classFilter && option.startTime && option.endTime)
+      .map((option) => ({
+        value: `${option.startTime}|${option.endTime}`,
+        label: `${option.startTime}–${option.endTime}`,
+      }))
+      .filter((option) => {
+        if (seen.has(option.value)) return false;
+        seen.add(option.value);
+        return true;
+      });
+  }, [sessionFilterOptions, classFilter]);
 
   const openSession = async (sessionId: string) => {
     setSelectedId(sessionId); setDetailLoading(true); setError(''); setMessage('');
@@ -451,20 +485,50 @@ export function SchoolAttendanceManage() {
             <div className="grid gap-3 sm:grid-cols-3">
               <label>
                 <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Attendance Date</span>
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm" />
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => {
+                    setDate(e.target.value);
+                    setClassFilter('');
+                    setPeriodFilter('');
+                    setSessions([]);
+                    setCalendarDay(null);
+                  }}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm"
+                />
               </label>
               <label>
                 <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Class</span>
-                <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
-                  <option value="">All Classes</option>
-                  {classOptions.map((className) => <option key={className} value={className}>{className}</option>)}
+                <select
+                  value={classFilter}
+                  disabled={filterOptionsLoading}
+                  onChange={(e) => {
+                    setClassFilter(e.target.value);
+                    setPeriodFilter('');
+                    setSessions([]);
+                    setCalendarDay(null);
+                  }}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm disabled:opacity-60"
+                >
+                  <option value="">{filterOptionsLoading ? 'Loading classes...' : 'Select Class'}</option>
+                  {classOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
                 </select>
               </label>
               <label>
                 <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Period</span>
-                <select value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
-                  <option value="">All Periods</option>
-                  {periodOptions.map((period) => <option key={period} value={period}>{period}</option>)}
+                <select
+                  value={periodFilter}
+                  disabled={!classFilter || filterOptionsLoading}
+                  onChange={(e) => {
+                    setPeriodFilter(e.target.value);
+                    setSessions([]);
+                    setCalendarDay(null);
+                  }}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm disabled:opacity-60"
+                >
+                  <option value="">{!classFilter ? 'Select Class First' : 'Select Period'}</option>
+                  {periodOptions.map((period) => <option key={period.value} value={period.value}>{period.label}</option>)}
                 </select>
               </label>
             </div>
@@ -478,10 +542,11 @@ export function SchoolAttendanceManage() {
             </div>
           )}
 
+          {classFilter && periodFilter && (
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-[var(--color-text-primary)]">Scheduled Classes</h2>
-              <span className="text-xs text-[var(--color-text-tertiary)]">{filteredSessions.length} session{filteredSessions.length === 1 ? '' : 's'}</span>
+              <span className="text-xs text-[var(--color-text-tertiary)]">{sessions.length} session{sessions.length === 1 ? '' : 's'}</span>
             </div>
             {sessionsLoading ? (
               <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center text-sm text-[var(--color-text-tertiary)]">Loading scheduled classes...</div>
@@ -491,15 +556,9 @@ export function SchoolAttendanceManage() {
                 <p className="font-semibold text-[var(--color-text-primary)]">{calendarDay && !calendarDay.isInstructional ? 'Attendance closed for this date' : 'No classes scheduled for this date'}</p>
                 <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{calendarDay && !calendarDay.isInstructional ? 'Change the School Calendar only if this should be an instructional day.' : 'Create the class schedule first, then attendance will appear here automatically.'}</p>
               </div>
-            ) : filteredSessions.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center">
-                <Search className="mx-auto mb-3 h-8 w-8 text-[var(--color-text-tertiary)]" />
-                <p className="font-semibold text-[var(--color-text-primary)]">No sessions match these filters</p>
-                <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose another class or period.</p>
-              </div>
             ) : (
               <div className="grid gap-3 lg:grid-cols-2">
-                {filteredSessions.map((session) => {
+                {sessions.map((session) => {
                   const completion = session.attendance.completionStatus || (session.attendance.taken ? 'complete' : 'not_taken');
                   return (
                     <button key={session._id} type="button" onClick={() => openSession(session._id)} className={`rounded-2xl border p-4 text-left shadow-card transition hover:border-primary-400 ${selectedId === session._id ? 'border-primary-500 bg-primary-50/50 dark:bg-primary-950/20' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)]'}`}>
@@ -522,6 +581,7 @@ export function SchoolAttendanceManage() {
               </div>
             )}
           </section>
+          )}
 
           {detailLoading && <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center text-sm text-[var(--color-text-tertiary)]">Loading class roster...</div>}
 
