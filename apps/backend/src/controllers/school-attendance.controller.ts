@@ -116,9 +116,10 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
   const bySchedule = new Map<string, any>();
   for (const row of attendance as any[]) {
     const key = String(row.schedule || '');
-    const current = bySchedule.get(key) || { total: 0, present: 0, absent: 0, late: 0, excused: 0, locked: false };
+    const current = bySchedule.get(key) || { total: 0, present: 0, absent: 0, locked: false };
     current.total += 1;
-    if (row.status in current) current[row.status] += 1;
+    if (row.status === 'present' || row.status === 'late') current.present += 1;
+    else if (row.status === 'absent' || row.status === 'excused') current.absent += 1;
     current.locked = current.locked || !!row.locked;
     bySchedule.set(key, current);
   }
@@ -126,7 +127,7 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
   const substituteMap = new Map((substitutes as any[]).map((row) => [String(row.schedule), row]));
 
   const data = schedules.map((schedule: any) => {
-    const summary = bySchedule.get(String(schedule._id)) || { total: 0, present: 0, absent: 0, late: 0, excused: 0, locked: false };
+    const summary = bySchedule.get(String(schedule._id)) || { total: 0, present: 0, absent: 0, locked: false };
     const completion: any = completionMap.get(String(schedule._id));
     const substitute: any = substituteMap.get(String(schedule._id));
     const completionStatus = completion?.status || (summary.total > 0 ? 'partial' : 'not_taken');
@@ -210,9 +211,9 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
       name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
       attendance: record ? {
         _id: record._id,
-        status: record.status,
+        status: record.status === 'present' || record.status === 'late' ? 'present' : 'absent',
         notes: record.notes || '',
-        reasonCode: record.reasonCode || '',
+        reasonCode: record.status === 'excused' || record.status === 'absent' ? (record.reasonCode || '') : '',
         arrivalTime: record.arrivalTime || '',
         departureTime: record.departureTime || '',
         locked: !!record.locked,
@@ -241,6 +242,165 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
     recordedStudents: completion?.recordedStudents ?? records.length,
     unlockReason: completion?.unlockReason || '',
     roster,
+  });
+};
+
+export const getSchoolClassReport = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await schoolContext(req);
+  const classId = String(req.query.classId || '').trim();
+  if (!mongoose.isValidObjectId(classId)) throw new BadRequestError('A valid class is required.');
+
+  const fromRaw = String(req.query.dateFrom || '').trim();
+  const toRaw = String(req.query.dateTo || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromRaw) || !/^\d{4}-\d{2}-\d{2}$/.test(toRaw)) {
+    throw new BadRequestError('Valid dateFrom and dateTo values are required.');
+  }
+  const from = new Date(`${fromRaw}T00:00:00`);
+  const to = new Date(`${toRaw}T23:59:59.999`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from) {
+    throw new BadRequestError('Invalid attendance report date range.');
+  }
+
+  const students: any[] = await Student.find({
+    school: schoolId,
+    class: classId,
+    status: 'active',
+    approvalStatus: 'approved',
+  })
+    .populate('profile', 'firstName lastName')
+    .select('studentId profile')
+    .sort({ studentId: 1 })
+    .lean();
+
+  const studentIds = students.map((student) => student._id);
+  const stats: any[] = studentIds.length
+    ? await Attendance.aggregate([
+        {
+          $match: {
+            student: { $in: studentIds },
+            date: { $gte: from, $lte: to },
+          },
+        },
+        {
+          $group: {
+            _id: '$student',
+            total: { $sum: 1 },
+            present: {
+              $sum: {
+                $cond: [{ $in: ['$status', ['present', 'late']] }, 1, 0],
+              },
+            },
+            absent: {
+              $sum: {
+                $cond: [{ $in: ['$status', ['absent', 'excused']] }, 1, 0],
+              },
+            },
+          },
+        },
+      ])
+    : [];
+
+  const statsMap = new Map(stats.map((row) => [String(row._id), row]));
+  const rows = students.map((student) => {
+    const stat: any = statsMap.get(String(student._id));
+    const total = stat?.total || 0;
+    const present = stat?.present || 0;
+    const absent = stat?.absent || 0;
+    return {
+      _id: student._id,
+      studentId: student.studentId,
+      name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
+      total,
+      present,
+      absent,
+      percentage: total > 0 ? Math.round((present / total) * 100) : 0,
+    };
+  });
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.present += row.present;
+      acc.absent += row.absent;
+      acc.records += row.total;
+      return acc;
+    },
+    { present: 0, absent: 0, records: 0 },
+  );
+
+  return ApiResponse.success(res, {
+    dateFrom: fromRaw,
+    dateTo: toRaw,
+    classId,
+    summary: {
+      students: students.length,
+      present: totals.present,
+      absent: totals.absent,
+      presentPercentage: totals.records ? Math.round((totals.present / totals.records) * 100) : 0,
+      absentPercentage: totals.records ? Math.round((totals.absent / totals.records) * 100) : 0,
+    },
+    rows,
+  });
+};
+
+export const getSchoolClassStudentReport = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await schoolContext(req);
+  const classId = String(req.query.classId || '').trim();
+  const studentId = String(req.query.studentId || '').trim();
+  if (!mongoose.isValidObjectId(classId) || !mongoose.isValidObjectId(studentId)) {
+    throw new BadRequestError('A valid class and student are required.');
+  }
+
+  const fromRaw = String(req.query.dateFrom || '').trim();
+  const toRaw = String(req.query.dateTo || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromRaw) || !/^\d{4}-\d{2}-\d{2}$/.test(toRaw)) {
+    throw new BadRequestError('Valid dateFrom and dateTo values are required.');
+  }
+  const from = new Date(`${fromRaw}T00:00:00`);
+  const to = new Date(`${toRaw}T23:59:59.999`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from) {
+    throw new BadRequestError('Invalid attendance report date range.');
+  }
+
+  const student: any = await Student.findOne({
+    _id: studentId,
+    school: schoolId,
+    class: classId,
+    status: 'active',
+    approvalStatus: 'approved',
+  })
+    .populate('profile', 'firstName lastName')
+    .select('studentId profile')
+    .lean();
+  if (!student) throw new NotFoundError('Student');
+
+  const records: any[] = await Attendance.find({
+    student: student._id,
+    date: { $gte: from, $lte: to },
+  })
+    .populate('course', 'title courseCode')
+    .populate('schedule', 'startTime endTime')
+    .select('date status reasonCode notes course schedule')
+    .sort({ date: -1 })
+    .lean();
+
+  return ApiResponse.success(res, {
+    student: {
+      _id: student._id,
+      studentId: student.studentId,
+      name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
+    },
+    records: records.map((record) => ({
+      _id: record._id,
+      date: record.date,
+      status: record.status === 'present' || record.status === 'late' ? 'present' : 'absent',
+      excused: record.status === 'excused' || !!record.reasonCode,
+      reasonCode: record.reasonCode || '',
+      notes: record.notes || '',
+      courseName: record.course?.title?.en || record.course?.courseCode || 'Subject',
+      period: record.schedule?.startTime && record.schedule?.endTime
+        ? `${record.schedule.startTime}–${record.schedule.endTime}`
+        : '',
+    })),
   });
 };
 
