@@ -803,7 +803,7 @@ export const getSchoolTeacherAttendanceComplianceReport = async (req: Request, r
           schedule: { $in: scheduleIds },
           date: { $gte: from, $lte: to },
         })
-          .select('schedule date status takenBy submittedAt recordedStudents expectedStudents')
+          .select('schedule date status locked takenBy submittedAt recordedStudents expectedStudents')
           .lean()
       : [],
     scheduleIds.length
@@ -908,7 +908,7 @@ export const getSchoolTeacherAttendanceComplianceReport = async (req: Request, r
       const session: any = sessionMap.get(key);
       if (!session) {
         current.missing += 1;
-      } else if (session.status !== 'complete') {
+      } else if (session.status !== 'complete' || !session.locked) {
         current.partial += 1;
       } else if (
         responsibleTeacher.user
