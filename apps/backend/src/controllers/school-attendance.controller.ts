@@ -910,7 +910,10 @@ export const getSchoolTeacherAttendanceComplianceReport = async (req: Request, r
         current.missing += 1;
       } else if (session.status !== 'complete') {
         current.partial += 1;
-      } else if (responsibleTeacher.user && String(session.takenBy) === String(responsibleTeacher.user)) {
+      } else if (
+        responsibleTeacher.user
+        && String(session.takenBy) === String(responsibleTeacher.user?._id || responsibleTeacher.user)
+      ) {
         current.teacherSubmitted += 1;
       } else {
         current.submittedByOther += 1;
