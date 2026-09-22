@@ -109,8 +109,11 @@ export function ExamReviewApproval() {
   };
 
   const setPublished = async (exam: Exam, published: boolean) => {
-    if (published && (counts[exam._id] || 0) === 0) {
-      setError('Cannot publish an exam with no marks entered.');
+    const entered = counts[exam._id] || 0;
+    const expected = exam.course?.enrolledStudents?.length || 0;
+    const complete = expected > 0 ? entered >= expected : entered > 0;
+    if (published && !complete) {
+      setError('Complete all expected marks before approving and publishing this exam.');
       return;
     }
     setBusy(exam._id);
@@ -168,13 +171,14 @@ export function ExamReviewApproval() {
               {exams.map((exam) => {
                 const entered = counts[exam._id] || 0;
                 const expected = exam.course?.enrolledStudents?.length || 0;
+                const complete = expected > 0 ? entered >= expected : entered > 0;
                 const open = expanded === exam._id;
                 return <div key={exam._id}>
                   <div className="grid gap-3 p-4 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto] md:items-center">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-bold">{exam.title}</p>
-                        {exam.resultsPublished ? <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">Published</span> : entered > 0 ? <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700">Pending Review</span> : <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">No Marks</span>}
+                        {exam.resultsPublished ? <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">Published</span> : complete ? <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700">Pending Review</span> : entered > 0 ? <span className="rounded-full bg-orange-100 px-2 py-1 text-[10px] font-bold text-orange-700">Marks Incomplete</span> : <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">No Marks</span>}
                       </div>
                       <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{className(exam)} · {exam.course?.title?.en || '—'}</p>
                     </div>
@@ -191,7 +195,7 @@ export function ExamReviewApproval() {
                           <Undo2 className="h-3.5 w-3.5" /> Unpublish
                         </button>
                       ) : (
-                        <button type="button" disabled={busy === exam._id || entered === 0} onClick={() => void setPublished(exam, true)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
+                        <button type="button" disabled={busy === exam._id || !complete} onClick={() => void setPublished(exam, true)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
                           {busy === exam._id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Approve & Publish
                         </button>
                       )}
