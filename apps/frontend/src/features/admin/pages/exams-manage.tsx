@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, XCircle, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X, Building2, Users, FileCheck2, Percent } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X, Building2, Users, FileCheck2, Percent } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
