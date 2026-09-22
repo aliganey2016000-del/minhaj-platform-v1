@@ -21,6 +21,11 @@ interface CourseBrief {
   slug: string;
   category: string;
   enrolledStudents: number | unknown[];
+  teacher?: {
+    _id?: string;
+    profile?: { firstName?: string; lastName?: string } | null;
+    user?: { email?: string } | null;
+  } | null;
   class?: {
     _id?: string;
     title?: string;
@@ -1169,6 +1174,342 @@ function ExamsImportModal({ onClose, onImported }: { onClose: () => void; onImpo
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Timetable View — By Day / By Class
+// Rows and columns intentionally mirror the Class Timetable visual language:
+// By Day  => rows are Grades / Classes, columns are Shift 1 | Break | Shift 2.
+// By Class => rows are Exam Dates, columns are Shift 1 | Break | Shift 2.
+// ---------------------------------------------------------------------------
+
+type ExamTimetablePerspective = 'day' | 'class';
+
+const examDateKey = (exam: Exam): string =>
+  exam.examDate && !exam.autoSchedule ? new Date(exam.examDate).toISOString().slice(0, 10) : '';
+
+const examClassLabel = (exam: Exam): string => {
+  const cls = exam.course?.class;
+  if (!cls?.title) return 'Unassigned Class';
+  return cls.section ? `${cls.title} - ${cls.section}` : cls.title;
+};
+
+const examTeacherLabel = (exam: Exam): string => {
+  const profile = exam.course?.teacher?.profile;
+  const name = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
+  return name || exam.course?.teacher?.user?.email || 'Teacher not assigned';
+};
+
+const compareExamTimes = (a: Exam, b: Exam) =>
+  String(a.startTime || '').localeCompare(String(b.startTime || '')) ||
+  String(a.endTime || '').localeCompare(String(b.endTime || ''));
+
+function ExamTimetableCell({
+  exams,
+  onOpen,
+}: {
+  exams: Exam[];
+  onOpen: (exam: Exam) => void;
+}) {
+  if (!exams.length) {
+    return <div className="py-5 text-center text-xs text-[var(--color-text-tertiary)]">—</div>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {exams.map((exam) => (
+        <button
+          key={exam._id}
+          type="button"
+          onClick={() => onOpen(exam)}
+          className="w-full rounded-xl border border-primary-100 bg-primary-50/80 p-2.5 text-left transition hover:border-primary-300 hover:bg-primary-50 dark:border-primary-900/40 dark:bg-primary-950/20"
+        >
+          <div className="break-words text-xs font-extrabold leading-4 text-primary-950 dark:text-primary-100 sm:text-sm">
+            {exam.course?.title?.en || 'Course missing'}
+          </div>
+          <div className="mt-1 break-words text-[10px] font-semibold leading-4 text-primary-800/80 dark:text-primary-200/80 sm:text-xs">
+            {examTeacherLabel(exam)}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] font-medium text-[var(--color-text-tertiary)] sm:text-[10px]">
+            <span>{exam.startTime || '—'}{exam.endTime ? ` – ${exam.endTime}` : ''}</span>
+            {exam.room && <span>· {exam.room}</span>}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ExamBreakCell({ first, second }: { first?: Exam; second?: Exam }) {
+  const hasWindow = !!first?.endTime && !!second?.startTime;
+  return (
+    <div className="flex min-h-[76px] flex-col items-center justify-center rounded-xl bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">
+      <span className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">Break</span>
+      <span className="mt-1 text-[9px] font-semibold text-amber-700/70 dark:text-amber-300/70 sm:text-[10px]">
+        {hasWindow ? `${first!.endTime} – ${second!.startTime}` : '—'}
+      </span>
+    </div>
+  );
+}
+
+function ExamTimetable({
+  exams,
+  onOpen,
+}: {
+  exams: Exam[];
+  onOpen: (exam: Exam) => void;
+}) {
+  const [perspective, setPerspective] = useState<ExamTimetablePerspective>('day');
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState('');
+
+  const fixedExams = useMemo(
+    () => exams
+      .filter((exam) => !exam.autoSchedule && exam.examDate && exam.status !== 'cancelled')
+      .sort((a, b) => examDateKey(a).localeCompare(examDateKey(b)) || compareExamTimes(a, b)),
+    [exams],
+  );
+
+  const availableDates = useMemo(
+    () => Array.from(new Set(fixedExams.map(examDateKey).filter(Boolean))).sort(),
+    [fixedExams],
+  );
+
+  const classes = useMemo(() => {
+    const map = new Map<string, { id: string; label: string }>();
+    fixedExams.forEach((exam) => {
+      const id = exam.course?.class?._id;
+      if (!id) return;
+      map.set(id, { id, label: examClassLabel(exam) });
+    });
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  }, [fixedExams]);
+
+  useEffect(() => {
+    if (!availableDates.length) {
+      setSelectedDate('');
+      return;
+    }
+    if (selectedDate && availableDates.includes(selectedDate)) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const nextDate = availableDates.find((date) => date >= today) || availableDates[availableDates.length - 1];
+    setSelectedDate(nextDate);
+  }, [availableDates, selectedDate]);
+
+  useEffect(() => {
+    if (!classes.length) {
+      setSelectedClassId('');
+      return;
+    }
+    if (selectedClassId && classes.some((item) => item.id === selectedClassId)) return;
+    setSelectedClassId(classes[0].id);
+  }, [classes, selectedClassId]);
+
+  const dayRows = useMemo(
+    () => classes.map((cls) => {
+      const rowExams = fixedExams
+        .filter((exam) => examDateKey(exam) === selectedDate && exam.course?.class?._id === cls.id)
+        .sort(compareExamTimes);
+      return {
+        ...cls,
+        shift1: rowExams.slice(0, 1),
+        shift2: rowExams.slice(1),
+      };
+    }),
+    [classes, fixedExams, selectedDate],
+  );
+
+  const classRows = useMemo(() => {
+    if (!selectedClassId) return [];
+    const byDate = new Map<string, Exam[]>();
+    fixedExams
+      .filter((exam) => exam.course?.class?._id === selectedClassId)
+      .forEach((exam) => {
+        const key = examDateKey(exam);
+        const list = byDate.get(key) || [];
+        list.push(exam);
+        byDate.set(key, list);
+      });
+
+    return Array.from(byDate.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, rowExams]) => {
+        const sorted = [...rowExams].sort(compareExamTimes);
+        return {
+          date,
+          shift1: sorted.slice(0, 1),
+          shift2: sorted.slice(1),
+        };
+      });
+  }, [fixedExams, selectedClassId]);
+
+  const automaticCount = exams.filter((exam) => exam.autoSchedule && exam.status !== 'cancelled').length;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+      <div className="border-b border-[var(--color-border-subtle)] p-3 sm:p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="font-bold text-[var(--color-text-primary)]">Exam Timetable</h2>
+            <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">
+              Grades are rows. Exam sessions are shown as Shift 1, Break and Shift 2.
+            </p>
+          </div>
+
+          <div className="inline-flex w-full rounded-xl bg-[var(--color-surface-secondary)] p-1 sm:w-auto">
+            <button
+              type="button"
+              onClick={() => setPerspective('day')}
+              className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold transition sm:flex-none ${perspective === 'day' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+            >
+              By Day
+            </button>
+            <button
+              type="button"
+              onClick={() => setPerspective('class')}
+              className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold transition sm:flex-none ${perspective === 'class' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+            >
+              By Class
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          {perspective === 'day' ? (
+            <>
+              <label className="text-xs font-bold text-[var(--color-text-secondary)]">Exam Date</label>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm sm:w-52"
+              />
+              {selectedDate && (
+                <span className="text-xs text-[var(--color-text-tertiary)]">
+                  {new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <label className="text-xs font-bold text-[var(--color-text-secondary)]">Class / Grade</label>
+              <select
+                value={selectedClassId}
+                onChange={(e) => setSelectedClassId(e.target.value)}
+                className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm sm:min-w-64"
+              >
+                {classes.length === 0 && <option value="">No classes available</option>}
+                {classes.map((cls) => <option key={cls.id} value={cls.id}>{cls.label}</option>)}
+              </select>
+            </>
+          )}
+          {automaticCount > 0 && (
+            <span className="sm:ml-auto rounded-full bg-violet-50 px-3 py-1 text-[10px] font-bold text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">
+              {automaticCount} automatic exam{automaticCount === 1 ? '' : 's'} not placed in fixed shifts
+            </span>
+          )}
+        </div>
+      </div>
+
+      {fixedExams.length === 0 ? (
+        <div className="px-4 py-14 text-center text-sm text-[var(--color-text-tertiary)]">
+          No fixed-date exams are scheduled yet.
+        </div>
+      ) : perspective === 'day' ? (
+        <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+          <table className="w-full min-w-[720px] table-fixed border-collapse text-xs sm:text-sm">
+            <thead>
+              <tr>
+                <th className="sticky left-0 z-20 w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)] sm:w-52">
+                  Grade / Class
+                </th>
+                <th className="border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-center">
+                  <div className="font-extrabold text-[var(--color-text-primary)]">Shift 1</div>
+                  <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">First Exam</div>
+                </th>
+                <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-3 py-3 text-center dark:bg-amber-950/20">
+                  <div className="font-extrabold text-amber-700 dark:text-amber-300">Break</div>
+                </th>
+                <th className="border-b border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-center">
+                  <div className="font-extrabold text-[var(--color-text-primary)]">Shift 2</div>
+                  <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">Second Exam</div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {dayRows.map((row) => (
+                <tr key={row.id}>
+                  <td className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                    <div className="font-extrabold text-[var(--color-text-primary)]">{row.label}</div>
+                  </td>
+                  <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
+                    <ExamTimetableCell exams={row.shift1} onOpen={onOpen} />
+                  </td>
+                  <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
+                    <ExamBreakCell first={row.shift1[0]} second={row.shift2[0]} />
+                  </td>
+                  <td className="border-b border-[var(--color-border-default)] p-2 align-top">
+                    <ExamTimetableCell exams={row.shift2} onOpen={onOpen} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+          <table className="w-full min-w-[720px] table-fixed border-collapse text-xs sm:text-sm">
+            <thead>
+              <tr>
+                <th className="sticky left-0 z-20 w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)] sm:w-52">
+                  Exam Date
+                </th>
+                <th className="border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-center">
+                  <div className="font-extrabold text-[var(--color-text-primary)]">Shift 1</div>
+                  <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">First Exam</div>
+                </th>
+                <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-3 py-3 text-center dark:bg-amber-950/20">
+                  <div className="font-extrabold text-amber-700 dark:text-amber-300">Break</div>
+                </th>
+                <th className="border-b border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-center">
+                  <div className="font-extrabold text-[var(--color-text-primary)]">Shift 2</div>
+                  <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">Second Exam</div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {classRows.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No exams scheduled for this class.</td>
+                </tr>
+              ) : classRows.map((row) => (
+                <tr key={row.date}>
+                  <td className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                    <div className="font-extrabold text-[var(--color-text-primary)]">
+                      {new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </div>
+                    <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">
+                      {new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long' })}
+                    </div>
+                  </td>
+                  <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
+                    <ExamTimetableCell exams={row.shift1} onOpen={onOpen} />
+                  </td>
+                  <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
+                    <ExamBreakCell first={row.shift1[0]} second={row.shift2[0]} />
+                  </td>
+                  <td className="border-b border-[var(--color-border-default)] p-2 align-top">
+                    <ExamTimetableCell exams={row.shift2} onOpen={onOpen} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -1452,6 +1793,8 @@ export function ExamsManage() {
 
             <ExamWorkspaceTabs />
 
+            <ExamTimetable exams={exams} onOpen={(exam) => setViewingExam(exam)} />
+
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-600 dark:border-red-900/40 dark:bg-red-950/30">
                 <p>{error}</p>
@@ -1462,8 +1805,8 @@ export function ExamsManage() {
             <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
                 <div className="flex flex-col gap-2 border-b border-[var(--color-border-subtle)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h2 className="font-bold text-[var(--color-text-primary)]">Scheduled Exams <span className="text-[var(--color-text-tertiary)]">({visibleExams.length})</span></h2>
-                    <p className="text-xs text-[var(--color-text-tertiary)]">Click any row to see the full exam details.</p>
+                    <h2 className="font-bold text-[var(--color-text-primary)]">Exam Records <span className="text-[var(--color-text-tertiary)]">({visibleExams.length})</span></h2>
+                    <p className="text-xs text-[var(--color-text-tertiary)]">Detailed records remain available here for status changes, selection and actions.</p>
                   </div>
                   {selected.size > 0 && <span className="rounded-full bg-primary-50 px-3 py-1 text-xs font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{selected.size} selected</span>}
                 </div>
