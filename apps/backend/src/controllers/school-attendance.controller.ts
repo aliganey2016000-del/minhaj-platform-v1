@@ -764,6 +764,211 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
   })));
 };
 
+export const getSchoolTeacherAttendanceComplianceReport = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await schoolContext(req);
+  const toRaw = String(req.query.to || '').trim();
+  const daysRaw = Number(req.query.days || 30);
+  const days = Number.isFinite(daysRaw) ? Math.min(120, Math.max(1, Math.round(daysRaw))) : 30;
+
+  const to = toRaw ? attendanceDay(toRaw) : (() => {
+    const value = new Date();
+    value.setHours(23, 59, 59, 999);
+    return value;
+  })();
+  to.setHours(23, 59, 59, 999);
+  const from = new Date(to);
+  from.setDate(from.getDate() - (days - 1));
+  from.setHours(0, 0, 0, 0);
+
+  const dateKey = (value: Date) => {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const schedules: any[] = await ClassSchedule.find({ school: schoolId, isActive: true })
+    .populate('class', 'title section')
+    .populate('course', 'title courseCode')
+    .populate(TEACHER_POPULATE)
+    .select('_id class course teacher dayOfWeek startTime endTime createdAt')
+    .sort({ dayOfWeek: 1, startTime: 1 })
+    .lean();
+
+  const scheduleIds = schedules.map((schedule) => schedule._id);
+  const [sessions, substitutes, calendarClosures] = await Promise.all([
+    scheduleIds.length
+      ? AttendanceSession.find({
+          school: schoolId,
+          schedule: { $in: scheduleIds },
+          date: { $gte: from, $lte: to },
+        })
+          .select('schedule date status takenBy submittedAt recordedStudents expectedStudents')
+          .lean()
+      : [],
+    scheduleIds.length
+      ? SubstituteAssignment.find({
+          school: schoolId,
+          schedule: { $in: scheduleIds },
+          date: { $gte: from, $lte: to },
+          active: true,
+        })
+          .populate({ path: 'teacher', select: 'teacherId profile user status', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'user', select: 'email' }] })
+          .select('schedule date teacher reason')
+          .lean()
+      : [],
+    SchoolCalendarDay.find({
+      school: schoolId,
+      date: { $gte: from, $lte: to },
+      isInstructional: false,
+    })
+      .select('date')
+      .lean(),
+  ]);
+
+  const sessionMap = new Map<string, any>();
+  for (const session of sessions as any[]) {
+    sessionMap.set(`${String(session.schedule)}:${dateKey(new Date(session.date))}`, session);
+  }
+
+  const substituteMap = new Map<string, any>();
+  for (const substitute of substitutes as any[]) {
+    substituteMap.set(`${String(substitute.schedule)}:${dateKey(new Date(substitute.date))}`, substitute);
+  }
+
+  const closedDates = new Set((calendarClosures as any[]).map((row) => dateKey(new Date(row.date))));
+
+  type TeacherComplianceRow = {
+    teacherId: string;
+    teacherCode: string;
+    teacherName: string;
+    scheduled: number;
+    teacherSubmitted: number;
+    submittedByOther: number;
+    partial: number;
+    missing: number;
+    classes: Set<string>;
+    courses: Set<string>;
+  };
+
+  const rowsMap = new Map<string, TeacherComplianceRow>();
+  let unassignedSessions = 0;
+
+  const now = new Date();
+  const somaliaNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+  const currentLocalDateKey = somaliaNow.toISOString().slice(0, 10);
+  const currentLocalTime = somaliaNow.toISOString().slice(11, 16);
+
+  for (let cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+    const occurrenceDate = new Date(cursor);
+    occurrenceDate.setHours(0, 0, 0, 0);
+    const occurrenceKey = dateKey(occurrenceDate);
+    if (closedDates.has(occurrenceKey)) continue;
+
+    for (const schedule of schedules) {
+      if (Number(schedule.dayOfWeek) !== occurrenceDate.getDay()) continue;
+
+      const createdAt = schedule.createdAt ? new Date(schedule.createdAt) : null;
+      if (createdAt && occurrenceDate < new Date(createdAt.getFullYear(), createdAt.getMonth(), createdAt.getDate())) continue;
+
+      // Do not penalise a teacher for a lesson that has not finished yet today.
+      if (occurrenceKey === currentLocalDateKey && String(schedule.endTime || '') > currentLocalTime) continue;
+      // Never count future dates if a future "as of" date was supplied.
+      if (occurrenceKey > currentLocalDateKey) continue;
+
+      const key = `${String(schedule._id)}:${occurrenceKey}`;
+      const substitute: any = substituteMap.get(key);
+      const responsibleTeacher: any = substitute?.teacher || schedule.teacher;
+
+      if (!responsibleTeacher?._id) {
+        unassignedSessions += 1;
+        continue;
+      }
+
+      const teacherKey = String(responsibleTeacher._id);
+      const current = rowsMap.get(teacherKey) || {
+        teacherId: teacherKey,
+        teacherCode: responsibleTeacher.teacherId || '',
+        teacherName: teacherName(responsibleTeacher),
+        scheduled: 0,
+        teacherSubmitted: 0,
+        submittedByOther: 0,
+        partial: 0,
+        missing: 0,
+        classes: new Set<string>(),
+        courses: new Set<string>(),
+      };
+
+      current.scheduled += 1;
+      const clsName = className(schedule.class);
+      if (clsName && clsName !== '—') current.classes.add(clsName);
+      const courseName = schedule.course?.title?.en || schedule.course?.courseCode || '';
+      if (courseName) current.courses.add(courseName);
+
+      const session: any = sessionMap.get(key);
+      if (!session) {
+        current.missing += 1;
+      } else if (session.status !== 'complete') {
+        current.partial += 1;
+      } else if (responsibleTeacher.user && String(session.takenBy) === String(responsibleTeacher.user)) {
+        current.teacherSubmitted += 1;
+      } else {
+        current.submittedByOther += 1;
+      }
+
+      rowsMap.set(teacherKey, current);
+    }
+  }
+
+  const rows = [...rowsMap.values()]
+    .map((row) => ({
+      teacherId: row.teacherId,
+      teacherCode: row.teacherCode,
+      teacherName: row.teacherName,
+      scheduled: row.scheduled,
+      teacherSubmitted: row.teacherSubmitted,
+      submittedByOther: row.submittedByOther,
+      completed: row.teacherSubmitted + row.submittedByOther,
+      partial: row.partial,
+      missing: row.missing,
+      compliancePercentage: row.scheduled ? Math.round((row.teacherSubmitted / row.scheduled) * 100) : 0,
+      completionPercentage: row.scheduled ? Math.round(((row.teacherSubmitted + row.submittedByOther) / row.scheduled) * 100) : 0,
+      classes: [...row.classes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+      courses: [...row.courses].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    }))
+    .sort((a, b) =>
+      a.compliancePercentage - b.compliancePercentage
+      || b.missing - a.missing
+      || a.teacherName.localeCompare(b.teacherName));
+
+  const scheduled = rows.reduce((sum, row) => sum + row.scheduled, 0);
+  const teacherSubmitted = rows.reduce((sum, row) => sum + row.teacherSubmitted, 0);
+  const submittedByOther = rows.reduce((sum, row) => sum + row.submittedByOther, 0);
+  const partial = rows.reduce((sum, row) => sum + row.partial, 0);
+  const missing = rows.reduce((sum, row) => sum + row.missing, 0);
+
+  return ApiResponse.success(res, {
+    window: {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      days,
+    },
+    summary: {
+      teachers: rows.length,
+      scheduled,
+      teacherSubmitted,
+      submittedByOther,
+      completed: teacherSubmitted + submittedByOther,
+      partial,
+      missing,
+      unassignedSessions,
+      compliancePercentage: scheduled ? Math.round((teacherSubmitted / scheduled) * 100) : 0,
+      completionPercentage: scheduled ? Math.round(((teacherSubmitted + submittedByOther) / scheduled) * 100) : 0,
+    },
+    rows,
+  });
+};
+
 export const getSchoolAttendanceRiskReport = async (req: Request, res: Response): Promise<Response> => {
   const { schoolId } = await schoolContext(req);
   const toRaw = String(req.query.to || '').trim();
