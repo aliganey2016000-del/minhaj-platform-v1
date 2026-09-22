@@ -748,7 +748,8 @@ export const getSchoolStudentOverallReport = async (req: Request, res: Response)
   const student: any = await Student.findOne({ _id: studentId, school: schoolId })
     .populate('profile', 'firstName lastName')
     .populate('class', 'title section')
-    .select('studentId profile class status approvalStatus')
+    .populate('enrolledCourses', 'title courseCode')
+    .select('studentId profile class status approvalStatus enrolledCourses')
     .lean();
   if (!student) throw new NotFoundError('Student');
 
@@ -768,6 +769,82 @@ export const getSchoolStudentOverallReport = async (req: Request, res: Response)
   ]) : [];
   const summaryRow = stats[0] || { total: 0, present: 0, absent: 0 };
 
+  // Course-level totals are intentionally calculated by distinct attendance
+  // dates so "Total Days" is not inflated if the same subject has more than
+  // one timetable session on a single day.
+  const courseStats: any[] = schoolScheduleIds.length ? await Attendance.aggregate([
+    {
+      $match: {
+        student: new mongoose.Types.ObjectId(studentId),
+        schedule: { $in: schoolScheduleIds },
+        course: { $ne: null },
+      },
+    },
+    {
+      $group: {
+        _id: {
+          course: '$course',
+          day: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+        },
+        presentOnDay: {
+          $max: { $cond: [{ $in: ['$status', ['present', 'late']] }, 1, 0] },
+        },
+        absentOnDay: {
+          $max: { $cond: [{ $in: ['$status', ['absent', 'excused']] }, 1, 0] },
+        },
+      },
+    },
+    {
+      $group: {
+        _id: '$_id.course',
+        totalDays: { $sum: 1 },
+        present: { $sum: '$presentOnDay' },
+        absent: {
+          $sum: {
+            $cond: [
+              { $eq: ['$presentOnDay', 1] },
+              0,
+              '$absentOnDay',
+            ],
+          },
+        },
+      },
+    },
+  ]) : [];
+
+  const courseStatsMap = new Map(courseStats.map((row: any) => [String(row._id), row]));
+  const courseMap = new Map<string, { _id: any; name: string; code: string }>();
+
+  for (const course of student.enrolledCourses || []) {
+    if (!course?._id) continue;
+    courseMap.set(String(course._id), {
+      _id: course._id,
+      name: course.title?.en || course.courseCode || 'Subject',
+      code: course.courseCode || '',
+    });
+  }
+
+  if (student.class?._id) {
+    const activeSchedules: any[] = await ClassSchedule.find({
+      school: schoolId,
+      class: student.class._id,
+      isActive: true,
+    })
+      .populate('course', 'title courseCode')
+      .select('course')
+      .lean();
+
+    for (const schedule of activeSchedules) {
+      const course = schedule.course;
+      if (!course?._id || courseMap.has(String(course._id))) continue;
+      courseMap.set(String(course._id), {
+        _id: course._id,
+        name: course.title?.en || course.courseCode || 'Subject',
+        code: course.courseCode || '',
+      });
+    }
+  }
+
   const records: any[] = schoolScheduleIds.length ? await Attendance.find({
     student: student._id,
     schedule: { $in: schoolScheduleIds },
@@ -778,6 +855,36 @@ export const getSchoolStudentOverallReport = async (req: Request, res: Response)
     .sort({ date: -1 })
     .limit(200)
     .lean() : [];
+
+  // Older data may have attendance records without a current enrolledCourses
+  // link. Keep those subjects visible rather than hiding valid history.
+  for (const record of records) {
+    const course = record.course;
+    if (!course?._id || courseMap.has(String(course._id))) continue;
+    courseMap.set(String(course._id), {
+      _id: course._id,
+      name: course.title?.en || course.courseCode || 'Subject',
+      code: course.courseCode || '',
+    });
+  }
+
+  const courses = [...courseMap.values()]
+    .map((course) => {
+      const row: any = courseStatsMap.get(String(course._id)) || { totalDays: 0, present: 0, absent: 0 };
+      const totalDays = Number(row.totalDays || 0);
+      const present = Number(row.present || 0);
+      const absent = Number(row.absent || 0);
+      return {
+        _id: course._id,
+        courseName: course.name,
+        courseCode: course.code,
+        totalDays,
+        present,
+        absent,
+        presentPercentage: totalDays ? Math.round((present / totalDays) * 100) : 0,
+      };
+    })
+    .sort((a, b) => a.courseName.localeCompare(b.courseName, undefined, { numeric: true }));
 
   return ApiResponse.success(res, {
     student: {
@@ -792,6 +899,7 @@ export const getSchoolStudentOverallReport = async (req: Request, res: Response)
       absent: summaryRow.absent || 0,
       percentage: summaryRow.total ? Math.round(((summaryRow.present || 0) / summaryRow.total) * 100) : 0,
     },
+    courses,
     records: records.map((record) => ({
       _id: record._id,
       date: record.date,
