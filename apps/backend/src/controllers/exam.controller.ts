@@ -14,6 +14,194 @@ import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-erro
 import ensureStudentRecord from '../utils/ensure-student';
 import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, assertOwnsExamIfTeacher, resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
+import {
+  getExamSchedulingRulesForSchool,
+  normalizeExamSchedulingRules,
+} from '../utils/exam-scheduling-rules';
+
+type PendingFixedExam = {
+  schoolId: string;
+  classId: string;
+  examDate: string;
+  startTime: string;
+  endTime: string;
+  room?: string;
+  title?: string;
+};
+
+const examDateKey = (value: unknown): string => {
+  const d = new Date(value as any);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+};
+
+const timeToMinutes = (value: unknown): number => {
+  const match = String(value ?? '').match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : -1;
+};
+
+const rangesOverlap = (startA: number, endA: number, startB: number, endB: number) =>
+  startA < endB && startB < endA;
+
+async function validateFixedExamSchedule(input: {
+  schoolId: string;
+  classId?: string;
+  title?: string;
+  examDate: unknown;
+  startTime: unknown;
+  endTime: unknown;
+  duration: unknown;
+  room?: unknown;
+  autoSchedule?: boolean;
+  excludeExamId?: string;
+  pending?: PendingFixedExam[];
+}): Promise<void> {
+  if (input.autoSchedule) return;
+
+  const dateKey = examDateKey(input.examDate);
+  const start = timeToMinutes(input.startTime);
+  const end = timeToMinutes(input.endTime);
+  const duration = Number(input.duration);
+  if (!dateKey) throw new BadRequestError('A valid Exam Date is required');
+  if (start < 0 || end < 0) throw new BadRequestError('Start Time and End Time must use HH:MM');
+  if (end <= start) throw new BadRequestError('End Time must be after Start Time');
+  if (!Number.isFinite(duration) || duration <= 0) throw new BadRequestError('Duration must be a positive number of minutes');
+
+  const rules = await getExamSchedulingRulesForSchool(input.schoolId);
+  if (rules.durationValidation && duration > end - start) {
+    throw new ConflictError(`Exam duration (${duration} min) does not fit inside the selected time window (${end - start} min)`);
+  }
+
+  const dayStart = new Date(`${dateKey}T00:00:00.000Z`);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+  const classId = input.classId ? String(input.classId) : '';
+  const pending = input.pending || [];
+  const newRoom = String(input.room ?? '').trim();
+
+  if (classId) {
+    const siblingCourseIds = await Course.find({ class: classId }).distinct('_id');
+    const persisted = await Exam.find({
+      course: { $in: siblingCourseIds },
+      autoSchedule: { $ne: true },
+      status: { $ne: 'cancelled' },
+      examDate: { $gte: dayStart, $lt: dayEnd },
+      ...(input.excludeExamId ? { _id: { $ne: input.excludeExamId } } : {}),
+    }).select('title startTime endTime room').lean() as any[];
+
+    const sameClassPending = pending.filter((p) => p.classId === classId && p.examDate === dateKey);
+    const sameDay = [
+      ...persisted.map((e: any) => ({
+        title: e.title || 'Exam',
+        startTime: e.startTime || '',
+        endTime: e.endTime || '',
+        room: e.room || '',
+      })),
+      ...sameClassPending.map((p) => ({
+        title: p.title || 'Exam',
+        startTime: p.startTime,
+        endTime: p.endTime,
+        room: p.room || '',
+      })),
+    ];
+
+    if (sameDay.length + 1 > rules.maxExamsPerClassPerDay) {
+      throw new ConflictError(
+        `This class already has ${sameDay.length} exam(s) on ${dateKey}. The scheduling rule allows a maximum of ${rules.maxExamsPerClassPerDay} per day.`
+      );
+    }
+
+    for (const other of sameDay) {
+      const otherStart = timeToMinutes(other.startTime);
+      const otherEnd = timeToMinutes(other.endTime);
+      if (otherStart < 0 || otherEnd < 0) continue;
+
+      if (rules.preventClassOverlap && rangesOverlap(start, end, otherStart, otherEnd)) {
+        throw new ConflictError(
+          `Class conflict: "${other.title}" already runs ${other.startTime}–${other.endTime} on ${dateKey}.`
+        );
+      }
+
+      if (rules.minimumGapMinutes > 0) {
+        let gap = -1;
+        if (otherEnd <= start) gap = start - otherEnd;
+        else if (end <= otherStart) gap = otherStart - end;
+        if (gap >= 0 && gap < rules.minimumGapMinutes) {
+          throw new ConflictError(
+            `Exam gap conflict: at least ${rules.minimumGapMinutes} minutes is required between exams for the same class.`
+          );
+        }
+      }
+    }
+  }
+
+  // Shared rooms are allowed by default. If an institution explicitly turns
+  // that rule off, only then does an overlapping exam using the same room
+  // become a hard scheduling conflict.
+  if (!rules.allowSharedRooms && newRoom) {
+    const roomPersisted = await Exam.find({
+      school: input.schoolId || null,
+      autoSchedule: { $ne: true },
+      status: { $ne: 'cancelled' },
+      examDate: { $gte: dayStart, $lt: dayEnd },
+      room: newRoom,
+      ...(input.excludeExamId ? { _id: { $ne: input.excludeExamId } } : {}),
+    }).select('title startTime endTime').lean() as any[];
+
+    const roomPending = pending.filter(
+      (p) => p.schoolId === String(input.schoolId) && p.examDate === dateKey && String(p.room || '').trim() === newRoom
+    );
+    const sameRoom = [
+      ...roomPersisted.map((e: any) => ({ title: e.title || 'Exam', startTime: e.startTime || '', endTime: e.endTime || '' })),
+      ...roomPending.map((p) => ({ title: p.title || 'Exam', startTime: p.startTime, endTime: p.endTime })),
+    ];
+
+    for (const other of sameRoom) {
+      const otherStart = timeToMinutes(other.startTime);
+      const otherEnd = timeToMinutes(other.endTime);
+      if (otherStart >= 0 && otherEnd >= 0 && rangesOverlap(start, end, otherStart, otherEnd)) {
+        throw new ConflictError(
+          `Room conflict: ${newRoom} is already being used by "${other.title}" during this time. Enable Shared Rooms to allow multiple classes in one room.`
+        );
+      }
+    }
+  }
+}
+
+function scheduleRulesSchoolId(req: Request): string {
+  const ownOrg = req.user?.role === 'org_admin'
+    ? String((req.user as any)?.organizationId?._id || (req.user as any)?.organizationId || '')
+    : '';
+  const requested = String(req.body?.school || req.query?.school || '');
+  const schoolId = ownOrg || requested;
+  if (!/^[a-f\d]{24}$/i.test(schoolId)) {
+    throw new BadRequestError('A valid Organization is required');
+  }
+  return schoolId;
+}
+
+export const getScheduleRules = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const school = await School.findById(schoolId).select('name examSchedulingRules').lean() as any;
+  if (!school) throw new NotFoundError('Organization');
+  return ApiResponse.success(res, {
+    school: { _id: school._id, name: school.name },
+    rules: normalizeExamSchedulingRules(school.examSchedulingRules),
+  });
+};
+
+export const updateScheduleRules = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const school = await School.findById(schoolId);
+  if (!school) throw new NotFoundError('Organization');
+  const current = normalizeExamSchedulingRules((school as any).examSchedulingRules);
+  const next = normalizeExamSchedulingRules({ ...current, ...(req.body?.rules || {}) });
+  (school as any).examSchedulingRules = next;
+  await school.save();
+  return ApiResponse.success(res, {
+    school: { _id: school._id, name: school.name },
+    rules: next,
+  }, 'Exam scheduling rules saved');
+};
 
 // GET /exams — List all with optional filters
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
@@ -108,10 +296,22 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const { course: courseId } = req.body;
   if (!courseId) throw new BadRequestError('course is required');
 
-  const course = await Course.findById(courseId).select('school teacher');
+  const course = await Course.findById(courseId).select('school teacher class');
   if (!course) throw new NotFoundError('Course');
   assertOwnsOrg(req, course, 'school');
   await assertOwnsExamIfTeacher(req, { course });
+
+  await validateFixedExamSchedule({
+    schoolId: String(course.school || ''),
+    classId: course.class ? String(course.class) : '',
+    title: req.body.title,
+    examDate: req.body.examDate,
+    startTime: req.body.startTime,
+    endTime: req.body.endTime,
+    duration: req.body.duration,
+    room: req.body.room,
+    autoSchedule: !!req.body.autoSchedule,
+  });
 
   // Same duplicate guard as bulkImport, for a manually-scheduled (not
   // auto-scheduled) exam — catches an accidental double-submit of the
@@ -143,7 +343,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
 // PATCH /exams/:id
 export const update = async (req: Request, res: Response): Promise<Response> => {
-  const existing = await Exam.findById(req.params.id).populate('course', 'school teacher');
+  const existing = await Exam.findById(req.params.id).populate('course', 'school teacher class');
   if (!existing) throw new NotFoundError('Exam');
   assertOwnsOrg(req, existing, 'school');
   await assertOwnsExamIfTeacher(req, existing);
@@ -155,6 +355,21 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   delete updates.course;
   delete updates.school;
   delete updates.createdBy;
+
+  const existingCourse = existing.course as any;
+  const nextAutoSchedule = updates.autoSchedule ?? existing.autoSchedule;
+  await validateFixedExamSchedule({
+    schoolId: String(existing.school || existingCourse?.school || ''),
+    classId: existingCourse?.class ? String(existingCourse.class) : '',
+    title: updates.title ?? existing.title,
+    examDate: updates.examDate ?? existing.examDate,
+    startTime: updates.startTime ?? existing.startTime,
+    endTime: updates.endTime ?? existing.endTime,
+    duration: updates.duration ?? existing.duration,
+    room: updates.room ?? existing.room,
+    autoSchedule: !!nextAutoSchedule,
+    excludeExamId: String(existing._id),
+  });
 
   const exam = await Exam.findByIdAndUpdate(req.params.id, updates, {
     new: true,
@@ -514,7 +729,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     schoolIdByName = new Map(allSchools.map((s: any) => [String(s.name).trim().toLowerCase(), s._id.toString()]));
   }
   const relevantSchoolIds = ownOrgId ? [ownOrgId] : Array.from(schoolIdByName!.values());
-  const allCourses = await Course.find({ school: { $in: relevantSchoolIds } }, { title: 1, school: 1 }).lean();
+  const allCourses = await Course.find({ school: { $in: relevantSchoolIds } }, { title: 1, school: 1, class: 1 }).lean();
   const courseByKey = new Map<string, any>();
   for (const c of allCourses as any[]) courseByKey.set(`${c.school}|||${String((c as any).title?.en || '').trim().toLowerCase()}`, c);
 
@@ -547,6 +762,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
   const errors: { row: number; message: string }[] = [];
   const documents: any[] = [];
+  const pendingSchedules: PendingFixedExam[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 2; // header is row 1
@@ -608,7 +824,30 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       if (existingExamKeys.has(dedupeKey)) {
         throw new Error(`An exam titled "${examTitle}" already exists for "${courseTitle}" on ${examDate.toISOString().slice(0, 10)} at ${startTime} — skipped to avoid a duplicate`);
       }
+
+      const pendingSchedule: PendingFixedExam = {
+        schoolId: String(schoolId || ''),
+        classId: courseDoc.class ? String(courseDoc.class) : '',
+        examDate: examDate.toISOString().slice(0, 10),
+        startTime,
+        endTime,
+        room,
+        title: examTitle,
+      };
+      await validateFixedExamSchedule({
+        schoolId: pendingSchedule.schoolId,
+        classId: pendingSchedule.classId,
+        title: examTitle,
+        examDate,
+        startTime,
+        endTime,
+        duration,
+        room,
+        autoSchedule: false,
+        pending: pendingSchedules,
+      });
       existingExamKeys.add(dedupeKey);
+      pendingSchedules.push(pendingSchedule);
 
       documents.push({
         title: examTitle,
