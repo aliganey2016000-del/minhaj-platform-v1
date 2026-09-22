@@ -31,6 +31,7 @@ router.get('/school/report/date', roleMiddleware(['admin', 'org_admin']), asyncH
 router.get('/school/report/class-period', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolClassPeriodReport));
 router.get('/school/report/students', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.searchSchoolReportStudents));
 router.get('/school/report/teacher-compliance', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolTeacherAttendanceComplianceReport));
+router.get('/school/report/teacher-compliance/:teacherId', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolTeacherAttendanceComplianceDetail));
 router.get('/school/report/risk', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolAttendanceRiskReport));
 router.get('/school/report/student-overall/:studentId', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolStudentOverallReport));
 
