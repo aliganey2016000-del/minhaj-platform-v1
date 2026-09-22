@@ -58,6 +58,15 @@ export interface IBranding {
   themeColor?: string;
 }
 
+export interface IExamSchedulingRules {
+  preventClassOverlap: boolean;
+  allowSharedRooms: boolean;
+  roomCapacityCheck: boolean;
+  maxExamsPerClassPerDay: number;
+  minimumGapMinutes: number;
+  durationValidation: boolean;
+}
+
 export interface ISchool extends Document {
   _id: mongoose.Types.ObjectId;
   name: string;
@@ -89,6 +98,7 @@ export interface ISchool extends Document {
    * DNS at, resolved before the platform's <slug>.<base domain> routing. */
   customDomain?: string;
   branding: IBranding;
+  examSchedulingRules: IExamSchedulingRules;
   country: string;
   city: string;
   orgId?: string;
@@ -121,6 +131,21 @@ const brandingSchema = new Schema<IBranding>(
       trim: true,
       match: [/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'Must be a valid hex color (e.g. #0d9488)'],
     },
+  },
+  { _id: false }
+);
+
+const examSchedulingRulesSchema = new Schema<IExamSchedulingRules>(
+  {
+    preventClassOverlap: { type: Boolean, default: true },
+    // Shared rooms are intentionally allowed by default: different grades/classes
+    // may sit the same exam session in one hall as long as seating capacity and
+    // seat uniqueness remain valid.
+    allowSharedRooms: { type: Boolean, default: true },
+    roomCapacityCheck: { type: Boolean, default: true },
+    maxExamsPerClassPerDay: { type: Number, default: 1, min: 1, max: 10 },
+    minimumGapMinutes: { type: Number, default: 30, min: 0, max: 1440 },
+    durationValidation: { type: Boolean, default: true },
   },
   { _id: false }
 );
@@ -218,6 +243,7 @@ const schoolSchema = new Schema<ISchool>(
       ],
     },
     branding: { type: brandingSchema, default: () => ({}) },
+    examSchedulingRules: { type: examSchedulingRulesSchema, default: () => ({}) },
     country: {
       type: String,
       required: [true, 'Country is required'],
