@@ -34,6 +34,7 @@ export function SchedulesManageShell() {
   const { user } = useAuth();
   const organizationId = user?.organizationId || (user as any)?.schoolId || '';
   const [view, setView] = useState<'table' | 'timetable'>('timetable');
+  const [schedulePerspective, setSchedulePerspective] = useState<'day' | 'class' | 'teacher'>('day');
   const [schoolMode, setSchoolMode] = useState(false);
   const [resolvingMode, setResolvingMode] = useState(user?.role === 'org_admin');
   const [listToolbarHost, setListToolbarHost] = useState<HTMLElement | null>(null);
@@ -215,6 +216,7 @@ export function SchedulesManageShell() {
   }
 
   const openTimetableEditor = () => {
+    setSchedulePerspective('day');
     setView('timetable');
     let attempts = 0;
     const clickEditor = () => {
@@ -282,28 +284,38 @@ export function SchedulesManageShell() {
     </div>
   );
 
+  const perspectiveButtonClass = (perspective: 'day' | 'class' | 'teacher') =>
+    `inline-flex min-h-9 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors sm:flex-none sm:min-w-28 ${
+      schedulePerspective === perspective
+        ? 'bg-primary-600 text-white shadow-sm'
+        : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
+    }`;
+
   const schedulePerspectiveTabs = (
     <div className="flex w-full items-center gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-sm">
       <button
         type="button"
-        className="inline-flex min-h-9 flex-1 items-center justify-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white shadow-sm sm:flex-none sm:min-w-28"
-        aria-current="page"
+        onClick={() => setSchedulePerspective('day')}
+        className={perspectiveButtonClass('day')}
+        aria-current={schedulePerspective === 'day' ? 'page' : undefined}
       >
         <CalendarDays className="h-4 w-4" />
         By Day
       </button>
       <button
         type="button"
-        disabled
-        className="inline-flex min-h-9 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] sm:flex-none sm:min-w-28"
+        onClick={() => setSchedulePerspective('class')}
+        className={perspectiveButtonClass('class')}
+        aria-current={schedulePerspective === 'class' ? 'page' : undefined}
       >
         <School className="h-4 w-4" />
         By Class
       </button>
       <button
         type="button"
-        disabled
-        className="inline-flex min-h-9 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)] sm:flex-none sm:min-w-28"
+        onClick={() => setSchedulePerspective('teacher')}
+        className={perspectiveButtonClass('teacher')}
+        aria-current={schedulePerspective === 'teacher' ? 'page' : undefined}
       >
         <Users className="h-4 w-4" />
         By Teacher
@@ -394,7 +406,7 @@ export function SchedulesManageShell() {
 
       {view === 'table'
         ? (schoolMode ? <SchoolSchedulesManage key={listRefreshKey} /> : <SchedulesManage />)
-        : <SchedulesTimetable />}
+        : <SchedulesTimetable perspective={schedulePerspective} />}
 
       {showAddSchedule && (
         <ScheduleModal
