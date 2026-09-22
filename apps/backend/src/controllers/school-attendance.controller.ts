@@ -6,6 +6,7 @@ import SubstituteAssignment from '../models/substitute-assignment.model';
 import SchoolCalendarDay from '../models/school-calendar-day.model';
 import ClassSchedule from '../models/class-schedule.model';
 import Student from '../models/student.model';
+import Profile from '../models/profile.model';
 import School, { resolveInstitutionType } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
@@ -405,6 +406,311 @@ export const getSchoolClassStudentReport = async (req: Request, res: Response): 
       courseName: record.course?.title?.en || record.course?.courseCode || 'Subject',
       period: record.schedule?.startTime && record.schedule?.endTime
         ? `${record.schedule.startTime}–${record.schedule.endTime}`
+        : '',
+    })),
+  });
+};
+
+
+export const getSchoolDateReport = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await schoolContext(req);
+  const date = attendanceDay(req.query.date);
+  const dayOfWeek = date.getDay();
+
+  const calendarDay: any = await SchoolCalendarDay.findOne({ school: schoolId, date })
+    .select('name type isInstructional')
+    .lean();
+
+  if (calendarDay && calendarDay.isInstructional === false) {
+    return ApiResponse.success(res, {
+      date: String(req.query.date),
+      calendarDay,
+      summary: { students: 0, sessions: 0, records: 0, present: 0, absent: 0, presentPercentage: 0, absentPercentage: 0 },
+      classes: [],
+    });
+  }
+
+  const schedules: any[] = await ClassSchedule.find({ school: schoolId, dayOfWeek, isActive: true })
+    .populate('class', 'title section')
+    .select('_id class startTime endTime')
+    .sort({ startTime: 1 })
+    .lean();
+
+  const scheduleIds = schedules.map((schedule) => schedule._id);
+  const attendance: any[] = scheduleIds.length
+    ? await Attendance.find({ schedule: { $in: scheduleIds }, date })
+        .select('schedule student status')
+        .lean()
+    : [];
+
+  const scheduleMap = new Map(schedules.map((schedule) => [String(schedule._id), schedule]));
+  const classMap = new Map<string, {
+    classId: string;
+    className: string;
+    sessions: Set<string>;
+    students: Set<string>;
+    records: number;
+    present: number;
+    absent: number;
+  }>();
+
+  for (const schedule of schedules) {
+    const cls: any = schedule.class;
+    if (!cls?._id) continue;
+    const key = String(cls._id);
+    const current = classMap.get(key) || {
+      classId: key,
+      className: className(cls),
+      sessions: new Set<string>(),
+      students: new Set<string>(),
+      records: 0,
+      present: 0,
+      absent: 0,
+    };
+    current.sessions.add(String(schedule._id));
+    classMap.set(key, current);
+  }
+
+  const schoolStudents = new Set<string>();
+  let present = 0;
+  let absent = 0;
+
+  for (const row of attendance) {
+    const schedule: any = scheduleMap.get(String(row.schedule));
+    const cls: any = schedule?.class;
+    if (!cls?._id) continue;
+    const key = String(cls._id);
+    const current = classMap.get(key);
+    if (!current) continue;
+
+    current.records += 1;
+    if (row.student) {
+      current.students.add(String(row.student));
+      schoolStudents.add(String(row.student));
+    }
+    if (row.status === 'present' || row.status === 'late') {
+      current.present += 1;
+      present += 1;
+    } else if (row.status === 'absent' || row.status === 'excused') {
+      current.absent += 1;
+      absent += 1;
+    }
+  }
+
+  const classes = [...classMap.values()]
+    .map((row) => ({
+      classId: row.classId,
+      className: row.className,
+      sessions: row.sessions.size,
+      students: row.students.size,
+      records: row.records,
+      present: row.present,
+      absent: row.absent,
+      percentage: row.records ? Math.round((row.present / row.records) * 100) : 0,
+    }))
+    .sort((a, b) => a.className.localeCompare(b.className));
+
+  const records = present + absent;
+  return ApiResponse.success(res, {
+    date: String(req.query.date),
+    calendarDay: calendarDay || null,
+    summary: {
+      students: schoolStudents.size,
+      sessions: schedules.length,
+      records,
+      present,
+      absent,
+      presentPercentage: records ? Math.round((present / records) * 100) : 0,
+      absentPercentage: records ? Math.round((absent / records) * 100) : 0,
+    },
+    classes,
+  });
+};
+
+export const getSchoolClassPeriodReport = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await schoolContext(req);
+  const date = attendanceDay(req.query.date);
+  const classId = String(req.query.classId || '').trim();
+  const startTime = String(req.query.startTime || '').trim();
+  const endTime = String(req.query.endTime || '').trim();
+
+  if (!mongoose.isValidObjectId(classId)) throw new BadRequestError('A valid class is required.');
+  if (!startTime || !endTime) throw new BadRequestError('A valid period is required.');
+
+  const schedules: any[] = await ClassSchedule.find({
+    school: schoolId,
+    class: classId,
+    dayOfWeek: date.getDay(),
+    startTime,
+    endTime,
+    isActive: true,
+  })
+    .populate('class', 'title section')
+    .populate('course', 'title courseCode')
+    .select('_id class course startTime endTime')
+    .lean();
+
+  const students: any[] = await Student.find({
+    school: schoolId,
+    class: classId,
+    status: 'active',
+    approvalStatus: 'approved',
+  })
+    .populate('profile', 'firstName lastName')
+    .select('studentId profile')
+    .sort({ studentId: 1 })
+    .lean();
+
+  const scheduleIds = schedules.map((schedule) => schedule._id);
+  const attendance: any[] = scheduleIds.length
+    ? await Attendance.find({ schedule: { $in: scheduleIds }, date })
+        .select('student status reasonCode')
+        .lean()
+    : [];
+
+  const recordMap = new Map<string, any>();
+  for (const row of attendance) {
+    if (!row.student) continue;
+    recordMap.set(String(row.student), row);
+  }
+
+  let present = 0;
+  let absent = 0;
+  const rows = students.map((student) => {
+    const record = recordMap.get(String(student._id));
+    const status = !record
+      ? null
+      : record.status === 'present' || record.status === 'late'
+        ? 'present'
+        : 'absent';
+
+    if (status === 'present') present += 1;
+    if (status === 'absent') absent += 1;
+
+    return {
+      _id: student._id,
+      studentId: student.studentId,
+      name: \`\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}\`.trim() || student.studentId,
+      status,
+      excused: status === 'absent' && (record?.status === 'excused' || !!record?.reasonCode),
+    };
+  });
+
+  const marked = present + absent;
+  const firstSchedule: any = schedules[0];
+  return ApiResponse.success(res, {
+    date: String(req.query.date),
+    class: firstSchedule?.class
+      ? { _id: firstSchedule.class._id, name: className(firstSchedule.class) }
+      : { _id: classId, name: 'Class' },
+    period: \`\${startTime}–\${endTime}\`,
+    subjects: schedules.map((schedule) => schedule.course?.title?.en || schedule.course?.courseCode || 'Subject'),
+    summary: {
+      students: students.length,
+      marked,
+      present,
+      absent,
+      presentPercentage: marked ? Math.round((present / marked) * 100) : 0,
+      absentPercentage: marked ? Math.round((absent / marked) * 100) : 0,
+    },
+    rows,
+  });
+};
+
+export const searchSchoolReportStudents = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await schoolContext(req);
+  const search = String(req.query.search || '').trim();
+  if (search.length < 2) return ApiResponse.success(res, []);
+
+  const escaped = search.replace(/[.*+?^$(){}|[\]\\]/g, '\\export const getSchoolOptions = async (req: Request, res: Response): Promise<Response> => {');
+  const regex = new RegExp(escaped, 'i');
+  const profileIds = await Profile.find({
+    $or: [{ firstName: regex }, { lastName: regex }],
+  })
+    .select('_id')
+    .limit(60)
+    .lean();
+
+  const students: any[] = await Student.find({
+    school: schoolId,
+    status: 'active',
+    approvalStatus: 'approved',
+    $or: [
+      { studentId: regex },
+      { profile: { $in: profileIds.map((profile) => profile._id) } },
+    ],
+  })
+    .populate('profile', 'firstName lastName')
+    .populate('class', 'title section')
+    .select('studentId profile class')
+    .sort({ studentId: 1 })
+    .limit(30)
+    .lean();
+
+  return ApiResponse.success(res, students.map((student) => ({
+    _id: student._id,
+    studentId: student.studentId,
+    name: \`\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}\`.trim() || student.studentId,
+    className: student.class ? className(student.class) : 'Unassigned',
+  })));
+};
+
+export const getSchoolStudentOverallReport = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await schoolContext(req);
+  const studentId = String(req.params.studentId || '').trim();
+  if (!mongoose.isValidObjectId(studentId)) throw new BadRequestError('A valid student is required.');
+
+  const student: any = await Student.findOne({ _id: studentId, school: schoolId })
+    .populate('profile', 'firstName lastName')
+    .populate('class', 'title section')
+    .select('studentId profile class status approvalStatus')
+    .lean();
+  if (!student) throw new NotFoundError('Student');
+
+  const stats: any[] = await Attendance.aggregate([
+    { $match: { student: new mongoose.Types.ObjectId(studentId) } },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        present: { $sum: { $cond: [{ $in: ['$status', ['present', 'late']] }, 1, 0] } },
+        absent: { $sum: { $cond: [{ $in: ['$status', ['absent', 'excused']] }, 1, 0] } },
+      },
+    },
+  ]);
+  const summaryRow = stats[0] || { total: 0, present: 0, absent: 0 };
+
+  const records: any[] = await Attendance.find({ student: student._id })
+    .populate('course', 'title courseCode')
+    .populate('schedule', 'startTime endTime')
+    .select('date status reasonCode notes course schedule')
+    .sort({ date: -1 })
+    .limit(200)
+    .lean();
+
+  return ApiResponse.success(res, {
+    student: {
+      _id: student._id,
+      studentId: student.studentId,
+      name: \`\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}\`.trim() || student.studentId,
+      className: student.class ? className(student.class) : 'Unassigned',
+    },
+    summary: {
+      total: summaryRow.total || 0,
+      present: summaryRow.present || 0,
+      absent: summaryRow.absent || 0,
+      percentage: summaryRow.total ? Math.round(((summaryRow.present || 0) / summaryRow.total) * 100) : 0,
+    },
+    records: records.map((record) => ({
+      _id: record._id,
+      date: record.date,
+      status: record.status === 'present' || record.status === 'late' ? 'present' : 'absent',
+      excused: record.status === 'excused' || !!record.reasonCode,
+      reasonCode: record.reasonCode || '',
+      notes: record.notes || '',
+      courseName: record.course?.title?.en || record.course?.courseCode || 'Subject',
+      period: record.schedule?.startTime && record.schedule?.endTime
+        ? \`\${record.schedule.startTime}–\${record.schedule.endTime}\`
         : '',
     })),
   });
