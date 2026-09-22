@@ -6,6 +6,7 @@ import SubstituteAssignment from '../models/substitute-assignment.model';
 import SchoolCalendarDay from '../models/school-calendar-day.model';
 import ClassSchedule from '../models/class-schedule.model';
 import Student from '../models/student.model';
+import Teacher from '../models/teacher.model';
 import Profile from '../models/profile.model';
 import School, { resolveInstitutionType } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
@@ -762,6 +763,227 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
     name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
     className: student.class ? className(student.class) : 'Unassigned',
   })));
+};
+
+export const getSchoolTeacherAttendanceComplianceDetail = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await schoolContext(req);
+  const teacherId = String(req.params.teacherId || '').trim();
+  if (!mongoose.isValidObjectId(teacherId)) throw new BadRequestError('A valid teacher is required.');
+
+  const teacher: any = await Teacher.findOne({ _id: teacherId, school: schoolId })
+    .populate('profile', 'firstName lastName')
+    .populate('user', 'email role')
+    .select('teacherId profile user status')
+    .lean();
+  if (!teacher) throw new NotFoundError('Teacher');
+
+  const toRaw = String(req.query.to || '').trim();
+  const daysRaw = Number(req.query.days || 30);
+  const days = Number.isFinite(daysRaw) ? Math.min(120, Math.max(1, Math.round(daysRaw))) : 30;
+
+  const to = toRaw ? attendanceDay(toRaw) : (() => {
+    const value = new Date();
+    value.setHours(23, 59, 59, 999);
+    return value;
+  })();
+  to.setHours(23, 59, 59, 999);
+  const from = new Date(to);
+  from.setDate(from.getDate() - (days - 1));
+  from.setHours(0, 0, 0, 0);
+
+  const dateKey = (value: Date) => {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const schedules: any[] = await ClassSchedule.find({ school: schoolId, isActive: true })
+    .populate('class', 'title section')
+    .populate('course', 'title courseCode')
+    .populate(TEACHER_POPULATE)
+    .select('_id class course teacher dayOfWeek startTime endTime createdAt')
+    .sort({ dayOfWeek: 1, startTime: 1 })
+    .lean();
+
+  const scheduleIds = schedules.map((schedule) => schedule._id);
+  const [sessions, substitutes, calendarClosures] = await Promise.all([
+    scheduleIds.length
+      ? AttendanceSession.find({
+          school: schoolId,
+          schedule: { $in: scheduleIds },
+          date: { $gte: from, $lte: to },
+        })
+          .populate('takenBy', 'email role title')
+          .select('schedule date status locked takenBy submittedAt recordedStudents expectedStudents')
+          .lean()
+      : [],
+    scheduleIds.length
+      ? SubstituteAssignment.find({
+          school: schoolId,
+          schedule: { $in: scheduleIds },
+          date: { $gte: from, $lte: to },
+          active: true,
+        })
+          .populate({ path: 'teacher', select: 'teacherId profile user status', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'user', select: 'email role' }] })
+          .select('schedule date teacher reason')
+          .lean()
+      : [],
+    SchoolCalendarDay.find({
+      school: schoolId,
+      date: { $gte: from, $lte: to },
+      isInstructional: false,
+    })
+      .select('date')
+      .lean(),
+  ]);
+
+  const sessionMap = new Map<string, any>();
+  for (const session of sessions as any[]) {
+    sessionMap.set(`${String(session.schedule)}:${dateKey(new Date(session.date))}`, session);
+  }
+
+  const substituteMap = new Map<string, any>();
+  for (const substitute of substitutes as any[]) {
+    substituteMap.set(`${String(substitute.schedule)}:${dateKey(new Date(substitute.date))}`, substitute);
+  }
+
+  const submitterUserIds = (sessions as any[])
+    .map((session) => session.takenBy?._id || session.takenBy)
+    .filter(Boolean);
+  const submitterTeachers: any[] = submitterUserIds.length
+    ? await Teacher.find({ school: schoolId, user: { $in: submitterUserIds } })
+        .populate('profile', 'firstName lastName')
+        .populate('user', 'email role')
+        .select('teacherId profile user')
+        .lean()
+    : [];
+  const teacherByUser = new Map<string, any>();
+  for (const row of submitterTeachers) {
+    const userId = row.user?._id || row.user;
+    if (userId) teacherByUser.set(String(userId), row);
+  }
+
+  const closedDates = new Set((calendarClosures as any[]).map((row) => dateKey(new Date(row.date))));
+  const now = new Date();
+  const somaliaNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+  const currentLocalDateKey = somaliaNow.toISOString().slice(0, 10);
+  const currentLocalTime = somaliaNow.toISOString().slice(11, 16);
+  const targetTeacherId = String(teacher._id);
+
+  const rows: any[] = [];
+
+  for (let cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+    const occurrenceDate = new Date(cursor);
+    occurrenceDate.setHours(0, 0, 0, 0);
+    const occurrenceKey = dateKey(occurrenceDate);
+    if (closedDates.has(occurrenceKey)) continue;
+    if (occurrenceKey > currentLocalDateKey) continue;
+
+    for (const schedule of schedules) {
+      if (Number(schedule.dayOfWeek) !== occurrenceDate.getDay()) continue;
+
+      const createdAt = schedule.createdAt ? new Date(schedule.createdAt) : null;
+      if (createdAt && occurrenceDate < new Date(createdAt.getFullYear(), createdAt.getMonth(), createdAt.getDate())) continue;
+      if (occurrenceKey === currentLocalDateKey && String(schedule.endTime || '') > currentLocalTime) continue;
+
+      const key = `${String(schedule._id)}:${occurrenceKey}`;
+      const substitute: any = substituteMap.get(key);
+      const responsibleTeacher: any = substitute?.teacher || schedule.teacher;
+      if (!responsibleTeacher?._id || String(responsibleTeacher._id) !== targetTeacherId) continue;
+
+      const session: any = sessionMap.get(key);
+      let status: 'missing' | 'partial' | 'submitted' = 'missing';
+      let submittedByType: 'teacher' | 'other' | null = null;
+      let submittedBy = '';
+      let submittedByRole = '';
+      let submittedAt: Date | null = null;
+      let locked = false;
+      let recordedStudents = 0;
+      let expectedStudents: number | null = null;
+
+      if (session) {
+        locked = !!session.locked;
+        recordedStudents = Number(session.recordedStudents || 0);
+        expectedStudents = session.expectedStudents ?? null;
+        submittedAt = session.submittedAt || null;
+
+        const completeAndLocked = session.status === 'complete' && session.locked;
+        status = completeAndLocked ? 'submitted' : 'partial';
+
+        const submitterUser: any = session.takenBy;
+        const submitterUserId = submitterUser?._id || submitterUser;
+        const responsibleUserId = responsibleTeacher.user?._id || responsibleTeacher.user;
+
+        if (submitterUserId && responsibleUserId && String(submitterUserId) === String(responsibleUserId)) {
+          submittedByType = 'teacher';
+          submittedBy = teacherName(responsibleTeacher);
+          submittedByRole = 'teacher';
+        } else if (submitterUserId) {
+          submittedByType = 'other';
+          const submitterTeacher = teacherByUser.get(String(submitterUserId));
+          submittedBy = submitterTeacher
+            ? teacherName(submitterTeacher)
+            : (submitterUser?.email || submitterUser?.title || 'Another user');
+          submittedByRole = submitterTeacher ? 'teacher' : (submitterUser?.role || 'user');
+        }
+      }
+
+      rows.push({
+        date: occurrenceKey,
+        scheduleId: schedule._id,
+        classId: schedule.class?._id || schedule.class,
+        className: className(schedule.class),
+        courseId: schedule.course?._id || schedule.course,
+        courseName: schedule.course?.title?.en || schedule.course?.courseCode || 'Subject',
+        courseCode: schedule.course?.courseCode || '',
+        startTime: schedule.startTime,
+        endTime: schedule.endTime,
+        isSubstitute: !!substitute,
+        substituteReason: substitute?.reason || '',
+        status,
+        locked,
+        recordedStudents,
+        expectedStudents,
+        submittedByType,
+        submittedBy,
+        submittedByRole,
+        submittedAt,
+      });
+    }
+  }
+
+  rows.sort((a, b) => b.date.localeCompare(a.date) || a.startTime.localeCompare(b.startTime));
+
+  const submitted = rows.filter((row) => row.status === 'submitted').length;
+  const partial = rows.filter((row) => row.status === 'partial').length;
+  const missing = rows.filter((row) => row.status === 'missing').length;
+  const submittedByTeacher = rows.filter((row) => row.status === 'submitted' && row.submittedByType === 'teacher').length;
+  const submittedByOther = rows.filter((row) => row.status === 'submitted' && row.submittedByType === 'other').length;
+
+  return ApiResponse.success(res, {
+    teacher: {
+      _id: teacher._id,
+      teacherId: teacher.teacherId || '',
+      name: teacherName(teacher),
+      status: teacher.status,
+    },
+    window: {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      days,
+    },
+    summary: {
+      scheduled: rows.length,
+      submitted,
+      submittedByTeacher,
+      submittedByOther,
+      partial,
+      missing,
+      compliancePercentage: rows.length ? Math.round((submittedByTeacher / rows.length) * 100) : 0,
+    },
+    rows,
+  });
 };
 
 export const getSchoolTeacherAttendanceComplianceReport = async (req: Request, res: Response): Promise<Response> => {
