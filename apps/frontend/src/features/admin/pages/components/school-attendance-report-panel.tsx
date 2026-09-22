@@ -24,6 +24,12 @@ interface DateReport {
     presentPercentage: number;
     absentPercentage: number;
   };
+  periods: Array<{
+    key: string;
+    label: string;
+    startTime: string;
+    endTime: string;
+  }>;
   classes: Array<{
     classId: string;
     className: string;
@@ -33,6 +39,14 @@ interface DateReport {
     present: number;
     absent: number;
     percentage: number;
+    periods: Record<string, {
+      scheduled: boolean;
+      sessions: number;
+      records: number;
+      present: number;
+      absent: number;
+      percentage: number;
+    }>;
   }>;
 }
 
@@ -275,23 +289,60 @@ export function SchoolAttendanceReportPanel() {
                 <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
                   <div className="border-b border-[var(--color-border-default)] p-4">
                     <p className="font-bold text-[var(--color-text-primary)]">School Attendance · {dateReport.date}</p>
-                    <p className="text-xs text-[var(--color-text-tertiary)]">One row per class. Present and Absent are period-attendance records for the selected day.</p>
+                    <p className="text-xs text-[var(--color-text-tertiary)]">Classes are rows and periods are columns. Each cell shows the attendance percentage for that class and period.</p>
                   </div>
-                  <div className="divide-y divide-[var(--color-border-subtle)]">
-                    {dateReport.classes.map((row) => (
-                      <div key={row.classId} className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_repeat(5,auto)] sm:items-center">
-                        <div>
-                          <p className="font-semibold text-[var(--color-text-primary)]">{row.className}</p>
-                          <p className="text-xs text-[var(--color-text-tertiary)]">{row.sessions} session{row.sessions === 1 ? '' : 's'} · {row.records} records</p>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 sm:contents">
-                          <div className="text-center sm:px-3"><p className="text-[10px] text-[var(--color-text-tertiary)]">Students</p><p className="font-bold">{row.students}</p></div>
-                          <div className="text-center sm:px-3"><p className="text-[10px] text-[var(--color-text-tertiary)]">Present</p><p className="font-bold text-emerald-600">{row.present}</p></div>
-                          <div className="text-center sm:px-3"><p className="text-[10px] text-[var(--color-text-tertiary)]">Absent</p><p className="font-bold text-red-600">{row.absent}</p></div>
-                        </div>
-                        <div className="sm:px-3 sm:text-right"><span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-bold">{row.percentage}%</span></div>
-                      </div>
-                    ))}
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-[var(--color-surface-secondary)]">
+                          <th className="sticky left-0 z-20 min-w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-xs font-bold text-[var(--color-text-secondary)]">Class</th>
+                          {dateReport.periods.map((period) => (
+                            <th key={period.key} className="min-w-28 border-b border-r border-[var(--color-border-default)] px-3 py-3 text-center">
+                              <div className="text-xs font-bold text-[var(--color-text-primary)]">{period.label}</div>
+                              <div className="mt-1 text-[10px] font-medium text-[var(--color-text-tertiary)]">{period.startTime}–{period.endTime}</div>
+                            </th>
+                          ))}
+                          <th className="min-w-24 border-b border-[var(--color-border-default)] px-3 py-3 text-center text-xs font-bold text-[var(--color-text-secondary)]">Overall</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dateReport.classes.map((row) => (
+                          <tr key={row.classId} className="border-b border-[var(--color-border-subtle)] last:border-b-0">
+                            <td className="sticky left-0 z-10 border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3">
+                              <div className="font-semibold text-[var(--color-text-primary)]">{row.className}</div>
+                              <div className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">{row.sessions} period{row.sessions === 1 ? '' : 's'}</div>
+                            </td>
+                            {dateReport.periods.map((period) => {
+                              const cell = row.periods?.[period.key];
+                              if (!cell?.scheduled) {
+                                return <td key={period.key} className="border-r border-[var(--color-border-subtle)] px-3 py-3 text-center text-[var(--color-text-tertiary)]">—</td>;
+                              }
+                              const hasRecords = cell.records > 0;
+                              return (
+                                <td
+                                  key={period.key}
+                                  className="border-r border-[var(--color-border-subtle)] px-3 py-3 text-center"
+                                  title={hasRecords ? `${cell.present} present of ${cell.records} recorded` : 'Attendance not recorded'}
+                                >
+                                  <div className={`text-base font-bold ${hasRecords ? 'text-emerald-600' : 'text-[var(--color-text-tertiary)]'}`}>
+                                    {hasRecords ? `${cell.percentage}%` : '—'}
+                                  </div>
+                                  <div className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">
+                                    {hasRecords ? `${cell.present}/${cell.records} present` : 'Not recorded'}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                            <td className="px-3 py-3 text-center">
+                              <div className={`text-base font-bold ${row.records ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}`}>
+                                {row.records ? `${row.percentage}%` : '—'}
+                              </div>
+                              <div className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">{row.records ? `${row.present}/${row.records} present` : 'Not recorded'}</div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
