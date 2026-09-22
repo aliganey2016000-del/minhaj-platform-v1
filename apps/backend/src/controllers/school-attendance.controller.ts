@@ -590,7 +590,7 @@ export const getSchoolClassPeriodReport = async (req: Request, res: Response): P
     return {
       _id: student._id,
       studentId: student.studentId,
-      name: \`\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}\`.trim() || student.studentId,
+      name: `\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}`.trim() || student.studentId,
       status,
       excused: status === 'absent' && (record?.status === 'excused' || !!record?.reasonCode),
     };
@@ -603,7 +603,7 @@ export const getSchoolClassPeriodReport = async (req: Request, res: Response): P
     class: firstSchedule?.class
       ? { _id: firstSchedule.class._id, name: className(firstSchedule.class) }
       : { _id: classId, name: 'Class' },
-    period: \`\${startTime}–\${endTime}\`,
+    period: `\${startTime}–\${endTime}`,
     subjects: schedules.map((schedule) => schedule.course?.title?.en || schedule.course?.courseCode || 'Subject'),
     summary: {
       students: students.length,
@@ -650,7 +650,7 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
   return ApiResponse.success(res, students.map((student) => ({
     _id: student._id,
     studentId: student.studentId,
-    name: \`\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}\`.trim() || student.studentId,
+    name: `\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}`.trim() || student.studentId,
     className: student.class ? className(student.class) : 'Unassigned',
   })));
 };
@@ -692,7 +692,7 @@ export const getSchoolStudentOverallReport = async (req: Request, res: Response)
     student: {
       _id: student._id,
       studentId: student.studentId,
-      name: \`\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}\`.trim() || student.studentId,
+      name: `\${student.profile?.firstName || ''} \${student.profile?.lastName || ''}`.trim() || student.studentId,
       className: student.class ? className(student.class) : 'Unassigned',
     },
     summary: {
@@ -710,7 +710,7 @@ export const getSchoolStudentOverallReport = async (req: Request, res: Response)
       notes: record.notes || '',
       courseName: record.course?.title?.en || record.course?.courseCode || 'Subject',
       period: record.schedule?.startTime && record.schedule?.endTime
-        ? \`\${record.schedule.startTime}–\${record.schedule.endTime}\`
+        ? `\${record.schedule.startTime}–\${record.schedule.endTime}`
         : '',
     })),
   });
