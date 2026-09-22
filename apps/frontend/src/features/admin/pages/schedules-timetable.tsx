@@ -61,6 +61,7 @@ const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5] as const;
 const ALL_DEPARTMENTS = '__all__';
 const ALL_SHIFTS = '__all_shifts__';
+const ALL_CLASSES = '__all_classes__';
 const UNASSIGNED_DEPARTMENT = '__unassigned__';
 const UNASSIGNED_SHIFT = '__unassigned_shift__';
 
@@ -161,6 +162,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState(ALL_DEPARTMENTS);
   const [shiftFilter, setShiftFilter] = useState(ALL_SHIFTS);
+  const [dayClassFilter, setDayClassFilter] = useState(ALL_CLASSES);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -260,6 +262,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   useEffect(() => {
     setDepartmentFilter(ALL_DEPARTMENTS);
     setShiftFilter(ALL_SHIFTS);
+    setDayClassFilter(ALL_CLASSES);
     setSelectedClassId('');
     setSelectedTeacherId('');
     setCoursesByClass({});
@@ -307,6 +310,16 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   const departmentClasses = useMemo(() => classes.filter(cls => departmentFilter === ALL_DEPARTMENTS || departmentId(cls) === departmentFilter), [classes, departmentFilter]);
   const shiftOptions = useMemo(() => Array.from(new Set(departmentClasses.map(shiftValue))).map(value => ({ value, label: shiftLabel(value) })).sort((a, b) => a.label.localeCompare(b.label)), [departmentClasses]);
   const columns = useMemo(() => departmentClasses.filter(cls => shiftFilter === ALL_SHIFTS || shiftValue(cls) === shiftFilter), [departmentClasses, shiftFilter]);
+
+  useEffect(() => {
+    if (dayClassFilter === ALL_CLASSES || columns.some(cls => cls._id === dayClassFilter)) return;
+    setDayClassFilter(ALL_CLASSES);
+  }, [columns, dayClassFilter]);
+
+  const dayColumns = useMemo(
+    () => dayClassFilter === ALL_CLASSES ? columns : columns.filter(cls => cls._id === dayClassFilter),
+    [columns, dayClassFilter],
+  );
 
   const scopedActiveSchedules = useMemo(() => {
     const visibleClassIds = new Set(columns.map(cls => cls._id));
@@ -530,13 +543,13 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   });
 
   const visibleSessionCount = perspective === 'day'
-    ? daySchedules.filter(item => columns.some(cls => cls._id === classIdOf(item.class))).length
+    ? daySchedules.filter(item => dayColumns.some(cls => cls._id === classIdOf(item.class))).length
     : perspective === 'class'
       ? selectedClassSchedules.length
       : selectedTeacherSchedules.length;
 
   const perspectiveSummary = perspective === 'day'
-    ? `${columns.length} classes`
+    ? `${dayColumns.length} classes`
     : perspective === 'class'
       ? classLabel(selectedClass)
       : selectedTeacher?.label || 'No teacher selected';
@@ -897,13 +910,51 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
         {success && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{success}</div>}
         {editMode && perspective === 'day' && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><strong>Edit mode:</strong> choose courses in the table, then press <strong>Save Timetable</strong>. Unsaved selections are kept in this browser even if the page is refreshed.</div>}
 
-        <div className="flex flex-col gap-3 rounded-2xl border bg-[var(--color-surface-primary)] p-3 lg:flex-row lg:items-center">
-          <select value={departmentFilter} onChange={e => { setDepartmentFilter(e.target.value); setShiftFilter(ALL_SHIFTS); }} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value={ALL_DEPARTMENTS}>All Departments</option>{departmentOptions.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}</select>
-          <select value={shiftFilter} onChange={e => setShiftFilter(e.target.value)} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value={ALL_SHIFTS}>All Shifts</option>{shiftOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
-          <button onClick={() => { setDepartmentFilter(ALL_DEPARTMENTS); setShiftFilter(ALL_SHIFTS); }} className="inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm"><RotateCcw className="h-4 w-4" />Reset Filters</button>
+        <div className="flex flex-col gap-3 rounded-2xl border bg-[var(--color-surface-primary)] p-3">
           {perspective === 'day' ? (
-            <div className="flex flex-1 items-center justify-center gap-2 lg:justify-end"><button onClick={() => moveDay(-1)} className="rounded-lg border p-2"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-36 text-center"><div className="text-xs text-[var(--color-text-tertiary)]">Selected day</div><div className="font-bold">{DAYS[selectedDay]}</div></div><button onClick={() => moveDay(1)} className="rounded-lg border p-2"><ChevronRight className="h-4 w-4" /></button></div>
-          ) : perspective === 'class' ? (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                <select
+                  value={departmentFilter}
+                  onChange={e => { setDepartmentFilter(e.target.value); setShiftFilter(ALL_SHIFTS); setDayClassFilter(ALL_CLASSES); }}
+                  className="min-w-0 w-full rounded-xl border bg-[var(--color-surface-primary)] px-2 py-2.5 text-xs sm:px-3 sm:text-sm"
+                  aria-label="Department filter"
+                >
+                  <option value={ALL_DEPARTMENTS}>All Departments</option>
+                  {departmentOptions.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
+                </select>
+                <select
+                  value={shiftFilter}
+                  onChange={e => { setShiftFilter(e.target.value); setDayClassFilter(ALL_CLASSES); }}
+                  className="min-w-0 w-full rounded-xl border bg-[var(--color-surface-primary)] px-2 py-2.5 text-xs sm:px-3 sm:text-sm"
+                  aria-label="Shift filter"
+                >
+                  <option value={ALL_SHIFTS}>All Shifts</option>
+                  {shiftOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+                <select
+                  value={dayClassFilter}
+                  onChange={e => setDayClassFilter(e.target.value)}
+                  className="min-w-0 w-full rounded-xl border bg-[var(--color-surface-primary)] px-2 py-2.5 text-xs sm:px-3 sm:text-sm"
+                  aria-label="Class filter"
+                >
+                  <option value={ALL_CLASSES}>All Classes</option>
+                  {columns.map(cls => <option key={cls._id} value={cls._id}>{classLabel(cls)}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => { setDepartmentFilter(ALL_DEPARTMENTS); setShiftFilter(ALL_SHIFTS); setDayClassFilter(ALL_CLASSES); }} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm"><RotateCcw className="h-4 w-4" />Reset Filters</button>
+                <div className="flex flex-1 items-center justify-end gap-2"><button onClick={() => moveDay(-1)} className="rounded-lg border p-2"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-28 text-center sm:min-w-36"><div className="text-xs text-[var(--color-text-tertiary)]">Selected day</div><div className="font-bold">{DAYS[selectedDay]}</div></div><button onClick={() => moveDay(1)} className="rounded-lg border p-2"><ChevronRight className="h-4 w-4" /></button></div>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <select value={departmentFilter} onChange={e => { setDepartmentFilter(e.target.value); setShiftFilter(ALL_SHIFTS); }} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value={ALL_DEPARTMENTS}>All Departments</option>{departmentOptions.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}</select>
+              <select value={shiftFilter} onChange={e => setShiftFilter(e.target.value)} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value={ALL_SHIFTS}>All Shifts</option>{shiftOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
+              <button onClick={() => { setDepartmentFilter(ALL_DEPARTMENTS); setShiftFilter(ALL_SHIFTS); }} className="inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm"><RotateCcw className="h-4 w-4" />Reset Filters</button>
+            </div>
+          )}
+          {perspective === 'class' ? (
             <label className="flex flex-1 flex-col gap-1 lg:max-w-sm lg:ml-auto">
               <span className="text-xs font-medium text-[var(--color-text-tertiary)]">Selected class</span>
               <select value={selectedClassId} onChange={e => setSelectedClassId(e.target.value)} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold">
@@ -911,7 +962,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                 {columns.map(cls => <option key={cls._id} value={cls._id}>{classLabel(cls)}</option>)}
               </select>
             </label>
-          ) : (
+          ) : perspective === 'teacher' ? (
             <label className="flex flex-1 flex-col gap-1 lg:max-w-sm lg:ml-auto">
               <span className="text-xs font-medium text-[var(--color-text-tertiary)]">Selected teacher</span>
               <select value={selectedTeacherId} onChange={e => setSelectedTeacherId(e.target.value)} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold">
@@ -919,7 +970,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                 {teacherOptions.map(teacher => <option key={teacher._id} value={teacher._id}>{teacher.label}</option>)}
               </select>
             </label>
-          )}
+          ) : null}
         </div>
 
         {perspective === 'day' && <div className="flex gap-1 overflow-x-auto rounded-xl border bg-[var(--color-surface-primary)] p-1.5">{DISPLAY_ORDER.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-20 flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${selectedDay === day ? 'bg-primary-600 text-white' : 'hover:bg-[var(--color-surface-secondary)]'}`}>{DAY_SHORT[day]}</button>)}</div>}
@@ -959,7 +1010,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
           ) : periods.length === 0 ? (
             <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div>
           ) : perspective === 'day' ? (
-            <div className="schedule-timetable-print-scroll overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{columns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="break-words font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, columns.length + 1)} className="schedule-break-row border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} ({formatTime(period.startTime)} – {formatTime(period.endTime)})</td> : <><td className="schedule-period-cell border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="schedule-period-time mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div></td>{columns.map(cls => {
+            <div className="schedule-timetable-print-scroll overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{dayColumns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="break-words font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, dayColumns.length + 1)} className="schedule-break-row border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} ({formatTime(period.startTime)} – {formatTime(period.endTime)})</td> : <><td className="schedule-period-cell border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="schedule-period-time mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div></td>{dayColumns.map(cls => {
                     const existing = cellSchedules(cls._id, period);
                     const selected = currentCourseId(cls._id, period);
                     const hasDraft = Object.prototype.hasOwnProperty.call(draft, draftKey(cls._id, period));
