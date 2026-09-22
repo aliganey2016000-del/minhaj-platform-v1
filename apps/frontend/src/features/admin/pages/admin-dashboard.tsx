@@ -54,7 +54,7 @@ interface StudentStats {
 }
 
 interface AttendanceData {
-  attendance: { present: number; late: number; absent: number; excused: number };
+  attendance: { present: number; absent: number };
   sessions: { total: number; complete: number; partial: number; missing: number; completionRate: number };
 }
 
@@ -252,12 +252,11 @@ export function AdminDashboard() {
 
   const attendanceSummary = useMemo(() => {
     if (!attendance) return null;
-    const { present, late, absent, excused } = attendance.attendance;
-    const total = present + late + absent + excused;
-    const attending = present + late;
+    const { present, absent } = attendance.attendance;
+    const total = present + absent;
     return {
-      attending,
-      rate: total > 0 ? Math.round((attending / total) * 100) : 0,
+      attending: present,
+      rate: total > 0 ? Math.round((present / total) * 100) : 0,
     };
   }, [attendance]);
 
