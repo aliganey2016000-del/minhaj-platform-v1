@@ -171,6 +171,8 @@ function StatusBadge({ status }: { status: AttendanceStatus }) {
 export function SchoolAttendanceManage() {
   const [tab, setTab] = useState<Tab>('take');
   const [date, setDate] = useState(localISODate());
+  const [classFilter, setClassFilter] = useState('');
+  const [periodFilter, setPeriodFilter] = useState('');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [calendarDay, setCalendarDay] = useState<CalendarDay | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -247,6 +249,34 @@ export function SchoolAttendanceManage() {
       }
     })();
   }, [tab]);
+
+  const classOptions = useMemo(
+    () => Array.from(new Set(sessions.map((session) => session.className).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [sessions],
+  );
+
+  const periodOptions = useMemo(
+    () => Array.from(new Set(sessions.map((session) => `${session.startTime}–${session.endTime}`).filter(Boolean))),
+    [sessions],
+  );
+
+  const filteredSessions = useMemo(
+    () => sessions.filter((session) => {
+      const matchesClass = !classFilter || session.className === classFilter;
+      const matchesPeriod = !periodFilter || `${session.startTime}–${session.endTime}` === periodFilter;
+      return matchesClass && matchesPeriod;
+    }),
+    [sessions, classFilter, periodFilter],
+  );
+
+  useEffect(() => {
+    if (!selectedId) return;
+    if (!filteredSessions.some((session) => session._id === selectedId)) {
+      setSelectedId('');
+      setDetail(null);
+      setRecords({});
+    }
+  }, [filteredSessions, selectedId]);
 
   const openSession = async (sessionId: string) => {
     setSelectedId(sessionId); setDetailLoading(true); setError(''); setMessage('');
@@ -418,8 +448,26 @@ export function SchoolAttendanceManage() {
       {(tab === 'take' || tab === 'view') && (
         <>
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-            <label className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Attendance Date</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm sm:max-w-xs" />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Attendance Date</span>
+                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm" />
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Class</span>
+                <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
+                  <option value="">All Classes</option>
+                  {classOptions.map((className) => <option key={className} value={className}>{className}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Period</span>
+                <select value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
+                  <option value="">All Periods</option>
+                  {periodOptions.map((period) => <option key={period} value={period}>{period}</option>)}
+                </select>
+              </label>
+            </div>
             <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">Only scheduled lessons on an instructional school day can be marked.</p>
           </div>
 
@@ -433,7 +481,7 @@ export function SchoolAttendanceManage() {
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-[var(--color-text-primary)]">Scheduled Classes</h2>
-              <span className="text-xs text-[var(--color-text-tertiary)]">{sessions.length} session{sessions.length === 1 ? '' : 's'}</span>
+              <span className="text-xs text-[var(--color-text-tertiary)]">{filteredSessions.length} session{filteredSessions.length === 1 ? '' : 's'}</span>
             </div>
             {sessionsLoading ? (
               <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center text-sm text-[var(--color-text-tertiary)]">Loading scheduled classes...</div>
@@ -443,9 +491,15 @@ export function SchoolAttendanceManage() {
                 <p className="font-semibold text-[var(--color-text-primary)]">{calendarDay && !calendarDay.isInstructional ? 'Attendance closed for this date' : 'No classes scheduled for this date'}</p>
                 <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{calendarDay && !calendarDay.isInstructional ? 'Change the School Calendar only if this should be an instructional day.' : 'Create the class schedule first, then attendance will appear here automatically.'}</p>
               </div>
+            ) : filteredSessions.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center">
+                <Search className="mx-auto mb-3 h-8 w-8 text-[var(--color-text-tertiary)]" />
+                <p className="font-semibold text-[var(--color-text-primary)]">No sessions match these filters</p>
+                <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose another class or period.</p>
+              </div>
             ) : (
               <div className="grid gap-3 lg:grid-cols-2">
-                {sessions.map((session) => {
+                {filteredSessions.map((session) => {
                   const completion = session.attendance.completionStatus || (session.attendance.taken ? 'complete' : 'not_taken');
                   return (
                     <button key={session._id} type="button" onClick={() => openSession(session._id)} className={`rounded-2xl border p-4 text-left shadow-card transition hover:border-primary-400 ${selectedId === session._id ? 'border-primary-500 bg-primary-50/50 dark:bg-primary-950/20' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)]'}`}>
