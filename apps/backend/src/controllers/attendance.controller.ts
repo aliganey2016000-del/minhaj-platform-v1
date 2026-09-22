@@ -11,6 +11,10 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
 
+function normalizeAttendanceStatus(status: unknown): 'present' | 'absent' {
+  return status === 'present' || status === 'late' ? 'present' : 'absent';
+}
+
 async function sendAttendanceAlerts(_params: { courseId: string; scheduleId: mongoose.Types.ObjectId | null; date: Date; records: any[]; createdBy?: string }) {
   // Attendance WhatsApp/Telegram delivery is centralized in
   // services/attendance-notification-automation.ts, which wraps
@@ -62,7 +66,13 @@ export const getByCourseAndDate = async (req: Request, res: Response): Promise<R
   const markerIds = [...new Set(records.map((r: any) => r.markedBy?.toString()).filter(Boolean))];
   const [markerUsers, markerProfiles] = await Promise.all([User.find({ _id: { $in: markerIds } }).select('email role').lean(), Profile.find({ user: { $in: markerIds } }).select('user firstName lastName').lean()]);
   const markerMap = new Map(markerIds.map((id) => { const u = markerUsers.find((mu) => mu._id.toString() === id); const p = markerProfiles.find((mp) => mp.user.toString() === id); return [id, { name: p ? `${p.firstName} ${p.lastName}` : u?.email || 'Unknown', role: u?.role || '' }]; }));
-  return ApiResponse.success(res, records.map((r: any) => ({ ...r, course: course ? { _id: course._id, title: course.title } : null, markedBy: r.markedBy ? markerMap.get(r.markedBy.toString()) || null : null })));
+  return ApiResponse.success(res, records.map((r: any) => ({
+    ...r,
+    status: normalizeAttendanceStatus(r.status),
+    excused: r.status === 'excused' || !!r.reasonCode,
+    course: course ? { _id: course._id, title: course.title } : null,
+    markedBy: r.markedBy ? markerMap.get(r.markedBy.toString()) || null : null,
+  })));
 };
 
 export const getStudentSummary = async (req: Request, res: Response): Promise<Response> => {
@@ -94,11 +104,16 @@ export const getMyAttendanceByCourse = async (req: Request, res: Response): Prom
 export const getMyCourseHistory = async (req: Request, res: Response): Promise<Response> => {
   const { courseId } = req.query; if (!courseId) throw new BadRequestError('courseId query param required');
   const student = await ensureStudentRecord(req.user!.userId);
-  const records = await Attendance.find({ course: courseId, student: student._id }).select('date status notes schedule markedBy').populate('schedule', 'startTime endTime').sort({ date: -1 }).lean();
+  const records = await Attendance.find({ course: courseId, student: student._id }).select('date status reasonCode notes schedule markedBy').populate('schedule', 'startTime endTime').sort({ date: -1 }).lean();
   const markerIds = [...new Set(records.map((r: any) => r.markedBy?.toString()).filter(Boolean))];
   const markerProfiles = await Profile.find({ user: { $in: markerIds } }).select('user firstName lastName').lean();
   const markerMap = new Map(markerProfiles.map((p) => [p.user.toString(), `${p.firstName} ${p.lastName}`]));
-  return ApiResponse.success(res, records.map((r: any) => ({ ...r, markedBy: r.markedBy ? markerMap.get(r.markedBy.toString()) || null : null })));
+  return ApiResponse.success(res, records.map((r: any) => ({
+    ...r,
+    status: normalizeAttendanceStatus(r.status),
+    excused: r.status === 'excused' || !!r.reasonCode,
+    markedBy: r.markedBy ? markerMap.get(r.markedBy.toString()) || null : null,
+  })));
 };
 
 export const getCourseReport = async (req: Request, res: Response): Promise<Response> => {
@@ -133,9 +148,14 @@ export const getReportInsights = async (req: Request, res: Response): Promise<Re
 
 export const getStudentCourseHistory = async (req: Request, res: Response): Promise<Response> => {
   const { courseId, studentId } = req.query; if (!courseId || !studentId) throw new BadRequestError('courseId and studentId query params required');
-  const records = await Attendance.find({ course: courseId, student: studentId }).select('date status notes schedule markedBy').populate('schedule', 'startTime endTime').sort({ date: -1 }).lean();
+  const records = await Attendance.find({ course: courseId, student: studentId }).select('date status reasonCode notes schedule markedBy').populate('schedule', 'startTime endTime').sort({ date: -1 }).lean();
   const markerIds = [...new Set(records.map((r: any) => r.markedBy?.toString()).filter(Boolean))];
   const [markerUsers, markerProfiles] = await Promise.all([User.find({ _id: { $in: markerIds } }).select('email role').lean(), Profile.find({ user: { $in: markerIds } }).select('user firstName lastName').lean()]);
   const markerMap = new Map(markerIds.map((id) => { const u = markerUsers.find((mu) => mu._id.toString() === id); const p = markerProfiles.find((mp) => mp.user.toString() === id); return [id, { name: p ? `${p.firstName} ${p.lastName}` : u?.email || 'Unknown', role: u?.role || '' }]; }));
-  return ApiResponse.success(res, records.map((r: any) => ({ ...r, markedBy: r.markedBy ? markerMap.get(r.markedBy.toString()) || null : null })));
+  return ApiResponse.success(res, records.map((r: any) => ({
+    ...r,
+    status: normalizeAttendanceStatus(r.status),
+    excused: r.status === 'excused' || !!r.reasonCode,
+    markedBy: r.markedBy ? markerMap.get(r.markedBy.toString()) || null : null,
+  })));
 };
