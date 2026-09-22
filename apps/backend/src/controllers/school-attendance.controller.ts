@@ -70,6 +70,10 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
   const date = attendanceDay(req.query.date);
   const dayOfWeek = date.getDay();
   const teacherFilter = await scheduleScope(req, date);
+  const classId = String(req.query.classId || '').trim();
+  const startTime = String(req.query.startTime || '').trim();
+  const endTime = String(req.query.endTime || '').trim();
+  if (classId && !mongoose.isValidObjectId(classId)) throw new BadRequestError('A valid class is required');
 
   const calendarDay: any = await SchoolCalendarDay.findOne({ school: schoolId, date })
     .select('date type name isInstructional notes')
@@ -83,7 +87,12 @@ export const getSchoolSessions = async (req: Request, res: Response): Promise<Re
     });
   }
 
-  const schedules = await ClassSchedule.find({ school: schoolId, dayOfWeek, isActive: true, ...teacherFilter })
+  const scheduleQuery: Record<string, unknown> = { school: schoolId, dayOfWeek, isActive: true, ...teacherFilter };
+  if (classId) scheduleQuery.class = classId;
+  if (startTime) scheduleQuery.startTime = startTime;
+  if (endTime) scheduleQuery.endTime = endTime;
+
+  const schedules = await ClassSchedule.find(scheduleQuery)
     .populate('class', 'title section')
     .populate('course', 'title courseCode')
     .populate(TEACHER_POPULATE)
@@ -238,7 +247,11 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
 export const getSchoolOptions = async (req: Request, res: Response): Promise<Response> => {
   const { schoolId } = await schoolContext(req);
   const teacherFilter = await scheduleScope(req);
-  const schedules = await ClassSchedule.find({ school: schoolId, isActive: true, ...teacherFilter })
+  const dateValue = String(req.query.date || '').trim();
+  const scheduleQuery: Record<string, unknown> = { school: schoolId, isActive: true, ...teacherFilter };
+  if (dateValue) scheduleQuery.dayOfWeek = attendanceDay(dateValue).getDay();
+
+  const schedules = await ClassSchedule.find(scheduleQuery)
     .populate('class', 'title section')
     .populate('course', 'title courseCode')
     .sort({ dayOfWeek: 1, startTime: 1 })
@@ -248,7 +261,9 @@ export const getSchoolOptions = async (req: Request, res: Response): Promise<Res
   const options: any[] = [];
   for (const schedule of schedules as any[]) {
     if (!schedule.class || !schedule.course) continue;
-    const key = `${schedule.class._id}:${schedule.course._id}`;
+    const key = dateValue
+      ? `${schedule.class._id}:${schedule.course._id}:${schedule.startTime}:${schedule.endTime}`
+      : `${schedule.class._id}:${schedule.course._id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     options.push({
@@ -257,6 +272,9 @@ export const getSchoolOptions = async (req: Request, res: Response): Promise<Res
       courseId: schedule.course._id,
       courseName: schedule.course.title?.en || schedule.course.courseCode || 'Subject',
       courseCode: schedule.course.courseCode || '',
+      dayOfWeek: schedule.dayOfWeek,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
     });
   }
 
