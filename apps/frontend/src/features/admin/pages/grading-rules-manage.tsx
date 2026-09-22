@@ -22,6 +22,7 @@ import { useNavigate } from 'react-router-dom';
 import { Search, Percent, CheckCircle2, XCircle, LayoutGrid, ArrowRight, CheckSquare, Square, X, Plus, Trash2, Layers } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
+import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
 
 interface CourseGradingStatus {
   _id: string;
@@ -212,6 +213,8 @@ export function GradingRulesManage() {
             </div>
           )}
         </div>
+
+        <ExamWorkspaceTabs />
 
         {/* Stats — gradient tiles doubling as status filter tabs */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
