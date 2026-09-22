@@ -22,10 +22,10 @@ function dateRange(rawFrom: unknown, rawTo: unknown) {
 /**
  * Status-accurate attendance report.
  *
- * Excused is reported independently rather than being silently folded into
- * Absent. Late means the student attended the lesson, so the attendance rate
- * is (Present + Late) / Total. Schools can later apply local policy to the
- * separate raw counts without losing information.
+ * School-facing reports use two attendance outcomes only: Present and Absent.
+ * Historical Late records are treated as Present, while historical Excused
+ * records are treated as Absent. Excuse details remain available on the
+ * underlying attendance record through reasonCode.
  */
 export const getCourseReport = async (req: Request, res: Response): Promise<Response> => {
   const courseId = String(req.query.courseId || '');
@@ -57,10 +57,8 @@ export const getCourseReport = async (req: Request, res: Response): Promise<Resp
       $group: {
         _id: '$student',
         total: { $sum: 1 },
-        present: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
-        late: { $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] } },
-        absent: { $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] } },
-        excused: { $sum: { $cond: [{ $eq: ['$status', 'excused'] }, 1, 0] } },
+        present: { $sum: { $cond: [{ $in: ['$status', ['present', 'late']] }, 1, 0] } },
+        absent: { $sum: { $cond: [{ $in: ['$status', ['absent', 'excused']] }, 1, 0] } },
       },
     },
   ]);
@@ -70,20 +68,15 @@ export const getCourseReport = async (req: Request, res: Response): Promise<Resp
     const row: any = statsMap.get(String(student._id));
     const total = row?.total || 0;
     const present = row?.present || 0;
-    const late = row?.late || 0;
     const absent = row?.absent || 0;
-    const excused = row?.excused || 0;
     return {
       _id: student._id,
       studentId: student.studentId,
       name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
       total,
       present,
-      late,
       absent,
-      excused,
-      missed: absent + excused,
-      percentage: total > 0 ? Math.round(((present + late) / total) * 100) : 0,
+      percentage: total > 0 ? Math.round((present / total) * 100) : 0,
     };
   });
 
