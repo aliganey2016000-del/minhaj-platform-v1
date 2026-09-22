@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -147,6 +147,7 @@ function StatusButtons({ value, onChange, disabled }: { value: AttendanceStatus;
 }
 
 export function SchoolAttendanceManage() {
+  const preserveReportOpenRef = useRef(false);
   const [tab, setTab] = useState<Tab>('take');
   const [date, setDate] = useState(localISODate());
   const [classFilter, setClassFilter] = useState('');
@@ -237,7 +238,17 @@ export function SchoolAttendanceManage() {
       }
     }
     if (tab === 'calendar') void loadCalendar();
-    setSelectedId(''); setDetail(null); setRecords({}); setMessage(''); setError('');
+    if (preserveReportOpenRef.current && tab === 'take') {
+      preserveReportOpenRef.current = false;
+      setMessage('');
+      setError('');
+    } else {
+      setSelectedId('');
+      setDetail(null);
+      setRecords({});
+      setMessage('');
+      setError('');
+    }
   }, [tab, classFilter, periodFilter, loadSessions, loadCalendar]);
 
   const classOptions = useMemo(() => {
@@ -300,6 +311,10 @@ export function SchoolAttendanceManage() {
     startTime: string;
     endTime: string;
   }) => {
+    // The normal Take-tab filter effect clears the selected roster whenever
+    // date/class/period changes. Preserve this direct report drill-down so the
+    // requested lesson stays open while those filters synchronise.
+    preserveReportOpenRef.current = true;
     setDate(input.date);
     setClassFilter(input.classId);
     setPeriodFilter(`${input.startTime}|${input.endTime}`);
