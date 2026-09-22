@@ -98,8 +98,12 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
 
     const status = String(record?.status || '');
     if (!ALLOWED_STATUSES.has(status)) throw new BadRequestError(`Invalid attendance status for student ${studentId}.`);
-    const reasonCode = String(record?.reasonCode || '').trim();
+    if (isSchool && !['present', 'absent'].includes(status)) {
+      throw new BadRequestError('School attendance uses Present and Absent only.');
+    }
+    let reasonCode = String(record?.reasonCode || '').trim();
     if (!ALLOWED_REASONS.has(reasonCode)) throw new BadRequestError(`Invalid attendance reason for student ${studentId}.`);
+    if (status === 'present') reasonCode = '';
 
     return {
       student: new mongoose.Types.ObjectId(studentId),
