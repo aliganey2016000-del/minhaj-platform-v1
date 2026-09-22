@@ -3,12 +3,19 @@ import { CalendarDays, Check, ChevronLeft, ChevronRight, Pencil, Printer, Refres
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
+interface TeacherItem {
+  _id: string;
+  teacherId?: string;
+  profile?: { firstName?: string; lastName?: string } | null;
+  user?: { email?: string } | string | null;
+}
+
 interface ScheduleItem {
   _id: string;
   school?: { _id: string; name: string } | string;
   class?: { _id: string; title?: string; section?: string } | string;
   course?: { _id: string; title?: { en?: string; [key: string]: unknown } | string } | string;
-  teacher?: unknown;
+  teacher?: TeacherItem | string | null;
   room?: string;
   dayOfWeek: number | string;
   startTime: string;
@@ -101,6 +108,19 @@ function courseLabel(item?: ScheduleItem['course'] | CourseItem) {
   return typeof first === 'string' ? first : '—';
 }
 
+function teacherIdOf(item?: ScheduleItem['teacher']) {
+  if (!item) return '';
+  return typeof item === 'string' ? item : item._id;
+}
+
+function teacherLabel(item?: ScheduleItem['teacher']) {
+  if (!item) return 'Unassigned';
+  if (typeof item === 'string') return item;
+  const fullName = `${item.profile?.firstName || ''} ${item.profile?.lastName || ''}`.trim();
+  const email = typeof item.user === 'object' && item.user ? item.user.email : '';
+  return fullName || item.teacherId || email || 'Teacher';
+}
+
 function departmentId(item: ClassItem) {
   if (item.departmentId) return String(item.departmentId);
   if (typeof item.department === 'string') return item.department;
@@ -122,7 +142,9 @@ function responseList(response: any): ScheduleItem[] {
   return Array.isArray(raw) ? raw : [];
 }
 
-export function SchedulesTimetable() {
+export type SchedulePerspective = 'day' | 'class' | 'teacher';
+
+export function SchedulesTimetable({ perspective = 'day' }: { perspective?: SchedulePerspective }) {
   const { user } = useAuth();
   const isOrgAdmin = user?.role === 'org_admin';
   const organizationId = String((user as any)?.organizationId || (user as any)?.schoolId || '');
@@ -135,6 +157,8 @@ export function SchedulesTimetable() {
   const [configuredPeriods, setConfiguredPeriods] = useState<TimetablePeriod[]>([]);
   const [schoolId, setSchoolId] = useState(isOrgAdmin ? organizationId : '');
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const [selectedTeacherId, setSelectedTeacherId] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState(ALL_DEPARTMENTS);
   const [shiftFilter, setShiftFilter] = useState(ALL_SHIFTS);
   const [loading, setLoading] = useState(false);
@@ -236,6 +260,8 @@ export function SchedulesTimetable() {
   useEffect(() => {
     setDepartmentFilter(ALL_DEPARTMENTS);
     setShiftFilter(ALL_SHIFTS);
+    setSelectedClassId('');
+    setSelectedTeacherId('');
     setCoursesByClass({});
     setDraft({});
     setEditMode(false);
@@ -267,24 +293,6 @@ export function SchedulesTimetable() {
     .filter(item => item.isActive && normalizeDay(item.dayOfWeek) === selectedDay)
     .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)), [schedules, selectedDay]);
 
-  const periods = useMemo(() => {
-    if (configuredPeriods.length) {
-      let lesson = 0;
-      return configuredPeriods
-        .map((period, index) => ({ ...period, key: `${period.startTime}-${period.endTime}-${index}` }))
-        .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
-        .map(period => ({ ...period, lessonNumber: period.isBreak ? undefined : ++lesson }));
-    }
-    const map = new Map<string, TimetablePeriod>();
-    daySchedules.forEach(item => {
-      const startTime = String(item.startTime).slice(0, 5);
-      const endTime = String(item.endTime).slice(0, 5);
-      map.set(`${startTime}-${endTime}`, { key: `${startTime}-${endTime}`, startTime, endTime, isBreak: false });
-    });
-    let lesson = 0;
-    return Array.from(map.values()).sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)).map(period => ({ ...period, lessonNumber: ++lesson }));
-  }, [configuredPeriods, daySchedules]);
-
   const departmentOptions = useMemo(() => {
     const names = new Map(departments.map(d => [d._id, d.name]));
     const map = new Map<string, string>();
@@ -299,6 +307,74 @@ export function SchedulesTimetable() {
   const departmentClasses = useMemo(() => classes.filter(cls => departmentFilter === ALL_DEPARTMENTS || departmentId(cls) === departmentFilter), [classes, departmentFilter]);
   const shiftOptions = useMemo(() => Array.from(new Set(departmentClasses.map(shiftValue))).map(value => ({ value, label: shiftLabel(value) })).sort((a, b) => a.label.localeCompare(b.label)), [departmentClasses]);
   const columns = useMemo(() => departmentClasses.filter(cls => shiftFilter === ALL_SHIFTS || shiftValue(cls) === shiftFilter), [departmentClasses, shiftFilter]);
+
+  const scopedActiveSchedules = useMemo(() => {
+    const visibleClassIds = new Set(columns.map(cls => cls._id));
+    return schedules.filter(item => item.isActive && visibleClassIds.has(classIdOf(item.class)));
+  }, [columns, schedules]);
+
+  const teacherOptions = useMemo(() => {
+    const map = new Map<string, { _id: string; label: string }>();
+    scopedActiveSchedules.forEach(item => {
+      const id = teacherIdOf(item.teacher);
+      if (!id) return;
+      map.set(id, { _id: id, label: teacherLabel(item.teacher) });
+    });
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  }, [scopedActiveSchedules]);
+
+  useEffect(() => {
+    if (selectedClassId && columns.some(cls => cls._id === selectedClassId)) return;
+    setSelectedClassId(columns[0]?._id || '');
+  }, [columns, selectedClassId]);
+
+  useEffect(() => {
+    if (selectedTeacherId && teacherOptions.some(teacher => teacher._id === selectedTeacherId)) return;
+    setSelectedTeacherId(teacherOptions[0]?._id || '');
+  }, [selectedTeacherId, teacherOptions]);
+
+  const selectedClass = useMemo(() => columns.find(cls => cls._id === selectedClassId), [columns, selectedClassId]);
+  const selectedTeacher = useMemo(() => teacherOptions.find(teacher => teacher._id === selectedTeacherId), [selectedTeacherId, teacherOptions]);
+
+  const selectedClassSchedules = useMemo(
+    () => scopedActiveSchedules
+      .filter(item => classIdOf(item.class) === selectedClassId)
+      .sort((a, b) => normalizeDay(a.dayOfWeek) - normalizeDay(b.dayOfWeek) || timeToMinutes(a.startTime) - timeToMinutes(b.startTime)),
+    [scopedActiveSchedules, selectedClassId],
+  );
+
+  const selectedTeacherSchedules = useMemo(
+    () => scopedActiveSchedules
+      .filter(item => teacherIdOf(item.teacher) === selectedTeacherId)
+      .sort((a, b) => normalizeDay(a.dayOfWeek) - normalizeDay(b.dayOfWeek) || timeToMinutes(a.startTime) - timeToMinutes(b.startTime)),
+    [scopedActiveSchedules, selectedTeacherId],
+  );
+
+  const periodSourceSchedules = perspective === 'day'
+    ? daySchedules
+    : perspective === 'class'
+      ? selectedClassSchedules
+      : selectedTeacherSchedules;
+
+  const periods = useMemo(() => {
+    if (configuredPeriods.length) {
+      let lesson = 0;
+      return configuredPeriods
+        .map((period, index) => ({ ...period, key: `${period.startTime}-${period.endTime}-${index}` }))
+        .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
+        .map(period => ({ ...period, lessonNumber: period.isBreak ? undefined : ++lesson }));
+    }
+    const map = new Map<string, TimetablePeriod>();
+    periodSourceSchedules.forEach(item => {
+      const startTime = String(item.startTime).slice(0, 5);
+      const endTime = String(item.endTime).slice(0, 5);
+      map.set(`${startTime}-${endTime}`, { key: `${startTime}-${endTime}`, startTime, endTime, isBreak: false });
+    });
+    let lesson = 0;
+    return Array.from(map.values())
+      .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
+      .map(period => ({ ...period, lessonNumber: ++lesson }));
+  }, [configuredPeriods, periodSourceSchedules]);
 
   const loadClassCourses = useCallback(async (classId: string) => {
     if (!effectiveSchoolId || coursesByClass[classId] || loadingCourses.has(classId)) return;
@@ -322,6 +398,18 @@ export function SchedulesTimetable() {
     const pEnd = timeToMinutes(period.endTime);
     return sameClass.filter(item => timeToMinutes(item.startTime) < pEnd && timeToMinutes(item.endTime) > pStart);
   }, [daySchedules]);
+
+  const weeklyCellSchedules = (items: ScheduleItem[], day: number, period: TimetablePeriod) => {
+    if (period.isBreak) return [];
+    const pStart = timeToMinutes(period.startTime);
+    const pEnd = timeToMinutes(period.endTime);
+    return items.filter(item => {
+      if (normalizeDay(item.dayOfWeek) !== day) return false;
+      const start = timeToMinutes(item.startTime);
+      const end = timeToMinutes(item.endTime);
+      return start < pEnd && end > pStart;
+    });
+  };
 
   const draftKey = (classId: string, period: TimetablePeriod) => `${selectedDay}|${classId}|${period.startTime}|${period.endTime}`;
 
@@ -436,12 +524,28 @@ export function SchedulesTimetable() {
     return DISPLAY_ORDER[((idx < 0 ? 0 : idx) + offset + DISPLAY_ORDER.length) % DISPLAY_ORDER.length];
   });
 
-  const visibleSessionCount = daySchedules.filter(item => columns.some(cls => cls._id === classIdOf(item.class))).length;
+  const visibleSessionCount = perspective === 'day'
+    ? daySchedules.filter(item => columns.some(cls => cls._id === classIdOf(item.class))).length
+    : perspective === 'class'
+      ? selectedClassSchedules.length
+      : selectedTeacherSchedules.length;
+
+  const perspectiveSummary = perspective === 'day'
+    ? `${columns.length} classes`
+    : perspective === 'class'
+      ? classLabel(selectedClass)
+      : selectedTeacher?.label || 'No teacher selected';
+
   const printSchoolName = printBranding.name || schools.find(school => school._id === effectiveSchoolId)?.name || user?.organizationName || 'School';
   const printLogo = printBranding.branding?.logo || '';
-  const printAcademicYears = Array.from(new Set(columns.map(cls => String(cls.academicYear || '').trim()).filter(Boolean)));
+  const printClasses = perspective === 'class' && selectedClass
+    ? [selectedClass]
+    : perspective === 'teacher'
+      ? columns.filter(cls => selectedTeacherSchedules.some(item => classIdOf(item.class) === cls._id))
+      : columns;
+  const printAcademicYears = Array.from(new Set(printClasses.map(cls => String(cls.academicYear || '').trim()).filter(Boolean)));
   const printAcademicYear = printAcademicYears.length ? printAcademicYears.join(' / ') : '—';
-  const visibleShifts = Array.from(new Set(columns.map(shiftValue).filter(value => value !== UNASSIGNED_SHIFT)));
+  const visibleShifts = Array.from(new Set(printClasses.map(shiftValue).filter(value => value !== UNASSIGNED_SHIFT)));
   const printShiftName = shiftFilter !== ALL_SHIFTS
     ? shiftLabel(shiftFilter)
     : visibleShifts.length === 1
@@ -454,6 +558,23 @@ export function SchedulesTimetable() {
     month: 'long',
     year: 'numeric',
   }).format(new Date());
+  const printTitle = perspective === 'teacher' ? 'TEACHER SCHEDULE' : 'CLASS SCHEDULE';
+  const printSubtitle = perspective === 'day'
+    ? `${DAYS[selectedDay]} Timetable - ${printShiftName}`
+    : perspective === 'class'
+      ? `${classLabel(selectedClass)} - Weekly Timetable`
+      : `${selectedTeacher?.label || 'Teacher'} - Weekly Timetable`;
+  const printContextLabel = perspective === 'day' ? 'Day' : perspective === 'class' ? 'Class' : 'Teacher';
+  const printContextValue = perspective === 'day'
+    ? DAYS[selectedDay]
+    : perspective === 'class'
+      ? classLabel(selectedClass)
+      : selectedTeacher?.label || '—';
+  const printFooterLabel = perspective === 'day'
+    ? `Class Schedule - ${DAYS[selectedDay]}`
+    : perspective === 'class'
+      ? `Class Schedule - ${classLabel(selectedClass)}`
+      : `Teacher Schedule - ${selectedTeacher?.label || 'Teacher'}`;
 
   return (
     <div className="min-h-full bg-[var(--color-surface-primary)] p-4 pt-20 sm:p-6 lg:pt-8">
@@ -684,6 +805,7 @@ export function SchedulesTimetable() {
           #schedule-timetable-print .schedule-print-subject {
             min-height: 30px !important;
             display: flex !important;
+            flex-direction: column !important;
             align-items: center !important;
             justify-content: center !important;
             padding: 4px 3px !important;
@@ -753,7 +875,7 @@ export function SchedulesTimetable() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30"><CalendarDays className="h-5 w-5" /></div>
-            <div><h1 className="text-2xl font-bold">Class Timetable</h1><p className="text-xs text-[var(--color-text-tertiary)]">{visibleSessionCount} visible sessions · {columns.length} classes</p></div>
+            <div><h1 className="text-2xl font-bold">Class Timetable</h1><p className="text-xs text-[var(--color-text-tertiary)]">{visibleSessionCount} visible sessions · {perspectiveSummary}</p></div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {!isOrgAdmin && <select value={schoolId} onChange={e => setSchoolId(e.target.value)} className="rounded-lg border bg-[var(--color-surface-primary)] px-3 py-2 text-xs"><option value="">Select Organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>}
@@ -768,16 +890,34 @@ export function SchedulesTimetable() {
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
         {success && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{success}</div>}
-        {editMode && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><strong>Edit mode:</strong> choose courses in the table, then press <strong>Save Timetable</strong>. Unsaved selections are kept in this browser even if the page is refreshed.</div>}
+        {editMode && perspective === 'day' && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><strong>Edit mode:</strong> choose courses in the table, then press <strong>Save Timetable</strong>. Unsaved selections are kept in this browser even if the page is refreshed.</div>}
 
         <div className="flex flex-col gap-3 rounded-2xl border bg-[var(--color-surface-primary)] p-3 lg:flex-row lg:items-center">
           <select value={departmentFilter} onChange={e => { setDepartmentFilter(e.target.value); setShiftFilter(ALL_SHIFTS); }} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value={ALL_DEPARTMENTS}>All Departments</option>{departmentOptions.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}</select>
           <select value={shiftFilter} onChange={e => setShiftFilter(e.target.value)} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"><option value={ALL_SHIFTS}>All Shifts</option>{shiftOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
           <button onClick={() => { setDepartmentFilter(ALL_DEPARTMENTS); setShiftFilter(ALL_SHIFTS); }} className="inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm"><RotateCcw className="h-4 w-4" />Reset Filters</button>
-          <div className="flex flex-1 items-center justify-center gap-2 lg:justify-end"><button onClick={() => moveDay(-1)} className="rounded-lg border p-2"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-36 text-center"><div className="text-xs text-[var(--color-text-tertiary)]">Selected day</div><div className="font-bold">{DAYS[selectedDay]}</div></div><button onClick={() => moveDay(1)} className="rounded-lg border p-2"><ChevronRight className="h-4 w-4" /></button></div>
+          {perspective === 'day' ? (
+            <div className="flex flex-1 items-center justify-center gap-2 lg:justify-end"><button onClick={() => moveDay(-1)} className="rounded-lg border p-2"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-36 text-center"><div className="text-xs text-[var(--color-text-tertiary)]">Selected day</div><div className="font-bold">{DAYS[selectedDay]}</div></div><button onClick={() => moveDay(1)} className="rounded-lg border p-2"><ChevronRight className="h-4 w-4" /></button></div>
+          ) : perspective === 'class' ? (
+            <label className="flex flex-1 flex-col gap-1 lg:max-w-sm lg:ml-auto">
+              <span className="text-xs font-medium text-[var(--color-text-tertiary)]">Selected class</span>
+              <select value={selectedClassId} onChange={e => setSelectedClassId(e.target.value)} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold">
+                {columns.length === 0 && <option value="">No classes available</option>}
+                {columns.map(cls => <option key={cls._id} value={cls._id}>{classLabel(cls)}</option>)}
+              </select>
+            </label>
+          ) : (
+            <label className="flex flex-1 flex-col gap-1 lg:max-w-sm lg:ml-auto">
+              <span className="text-xs font-medium text-[var(--color-text-tertiary)]">Selected teacher</span>
+              <select value={selectedTeacherId} onChange={e => setSelectedTeacherId(e.target.value)} className="rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold">
+                {teacherOptions.length === 0 && <option value="">No scheduled teachers</option>}
+                {teacherOptions.map(teacher => <option key={teacher._id} value={teacher._id}>{teacher.label}</option>)}
+              </select>
+            </label>
+          )}
         </div>
 
-        <div className="flex gap-1 overflow-x-auto rounded-xl border bg-[var(--color-surface-primary)] p-1.5">{DISPLAY_ORDER.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-20 flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${selectedDay === day ? 'bg-primary-600 text-white' : 'hover:bg-[var(--color-surface-secondary)]'}`}>{DAY_SHORT[day]}</button>)}</div>
+        {perspective === 'day' && <div className="flex gap-1 overflow-x-auto rounded-xl border bg-[var(--color-surface-primary)] p-1.5">{DISPLAY_ORDER.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-20 flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${selectedDay === day ? 'bg-primary-600 text-white' : 'hover:bg-[var(--color-surface-secondary)]'}`}>{DAY_SHORT[day]}</button>)}</div>}
 
         <div id="schedule-timetable-print" className="overflow-hidden rounded-2xl border bg-[var(--color-surface-primary)] shadow-sm">
           <div className="schedule-print-header">
@@ -793,31 +933,95 @@ export function SchedulesTimetable() {
               </div>
             </div>
             <div className="schedule-print-title">
-              <h2>CLASS SCHEDULE</h2>
-              <p>Weekly Timetable - {printShiftName}{printShiftName.toLowerCase().includes('shift') ? '' : ' Shift'}</p>
+              <h2>{printTitle}</h2>
+              <p>{printSubtitle}</p>
             </div>
             <div className="schedule-print-meta">
               <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Academic Year:</span><span>{printAcademicYear}</span></div>
               <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Shift:</span><span>{printShiftName}</span></div>
-              <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Day:</span><span>{DAYS[selectedDay]}</span></div>
+              <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">{printContextLabel}:</span><span>{printContextValue}</span></div>
               <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Generated:</span><span>{printGeneratedDate}</span></div>
             </div>
           </div>
-          {loading ? <div className="flex min-h-72 items-center justify-center"><RefreshCw className="mr-2 h-5 w-5 animate-spin" />Loading timetable...</div> : !effectiveSchoolId ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Select an organization to view the timetable.</div> : periods.length === 0 ? <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div> : <div className="schedule-timetable-print-scroll overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{columns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="break-words font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, columns.length + 1)} className="schedule-break-row border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} ({formatTime(period.startTime)} – {formatTime(period.endTime)})</td> : <><td className="schedule-period-cell border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="schedule-period-time mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div></td>{columns.map(cls => {
+          {loading ? (
+            <div className="flex min-h-72 items-center justify-center"><RefreshCw className="mr-2 h-5 w-5 animate-spin" />Loading timetable...</div>
+          ) : !effectiveSchoolId ? (
+            <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Select an organization to view the timetable.</div>
+          ) : perspective === 'class' && !selectedClass ? (
+            <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No class matches the current filters.</div>
+          ) : perspective === 'teacher' && !selectedTeacherId ? (
+            <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No scheduled teacher matches the current filters.</div>
+          ) : periods.length === 0 ? (
+            <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div>
+          ) : perspective === 'day' ? (
+            <div className="schedule-timetable-print-scroll overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{columns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="break-words font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, columns.length + 1)} className="schedule-break-row border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} ({formatTime(period.startTime)} – {formatTime(period.endTime)})</td> : <><td className="schedule-period-cell border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="schedule-period-time mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div></td>{columns.map(cls => {
                     const existing = cellSchedules(cls._id, period);
                     const selected = currentCourseId(cls._id, period);
                     const hasDraft = Object.prototype.hasOwnProperty.call(draft, draftKey(cls._id, period));
                     return <td key={`${cls._id}-${period.key}`} className={`border p-2 align-top ${hasDraft ? 'bg-amber-50/70' : ''}`}>
                       {editMode ? <select value={selected} onFocus={() => void loadClassCourses(cls._id)} onChange={e => setDraft(current => ({ ...current, [draftKey(cls._id, period)]: e.target.value }))} className="min-h-11 w-full rounded-lg border bg-[var(--color-surface-primary)] px-2 py-2 text-xs"><option value="">— No course —</option>{loadingCourses.has(cls._id) && <option disabled>Loading...</option>}{(coursesByClass[cls._id] || []).map(course => <option key={course._id} value={course._id}>{courseLabel(course)}{course.courseCode ? ` · ${course.courseCode}` : ''}</option>)}</select> : existing.length ? <div className="space-y-1.5">{existing.map(item => <div key={item._id} className={`schedule-print-subject schedule-print-subject-${((period.lessonNumber || 1) - 1) % 3 + 1} rounded-lg bg-primary-50 px-2 py-2 text-center text-xs text-primary-900 dark:bg-primary-950/30 dark:text-primary-100`}><div className="break-words font-bold">{courseLabel(item.course)}</div>{item.room && <div className="schedule-screen-only mt-1 text-[10px] opacity-70">Room {item.room}</div>}</div>)}</div> : <div className="schedule-empty-cell py-3 text-center text-xs text-[var(--color-text-tertiary)]">—</div>}
                     </td>;
-                  })}</>}</tr>)}</tbody></table></div>}
+                  })}</>}</tr>)}</tbody></table></div>
+          ) : (
+            <div className="schedule-timetable-print-scroll overflow-x-auto">
+              <table className="w-full min-w-[980px] table-fixed border-collapse">
+                <thead>
+                  <tr>
+                    <th className="w-24 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Day</th>
+                    {periods.map(period => (
+                      <th key={period.key || `${period.startTime}-${period.endTime}`} className="min-w-32 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">
+                        <div className="font-bold">{period.label || (period.isBreak ? 'Break' : `Period ${period.lessonNumber || ''}`)}</div>
+                        <div className="mt-1 text-[10px] font-normal text-[var(--color-text-tertiary)]">{formatTime(period.startTime)} – {formatTime(period.endTime)}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {DISPLAY_ORDER.map(day => (
+                    <tr key={day}>
+                      <td className="schedule-period-cell border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs font-bold">{DAYS[day]}</td>
+                      {periods.map(period => {
+                        if (period.isBreak) {
+                          return <td key={`${day}-${period.key}`} className="schedule-break-row border bg-amber-50 px-2 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'}</td>;
+                        }
+                        const existing = weeklyCellSchedules(
+                          perspective === 'class' ? selectedClassSchedules : selectedTeacherSchedules,
+                          day,
+                          period,
+                        );
+                        return (
+                          <td key={`${day}-${period.key}`} className="border p-2 align-top">
+                            {existing.length ? (
+                              <div className="space-y-1.5">
+                                {existing.map(item => (
+                                  <div key={item._id} className={`schedule-print-subject schedule-print-subject-${((period.lessonNumber || 1) - 1) % 3 + 1} rounded-lg bg-primary-50 px-2 py-2 text-center text-xs text-primary-900 dark:bg-primary-950/30 dark:text-primary-100`}>
+                                    <div className="break-words font-bold">{courseLabel(item.course)}</div>
+                                    {perspective === 'class' ? (
+                                      teacherIdOf(item.teacher) && <div className="mt-1 text-[10px] font-medium opacity-75">{teacherLabel(item.teacher)}</div>
+                                    ) : (
+                                      <div className="mt-1 text-[10px] font-medium opacity-75">{classLabel(item.class)}</div>
+                                    )}
+                                    {item.room && <div className="schedule-screen-only mt-1 text-[10px] opacity-70">Room {item.room}</div>}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : <div className="schedule-empty-cell py-3 text-center text-xs text-[var(--color-text-tertiary)]">—</div>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div className="schedule-print-footer">
-            <span>{printSchoolName} &nbsp;|&nbsp; Class Schedule - {DAYS[selectedDay]}</span>
+            <span>{printSchoolName} &nbsp;|&nbsp; {printFooterLabel}</span>
             <span>Page 1 of 1</span>
           </div>
         </div>
 
-        {editMode && <div className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-white/95 p-3 shadow-xl backdrop-blur dark:bg-slate-950/95"><div className="text-xs"><strong>{Object.keys(draft).length}</strong> unsaved timetable change(s)</div><div className="flex gap-2"><button onClick={cancelEdit} disabled={saving} className="rounded-xl border px-4 py-2 text-sm font-semibold">Cancel</button><button onClick={() => void saveTimetable()} disabled={saving || Object.keys(draft).length === 0} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-50"><Check className="h-4 w-4" />{saving ? 'Saving...' : 'Save Timetable'}</button></div></div>}
+        {editMode && perspective === 'day' && <div className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-white/95 p-3 shadow-xl backdrop-blur dark:bg-slate-950/95"><div className="text-xs"><strong>{Object.keys(draft).length}</strong> unsaved timetable change(s)</div><div className="flex gap-2"><button onClick={cancelEdit} disabled={saving} className="rounded-xl border px-4 py-2 text-sm font-semibold">Cancel</button><button onClick={() => void saveTimetable()} disabled={saving || Object.keys(draft).length === 0} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-50"><Check className="h-4 w-4" />{saving ? 'Saving...' : 'Save Timetable'}</button></div></div>}
       </div>
     </div>
   );
