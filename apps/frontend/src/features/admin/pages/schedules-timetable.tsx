@@ -313,6 +313,11 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
     return schedules.filter(item => item.isActive && visibleClassIds.has(classIdOf(item.class)));
   }, [columns, schedules]);
 
+  const weeklyDisplayDays = useMemo(
+    () => DISPLAY_ORDER.filter(day => scopedActiveSchedules.some(item => normalizeDay(item.dayOfWeek) === day)),
+    [scopedActiveSchedules],
+  );
+
   const teacherOptions = useMemo(() => {
     const map = new Map<string, { _id: string; label: string }>();
     scopedActiveSchedules.forEach(item => {
@@ -968,7 +973,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                 <thead>
                   <tr>
                     <th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>
-                    {DISPLAY_ORDER.map(day => (
+                    {weeklyDisplayDays.map(day => (
                       <th key={day} className="min-w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">
                         {DAYS[day]}
                       </th>
@@ -982,7 +987,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                         <div className="font-bold">{period.label || (period.isBreak ? 'Break' : `Period ${period.lessonNumber || ''}`)}</div>
                         <div className="schedule-period-time mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div>
                       </td>
-                      {DISPLAY_ORDER.map(day => {
+                      {weeklyDisplayDays.map(day => {
                         if (period.isBreak) {
                           return <td key={`${period.key}-${day}`} className="schedule-break-row border bg-amber-50 px-2 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'}</td>;
                         }
