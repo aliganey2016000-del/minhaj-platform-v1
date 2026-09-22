@@ -61,6 +61,7 @@ const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DISPLAY_ORDER = [6, 0, 1, 2, 3, 4, 5] as const;
 const ALL_DEPARTMENTS = '__all__';
 const ALL_SHIFTS = '__all_shifts__';
+const ALL_CLASSES = '__all_classes__';
 const UNASSIGNED_DEPARTMENT = '__unassigned__';
 const UNASSIGNED_SHIFT = '__unassigned_shift__';
 
@@ -161,7 +162,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState(ALL_DEPARTMENTS);
   const [shiftFilter, setShiftFilter] = useState(ALL_SHIFTS);
-  const [dayClassFilters, setDayClassFilters] = useState<string[]>([]);
+  const [dayClassFilters, setDayClassFilters] = useState<string[]>([ALL_CLASSES]);
   const [dayClassPickerOpen, setDayClassPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -262,7 +263,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   useEffect(() => {
     setDepartmentFilter(ALL_DEPARTMENTS);
     setShiftFilter(ALL_SHIFTS);
-    setDayClassFilters([]);
+    setDayClassFilters([ALL_CLASSES]);
     setDayClassPickerOpen(false);
     setSelectedClassId('');
     setSelectedTeacherId('');
@@ -315,28 +316,41 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   useEffect(() => {
     const availableIds = new Set(columns.map(cls => cls._id));
     setDayClassFilters(current => {
+      if (current.includes(ALL_CLASSES)) return current;
       const next = current.filter(id => availableIds.has(id));
       return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
     });
   }, [columns]);
 
+  const allDayClassesSelected = dayClassFilters.includes(ALL_CLASSES);
+
   const dayColumns = useMemo(
-    () => dayClassFilters.length === 0 ? columns : columns.filter(cls => dayClassFilters.includes(cls._id)),
-    [columns, dayClassFilters],
+    () => allDayClassesSelected ? columns : columns.filter(cls => dayClassFilters.includes(cls._id)),
+    [allDayClassesSelected, columns, dayClassFilters],
   );
 
   const dayClassFilterLabel = useMemo(() => {
-    if (dayClassFilters.length === 0) return 'All Classes';
+    if (allDayClassesSelected) return 'All Classes';
+    if (dayClassFilters.length === 0) return 'No Classes';
     if (dayClassFilters.length === 1) {
       return classLabel(columns.find(cls => cls._id === dayClassFilters[0]));
     }
     return `${dayClassFilters.length} Classes`;
-  }, [columns, dayClassFilters]);
+  }, [allDayClassesSelected, columns, dayClassFilters]);
+
+  const toggleAllDayClasses = () => {
+    setDayClassFilters(current => current.includes(ALL_CLASSES) ? [] : [ALL_CLASSES]);
+  };
 
   const toggleDayClass = (classId: string) => {
-    setDayClassFilters(current => current.includes(classId)
-      ? current.filter(id => id !== classId)
-      : [...current, classId]);
+    setDayClassFilters(current => {
+      if (current.includes(ALL_CLASSES)) {
+        return columns.filter(cls => cls._id !== classId).map(cls => cls._id);
+      }
+      return current.includes(classId)
+        ? current.filter(id => id !== classId)
+        : [...current, classId];
+    });
   };
 
   const scopedActiveSchedules = useMemo(() => {
@@ -934,7 +948,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
               <div className="grid grid-cols-3 gap-2">
                 <select
                   value={departmentFilter}
-                  onChange={e => { setDepartmentFilter(e.target.value); setShiftFilter(ALL_SHIFTS); setDayClassFilters([]); setDayClassPickerOpen(false); }}
+                  onChange={e => { setDepartmentFilter(e.target.value); setShiftFilter(ALL_SHIFTS); setDayClassFilters([ALL_CLASSES]); setDayClassPickerOpen(false); }}
                   className="min-w-0 w-full rounded-xl border bg-[var(--color-surface-primary)] px-2 py-2.5 text-xs sm:px-3 sm:text-sm"
                   aria-label="Department filter"
                 >
@@ -943,7 +957,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                 </select>
                 <select
                   value={shiftFilter}
-                  onChange={e => { setShiftFilter(e.target.value); setDayClassFilters([]); setDayClassPickerOpen(false); }}
+                  onChange={e => { setShiftFilter(e.target.value); setDayClassFilters([ALL_CLASSES]); setDayClassPickerOpen(false); }}
                   className="min-w-0 w-full rounded-xl border bg-[var(--color-surface-primary)] px-2 py-2.5 text-xs sm:px-3 sm:text-sm"
                   aria-label="Shift filter"
                 >
@@ -973,16 +987,16 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                       <div className="max-h-72 overflow-y-auto p-2" role="listbox" aria-multiselectable="true">
                         <button
                           type="button"
-                          onClick={() => setDayClassFilters([])}
+                          onClick={toggleAllDayClasses}
                           className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"
                         >
                           <span className="font-semibold">All Classes</span>
-                          <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${dayClassFilters.length === 0 ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>
-                            {dayClassFilters.length === 0 && <Check className="h-3.5 w-3.5" />}
+                          <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${allDayClassesSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>
+                            {allDayClassesSelected && <Check className="h-3.5 w-3.5" />}
                           </span>
                         </button>
                         {columns.map(cls => {
-                          const checked = dayClassFilters.includes(cls._id);
+                          const checked = allDayClassesSelected || dayClassFilters.includes(cls._id);
                           return (
                             <button
                               type="button"
@@ -1001,7 +1015,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                         })}
                       </div>
                       <div className="flex items-center justify-between border-t border-[var(--color-border-subtle)] px-3 py-2">
-                        <span className="text-xs text-[var(--color-text-tertiary)]">{dayClassFilters.length ? `${dayClassFilters.length} selected` : 'Showing all classes'}</span>
+                        <span className="text-xs text-[var(--color-text-tertiary)]">{allDayClassesSelected ? `All ${columns.length} selected` : dayClassFilters.length ? `${dayClassFilters.length} selected` : 'No classes selected'}</span>
                         <button type="button" onClick={() => setDayClassPickerOpen(false)} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white">Done</button>
                       </div>
                     </div>
@@ -1009,7 +1023,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => { setDepartmentFilter(ALL_DEPARTMENTS); setShiftFilter(ALL_SHIFTS); setDayClassFilters([]); setDayClassPickerOpen(false); }} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm"><RotateCcw className="h-4 w-4" />Reset Filters</button>
+                <button onClick={() => { setDepartmentFilter(ALL_DEPARTMENTS); setShiftFilter(ALL_SHIFTS); setDayClassFilters([ALL_CLASSES]); setDayClassPickerOpen(false); }} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-sm"><RotateCcw className="h-4 w-4" />Reset Filters</button>
                 <div className="flex flex-1 items-center justify-end gap-2"><button onClick={() => moveDay(-1)} className="rounded-lg border p-2"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-28 text-center sm:min-w-36"><div className="text-xs text-[var(--color-text-tertiary)]">Selected day</div><div className="font-bold">{DAYS[selectedDay]}</div></div><button onClick={() => moveDay(1)} className="rounded-lg border p-2"><ChevronRight className="h-4 w-4" /></button></div>
               </div>
             </>
