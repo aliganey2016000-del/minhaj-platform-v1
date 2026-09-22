@@ -1,16 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronRight, School, Search, UserRound, X } from 'lucide-react';
+import { useState } from 'react';
+import { CalendarDays, ChevronRight, Search, UserRound, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../../lib/axios';
 
-type ReportMode = 'date' | 'class' | 'student';
-
-interface ScheduleOption {
-  classId: string;
-  className: string;
-  startTime?: string;
-  endTime?: string;
-}
+type ReportMode = 'date' | 'student';
 
 interface DateReport {
   date: string;
@@ -100,13 +93,8 @@ export function SchoolAttendanceReportPanel() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<ReportMode>('date');
   const [date, setDate] = useState(localISODate());
-  const [classId, setClassId] = useState('');
-  const [period, setPeriod] = useState('');
-  const [options, setOptions] = useState<ScheduleOption[]>([]);
-  const [optionsLoading, setOptionsLoading] = useState(false);
 
   const [dateReport, setDateReport] = useState<DateReport | null>(null);
-  const [classReport, setClassReport] = useState<ClassReport | null>(null);
   const [cellReport, setCellReport] = useState<ClassReport | null>(null);
   const [cellReportLoading, setCellReportLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
@@ -116,59 +104,10 @@ export function SchoolAttendanceReportPanel() {
   const [studentSearching, setStudentSearching] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (mode !== 'class') return;
-    let active = true;
-    setOptionsLoading(true);
-    setError('');
-    api.get('/attendance/school/options', { params: { date } })
-      .then(({ data }) => {
-        if (!active) return;
-        setOptions(data?.data || []);
-      })
-      .catch((e: any) => {
-        if (!active) return;
-        setOptions([]);
-        setError(e?.response?.data?.message || 'Could not load classes and periods for this date.');
-      })
-      .finally(() => {
-        if (active) setOptionsLoading(false);
-      });
-    return () => { active = false; };
-  }, [mode, date]);
-
-  const classes = useMemo(() => {
-    const seen = new Set<string>();
-    return options
-      .filter((option) => {
-        if (!option.classId || seen.has(option.classId)) return false;
-        seen.add(option.classId);
-        return true;
-      })
-      .map((option) => ({ id: option.classId, name: option.className }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [options]);
-
-  const periods = useMemo(() => {
-    const seen = new Set<string>();
-    return options
-      .filter((option) => option.classId === classId && option.startTime && option.endTime)
-      .map((option) => ({
-        value: `${option.startTime}|${option.endTime}`,
-        label: `${option.startTime}–${option.endTime}`,
-      }))
-      .filter((option) => {
-        if (seen.has(option.value)) return false;
-        seen.add(option.value);
-        return true;
-      });
-  }, [options, classId]);
-
   const switchMode = (next: ReportMode) => {
     setMode(next);
     setError('');
     setDateReport(null);
-    setClassReport(null);
     setCellReport(null);
     setStudentRows([]);
   };
@@ -182,24 +121,6 @@ export function SchoolAttendanceReportPanel() {
       setDateReport(data?.data || null);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Could not generate the school attendance report.');
-    } finally {
-      setReportLoading(false);
-    }
-  };
-
-  const runClassReport = async () => {
-    if (!classId || !period) return;
-    const [startTime, endTime] = period.split('|');
-    setReportLoading(true);
-    setError('');
-    setClassReport(null);
-    try {
-      const { data } = await api.get('/attendance/school/report/class-period', {
-        params: { date, classId, startTime, endTime },
-      });
-      setClassReport(data?.data || null);
-    } catch (e: any) {
-      setError(e?.response?.data?.message || 'Could not generate the class attendance report.');
     } finally {
       setReportLoading(false);
     }
@@ -250,10 +171,9 @@ export function SchoolAttendanceReportPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
+      <div className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
         {([
           ['date', 'By Date', CalendarDays],
-          ['class', 'By Class', School],
           ['student', 'By Student', UserRound],
         ] as const).map(([key, label, Icon]) => (
           <button
@@ -406,86 +326,6 @@ export function SchoolAttendanceReportPanel() {
                   </div>
                 </div>
               )}
-            </>
-          )}
-        </div>
-      )}
-
-      {mode === 'class' && (
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-            <div className="grid gap-3 md:grid-cols-3">
-              <label>
-                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Date</span>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => { setDate(e.target.value); setClassId(''); setPeriod(''); setClassReport(null); }}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm"
-                />
-              </label>
-              <label>
-                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Class</span>
-                <select
-                  value={classId}
-                  disabled={optionsLoading}
-                  onChange={(e) => { setClassId(e.target.value); setPeriod(''); setClassReport(null); }}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm disabled:opacity-60"
-                >
-                  <option value="">{optionsLoading ? 'Loading classes...' : 'Select Class'}</option>
-                  {classes.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-                </select>
-              </label>
-              <label>
-                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Period</span>
-                <select
-                  value={period}
-                  disabled={!classId || optionsLoading}
-                  onChange={(e) => { setPeriod(e.target.value); setClassReport(null); }}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm disabled:opacity-60"
-                >
-                  <option value="">{!classId ? 'Select Class First' : 'Select Period'}</option>
-                  {periods.map((row) => <option key={row.value} value={row.value}>{row.label}</option>)}
-                </select>
-              </label>
-            </div>
-            <button type="button" onClick={runClassReport} disabled={!classId || !period || reportLoading} className="mt-3 min-h-11 w-full rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white disabled:opacity-50">
-              {reportLoading ? 'Generating...' : 'Generate Report'}
-            </button>
-          </div>
-
-          {classReport && (
-            <>
-              <div className="grid grid-cols-3 gap-2">
-                <SummaryCard label="Students" value={classReport.summary.students} />
-                <SummaryCard label="Present" value={classReport.summary.present} tone="present" />
-                <SummaryCard label="Absent" value={classReport.summary.absent} tone="absent" />
-              </div>
-
-              <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
-                <div className="border-b border-[var(--color-border-default)] p-4">
-                  <p className="font-bold text-[var(--color-text-primary)]">{classReport.class.name}</p>
-                  <p className="text-xs text-[var(--color-text-tertiary)]">{classReport.date} · {classReport.period}{classReport.subjects.length ? ` · ${classReport.subjects.join(', ')}` : ''}</p>
-                  <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Tap a student to open the student's full attendance report on a separate page.</p>
-                </div>
-                <div className="divide-y divide-[var(--color-border-subtle)]">
-                  {classReport.rows.map((student) => (
-                    <button key={student._id} type="button" onClick={() => openStudent(student._id)} className="flex w-full items-center gap-3 p-4 text-left hover:bg-[var(--color-surface-secondary)]">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold text-[var(--color-text-primary)]">{student.name}</p>
-                        <p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {student.status === 'present' && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">Present</span>}
-                        {student.status === 'absent' && <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">Absent</span>}
-                        {!student.status && <span className="text-xs text-[var(--color-text-tertiary)]">Not recorded</span>}
-                        {student.excused && <span className="rounded-full bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700">Excused</span>}
-                        <ChevronRight className="h-4 w-4 text-[var(--color-text-tertiary)]" />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </>
           )}
         </div>
