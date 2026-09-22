@@ -967,22 +967,24 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
               <table className="w-full min-w-[980px] table-fixed border-collapse">
                 <thead>
                   <tr>
-                    <th className="w-24 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Day</th>
-                    {periods.map(period => (
-                      <th key={period.key || `${period.startTime}-${period.endTime}`} className="min-w-32 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">
-                        <div className="font-bold">{period.label || (period.isBreak ? 'Break' : `Period ${period.lessonNumber || ''}`)}</div>
-                        <div className="mt-1 text-[10px] font-normal text-[var(--color-text-tertiary)]">{formatTime(period.startTime)} – {formatTime(period.endTime)}</div>
+                    <th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>
+                    {DISPLAY_ORDER.map(day => (
+                      <th key={day} className="min-w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">
+                        {DAYS[day]}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {DISPLAY_ORDER.map(day => (
-                    <tr key={day}>
-                      <td className="schedule-period-cell border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs font-bold">{DAYS[day]}</td>
-                      {periods.map(period => {
+                  {periods.map(period => (
+                    <tr key={period.key || `${period.startTime}-${period.endTime}`}>
+                      <td className="schedule-period-cell border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs">
+                        <div className="font-bold">{period.label || (period.isBreak ? 'Break' : `Period ${period.lessonNumber || ''}`)}</div>
+                        <div className="schedule-period-time mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div>
+                      </td>
+                      {DISPLAY_ORDER.map(day => {
                         if (period.isBreak) {
-                          return <td key={`${day}-${period.key}`} className="schedule-break-row border bg-amber-50 px-2 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'}</td>;
+                          return <td key={`${period.key}-${day}`} className="schedule-break-row border bg-amber-50 px-2 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'}</td>;
                         }
                         const existing = weeklyCellSchedules(
                           perspective === 'class' ? selectedClassSchedules : selectedTeacherSchedules,
@@ -990,7 +992,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                           period,
                         );
                         return (
-                          <td key={`${day}-${period.key}`} className="border p-2 align-top">
+                          <td key={`${period.key}-${day}`} className="border p-2 align-top">
                             {existing.length ? (
                               <div className="space-y-1.5">
                                 {existing.map(item => (
