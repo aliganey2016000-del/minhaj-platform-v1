@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
-  Info,
   User,
   XCircle,
 } from 'lucide-react';
@@ -20,8 +19,6 @@ interface CourseAttendance {
   days: number;
   present: number;
   absent: number;
-  late: number;
-  excused: number;
   presentPercentage: number;
   absentPercentage: number;
 }
@@ -45,8 +42,6 @@ type AttendanceStats = {
 const STATUS_BADGE_CLASSES: Record<string, string> = {
   present: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
   absent: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
-  late: 'bg-blue-500/15 text-blue-700 dark:text-blue-300',
-  excused: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
 };
 
 const COURSE_ACCENTS = [
@@ -61,9 +56,8 @@ const COURSE_ACCENTS = [
 ];
 
 function statsFor(course: CourseAttendance): AttendanceStats {
-  // Product rule: Late counts as Present, Excused counts as Absent.
-  const present = Number(course.present || 0) + Number(course.late || 0);
-  const absent = Number(course.absent || 0) + Number(course.excused || 0);
+  const present = Number(course.present || 0);
+  const absent = Number(course.absent || 0);
   const counted = present + absent;
   const days = Math.max(Number(course.days || 0), counted);
   const attendance = days > 0 ? Math.round((present / days) * 100) : 0;
@@ -102,8 +96,6 @@ function courseInitials(title: string, code?: string): string {
 }
 
 function historyStatusLabel(status: string): string {
-  if (status === 'late') return 'Late · Present';
-  if (status === 'excused') return 'Excused · Absent';
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
@@ -290,14 +282,7 @@ export function StudentAttendance() {
 
                     {isExpanded && (
                       <div className="border-t border-[var(--color-border-default)] px-4 pb-5 pt-4 sm:px-5">
-                        <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 p-3.5 text-xs text-sky-800 dark:text-sky-200">
-                          <div className="flex gap-2.5">
-                            <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                            <p className="leading-5"><strong>Late</strong> is counted as <strong>Present</strong>. <strong>Excused</strong> is counted as <strong>Absent</strong> in the statistics. History keeps the original status.</p>
-                          </div>
-                        </div>
-
-                        <div className="mt-5 flex items-center justify-between gap-3">
+                        <div className="mt-1 flex items-center justify-between justify-between gap-3">
                           <div>
                             <p className="text-sm font-black text-[var(--color-text-primary)]">Attendance History</p>
                             <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">Recent records for {course.title}</p>
