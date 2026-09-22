@@ -5,12 +5,12 @@ import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Activity, AlertTriangle, Award, BadgePercent, BarChart3, BookOpen, Building, Building2,
-  CalendarCheck, CalendarClock, CalendarRange, CheckCircle2, CircleHelp, ClipboardEdit,
+  Activity, Award, BadgePercent, BarChart3, BookOpen, Building2,
+  CalendarCheck, CalendarClock, CalendarRange, CircleHelp, ClipboardEdit,
   ClipboardList, Compass, CreditCard, Database, FileBarChart, FileCheck2, FileQuestion,
   FileText, GraduationCap, History, Image, KeyRound, LayoutDashboard, ListChecks, LogOut,
   Megaphone, MessagesSquare, Newspaper, NotebookPen, Palette, PanelLeftClose, PanelLeftOpen,
-  PartyPopper, Percent, PieChart, Presentation, Receipt, School, ScrollText, Settings,
+  PartyPopper, PieChart, Presentation, Receipt, School, ScrollText, Settings,
   ShieldCheck, Trash2, TrendingUp, User, UserCog, UserRound, Users, Zap,
 } from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
@@ -226,6 +226,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
 
   const isActive = (path: string) => {
     if (path === '/admin') return location.pathname === '/admin';
+    if (path === '/admin/exams' || path === '/admin/results') return location.pathname === path;
     if (path.includes('?')) return `${location.pathname}${location.search}` === path;
     if (path === '/admin/analytics') return location.pathname === path && (!location.search || location.search === '?tab=learning');
     return location.pathname.startsWith(path);
