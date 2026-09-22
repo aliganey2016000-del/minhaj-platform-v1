@@ -207,7 +207,7 @@ async function main() {
     .set('Authorization', `Bearer ${adminToken}`)
     .send({
       course: mathCourse._id.toString(), schedule: mathSchedule._id.toString(), date: yearTwoDate,
-      records: [{ student: futureG2._id.toString(), status: 'late' }],
+      records: [{ student: futureG2._id.toString(), status: 'absent', reasonCode: 'transport_delay' }],
     });
   assert(lockedCorrectionAttempt.status === 403, `locked Year 2 attendance rejects a direct correction (status ${lockedCorrectionAttempt.status})`);
   assert(/unlock/i.test(messageOf(lockedCorrectionAttempt)), 'locked correction response directs the admin through the audited unlock flow');
@@ -236,12 +236,12 @@ async function main() {
     .set('Authorization', `Bearer ${adminToken}`)
     .send({
       course: mathCourse._id.toString(), schedule: mathSchedule._id.toString(), date: yearTwoDate,
-      records: [{ student: futureG2._id.toString(), status: 'late', reasonCode: 'transport_delay' }],
+      records: [{ student: futureG2._id.toString(), status: 'absent', reasonCode: 'transport_delay' }],
     });
   assert(correctedYearTwo.status === 200, `Year 2 correction succeeds after audited unlock (status ${correctedYearTwo.status}: ${messageOf(correctedYearTwo)})`);
   assert(await Attendance.countDocuments({ course: mathCourse._id }) === 3, 'correcting the same date updates the existing row instead of inserting a duplicate');
   const updatedRow: any = await Attendance.findOne({ course: mathCourse._id, student: futureG2._id, date: yearTwoMonday }).lean();
-  assert(updatedRow?.status === 'late' && updatedRow?.reasonCode === 'transport_delay', 'the corrected row reflects the verified late status and reason');
+  assert(updatedRow?.status === 'absent' && updatedRow?.reasonCode === 'transport_delay', 'the corrected row reflects Absent with its excuse reason');
 
   const relockedSession: any = await AttendanceSession.findOne({
     schedule: mathSchedule._id,
