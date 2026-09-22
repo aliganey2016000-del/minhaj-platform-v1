@@ -273,11 +273,14 @@ export const getSchoolClassReport = async (req: Request, res: Response): Promise
     .lean();
 
   const studentIds = students.map((student) => student._id);
-  const stats: any[] = studentIds.length
+  const schedules = await ClassSchedule.find({ school: schoolId, class: classId }).select('_id').lean();
+  const scheduleIds = schedules.map((schedule: any) => schedule._id);
+  const stats: any[] = studentIds.length && scheduleIds.length
     ? await Attendance.aggregate([
         {
           $match: {
             student: { $in: studentIds },
+            schedule: { $in: scheduleIds },
             date: { $gte: from, $lte: to },
           },
         },
@@ -373,15 +376,18 @@ export const getSchoolClassStudentReport = async (req: Request, res: Response): 
     .lean();
   if (!student) throw new NotFoundError('Student');
 
-  const records: any[] = await Attendance.find({
+  const schedules = await ClassSchedule.find({ school: schoolId, class: classId }).select('_id').lean();
+  const scheduleIds = schedules.map((schedule: any) => schedule._id);
+  const records: any[] = scheduleIds.length ? await Attendance.find({
     student: student._id,
+    schedule: { $in: scheduleIds },
     date: { $gte: from, $lte: to },
   })
     .populate('course', 'title courseCode')
     .populate('schedule', 'startTime endTime')
     .select('date status reasonCode notes course schedule')
     .sort({ date: -1 })
-    .lean();
+    .lean() : [];
 
   return ApiResponse.success(res, {
     student: {
