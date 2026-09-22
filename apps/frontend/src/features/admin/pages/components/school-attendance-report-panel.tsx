@@ -296,7 +296,7 @@ export function SchoolAttendanceReportPanel() {
                       <span className="text-[10px] font-medium text-[var(--color-text-tertiary)] sm:hidden">Swipe horizontally →</span>
                     </div>
                   </div>
-                  <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] touch-pan-x">
+                  <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
                     <table className="w-max min-w-full border-collapse text-xs sm:text-sm">
                       <thead>
                         <tr className="bg-[var(--color-surface-secondary)]">
