@@ -267,11 +267,12 @@ export function SchoolAttendanceManage() {
       });
   }, [sessionFilterOptions, classFilter]);
 
-  const openSession = async (sessionId: string) => {
+  const openSession = async (sessionId: string, targetDate = date) => {
     setSelectedId(sessionId); setDetailLoading(true); setError(''); setMessage('');
     try {
-      const { data } = await api.get(`/attendance/school/session/${sessionId}`, { params: { date } });
+      const { data } = await api.get(`/attendance/school/session/${sessionId}`, { params: { date: targetDate } });
       const next: SessionDetail = data.data;
+      setSelectedId(sessionId);
       setDetail(next);
       const draft: Record<string, DraftRecord> = {};
       for (const student of next.roster) {
@@ -290,6 +291,22 @@ export function SchoolAttendanceManage() {
     } finally {
       setDetailLoading(false);
     }
+  };
+
+  const openAttendanceFromReport = (input: {
+    date: string;
+    sessionId: string;
+    classId: string;
+    startTime: string;
+    endTime: string;
+  }) => {
+    setDate(input.date);
+    setClassFilter(input.classId);
+    setPeriodFilter(`${input.startTime}|${input.endTime}`);
+    setSessions([]);
+    setCalendarDay(null);
+    setTab('take');
+    void openSession(input.sessionId, input.date);
   };
 
   const filteredRoster = useMemo(() => {
@@ -596,7 +613,7 @@ export function SchoolAttendanceManage() {
         </>
       )}
 
-      {tab === 'report' && <SchoolAttendanceReportPanel />}
+      {tab === 'report' && <SchoolAttendanceReportPanel onOpenAttendanceSession={openAttendanceFromReport} />}
 
       {tab === 'calendar' && (
         <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
