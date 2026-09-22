@@ -278,7 +278,7 @@ export function TeacherDashboard() {
 
           <section className={`${cardClass} p-5`}>
             <h2 className="text-sm font-bold text-[var(--color-text-primary)]">Attendance</h2>
-            <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">Open today’s teaching schedule and mark students present, absent, late, or excused.</p>
+            <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">Open today’s teaching schedule and mark students Present or Absent. Add an excuse only when an absent student is excused.</p>
             <Link to="/teacher/attendance" className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
               <ClipboardCheck className="h-4 w-4" /> Take attendance
             </Link>
