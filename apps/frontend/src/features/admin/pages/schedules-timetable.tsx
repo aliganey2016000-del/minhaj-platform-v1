@@ -1055,6 +1055,10 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
 
         {perspective === 'day' && <div className="flex gap-1 overflow-x-auto rounded-xl border bg-[var(--color-surface-primary)] p-1.5">{DISPLAY_ORDER.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-20 flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${selectedDay === day ? 'bg-primary-600 text-white' : 'hover:bg-[var(--color-surface-secondary)]'}`}>{DAY_SHORT[day]}</button>)}</div>}
 
+        <div className="flex items-center justify-end px-1 text-[10px] font-medium text-[var(--color-text-tertiary)] sm:hidden">
+          Swipe timetable horizontally →
+        </div>
+
         <div id="schedule-timetable-print" className="overflow-hidden rounded-2xl border bg-[var(--color-surface-primary)] shadow-sm">
           <div className="schedule-print-header">
             <div className="schedule-print-brand">
@@ -1090,23 +1094,24 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
           ) : periods.length === 0 ? (
             <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div>
           ) : perspective === 'day' ? (
-            <div className="schedule-timetable-print-scroll overflow-x-auto"><table className="w-full min-w-[920px] table-fixed border-collapse"><thead><tr><th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>{dayColumns.map(cls => <th key={cls._id} className="min-w-40 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs"><div className="break-words font-bold">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-1 font-normal text-[10px] text-[var(--color-text-tertiary)]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, dayColumns.length + 1)} className="schedule-break-row border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} ({formatTime(period.startTime)} – {formatTime(period.endTime)})</td> : <><td className="schedule-period-cell border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs"><div className="font-bold">{period.label || `Period ${period.lessonNumber || ''}`}</div><div className="schedule-period-time mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div></td>{dayColumns.map(cls => {
+            <div className="schedule-timetable-print-scroll max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] touch-pan-x"><table className="w-max min-w-full table-fixed border-collapse text-xs sm:text-sm"><thead><tr><th className="sticky left-0 z-20 w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-[10px] shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs">Period</th>{dayColumns.map(cls => <th key={cls._id} className="w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-[10px] sm:w-40 sm:min-w-40 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs"><div className="break-words font-bold leading-4">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-0.5 font-normal text-[8px] text-[var(--color-text-tertiary)] sm:mt-1 sm:text-[10px]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, dayColumns.length + 1)} className="schedule-break-row border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} ({formatTime(period.startTime)} – {formatTime(period.endTime)})</td> : <><td className="schedule-period-cell sticky left-0 z-10 w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-center text-[10px] shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs"><div className="font-bold"><span className="sm:hidden">{period.isBreak ? (period.label || 'Break') : `P${period.lessonNumber || ''}`}</span><span className="hidden sm:inline">{period.label || `Period ${period.lessonNumber || ''}`}</span></div><div className="schedule-period-time mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:mt-1 sm:text-[10px]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div></td>{dayColumns.map(cls => {
                     const existing = cellSchedules(cls._id, period);
                     const selected = currentCourseId(cls._id, period);
                     const hasDraft = Object.prototype.hasOwnProperty.call(draft, draftKey(cls._id, period));
-                    return <td key={`${cls._id}-${period.key}`} className={`border p-2 align-top ${hasDraft ? 'bg-amber-50/70' : ''}`}>
-                      {editMode ? <select value={selected} onFocus={() => void loadClassCourses(cls._id)} onChange={e => setDraft(current => ({ ...current, [draftKey(cls._id, period)]: e.target.value }))} className="min-h-11 w-full rounded-lg border bg-[var(--color-surface-primary)] px-2 py-2 text-xs"><option value="">— No course —</option>{loadingCourses.has(cls._id) && <option disabled>Loading...</option>}{(coursesByClass[cls._id] || []).map(course => <option key={course._id} value={course._id}>{courseLabel(course)}{course.courseCode ? ` · ${course.courseCode}` : ''}</option>)}</select> : existing.length ? <div className="space-y-1.5">{existing.map(item => <div key={item._id} className={`schedule-print-subject schedule-print-subject-${((period.lessonNumber || 1) - 1) % 3 + 1} rounded-lg bg-primary-50 px-2 py-2 text-center text-xs text-primary-900 dark:bg-primary-950/30 dark:text-primary-100`}><div className="break-words font-bold">{courseLabel(item.course)}</div>{item.room && <div className="schedule-screen-only mt-1 text-[10px] opacity-70">Room {item.room}</div>}</div>)}</div> : <div className="schedule-empty-cell py-3 text-center text-xs text-[var(--color-text-tertiary)]">—</div>}
+                    return <td key={`${cls._id}-${period.key}`} className={`w-[92px] min-w-[92px] max-w-[92px] border p-1.5 align-top sm:w-40 sm:min-w-40 sm:max-w-none sm:p-2 ${hasDraft ? 'bg-amber-50/70' : ''}`}>
+                      {editMode ? <select value={selected} onFocus={() => void loadClassCourses(cls._id)} onChange={e => setDraft(current => ({ ...current, [draftKey(cls._id, period)]: e.target.value }))} className="min-h-11 w-full rounded-lg border bg-[var(--color-surface-primary)] px-2 py-2 text-xs"><option value="">— No course —</option>{loadingCourses.has(cls._id) && <option disabled>Loading...</option>}{(coursesByClass[cls._id] || []).map(course => <option key={course._id} value={course._id}>{courseLabel(course)}{course.courseCode ? ` · ${course.courseCode}` : ''}</option>)}</select> : existing.length ? <div className="space-y-1.5">{existing.map(item => <div key={item._id} className={`schedule-print-subject schedule-print-subject-${((period.lessonNumber || 1) - 1) % 3 + 1} rounded-lg bg-primary-50 px-1.5 py-1.5 text-center text-[10px] text-primary-900 dark:bg-primary-950/30 dark:text-primary-100 sm:px-2 sm:py-2 sm:text-xs`}><div className="break-words font-bold leading-4">{courseLabel(item.course)}</div>{item.room && <div className="schedule-screen-only mt-0.5 text-[8px] opacity-70 sm:mt-1 sm:text-[10px]">Room {item.room}</div>}</div>)}</div> : <div className="schedule-empty-cell py-3 text-center text-xs text-[var(--color-text-tertiary)]">—</div>}
                     </td>;
                   })}</>}</tr>)}</tbody></table></div>
           ) : (
-            <div className="schedule-timetable-print-scroll overflow-x-auto">
-              <table className="w-full min-w-[980px] table-fixed border-collapse">
+            <div className="schedule-timetable-print-scroll max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] touch-pan-x">
+              <table className="w-max min-w-full table-fixed border-collapse text-xs sm:text-sm">
                 <thead>
                   <tr>
-                    <th className="w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">Period</th>
+                    <th className="sticky left-0 z-20 w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-[10px] shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs">Period</th>
                     {weeklyDisplayDays.map(day => (
-                      <th key={day} className="min-w-28 border bg-[var(--color-surface-secondary)] px-2 py-3 text-xs">
-                        {DAYS[day]}
+                      <th key={day} className="w-[86px] min-w-[86px] max-w-[86px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-[10px] sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs">
+                        <span className="sm:hidden">{DAY_SHORT[day]}</span>
+                        <span className="hidden sm:inline">{DAYS[day]}</span>
                       </th>
                     ))}
                   </tr>
@@ -1114,13 +1119,13 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                 <tbody>
                   {periods.map(period => (
                     <tr key={period.key || `${period.startTime}-${period.endTime}`}>
-                      <td className="schedule-period-cell border bg-[var(--color-surface-secondary)] px-2 py-3 text-center text-xs">
-                        <div className="font-bold">{period.label || (period.isBreak ? 'Break' : `Period ${period.lessonNumber || ''}`)}</div>
-                        <div className="schedule-period-time mt-1 text-[10px] text-[var(--color-text-tertiary)]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div>
+                      <td className="schedule-period-cell sticky left-0 z-10 w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-center text-[10px] shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs">
+                        <div className="font-bold"><span className="sm:hidden">{period.isBreak ? (period.label || 'Break') : `P${period.lessonNumber || ''}`}</span><span className="hidden sm:inline">{period.label || (period.isBreak ? 'Break' : `Period ${period.lessonNumber || ''}`)}</span></div>
+                        <div className="schedule-period-time mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:mt-1 sm:text-[10px]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div>
                       </td>
                       {weeklyDisplayDays.map(day => {
                         if (period.isBreak) {
-                          return <td key={`${period.key}-${day}`} className="schedule-break-row border bg-amber-50 px-2 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'}</td>;
+                          return <td key={`${period.key}-${day}`} className="schedule-break-row w-[86px] min-w-[86px] max-w-[86px] border bg-amber-50 px-1.5 py-2.5 text-center text-[10px] font-bold text-amber-800 sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs">{period.label || 'Break'}</td>;
                         }
                         const existing = weeklyCellSchedules(
                           perspective === 'class' ? selectedClassSchedules : selectedTeacherSchedules,
@@ -1128,16 +1133,16 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
                           period,
                         );
                         return (
-                          <td key={`${period.key}-${day}`} className="border p-2 align-top">
+                          <td key={`${period.key}-${day}`} className="w-[86px] min-w-[86px] max-w-[86px] border p-1.5 align-top sm:w-28 sm:min-w-28 sm:max-w-none sm:p-2">
                             {existing.length ? (
                               <div className="space-y-1.5">
                                 {existing.map(item => (
-                                  <div key={item._id} className={`schedule-print-subject schedule-print-subject-${((period.lessonNumber || 1) - 1) % 3 + 1} rounded-lg bg-primary-50 px-2 py-2 text-center text-xs text-primary-900 dark:bg-primary-950/30 dark:text-primary-100`}>
+                                  <div key={item._id} className={`schedule-print-subject schedule-print-subject-${((period.lessonNumber || 1) - 1) % 3 + 1} rounded-lg bg-primary-50 px-1.5 py-1.5 text-center text-[10px] text-primary-900 dark:bg-primary-950/30 dark:text-primary-100 sm:px-2 sm:py-2 sm:text-xs`}>
                                     <div className="break-words font-bold">{courseLabel(item.course)}</div>
                                     {perspective === 'class' ? (
-                                      teacherIdOf(item.teacher) && <div className="mt-1 text-[10px] font-medium opacity-75">{teacherLabel(item.teacher)}</div>
+                                      teacherIdOf(item.teacher) && <div className="mt-0.5 text-[8px] font-medium leading-3 opacity-75 sm:mt-1 sm:text-[10px]">{teacherLabel(item.teacher)}</div>
                                     ) : (
-                                      <div className="mt-1 text-[10px] font-medium opacity-75">{classLabel(item.class)}</div>
+                                      <div className="mt-0.5 text-[8px] font-medium leading-3 opacity-75 sm:mt-1 sm:text-[10px]">{classLabel(item.class)}</div>
                                     )}
                                     {item.room && <div className="schedule-screen-only mt-1 text-[10px] opacity-70">Room {item.room}</div>}
                                   </div>
