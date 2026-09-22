@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X, ShieldCheck, Building2, Clock3 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -197,8 +197,9 @@ function RowActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEd
 // three-dot trigger beside the Exam Schedule heading.
 // ---------------------------------------------------------------------------
 
-function ExamsActionsMenu({ onSchedule, onImport, onExport, exporting, onBulkDelete, selectedCount }: {
+function ExamsActionsMenu({ onSchedule, onRules, onImport, onExport, exporting, onBulkDelete, selectedCount }: {
   onSchedule: () => void;
+  onRules: () => void;
   onImport: () => void;
   onExport: () => void;
   exporting: boolean;
@@ -230,6 +231,9 @@ function ExamsActionsMenu({ onSchedule, onImport, onExport, exporting, onBulkDel
           <button onClick={() => { setOpen(false); onSchedule(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} /> Schedule Exam
           </button>
+          <button onClick={() => { setOpen(false); onRules(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} /> Scheduling Rules
+          </button>
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button onClick={() => { setOpen(false); onImport(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <Upload className="h-3.5 w-3.5" strokeWidth={1.75} /> Import Exams
@@ -243,6 +247,259 @@ function ExamsActionsMenu({ onSchedule, onImport, onExport, exporting, onBulkDel
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Exam Scheduling Rules
+// ---------------------------------------------------------------------------
+
+interface ExamScheduleRules {
+  preventClassOverlap: boolean;
+  allowSharedRooms: boolean;
+  roomCapacityCheck: boolean;
+  maxExamsPerClassPerDay: number;
+  minimumGapMinutes: number;
+  durationValidation: boolean;
+}
+
+const DEFAULT_EXAM_SCHEDULE_RULES: ExamScheduleRules = {
+  preventClassOverlap: true,
+  allowSharedRooms: true,
+  roomCapacityCheck: true,
+  maxExamsPerClassPerDay: 1,
+  minimumGapMinutes: 30,
+  durationValidation: true,
+};
+
+function RulesToggle({
+  checked,
+  onChange,
+  title,
+  description,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  title: string;
+  description: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start justify-between gap-4 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+      <span className="min-w-0">
+        <span className="block text-sm font-bold text-[var(--color-text-primary)]">{title}</span>
+        <span className="mt-1 block text-xs leading-5 text-[var(--color-text-tertiary)]">{description}</span>
+      </span>
+      <span className="relative mt-0.5 inline-flex shrink-0">
+        <input
+          type="checkbox"
+          className="peer sr-only"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span className="h-6 w-11 rounded-full bg-gray-300 transition-colors peer-checked:bg-primary-600 peer-focus-visible:ring-2 peer-focus-visible:ring-primary-500/30 dark:bg-gray-700" />
+        <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+      </span>
+    </label>
+  );
+}
+
+function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'admin';
+  const [schools, setSchools] = useState<SchoolBrief[]>([]);
+  const [schoolId, setSchoolId] = useState('');
+  const [rules, setRules] = useState<ExamScheduleRules>(DEFAULT_EXAM_SCHEDULE_RULES);
+  const [loading, setLoading] = useState(!isSuperAdmin);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    api.get('/schools', { params: { limit: 100 } })
+      .then(({ data }) => setSchools((data.data || []).filter((s: SchoolBrief) => s.status === 'active')))
+      .catch((err: any) => setError(err.response?.data?.message || 'Failed to load organizations'));
+  }, [isSuperAdmin]);
+
+  const loadRules = useCallback(async (targetSchool?: string) => {
+    if (isSuperAdmin && !targetSchool) return;
+    setLoading(true);
+    setError('');
+    setMessage('');
+    try {
+      const { data } = await api.get('/exams/schedule-rules', {
+        params: isSuperAdmin ? { school: targetSchool } : undefined,
+      });
+      setRules({ ...DEFAULT_EXAM_SCHEDULE_RULES, ...(data.data?.rules || {}) });
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to load scheduling rules');
+    } finally {
+      setLoading(false);
+    }
+  }, [isSuperAdmin]);
+
+  useEffect(() => {
+    if (!isSuperAdmin) loadRules();
+  }, [isSuperAdmin, loadRules]);
+
+  useEffect(() => {
+    if (isSuperAdmin && schoolId) loadRules(schoolId);
+  }, [isSuperAdmin, schoolId, loadRules]);
+
+  const saveRules = async () => {
+    if (isSuperAdmin && !schoolId) {
+      setError('Select an organization first.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const { data } = await api.patch('/exams/schedule-rules', {
+        ...(isSuperAdmin ? { school: schoolId } : {}),
+        rules,
+      });
+      setRules({ ...DEFAULT_EXAM_SCHEDULE_RULES, ...(data.data?.rules || {}) });
+      setMessage('Scheduling rules saved successfully.');
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to save scheduling rules');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const update = <K extends keyof ExamScheduleRules>(key: K, value: ExamScheduleRules[K]) =>
+    setRules((prev) => ({ ...prev, [key]: value }));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm sm:p-5" onClick={onClose}>
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-[var(--color-surface-primary)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] px-5 py-4 sm:px-6">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30">
+                <ShieldCheck className="h-5 w-5" />
+              </span>
+              <div>
+                <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Exam Scheduling Rules</h2>
+                <p className="text-xs text-[var(--color-text-tertiary)]">Hard conflicts are checked automatically before an exam is saved.</p>
+              </div>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)]">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-5 p-5 sm:p-6">
+          {isSuperAdmin && (
+            <div>
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Organization</label>
+              <select
+                value={schoolId}
+                onChange={(e) => setSchoolId(e.target.value)}
+                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20"
+              >
+                <option value="">Select organization...</option>
+                {schools.map((school) => <option key={school._id} value={school._id}>{school.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+          {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">{message}</div>}
+
+          {loading ? (
+            <div className="flex min-h-48 items-center justify-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
+            </div>
+          ) : isSuperAdmin && !schoolId ? (
+            <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] p-8 text-center">
+              <Building2 className="mx-auto h-8 w-8 text-[var(--color-text-tertiary)]" />
+              <p className="mt-3 text-sm font-bold">Select an organization</p>
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Rules are stored separately for each school.</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-3">
+                <RulesToggle
+                  checked={rules.preventClassOverlap}
+                  onChange={(v) => update('preventClassOverlap', v)}
+                  title="Student / Class Conflict"
+                  description="Prevents the same class from having overlapping exams at the same date and time."
+                />
+                <RulesToggle
+                  checked={rules.allowSharedRooms}
+                  onChange={(v) => update('allowSharedRooms', v)}
+                  title="Allow Shared Rooms"
+                  description="Different grades/classes may use the same room in one session. Capacity and seat protection still apply."
+                />
+                <RulesToggle
+                  checked={rules.roomCapacityCheck}
+                  onChange={(v) => update('roomCapacityCheck', v)}
+                  title="Room Capacity Check"
+                  description="Blocks seating assignments once the room's configured capacity is full."
+                />
+                <RulesToggle
+                  checked={rules.durationValidation}
+                  onChange={(v) => update('durationValidation', v)}
+                  title="Exam Duration Validation"
+                  description="The exam duration must fit inside the selected start and end time."
+                />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="rounded-2xl border border-[var(--color-border-default)] p-4">
+                  <span className="flex items-center gap-2 text-sm font-bold"><CalendarDays className="h-4 w-4 text-primary-600" /> Maximum Exams / Class / Day</span>
+                  <span className="mt-1 block text-xs text-[var(--color-text-tertiary)]">Default: one exam per class per day.</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={rules.maxExamsPerClassPerDay}
+                    onChange={(e) => update('maxExamsPerClassPerDay', Math.min(10, Math.max(1, Number(e.target.value) || 1)))}
+                    className="mt-3 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm"
+                  />
+                </label>
+                <label className="rounded-2xl border border-[var(--color-border-default)] p-4">
+                  <span className="flex items-center gap-2 text-sm font-bold"><Clock3 className="h-4 w-4 text-primary-600" /> Minimum Gap</span>
+                  <span className="mt-1 block text-xs text-[var(--color-text-tertiary)]">Minutes required between two exams for the same class.</span>
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={1440}
+                      value={rules.minimumGapMinutes}
+                      onChange={(e) => update('minimumGapMinutes', Math.min(1440, Math.max(0, Number(e.target.value) || 0)))}
+                      className="min-w-0 flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm"
+                    />
+                    <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">minutes</span>
+                  </div>
+                </label>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                  <div>
+                    <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300">Seat Conflict Protection — Always On</p>
+                    <p className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-400">The same seat cannot be assigned to two students in the same academic year and exam type, even when several grades share one room.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col-reverse gap-2 border-t border-[var(--color-border-subtle)] pt-4 sm:flex-row sm:justify-end">
+                <button type="button" onClick={onClose} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold">Cancel</button>
+                <button type="button" onClick={saveRules} disabled={saving} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm disabled:opacity-60">
+                  {saving ? 'Saving...' : 'Save Rules'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -934,6 +1191,7 @@ export function ExamsManage() {
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showRulesModal, setShowRulesModal] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -1104,6 +1362,7 @@ export function ExamsManage() {
                 <div className="shrink-0">
                   <ExamsActionsMenu
                     onSchedule={() => setShowCreate(true)}
+                    onRules={() => setShowRulesModal(true)}
                     onImport={() => setShowImportModal(true)}
                     onExport={handleExport}
                     exporting={exporting}
@@ -1280,6 +1539,7 @@ export function ExamsManage() {
       {editingExam && <ExamModal exam={editingExam} onClose={() => setEditingExam(undefined)} onSaved={() => { setEditingExam(undefined); fetchData(); }} />}
       {viewingExam && <ViewModal exam={viewingExam} onClose={() => setViewingExam(undefined)} />}
       {showImportModal && <ExamsImportModal onClose={() => setShowImportModal(false)} onImported={fetchData} />}
+      {showRulesModal && <ExamScheduleRulesModal onClose={() => setShowRulesModal(false)} />}
       {showBulkDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => setShowBulkDeleteModal(false)}>
           <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
