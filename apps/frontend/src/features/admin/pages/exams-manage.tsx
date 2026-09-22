@@ -4,11 +4,12 @@
  */
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X, Building2, Users, FileCheck2, Percent } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
 import { BackButton } from '../../shared/components/back-button';
+import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -925,7 +926,6 @@ export function ExamsManage() {
   const [classFilter, setClassFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
-  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'schedule' | 'tools'>('schedule');
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
   const [viewingExam, setViewingExam] = useState<Exam | undefined>(undefined);
@@ -1191,55 +1191,7 @@ export function ExamsManage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm">
-              <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-[var(--color-surface-secondary)] p-1">
-                <button
-                  type="button"
-                  onClick={() => setActiveWorkspaceTab('schedule')}
-                  className={'flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-bold transition-all ' + (activeWorkspaceTab === 'schedule' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-primary)]')}
-                >
-                  <CalendarClock className="h-4 w-4 shrink-0" />
-                  <span className="truncate">Exam Schedule</span>
-                  <span className={'rounded-full px-1.5 py-0.5 text-[10px] font-bold ' + (activeWorkspaceTab === 'schedule' ? 'bg-white/20 text-white' : 'bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)]')}>{visibleExams.length}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveWorkspaceTab('tools')}
-                  className={'flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-bold transition-all ' + (activeWorkspaceTab === 'tools' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-primary)]')}
-                >
-                  <LayoutGrid className="h-4 w-4 shrink-0" />
-                  <span className="truncate">Quick Tools</span>
-                  <span className={'rounded-full px-1.5 py-0.5 text-[10px] font-bold ' + (activeWorkspaceTab === 'tools' ? 'bg-white/20 text-white' : 'bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)]')}>4</span>
-                </button>
-              </div>
-            </div>
-
-            {activeWorkspaceTab === 'tools' && (
-              <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm">
-                <div className="mb-4">
-                  <h2 className="font-bold text-[var(--color-text-primary)]">Quick Tools</h2>
-                  <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">Choose the exam tool you need.</p>
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <a href="/admin/exams/rooms" className="group flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-blue-900/40 dark:bg-blue-950/20">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white"><Building2 className="h-5 w-5" /></span>
-                    <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Room Allocation</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Assign halls and seats</p></div>
-                  </a>
-                  <a href="/admin/exams/attendance" className="group flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/20">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white"><Users className="h-5 w-5" /></span>
-                    <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Exam Attendance</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Track student attendance</p></div>
-                  </a>
-                  <a href="/admin/exams/papers" className="group flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white"><FileCheck2 className="h-5 w-5" /></span>
-                    <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Paper Approval</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Review question papers</p></div>
-                  </a>
-                  <a href="/admin/exams/grading-rules" className="group flex items-center gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-sm dark:border-violet-900/40 dark:bg-violet-950/20">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white"><Percent className="h-5 w-5" /></span>
-                    <div className="min-w-0"><p className="text-sm font-bold text-[var(--color-text-primary)]">Grading Rules</p><p className="truncate text-[11px] text-[var(--color-text-tertiary)]">Configure marks and grades</p></div>
-                  </a>
-                </div>
-              </section>
-            )}
+            <ExamWorkspaceTabs />
 
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-600 dark:border-red-900/40 dark:bg-red-950/30">
@@ -1248,8 +1200,7 @@ export function ExamsManage() {
               </div>
             )}
 
-            {activeWorkspaceTab === 'schedule' && (
-              <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+            <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
                 <div className="flex flex-col gap-2 border-b border-[var(--color-border-subtle)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="font-bold text-[var(--color-text-primary)]">Scheduled Exams <span className="text-[var(--color-text-tertiary)]">({visibleExams.length})</span></h2>
@@ -1320,7 +1271,6 @@ export function ExamsManage() {
                   })}
                 </div>
               </section>
-              )}
           </main>
 
         </div>
