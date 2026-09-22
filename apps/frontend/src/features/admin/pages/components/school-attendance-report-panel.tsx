@@ -1,13 +1,42 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronRight, Search, UserRound, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronRight, Clock3, Search, UserRound, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../../lib/axios';
 
-type ReportMode = 'date' | 'student';
+type ReportMode = 'date' | 'missing' | 'student';
 
 interface ScheduleOption {
   startTime?: string;
   endTime?: string;
+}
+
+interface MissingAttendanceSession {
+  _id: string;
+  className: string;
+  class?: { _id: string; title?: string; section?: string };
+  course?: { _id: string; title?: { en?: string }; courseCode?: string };
+  teacherName: string;
+  startTime: string;
+  endTime: string;
+  attendance: {
+    total: number;
+    present: number;
+    absent: number;
+    completionStatus?: 'not_taken' | 'partial' | 'complete';
+    expectedStudents?: number | null;
+    recordedStudents?: number;
+    locked?: boolean;
+  };
+}
+
+interface SchoolAttendanceReportPanelProps {
+  onOpenAttendanceSession?: (input: {
+    date: string;
+    sessionId: string;
+    classId: string;
+    startTime: string;
+    endTime: string;
+  }) => void;
 }
 
 interface DateReport {
@@ -95,7 +124,7 @@ function SummaryCard({ label, value, tone = 'default' }: { label: string; value:
   );
 }
 
-export function SchoolAttendanceReportPanel() {
+export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolAttendanceReportPanelProps) {
   const navigate = useNavigate();
   const [mode, setMode] = useState<ReportMode>('date');
   const [date, setDate] = useState(localISODate());
@@ -104,6 +133,11 @@ export function SchoolAttendanceReportPanel() {
   const [dateOptionsLoading, setDateOptionsLoading] = useState(false);
 
   const [dateReport, setDateReport] = useState<DateReport | null>(null);
+  const [missingSessions, setMissingSessions] = useState<MissingAttendanceSession[]>([]);
+  const [missingLoading, setMissingLoading] = useState(false);
+  const [missingClass, setMissingClass] = useState('');
+  const [missingTeacher, setMissingTeacher] = useState('');
+  const [missingPeriod, setMissingPeriod] = useState('');
   const [cellReport, setCellReport] = useState<ClassReport | null>(null);
   const [cellReportLoading, setCellReportLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
@@ -147,12 +181,75 @@ export function SchoolAttendanceReportPanel() {
       .sort((a, b) => a.value.localeCompare(b.value));
   }, [dateOptions]);
 
+  useEffect(() => {
+    if (mode !== 'missing') return;
+    let active = true;
+    setMissingLoading(true);
+    setError('');
+    api.get('/attendance/school/sessions', { params: { date } })
+      .then(({ data }) => {
+        if (!active) return;
+        setMissingSessions(data?.data?.sessions || []);
+      })
+      .catch((e: any) => {
+        if (!active) return;
+        setMissingSessions([]);
+        setError(e?.response?.data?.message || 'Could not load missing attendance sessions.');
+      })
+      .finally(() => {
+        if (active) setMissingLoading(false);
+      });
+    return () => { active = false; };
+  }, [mode, date]);
+
+  const missingClassOptions = useMemo(() => {
+    const values = new Map<string, string>();
+    missingSessions.forEach((session) => {
+      const id = session.class?._id || '';
+      if (id) values.set(id, session.className);
+    });
+    return [...values.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  }, [missingSessions]);
+
+  const missingTeacherOptions = useMemo(() => {
+    return [...new Set(missingSessions.map((session) => session.teacherName).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  }, [missingSessions]);
+
+  const missingPeriodOptions = useMemo(() => {
+    const values = new Map<string, string>();
+    missingSessions.forEach((session) => {
+      if (!session.startTime || !session.endTime) return;
+      const value = `${session.startTime}|${session.endTime}`;
+      values.set(value, `${session.startTime}–${session.endTime}`);
+    });
+    return [...values.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.value.localeCompare(b.value));
+  }, [missingSessions]);
+
+  const filteredMissingSessions = useMemo(() => {
+    return missingSessions.filter((session) => {
+      if (session.attendance?.completionStatus === 'complete') return false;
+      if (missingClass && String(session.class?._id || '') !== missingClass) return false;
+      if (missingTeacher && session.teacherName !== missingTeacher) return false;
+      if (missingPeriod && `${session.startTime}|${session.endTime}` !== missingPeriod) return false;
+      return true;
+    });
+  }, [missingSessions, missingClass, missingTeacher, missingPeriod]);
+
+  const submittedSessions = missingSessions.filter((session) => session.attendance?.completionStatus === 'complete').length;
+  const incompleteSessions = missingSessions.length - submittedSessions;
+  const completionPercentage = missingSessions.length ? Math.round((submittedSessions / missingSessions.length) * 100) : 0;
+
   const switchMode = (next: ReportMode) => {
     setMode(next);
     setError('');
     setDateReport(null);
     setCellReport(null);
     setStudentRows([]);
+    if (next !== 'missing') {
+      setMissingClass('');
+      setMissingTeacher('');
+      setMissingPeriod('');
+    }
   };
 
   const runDateReport = async () => {
@@ -220,9 +317,10 @@ export function SchoolAttendanceReportPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
+      <div className="grid grid-cols-3 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
         {([
           ['date', 'By Date', CalendarDays],
+          ['missing', 'Missing', AlertTriangle],
           ['student', 'By Student', UserRound],
         ] as const).map(([key, label, Icon]) => (
           <button
@@ -394,6 +492,164 @@ export function SchoolAttendanceReportPanel() {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {mode === 'missing' && (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Date</span>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => {
+                    setDate(e.target.value);
+                    setMissingClass('');
+                    setMissingTeacher('');
+                    setMissingPeriod('');
+                  }}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm"
+                />
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Class</span>
+                <select value={missingClass} onChange={(e) => setMissingClass(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
+                  <option value="">All Classes</option>
+                  {missingClassOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Teacher</span>
+                <select value={missingTeacher} onChange={(e) => setMissingTeacher(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
+                  <option value="">All Teachers</option>
+                  {missingTeacherOptions.map((teacher) => <option key={teacher} value={teacher}>{teacher}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Period</span>
+                <select value={missingPeriod} onChange={(e) => setMissingPeriod(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm">
+                  <option value="">All Periods</option>
+                  {missingPeriodOptions.map((option, index) => <option key={option.value} value={option.value}>Period {index + 1} · {option.label}</option>)}
+                </select>
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">Shows scheduled lessons whose attendance has not been fully submitted for the selected date.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <SummaryCard label="Scheduled" value={missingSessions.length} />
+            <SummaryCard label="Submitted" value={submittedSessions} tone="present" />
+            <SummaryCard label="Missing" value={incompleteSessions} tone="absent" />
+            <SummaryCard label="Completion" value={`${completionPercentage}%`} />
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card">
+            <div className="border-b border-[var(--color-border-default)] p-4">
+              <p className="font-bold text-[var(--color-text-primary)]">Missing Attendance</p>
+              <p className="text-xs text-[var(--color-text-tertiary)]">Not submitted and partially recorded lessons appear here until attendance is complete.</p>
+            </div>
+
+            {missingLoading ? (
+              <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">Loading scheduled lessons...</div>
+            ) : filteredMissingSessions.length === 0 ? (
+              <div className="p-10 text-center">
+                <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                  <CalendarDays className="h-5 w-5" />
+                </div>
+                <p className="mt-3 text-sm font-semibold text-[var(--color-text-primary)]">No missing attendance</p>
+                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">All matching scheduled lessons have complete attendance.</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2 p-3 sm:hidden">
+                  {filteredMissingSessions.map((session) => {
+                    const status = session.attendance?.completionStatus || 'not_taken';
+                    const recorded = session.attendance?.recordedStudents ?? session.attendance?.total ?? 0;
+                    const expected = session.attendance?.expectedStudents;
+                    const subject = session.course?.title?.en || session.course?.courseCode || 'Subject';
+                    return (
+                      <div key={session._id} className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/60 dark:bg-amber-950/20">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-bold text-[var(--color-text-primary)]">{session.className}</p>
+                            <p className="mt-0.5 truncate text-xs font-semibold text-[var(--color-text-secondary)]">{subject}</p>
+                            <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">{session.teacherName}</p>
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${status === 'partial' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>
+                            {status === 'partial' ? 'Partial' : 'Not Submitted'}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <div className="text-xs text-[var(--color-text-secondary)]">
+                            <span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{session.startTime}–{session.endTime}</span>
+                            {status === 'partial' && <span className="ml-2">{recorded}/{expected ?? '?'} recorded</span>}
+                          </div>
+                          {onOpenAttendanceSession && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenAttendanceSession({ date, sessionId: session._id, classId: String(session.class?._id || ''), startTime: session.startTime, endTime: session.endTime })}
+                              className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white"
+                            >
+                              Open Attendance
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="hidden overflow-x-auto [touch-action:pan-x_pan-y] sm:block">
+                  <table className="w-full min-w-[780px] border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-[var(--color-surface-secondary)] text-left text-xs text-[var(--color-text-secondary)]">
+                        <th className="px-4 py-3 font-bold">Class</th>
+                        <th className="px-4 py-3 font-bold">Course</th>
+                        <th className="px-4 py-3 font-bold">Teacher</th>
+                        <th className="px-4 py-3 font-bold">Period</th>
+                        <th className="px-4 py-3 font-bold">Status</th>
+                        <th className="px-4 py-3 text-right font-bold">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                      {filteredMissingSessions.map((session) => {
+                        const status = session.attendance?.completionStatus || 'not_taken';
+                        const recorded = session.attendance?.recordedStudents ?? session.attendance?.total ?? 0;
+                        const expected = session.attendance?.expectedStudents;
+                        const subject = session.course?.title?.en || session.course?.courseCode || 'Subject';
+                        return (
+                          <tr key={session._id}>
+                            <td className="px-4 py-3 font-semibold text-[var(--color-text-primary)]">{session.className}</td>
+                            <td className="px-4 py-3 text-[var(--color-text-secondary)]">{subject}</td>
+                            <td className="px-4 py-3 text-[var(--color-text-secondary)]">{session.teacherName}</td>
+                            <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">{session.startTime}–{session.endTime}</td>
+                            <td className="px-4 py-3">
+                              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${status === 'partial' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>
+                                {status === 'partial' ? `Partial · ${recorded}/${expected ?? '?'}` : 'Not Submitted'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {onOpenAttendanceSession && (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenAttendanceSession({ date, sessionId: session._id, classId: String(session.class?._id || ''), startTime: session.startTime, endTime: session.endTime })}
+                                  className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white"
+                                >
+                                  Open Attendance
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
