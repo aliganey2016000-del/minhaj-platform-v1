@@ -1,9 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ChevronRight, Search, UserRound, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../../lib/axios';
 
 type ReportMode = 'date' | 'student';
+
+interface ScheduleOption {
+  startTime?: string;
+  endTime?: string;
+}
 
 interface DateReport {
   date: string;
@@ -35,6 +40,7 @@ interface DateReport {
     periods: Record<string, {
       scheduled: boolean;
       sessions: number;
+      subjects: string[];
       records: number;
       present: number;
       absent: number;
@@ -93,6 +99,9 @@ export function SchoolAttendanceReportPanel() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<ReportMode>('date');
   const [date, setDate] = useState(localISODate());
+  const [datePeriod, setDatePeriod] = useState('');
+  const [dateOptions, setDateOptions] = useState<ScheduleOption[]>([]);
+  const [dateOptionsLoading, setDateOptionsLoading] = useState(false);
 
   const [dateReport, setDateReport] = useState<DateReport | null>(null);
   const [cellReport, setCellReport] = useState<ClassReport | null>(null);
@@ -103,6 +112,40 @@ export function SchoolAttendanceReportPanel() {
   const [studentRows, setStudentRows] = useState<StudentSearchRow[]>([]);
   const [studentSearching, setStudentSearching] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (mode !== 'date') return;
+    let active = true;
+    setDateOptionsLoading(true);
+    api.get('/attendance/school/options', { params: { date } })
+      .then(({ data }) => {
+        if (!active) return;
+        setDateOptions(data?.data || []);
+      })
+      .catch(() => {
+        if (active) setDateOptions([]);
+      })
+      .finally(() => {
+        if (active) setDateOptionsLoading(false);
+      });
+    return () => { active = false; };
+  }, [mode, date]);
+
+  const datePeriods = useMemo(() => {
+    const seen = new Set<string>();
+    return dateOptions
+      .filter((option) => option.startTime && option.endTime)
+      .map((option) => ({
+        value: `${option.startTime}|${option.endTime}`,
+        label: `${option.startTime}–${option.endTime}`,
+      }))
+      .filter((option) => {
+        if (seen.has(option.value)) return false;
+        seen.add(option.value);
+        return true;
+      })
+      .sort((a, b) => a.value.localeCompare(b.value));
+  }, [dateOptions]);
 
   const switchMode = (next: ReportMode) => {
     setMode(next);
@@ -117,7 +160,13 @@ export function SchoolAttendanceReportPanel() {
     setError('');
     setDateReport(null);
     try {
-      const { data } = await api.get('/attendance/school/report/date', { params: { date } });
+      const params: Record<string, string> = { date };
+      if (datePeriod) {
+        const [startTime, endTime] = datePeriod.split('|');
+        params.startTime = startTime;
+        params.endTime = endTime;
+      }
+      const { data } = await api.get('/attendance/school/report/date', { params });
       setDateReport(data?.data || null);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Could not generate the school attendance report.');
@@ -197,21 +246,33 @@ export function SchoolAttendanceReportPanel() {
       {mode === 'date' && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
               <label>
                 <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Date</span>
                 <input
                   type="date"
                   value={date}
-                  onChange={(e) => { setDate(e.target.value); setDateReport(null); }}
+                  onChange={(e) => { setDate(e.target.value); setDatePeriod(''); setDateReport(null); }}
                   className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm"
                 />
+              </label>
+              <label>
+                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Period <span className="font-normal text-[var(--color-text-tertiary)]">(optional)</span></span>
+                <select
+                  value={datePeriod}
+                  disabled={dateOptionsLoading}
+                  onChange={(e) => { setDatePeriod(e.target.value); setDateReport(null); }}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm disabled:opacity-60"
+                >
+                  <option value="">{dateOptionsLoading ? 'Loading periods...' : 'All Periods'}</option>
+                  {datePeriods.map((row, index) => <option key={row.value} value={row.value}>Period {index + 1} · {row.label}</option>)}
+                </select>
               </label>
               <button type="button" onClick={runDateReport} disabled={reportLoading} className="min-h-11 rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white disabled:opacity-50">
                 {reportLoading ? 'Generating...' : 'Generate Report'}
               </button>
             </div>
-            <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">Shows the selected day across the whole school. Data loads only after Generate Report.</p>
+            <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">Choose a date to see all attended courses for that day. Select a period only when you want to narrow the report to one lesson period.</p>
           </div>
 
           {dateReport && (
@@ -283,6 +344,11 @@ export function SchoolAttendanceReportPanel() {
                                       className="w-full touch-manipulation rounded-lg px-1 py-1.5 transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 dark:hover:bg-emerald-950/30"
                                       aria-label={`View ${row.className} attendance for ${period.startTime} to ${period.endTime}`}
                                     >
+                                      {cell.subjects?.length > 0 && (
+                                        <div className="mb-1 line-clamp-2 text-[9px] font-semibold leading-3 text-[var(--color-text-secondary)] sm:text-[10px]" title={cell.subjects.join(', ')}>
+                                          {cell.subjects.join(', ')}
+                                        </div>
+                                      )}
                                       <div className="text-sm font-bold text-emerald-600 sm:text-base">{cell.percentage}%</div>
                                       <div className="mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:text-[10px]">
                                         <span className="sm:hidden">{cell.present}/{cell.records}</span>
