@@ -10,6 +10,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { BackButton } from '../../shared/components/back-button';
+import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
 
 interface SchoolBrief { _id: string; name: string; }
 interface DepartmentBrief { _id: string; name: string; }
@@ -613,6 +614,8 @@ export function ExamAttendanceManage() {
           <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">✅ Exam Attendance</h1>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Invigilator portal — mark exam-day attendance</p>
         </div>
+
+        <ExamWorkspaceTabs />
 
         {/* Filters — Organization → Department → Class cascade + Exam */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100/80 dark:border-slate-800 shadow-sm">
