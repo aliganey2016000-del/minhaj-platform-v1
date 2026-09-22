@@ -370,7 +370,7 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const update = <K extends keyof ExamScheduleRules>(key: K, value: ExamScheduleRules[K]) =>
+  const update = <K extends keyof ExamScheduleRules,>(key: K, value: ExamScheduleRules[K]) =>
     setRules((prev) => ({ ...prev, [key]: value }));
 
   return (
