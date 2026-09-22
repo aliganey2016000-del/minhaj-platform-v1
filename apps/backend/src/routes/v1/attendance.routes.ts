@@ -27,6 +27,10 @@ router.get('/school/session/:scheduleId', roleMiddleware(['admin', 'org_admin', 
 router.get('/school/options', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolOptions));
 router.get('/school/report', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolClassReport));
 router.get('/school/report/student', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolClassStudentReport));
+router.get('/school/report/date', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolDateReport));
+router.get('/school/report/class-period', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolClassPeriodReport));
+router.get('/school/report/students', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.searchSchoolReportStudents));
+router.get('/school/report/student-overall/:studentId', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolStudentOverallReport));
 
 // Substitute coverage is dated and schedule-specific so it never permanently
 // changes the course's regular teacher.
