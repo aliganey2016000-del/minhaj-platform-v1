@@ -1088,6 +1088,13 @@ function ViewModal({ exam, onClose }: { exam: Exam; onClose: () => void }) {
           </div>
 
           <DetailRow label="Status" value={<StatusBadge status={getEffectiveStatus(exam)} />} />
+          {exam.period && typeof exam.period !== 'string' && (
+            <>
+              <DetailRow label="Exam Period" value={exam.period.name} />
+              <DetailRow label="Academic Year" value={exam.period.academicYear} />
+              {exam.period.term && <DetailRow label="Term / Semester" value={exam.period.term} />}
+            </>
+          )}
           {exam.autoSchedule ? (
             <>
               <DetailRow label="Scheduling" value={`🤖 Automatic — unlocks after ${exam.milestone === 'mid' ? 'tagged modules' : 'the whole course'}`} />
@@ -1214,7 +1221,7 @@ function ExamsImportModal({ onClose, onImported }: { onClose: () => void; onImpo
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Import Exams</h2>
-              <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Bulk-create manually-scheduled exams from a spreadsheet.</p>
+              <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Import period-aware schedules into the same records used by List and Table Grid.</p>
             </div>
             <button onClick={onClose} disabled={importing} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors">
               <X className="h-5 w-5" strokeWidth={2} />
@@ -1236,7 +1243,7 @@ function ExamsImportModal({ onClose, onImported }: { onClose: () => void; onImpo
             </div>
           </button>
           <p className="text-xs text-[var(--color-text-tertiary)] -mt-3">
-            💡 Only manually-scheduled exams can be bulk-imported — an auto-scheduled exam has no fixed date/time of its own, so set those up individually via "+ Schedule Exam".
+            💡 Use Exam Period + Academic Year to link imported rows directly to Midterm/Final Table Grid. Grade / Class disambiguates courses with the same title. Legacy files are still supported.
           </p>
 
           <div className="grid grid-cols-2 gap-3">
@@ -1285,7 +1292,7 @@ function ExamsImportModal({ onClose, onImported }: { onClose: () => void; onImpo
               <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
                 <p className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Paste your spreadsheet data below, including the header row (tab-separated columns):</p>
                 <p className="text-xs text-[var(--color-text-tertiary)] mb-3 font-mono">
-                  Organization &nbsp; Course Title &nbsp; Exam Title &nbsp; Exam Date &nbsp; Start Time &nbsp; End Time &nbsp; Duration &nbsp; Total Marks &nbsp; Passing Marks &nbsp; Room &nbsp; Instructions
+                  Organization &nbsp; Exam Period &nbsp; Academic Year &nbsp; Term / Semester &nbsp; Grade / Class &nbsp; Course Title &nbsp; Exam Title &nbsp; Exam Date &nbsp; Shift &nbsp; Start Time &nbsp; End Time &nbsp; Duration &nbsp; Total Marks &nbsp; Passing Marks &nbsp; Room &nbsp; Instructions
                   <span className="italic"> (Organization only needed if you manage more than one)</span>
                 </p>
                 <textarea
@@ -3037,7 +3044,10 @@ export function ExamsManage() {
       {showCreate && <ExamModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchData(); }} />}
       {editingExam && <ExamModal exam={editingExam} onClose={() => setEditingExam(undefined)} onSaved={() => { setEditingExam(undefined); fetchData(); }} />}
       {viewingExam && <ViewModal exam={viewingExam} onClose={() => setViewingExam(undefined)} />}
-      {showImportModal && <ExamsImportModal onClose={() => setShowImportModal(false)} onImported={fetchData} />}
+      {showImportModal && <ExamsImportModal onClose={() => setShowImportModal(false)} onImported={() => {
+        void fetchData();
+        setScheduleContextRefreshKey((value) => value + 1);
+      }} />}
       {showRulesModal && <ExamScheduleRulesModal onClose={() => {
         setShowRulesModal(false);
         setScheduleContextRefreshKey((value) => value + 1);
