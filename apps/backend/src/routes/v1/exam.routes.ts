@@ -46,6 +46,7 @@ router.post('/schedule-grid', adminOnly, asyncHandler(examController.saveSchedul
 
 // Master seating: one room + seat for every student across all subjects in an exam period.
 router.get('/seating-plan', adminOrTeacher, asyncHandler(masterSeatController.list));
+router.get('/seating-plan/stats', adminOrTeacher, asyncHandler(masterSeatController.stats));
 router.get('/seating-plan/rooms', adminOrTeacher, asyncHandler(masterSeatController.rooms));
 router.post('/seating-plan', adminOrTeacher, asyncHandler(masterSeatController.add));
 router.patch('/seating-plan/:id', adminOrTeacher, asyncHandler(masterSeatController.update));
