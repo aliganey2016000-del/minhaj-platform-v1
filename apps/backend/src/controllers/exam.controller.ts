@@ -683,9 +683,33 @@ const examTypeOf = (exam: any): 'mid' | 'final' | '' => {
 // GET /exams/my — Student's exams from enrolled courses
 export const getMyExams = async (req: Request, res: Response): Promise<Response> => {
   const student = await ensureStudentRecord(req.user!.userId);
+  const studentRecord = student as any;
 
-  const courseIds = (student.enrolledCourses || []).map((id: any) => id);
-  const exams = await Exam.find({ course: { $in: courseIds } })
+  // Current class is the source of truth for the student's current exam
+  // timetable. After promotion (e.g. Grade 5 -> Grade 6), old-grade exams
+  // stop being part of the live schedule even if historical enrollments are
+  // still retained for transcripts/reporting.
+  const [myClass, mySchool] = await Promise.all([
+    studentRecord.class
+      ? ClassModel.findById(studentRecord.class)
+          .select('title section department academicYear')
+          .populate('department', 'name')
+          .lean()
+      : null,
+    studentRecord.school
+      ? School.findById(studentRecord.school).select('name').lean()
+      : null,
+  ]);
+
+  const courseIds = studentRecord.class
+    ? await Course.find({
+        class: studentRecord.class,
+        ...(studentRecord.school ? { school: studentRecord.school } : {}),
+        status: { $ne: 'archived' },
+      }).distinct('_id')
+    : (student.enrolledCourses || []).map((id: any) => id);
+
+  const rawExams = await Exam.find({ course: { $in: courseIds } })
     .populate({
       path: 'course',
       select: 'title.en slug category thumbnail class school teacher enrolledStudents',
@@ -696,9 +720,15 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
       ],
     })
     .populate('school', 'name')
+    .populate('period', 'name academicYear term status startDate endDate')
     .populate('createdBy', 'email')
     .sort({ examDate: 1, startTime: 1 })
     .lean();
+
+  // Draft named exams are administrative work-in-progress and must not leak
+  // into the student's schedule. Published and closed periods remain visible;
+  // legacy exams without a period keep their previous behaviour.
+  const exams = (rawExams as any[]).filter((exam: any) => !exam.period || exam.period.status !== 'draft');
 
   // Join in this student's own attempt status per exam — lets the frontend
   // tell "time's up, you submitted" (completed) apart from "time's up, you
@@ -743,17 +773,6 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
       myRetakeRequestStatus: retakeStatusByExam[e._id.toString()] || null,
     };
   });
-
-  // The student's own class/school — lets the frontend default to "My
-  // Class" (course.class._id === myClass._id) instead of the full
-  // enrolledCourses list, and seeds the Department dropdown's org scope
-  // for browsing other classes (see browseExams below). Fetched separately
-  // since ensureStudentRecord() returns an unpopulated document.
-  const studentRecord = student as any;
-  const [myClass, mySchool] = await Promise.all([
-    studentRecord.class ? ClassModel.findById(studentRecord.class).select('title section department academicYear').populate('department', 'name').lean() : null,
-    studentRecord.school ? School.findById(studentRecord.school).select('name').lean() : null,
-  ]);
 
   // Attach the student's master seating (room + desk) from the Exam Seating
   // Center. The plan is keyed by academicYear + examType, and an exam's
@@ -810,16 +829,17 @@ export const browseExams = async (req: Request, res: Response): Promise<Response
 
   const courseIds = await Course.find({ class: classId }).distinct('_id');
   const exams = await Exam.find({ course: { $in: courseIds } })
-    .select('title course examDate startTime endTime duration totalMarks passingMarks room status autoSchedule milestone')
+    .select('title course period examDate startTime endTime duration totalMarks passingMarks room status autoSchedule milestone')
     .populate({ path: 'course', select: 'title.en slug category thumbnail class school teacher', populate: [
       { path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } },
       { path: 'school', select: 'name' },
       { path: 'teacher', select: 'profile', populate: { path: 'profile', select: 'firstName lastName' } },
     ] })
+    .populate('period', 'name academicYear term status startDate endDate')
     .sort({ examDate: 1, startTime: 1 })
     .lean();
 
-  return ApiResponse.success(res, exams);
+  return ApiResponse.success(res, (exams as any[]).filter((exam: any) => !exam.period || exam.period.status !== 'draft'));
 };
 
 // PATCH /exams/:id/status
