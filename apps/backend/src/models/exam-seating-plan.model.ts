@@ -9,6 +9,7 @@ export interface IExamSeatingPlan extends Document {
   academicYear: string;
   examType: 'mid' | 'final';
   school?: mongoose.Types.ObjectId | null;
+  locked?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,6 +21,7 @@ const schema = new Schema<IExamSeatingPlan>({
   academicYear: { type: String, required: true, trim: true, index: true },
   examType: { type: String, enum: ['mid', 'final'], required: true, index: true },
   school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
+  locked: { type: Boolean, default: false, index: true },
 }, { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; if (typeof ret.deskNumber === 'string' && ret.deskNumber.startsWith('__ROOM_ONLY__')) ret.deskNumber = ''; return ret; } } });
 
 // Room-only generation still needs a non-empty database value because
