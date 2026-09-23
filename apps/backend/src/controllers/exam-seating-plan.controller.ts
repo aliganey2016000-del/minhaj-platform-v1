@@ -24,6 +24,30 @@ export const list = async (req: Request,res: Response) => { const q=req.query as
 
 export const rooms = async (req: Request,res: Response) => { const filter=applyOrgFilter(req,{},'school'); const rows=await ExamRoom.find(filter).sort({name:1}).lean(); return ApiResponse.success(res,rows); };
 
+export const stats = async (req: Request,res: Response) => {
+  const q=req.query as any;
+  const year=norm(q.academicYear);
+  const type=examTypeValue(q.examType);
+  if(!year||!type) return ApiResponse.success(res,{totalStudents:0,assigned:0,unassigned:0,locked:0,roomsUsed:0});
+
+  const studentFilter=applyOrgFilter(req,{status:'active'},'school');
+  const planFilter=applyOrgFilter(req,{academicYear:year,examType:type},'school');
+  const [totalStudents,assigned,locked,roomIds]=await Promise.all([
+    Student.countDocuments(studentFilter),
+    ExamSeatingPlan.countDocuments(planFilter),
+    ExamSeatingPlan.countDocuments({...planFilter,locked:true}),
+    ExamSeatingPlan.distinct('room',planFilter),
+  ]);
+
+  return ApiResponse.success(res,{
+    totalStudents,
+    assigned,
+    unassigned:Math.max(totalStudents-assigned,0),
+    locked,
+    roomsUsed:roomIds.length,
+  });
+};
+
 export const add = async (req: Request,res: Response) => {
   const {organization,studentId,room,seat,academicYear,examType}=req.body as any;
   if(!studentId||!room||!academicYear||!examType) throw new BadRequestError('Student ID, Room, Academic Year and Exam Type are required');
