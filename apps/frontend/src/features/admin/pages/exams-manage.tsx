@@ -261,6 +261,12 @@ function ExamsActionsMenu({ onSchedule, onRules, onImport, onExport, exporting, 
 // Exam Scheduling Rules
 // ---------------------------------------------------------------------------
 
+interface ExamShiftRule {
+  name: string;
+  startTime: string;
+  endTime: string;
+}
+
 interface ExamScheduleRules {
   preventClassOverlap: boolean;
   allowSharedRooms: boolean;
@@ -268,7 +274,16 @@ interface ExamScheduleRules {
   maxExamsPerClassPerDay: number;
   minimumGapMinutes: number;
   durationValidation: boolean;
+  examShiftCount: number;
+  examShifts: ExamShiftRule[];
 }
+
+const DEFAULT_EXAM_SHIFTS: ExamShiftRule[] = [
+  { name: 'Shift 1', startTime: '08:00', endTime: '10:00' },
+  { name: 'Shift 2', startTime: '10:30', endTime: '12:30' },
+  { name: 'Shift 3', startTime: '13:30', endTime: '15:30' },
+  { name: 'Shift 4', startTime: '16:00', endTime: '18:00' },
+];
 
 const DEFAULT_EXAM_SCHEDULE_RULES: ExamScheduleRules = {
   preventClassOverlap: true,
@@ -277,6 +292,8 @@ const DEFAULT_EXAM_SCHEDULE_RULES: ExamScheduleRules = {
   maxExamsPerClassPerDay: 1,
   minimumGapMinutes: 30,
   durationValidation: true,
+  examShiftCount: 2,
+  examShifts: DEFAULT_EXAM_SHIFTS.slice(0, 2).map((shift) => ({ ...shift })),
 };
 
 function RulesToggle({
@@ -378,6 +395,30 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
   const update = <K extends keyof ExamScheduleRules,>(key: K, value: ExamScheduleRules[K]) =>
     setRules((prev) => ({ ...prev, [key]: value }));
 
+  const updateShiftCount = (value: number) => {
+    const count = Math.min(4, Math.max(1, Math.trunc(value || 1)));
+    setRules((prev) => ({
+      ...prev,
+      examShiftCount: count,
+      examShifts: Array.from({ length: count }, (_, index) => ({
+        ...(prev.examShifts[index] || DEFAULT_EXAM_SHIFTS[index] || {
+          name: `Shift ${index + 1}`,
+          startTime: '08:00',
+          endTime: '10:00',
+        }),
+      })),
+    }));
+  };
+
+  const updateShift = (index: number, key: keyof ExamShiftRule, value: string) => {
+    setRules((prev) => ({
+      ...prev,
+      examShifts: prev.examShifts.map((shift, shiftIndex) =>
+        shiftIndex === index ? { ...shift, [key]: value } : shift
+      ),
+    }));
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm sm:p-5" onClick={onClose}>
       <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-[var(--color-surface-primary)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -453,6 +494,71 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
                   title="Exam Duration Validation"
                   description="The exam duration must fit inside the selected start and end time."
                 />
+              </div>
+
+              <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
+                      <Clock3 className="h-4 w-4 text-primary-600" />
+                      Exam Shifts
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
+                      Set how many exam shifts the school uses and the start/end time for each shift.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-[var(--color-text-secondary)]">Number of shifts</span>
+                    <select
+                      value={rules.examShiftCount}
+                      onChange={(e) => updateShiftCount(Number(e.target.value))}
+                      className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm font-semibold"
+                    >
+                      {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{count}</option>)}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  {rules.examShifts.slice(0, rules.examShiftCount).map((shift, index) => (
+                    <div key={index} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3">
+                      <div className="grid gap-3 sm:grid-cols-[minmax(120px,1fr)_1fr_1fr]">
+                        <label>
+                          <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Shift</span>
+                          <input
+                            value={shift.name}
+                            onChange={(e) => updateShift(index, 'name', e.target.value)}
+                            className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm font-semibold"
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Start Time</span>
+                          <input
+                            type="time"
+                            value={shift.startTime}
+                            onChange={(e) => updateShift(index, 'startTime', e.target.value)}
+                            className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm"
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">End Time</span>
+                          <input
+                            type="time"
+                            value={shift.endTime}
+                            onChange={(e) => updateShift(index, 'endTime', e.target.value)}
+                            className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {rules.examShiftCount > 1 && (
+                  <p className="mt-3 text-[11px] text-[var(--color-text-tertiary)]">
+                    Break time is the gap between one shift's end time and the next shift's start time.
+                  </p>
+                )}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
