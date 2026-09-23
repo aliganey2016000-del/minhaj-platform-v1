@@ -1518,13 +1518,17 @@ function ExamTimetable({
   onOpen,
   onChanged,
   editRequest,
+  createRequest,
   onEditRequestHandled,
+  onCreateRequestHandled,
 }: {
   exams: Exam[];
   onOpen: (exam: Exam) => void;
   onChanged: () => Promise<void> | void;
   editRequest: number;
+  createRequest: number;
   onEditRequestHandled: () => void;
+  onCreateRequestHandled: () => void;
 }) {
   const { user } = useAuth();
   const ownOrgId = String((user as any)?.organizationId?._id || (user as any)?.organizationId || '');
@@ -1540,6 +1544,8 @@ function ExamTimetable({
 
   const [rules, setRules] = useState<ExamScheduleRules>(DEFAULT_EXAM_SCHEDULE_RULES);
   const [gridClasses, setGridClasses] = useState<ClassBrief[]>([]);
+  const [periods, setPeriods] = useState<ExamPeriod[]>([]);
+  const [selectedPeriodId, setSelectedPeriodId] = useState('');
   const [rulesLoading, setRulesLoading] = useState(false);
   const [perspective, setPerspective] = useState<ExamTimetablePerspective>('day');
   const [selectedDate, setSelectedDate] = useState('');
@@ -1551,13 +1557,39 @@ function ExamTimetable({
   const [saving, setSaving] = useState(false);
   const [gridError, setGridError] = useState('');
   const [gridSuccess, setGridSuccess] = useState('');
+  const [showCreatePeriod, setShowCreatePeriod] = useState(false);
+  const [creatingPeriod, setCreatingPeriod] = useState(false);
+  const currentYear = new Date().getFullYear();
+  const [periodForm, setPeriodForm] = useState({
+    name: '',
+    academicYear: `${currentYear}/${String(currentYear + 1).slice(-2)}`,
+    term: '',
+    startDate: '',
+    endDate: '',
+  });
   const lastEditRequest = useRef(0);
+  const lastCreateRequest = useRef(0);
+
+  const periodIdOf = (exam: Exam): string =>
+    typeof exam.period === 'string' ? exam.period : exam.period?._id || '';
+
+  const yearKey = (value?: string): string => String(value || '').match(/\d{4}/)?.[0] || '';
 
   const fixedExams = useMemo(
     () => exams
       .filter((exam) => !exam.autoSchedule && exam.examDate && exam.status !== 'cancelled')
       .sort((a, b) => examDateKey(a).localeCompare(examDateKey(b)) || compareExamTimes(a, b)),
     [exams],
+  );
+
+  const selectedPeriod = useMemo(
+    () => periods.find((period) => period._id === selectedPeriodId),
+    [periods, selectedPeriodId],
+  );
+
+  const periodExams = useMemo(
+    () => selectedPeriodId ? fixedExams.filter((exam) => periodIdOf(exam) === selectedPeriodId) : [],
+    [fixedExams, selectedPeriodId],
   );
 
   const fallbackClasses = useMemo(() => {
@@ -1577,72 +1609,105 @@ function ExamTimetable({
     [fallbackClasses, gridClasses],
   );
 
-  const loadRulesAndClasses = useCallback(async () => {
+  const periodClasses = useMemo(() => {
+    if (!selectedPeriod?.academicYear) return classes;
+    const target = yearKey(selectedPeriod.academicYear);
+    return classes.filter((cls) => !cls.academicYear || !target || yearKey(cls.academicYear) === target);
+  }, [classes, selectedPeriod]);
+
+  const loadContext = useCallback(async () => {
     if (!effectiveSchoolId) {
       setGridClasses([]);
+      setPeriods([]);
       return;
     }
     setRulesLoading(true);
     setGridError('');
     try {
-      const [rulesResponse, classesResponse] = await Promise.all([
+      const [rulesResponse, classesResponse, periodsResponse] = await Promise.all([
         api.get('/exams/schedule-rules', { params: { school: effectiveSchoolId } }),
-        api.get('/classes', { params: { school: effectiveSchoolId, status: 'active', limit: 300 } }),
+        api.get('/classes', { params: { schoolId: effectiveSchoolId, status: 'active', limit: 300 } }),
+        api.get('/exams/periods', { params: { school: effectiveSchoolId } }),
       ]);
       setRules({ ...DEFAULT_EXAM_SCHEDULE_RULES, ...(rulesResponse.data?.data?.rules || {}) });
       setGridClasses(classesResponse.data?.data || []);
+      const nextPeriods: ExamPeriod[] = periodsResponse.data?.data || [];
+      setPeriods(nextPeriods);
+      setSelectedPeriodId((current) =>
+        current && nextPeriods.some((period) => period._id === current)
+          ? current
+          : nextPeriods[0]?._id || ''
+      );
     } catch (err: any) {
-      setGridError(err?.response?.data?.message || 'Could not load exam scheduling rules.');
+      setGridError(err?.response?.data?.message || 'Could not load exam scheduling workspace.');
     } finally {
       setRulesLoading(false);
     }
   }, [effectiveSchoolId]);
 
   useEffect(() => {
-    void loadRulesAndClasses();
-  }, [loadRulesAndClasses]);
+    void loadContext();
+  }, [loadContext]);
 
   const availableDates = useMemo(
-    () => Array.from(new Set(fixedExams.map(examDateKey).filter((date) => date && isAllowedExamDate(date, rules.allowedExamDays)))).sort(),
-    [fixedExams, rules.allowedExamDays],
+    () => Array.from(new Set(periodExams.map(examDateKey).filter((date) => date && isAllowedExamDate(date, rules.allowedExamDays)))).sort(),
+    [periodExams, rules.allowedExamDays],
   );
 
   useEffect(() => {
-    if (selectedDate && isAllowedExamDate(selectedDate, rules.allowedExamDays)) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const scheduled = availableDates.find((date) => date >= today) || availableDates[0];
-    setSelectedDate(scheduled || nextAllowedExamDate(rules.allowedExamDays));
-  }, [availableDates, rules.allowedExamDays, selectedDate]);
+    if (!selectedPeriod) {
+      setSelectedDate('');
+      return;
+    }
+    const withinPeriod = (value: string) => {
+      if (!value || !isAllowedExamDate(value, rules.allowedExamDays)) return false;
+      if (selectedPeriod.startDate && value < new Date(selectedPeriod.startDate).toISOString().slice(0, 10)) return false;
+      if (selectedPeriod.endDate && value > new Date(selectedPeriod.endDate).toISOString().slice(0, 10)) return false;
+      return true;
+    };
+    if (withinPeriod(selectedDate)) return;
+
+    const firstScheduled = availableDates.find(withinPeriod);
+    if (firstScheduled) {
+      setSelectedDate(firstScheduled);
+      return;
+    }
+
+    const base = selectedPeriod.startDate ? new Date(selectedPeriod.startDate) : new Date();
+    let next = nextAllowedExamDate(rules.allowedExamDays, base);
+    if (selectedPeriod.endDate && next > new Date(selectedPeriod.endDate).toISOString().slice(0, 10)) next = '';
+    setSelectedDate(next);
+  }, [availableDates, rules.allowedExamDays, selectedDate, selectedPeriod]);
 
   useEffect(() => {
-    if (selectedClassId && classes.some((item) => item._id === selectedClassId)) return;
-    setSelectedClassId(classes[0]?._id || '');
-  }, [classes, selectedClassId]);
+    if (selectedClassId && periodClasses.some((item) => item._id === selectedClassId)) return;
+    setSelectedClassId(periodClasses[0]?._id || '');
+  }, [periodClasses, selectedClassId]);
 
   const cellExams = useCallback((classId: string, shiftIndex: number, date = selectedDate) => {
     const shift = rules.examShifts[shiftIndex];
-    if (!shift) return [];
-    return fixedExams.filter(
+    if (!shift || !selectedPeriodId) return [];
+    return periodExams.filter(
       (exam) =>
         examDateKey(exam) === date &&
         exam.course?.class?._id === classId &&
         examOverlapsShift(exam, shift),
     );
-  }, [fixedExams, rules.examShifts, selectedDate]);
+  }, [periodExams, rules.examShifts, selectedDate, selectedPeriodId]);
 
   const dayRows = useMemo(
-    () => classes.map((cls) => ({
+    () => periodClasses.map((cls) => ({
       id: cls._id,
       label: classBriefLabel(cls),
       slots: rules.examShifts.map((_, index) => cellExams(cls._id, index)),
     })),
-    [classes, rules.examShifts, cellExams],
+    [periodClasses, rules.examShifts, cellExams],
   );
 
   const classRows = useMemo(() => {
     if (!selectedClassId) return [];
     const dates = Array.from(new Set(
-      fixedExams
+      periodExams
         .filter((exam) => exam.course?.class?._id === selectedClassId)
         .map(examDateKey)
         .filter(Boolean),
@@ -1651,9 +1716,7 @@ function ExamTimetable({
       date,
       slots: rules.examShifts.map((_, index) => cellExams(selectedClassId, index, date)),
     }));
-  }, [cellExams, fixedExams, rules.examShifts, selectedClassId]);
-
-  const automaticCount = exams.filter((exam) => exam.autoSchedule && exam.status !== 'cancelled').length;
+  }, [cellExams, periodExams, rules.examShifts, selectedClassId]);
 
   const loadClassCourses = useCallback(async (classId: string) => {
     if (!effectiveSchoolId || coursesByClass[classId]) return;
@@ -1665,7 +1728,7 @@ function ExamTimetable({
       const available = (response.data?.data || []).filter((course: CourseBrief) => course.status !== 'archived');
       setCoursesByClass((current) => ({ ...current, [classId]: available }));
     } catch (err: any) {
-      setGridError(err?.response?.data?.message || `Could not load courses for ${classBriefLabel(classes.find((item) => item._id === classId))}.`);
+      setGridError(err?.response?.data?.message || `Could not load courses for ${classBriefLabel(periodClasses.find((item) => item._id === classId))}.`);
     } finally {
       setLoadingCourses((current) => {
         const next = new Set(current);
@@ -1673,7 +1736,7 @@ function ExamTimetable({
         return next;
       });
     }
-  }, [classes, coursesByClass, effectiveSchoolId]);
+  }, [coursesByClass, effectiveSchoolId, periodClasses]);
 
   const draftKey = (classId: string, shiftIndex: number) => `${classId}|${shiftIndex}`;
 
@@ -1703,12 +1766,20 @@ function ExamTimetable({
       setGridError('Edit Schedule requires one organization/school context.');
       return;
     }
+    if (!selectedPeriod) {
+      setGridError('Create or select an Exam first, then edit its schedule.');
+      return;
+    }
+    if (selectedPeriod.status === 'closed') {
+      setGridError('This exam is closed. Reopen it before editing the schedule.');
+      return;
+    }
     setPerspective('day');
     setEditMode(true);
     setGridError('');
     setGridSuccess('');
-    classes.forEach((cls) => void loadClassCourses(cls._id));
-  }, [classes, effectiveSchoolId, loadClassCourses]);
+    periodClasses.forEach((cls) => void loadClassCourses(cls._id));
+  }, [effectiveSchoolId, loadClassCourses, periodClasses, selectedPeriod]);
 
   useEffect(() => {
     if (editRequest <= lastEditRequest.current) return;
@@ -1718,9 +1789,17 @@ function ExamTimetable({
   }, [beginEdit, editRequest, onEditRequestHandled]);
 
   useEffect(() => {
+    if (createRequest <= lastCreateRequest.current) return;
+    lastCreateRequest.current = createRequest;
+    if (!effectiveSchoolId) setGridError('Create Exam requires one organization/school context.');
+    else setShowCreatePeriod(true);
+    onCreateRequestHandled();
+  }, [createRequest, effectiveSchoolId, onCreateRequestHandled]);
+
+  useEffect(() => {
     if (!editMode) return;
-    classes.forEach((cls) => void loadClassCourses(cls._id));
-  }, [classes, editMode, loadClassCourses]);
+    periodClasses.forEach((cls) => void loadClassCourses(cls._id));
+  }, [editMode, loadClassCourses, periodClasses]);
 
   const cancelEdit = () => {
     if (Object.keys(draft).length && !window.confirm('Discard unsaved exam schedule changes?')) return;
@@ -1736,7 +1815,10 @@ function ExamTimetable({
       setEditMode(false);
       return;
     }
-    if (!selectedDate || !effectiveSchoolId) return;
+    if (!selectedDate || !effectiveSchoolId || !selectedPeriodId) {
+      setGridError('Select an Exam and an allowed Exam Date before saving.');
+      return;
+    }
 
     setSaving(true);
     setGridError('');
@@ -1748,6 +1830,7 @@ function ExamTimetable({
       });
       const response = await api.post('/exams/schedule-grid', {
         school: effectiveSchoolId,
+        periodId: selectedPeriodId,
         examDate: selectedDate,
         cells,
       });
@@ -1767,7 +1850,7 @@ function ExamTimetable({
 
       if (!failures.length) {
         setEditMode(false);
-        setGridSuccess(`Exam schedule saved — ${savedKeys.length} ${savedKeys.length === 1 ? 'cell' : 'cells'} updated.`);
+        setGridSuccess(`${selectedPeriod?.name || 'Exam'} schedule saved — ${savedKeys.length} ${savedKeys.length === 1 ? 'cell' : 'cells'} updated.`);
       } else {
         setGridError(`${savedKeys.length} of ${entries.length} changes saved. ${failures.length} failed: ${failures.map((item) => item.message).join('; ')}`);
       }
@@ -1778,15 +1861,81 @@ function ExamTimetable({
     }
   };
 
+  const createPeriod = async () => {
+    if (!periodForm.name.trim() || !periodForm.academicYear.trim()) {
+      setGridError('Exam Name and Academic Year are required.');
+      return;
+    }
+    setCreatingPeriod(true);
+    setGridError('');
+    setGridSuccess('');
+    try {
+      const response = await api.post('/exams/periods', {
+        school: effectiveSchoolId,
+        name: periodForm.name.trim(),
+        academicYear: periodForm.academicYear.trim(),
+        term: periodForm.term.trim(),
+        startDate: periodForm.startDate || null,
+        endDate: periodForm.endDate || null,
+      });
+      const created: ExamPeriod = response.data?.data;
+      await loadContext();
+      setSelectedPeriodId(created._id);
+      setShowCreatePeriod(false);
+      setPeriodForm((current) => ({ ...current, name: '', term: '', startDate: '', endDate: '' }));
+      setGridSuccess(`${created.name} created. You can now build its Grade × Shift schedule.`);
+    } catch (err: any) {
+      setGridError(err?.response?.data?.message || 'Could not create exam.');
+    } finally {
+      setCreatingPeriod(false);
+    }
+  };
+
+  const updatePeriodStatus = async (status: ExamPeriod['status']) => {
+    if (!selectedPeriod || !effectiveSchoolId) return;
+    setGridError('');
+    try {
+      const response = await api.patch(`/exams/periods/${selectedPeriod._id}`, {
+        school: effectiveSchoolId,
+        status,
+      });
+      const updated: ExamPeriod = response.data?.data;
+      setPeriods((current) => current.map((period) => period._id === updated._id ? updated : period));
+      setGridSuccess(status === 'published' ? 'Exam published to students.' : status === 'closed' ? 'Exam closed.' : 'Exam moved back to draft.');
+    } catch (err: any) {
+      setGridError(err?.response?.data?.message || 'Could not update exam status.');
+    }
+  };
+
   const changeDate = (value: string) => {
+    if (!selectedPeriod) return;
     if (!isAllowedExamDate(value, rules.allowedExamDays)) {
       const dayName = new Date(`${value}T00:00:00.000Z`).toLocaleDateString(undefined, { weekday: 'long' });
       setGridError(`${dayName} is disabled in Exam Scheduling Rules.`);
       return;
     }
+    const periodStart = selectedPeriod.startDate ? new Date(selectedPeriod.startDate).toISOString().slice(0, 10) : '';
+    const periodEnd = selectedPeriod.endDate ? new Date(selectedPeriod.endDate).toISOString().slice(0, 10) : '';
+    if (periodStart && value < periodStart) {
+      setGridError(`Choose a date on or after ${periodStart}.`);
+      return;
+    }
+    if (periodEnd && value > periodEnd) {
+      setGridError(`Choose a date on or before ${periodEnd}.`);
+      return;
+    }
     setGridError('');
     setGridSuccess('');
     setSelectedDate(value);
+  };
+
+  const changePeriod = (periodId: string) => {
+    if (Object.keys(draft).length && !window.confirm('Discard unsaved schedule changes and switch Exam?')) return;
+    setDraft({});
+    setEditMode(false);
+    setSelectedPeriodId(periodId);
+    setGridError('');
+    setGridSuccess('');
   };
 
   const dynamicColumnCount = Math.max(1, rules.examShifts.length * 2 - 1);
@@ -1796,165 +1945,269 @@ function ExamTimetable({
     .map((item) => item.label)
     .join(', ');
 
-  if (rulesLoading && !classes.length) {
+  if (rulesLoading && !classes.length && !periods.length) {
     return (
       <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center shadow-sm">
         <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
-        <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">Building the exam grid from Scheduling Rules…</p>
+        <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">Loading Exam Schedule workspace…</p>
       </section>
     );
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
-      <div className="border-b border-[var(--color-border-subtle)] p-3 sm:p-4">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="font-bold text-[var(--color-text-primary)]">Exam Timetable</h2>
-              <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
-                {rules.examShiftCount} shift{rules.examShiftCount === 1 ? '' : 's'}
-              </span>
-              {editMode && (
-                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-                  Editing · {Object.keys(draft).length} changed
+    <>
+      <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+        <div className="border-b border-[var(--color-border-subtle)] p-3 sm:p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-bold text-[var(--color-text-primary)]">
+                  {selectedPeriod ? selectedPeriod.name : 'Exam Timetable'}
+                </h2>
+                {selectedPeriod && (
+                  <>
+                    <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
+                      {selectedPeriod.academicYear}{selectedPeriod.term ? ` · ${selectedPeriod.term}` : ''}
+                    </span>
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold capitalize ${selectedPeriod.status === 'published'
+                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
+                      : selectedPeriod.status === 'closed'
+                        ? 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300'
+                        : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'}`}>
+                      {selectedPeriod.status}
+                    </span>
+                  </>
+                )}
+                <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-[10px] font-bold text-[var(--color-text-secondary)]">
+                  {rules.examShiftCount} shift{rules.examShiftCount === 1 ? '' : 's'}
                 </span>
-              )}
+                {editMode && (
+                  <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                    Editing · {Object.keys(draft).length} changed
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
+                Create/select an Exam first. Its Grade × Shift grid follows Scheduling Rules. Allowed days: {allowedDayLabels || 'None'}.
+              </p>
             </div>
-            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
-              Grid is generated from Scheduling Rules. Allowed days: {allowedDayLabels || 'None'}.
-            </p>
+
+            {editMode ? (
+              <div className="flex gap-2">
+                <button type="button" onClick={cancelEdit} disabled={saving} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-xs font-bold text-[var(--color-text-secondary)] disabled:opacity-50">
+                  Cancel
+                </button>
+                <button type="button" onClick={saveSchedule} disabled={saving || Object.keys(draft).length === 0} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-xs font-bold text-white shadow-sm disabled:opacity-50">
+                  <CheckCircle2 className="h-4 w-4" />
+                  {saving ? 'Saving…' : `Save Schedule${Object.keys(draft).length ? ` (${Object.keys(draft).length})` : ''}`}
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {selectedPeriod?.status === 'draft' && (
+                  <button type="button" onClick={() => updatePeriodStatus('published')} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
+                    Publish
+                  </button>
+                )}
+                {selectedPeriod?.status === 'published' && (
+                  <button type="button" onClick={() => updatePeriodStatus('closed')} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)]">
+                    Close Exam
+                  </button>
+                )}
+                {selectedPeriod?.status === 'closed' && (
+                  <button type="button" onClick={() => updatePeriodStatus('draft')} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)]">
+                    Reopen as Draft
+                  </button>
+                )}
+                <div className="inline-flex rounded-xl bg-[var(--color-surface-secondary)] p-1">
+                  <button
+                    type="button"
+                    onClick={() => setPerspective('day')}
+                    className={`rounded-lg px-4 py-2 text-xs font-bold transition ${perspective === 'day' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+                  >
+                    By Day
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPerspective('class')}
+                    className={`rounded-lg px-4 py-2 text-xs font-bold transition ${perspective === 'class' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+                  >
+                    By Class
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {editMode ? (
+          <div className="mt-3 grid gap-2 md:grid-cols-[minmax(220px,1fr)_auto_auto] md:items-center">
             <div className="flex gap-2">
-              <button type="button" onClick={cancelEdit} disabled={saving} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-xs font-bold text-[var(--color-text-secondary)] disabled:opacity-50">
-                Cancel
-              </button>
-              <button type="button" onClick={saveSchedule} disabled={saving || Object.keys(draft).length === 0} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-xs font-bold text-white shadow-sm disabled:opacity-50">
-                <CheckCircle2 className="h-4 w-4" />
-                {saving ? 'Saving…' : `Save Schedule${Object.keys(draft).length ? ` (${Object.keys(draft).length})` : ''}`}
-              </button>
-            </div>
-          ) : (
-            <div className="inline-flex w-full rounded-xl bg-[var(--color-surface-secondary)] p-1 sm:w-auto">
-              <button
-                type="button"
-                onClick={() => setPerspective('day')}
-                className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold transition sm:flex-none ${perspective === 'day' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+              <select
+                value={selectedPeriodId}
+                onChange={(e) => changePeriod(e.target.value)}
+                disabled={editMode}
+                className="min-w-0 flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold disabled:opacity-60"
               >
-                By Day
-              </button>
-              <button
-                type="button"
-                onClick={() => setPerspective('class')}
-                className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold transition sm:flex-none ${perspective === 'class' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
-              >
-                By Class
-              </button>
+                <option value="">Select Exam...</option>
+                {periods.map((period) => (
+                  <option key={period._id} value={period._id}>
+                    {period.name} · {period.academicYear}{period.term ? ` · ${period.term}` : ''}
+                  </option>
+                ))}
+              </select>
+              {!editMode && (
+                <button type="button" onClick={() => setShowCreatePeriod(true)} className="shrink-0 rounded-xl bg-primary-600 px-4 py-2.5 text-xs font-bold text-white">
+                  + New Exam
+                </button>
+              )}
             </div>
-          )}
-        </div>
 
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-          {perspective === 'day' || editMode ? (
-            <>
-              <label className="text-xs font-bold text-[var(--color-text-secondary)]">Exam Date</label>
+            {selectedPeriod && (perspective === 'day' || editMode) && (
               <input
                 type="date"
                 value={selectedDate}
                 onChange={(e) => changeDate(e.target.value)}
                 disabled={editMode && Object.keys(draft).length > 0}
-                className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60 sm:w-52"
+                min={selectedPeriod.startDate ? new Date(selectedPeriod.startDate).toISOString().slice(0, 10) : undefined}
+                max={selectedPeriod.endDate ? new Date(selectedPeriod.endDate).toISOString().slice(0, 10) : undefined}
+                className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
               />
-              {selectedDate && (
-                <span className="text-xs text-[var(--color-text-tertiary)]">
-                  {new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <label className="text-xs font-bold text-[var(--color-text-secondary)]">Class / Grade</label>
+            )}
+
+            {selectedPeriod && perspective === 'class' && !editMode && (
               <select
                 value={selectedClassId}
                 onChange={(e) => setSelectedClassId(e.target.value)}
-                className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm sm:min-w-64"
+                className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"
               >
-                {classes.length === 0 && <option value="">No classes available</option>}
-                {classes.map((cls) => <option key={cls._id} value={cls._id}>{classBriefLabel(cls)}</option>)}
+                {periodClasses.length === 0 && <option value="">No classes available</option>}
+                {periodClasses.map((cls) => <option key={cls._id} value={cls._id}>{classBriefLabel(cls)}</option>)}
               </select>
-            </>
-          )}
+            )}
+          </div>
 
-          {automaticCount > 0 && !editMode && (
-            <span className="sm:ml-auto rounded-full bg-violet-50 px-3 py-1 text-[10px] font-bold text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">
-              {automaticCount} automatic exam{automaticCount === 1 ? '' : 's'} not placed in fixed shifts
-            </span>
-          )}
+          {gridError && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{gridError}</div>}
+          {gridSuccess && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">{gridSuccess}</div>}
         </div>
 
-        {gridError && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{gridError}</div>}
-        {gridSuccess && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">{gridSuccess}</div>}
-      </div>
-
-      {!effectiveSchoolId && user?.role === 'admin' ? (
-        <div className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">
-          Select/filter one organization before using the rules-driven Exam Grid.
-        </div>
-      ) : classes.length === 0 ? (
-        <div className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">
-          No active grades/classes were found for this organization.
-        </div>
-      ) : perspective === 'day' || editMode ? (
-        <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
-          <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
-            <thead>
-              <tr>
-                <th
-                  scope="col"
-                  className="sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]"
-                >
-                  Grade / Class
-                </th>
-                {rules.examShifts.map((shift, index) => (
-                  <Fragment key={`head-wrap-${index}`}>
-                    <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
-                      <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
-                      <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
-                    </th>
-                    {index < rules.examShifts.length - 1 && (
-                      <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">
-                        <div className="font-extrabold text-amber-700 dark:text-amber-300">Break</div>
-                        <div className="mt-0.5 text-[9px] font-semibold text-amber-700/70 dark:text-amber-300/70">{shift.endTime} – {rules.examShifts[index + 1].startTime}</div>
-                      </th>
-                    )}
-                  </Fragment>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {dayRows.map((row) => (
-                <tr key={row.id}>
-                  <th scope="row" className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
-                    <div className="font-extrabold text-[var(--color-text-primary)]">{row.label}</div>
+        {!effectiveSchoolId && user?.role === 'admin' ? (
+          <div className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">
+            Select/filter one organization before creating an Exam Schedule.
+          </div>
+        ) : !selectedPeriod ? (
+          <div className="px-4 py-14 text-center">
+            <CalendarClock className="mx-auto h-8 w-8 text-[var(--color-text-tertiary)]" />
+            <p className="mt-3 text-sm font-bold text-[var(--color-text-primary)]">Create an Exam first</p>
+            <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-[var(--color-text-tertiary)]">
+              Example: Midterm Exam 2026/27 or Final Exam 2026/27. After creation, the Grade × Shift table is generated from Scheduling Rules.
+            </p>
+            <button type="button" onClick={() => setShowCreatePeriod(true)} className="mt-4 rounded-xl bg-primary-600 px-5 py-2.5 text-xs font-bold text-white">
+              Create Exam
+            </button>
+          </div>
+        ) : periodClasses.length === 0 ? (
+          <div className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">
+            No active grades/classes match {selectedPeriod.academicYear}.
+          </div>
+        ) : perspective === 'day' || editMode ? (
+          <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+            <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
+              <thead>
+                <tr>
+                  <th scope="col" className="sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                    Grade / Class
                   </th>
-                  {row.slots.map((slotExams, index) => {
-                    const key = draftKey(row.id, index);
-                    const current = currentCourseId(row.id, index);
-                    return (
-                      <Fragment key={`row-${row.id}-${index}`}>
+                  {rules.examShifts.map((shift, index) => (
+                    <Fragment key={`head-wrap-${index}`}>
+                      <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
+                        <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
+                        <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
+                      </th>
+                      {index < rules.examShifts.length - 1 && (
+                        <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">
+                          <div className="font-extrabold text-amber-700 dark:text-amber-300">Break</div>
+                          <div className="mt-0.5 text-[9px] font-semibold text-amber-700/70 dark:text-amber-300/70">{shift.endTime} – {rules.examShifts[index + 1].startTime}</div>
+                        </th>
+                      )}
+                    </Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {dayRows.map((row) => (
+                  <tr key={row.id}>
+                    <th scope="row" className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                      <div className="font-extrabold text-[var(--color-text-primary)]">{row.label}</div>
+                    </th>
+                    {row.slots.map((slotExams, index) => {
+                      const key = draftKey(row.id, index);
+                      const current = currentCourseId(row.id, index);
+                      return (
+                        <Fragment key={`row-${row.id}-${index}`}>
+                          <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
+                            <ExamTimetableCell
+                              exams={slotExams}
+                              onOpen={onOpen}
+                              editMode={editMode}
+                              courses={coursesByClass[row.id] || []}
+                              value={current}
+                              onChange={(courseId) => setCellCourse(row.id, index, courseId)}
+                              loadingCourses={loadingCourses.has(row.id)}
+                              changed={Object.prototype.hasOwnProperty.call(draft, key)}
+                            />
+                          </td>
+                          {index < rules.examShifts.length - 1 && (
+                            <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
+                              <ExamBreakCell startTime={rules.examShifts[index].endTime} endTime={rules.examShifts[index + 1].startTime} />
+                            </td>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+            <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
+              <thead>
+                <tr>
+                  <th className="sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                    Exam Date
+                  </th>
+                  {rules.examShifts.map((shift, index) => (
+                    <Fragment key={`class-head-${index}`}>
+                      <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
+                        <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
+                        <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
+                      </th>
+                      {index < rules.examShifts.length - 1 && (
+                        <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">Break</th>
+                      )}
+                    </Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {classRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={dynamicColumnCount + 1} className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No schedule has been saved for this class in {selectedPeriod.name} yet.</td>
+                  </tr>
+                ) : classRows.map((row) => (
+                  <tr key={row.date}>
+                    <th scope="row" className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                      <div className="font-extrabold text-[var(--color-text-primary)]">
+                        {new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </div>
+                      <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">
+                        {new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long' })}
+                      </div>
+                    </th>
+                    {row.slots.map((slotExams, index) => (
+                      <Fragment key={`class-row-${row.date}-${index}`}>
                         <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
-                          <ExamTimetableCell
-                            exams={slotExams}
-                            onOpen={onOpen}
-                            editMode={editMode}
-                            courses={coursesByClass[row.id] || []}
-                            value={current}
-                            onChange={(courseId) => setCellCourse(row.id, index, courseId)}
-                            loadingCourses={loadingCourses.has(row.id)}
-                            changed={Object.prototype.hasOwnProperty.call(draft, key)}
-                          />
+                          <ExamTimetableCell exams={slotExams} onOpen={onOpen} />
                         </td>
                         {index < rules.examShifts.length - 1 && (
                           <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
@@ -1962,68 +2215,79 @@ function ExamTimetable({
                           </td>
                         )}
                       </Fragment>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
-          <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
-            <thead>
-              <tr>
-                <th className="sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
-                  Exam Date
-                </th>
-                {rules.examShifts.map((shift, index) => (
-                  <Fragment key={`class-head-${index}`}>
-                    <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
-                      <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
-                      <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
-                    </th>
-                    {index < rules.examShifts.length - 1 && (
-                      <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">Break</th>
-                    )}
-                  </Fragment>
+                    ))}
+                  </tr>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {classRows.length === 0 ? (
-                <tr>
-                  <td colSpan={dynamicColumnCount + 1} className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No exams scheduled for this class yet.</td>
-                </tr>
-              ) : classRows.map((row) => (
-                <tr key={row.date}>
-                  <th scope="row" className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
-                    <div className="font-extrabold text-[var(--color-text-primary)]">
-                      {new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </div>
-                    <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">
-                      {new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long' })}
-                    </div>
-                  </th>
-                  {row.slots.map((slotExams, index) => (
-                    <Fragment key={`class-row-${row.date}-${index}`}>
-                      <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
-                        <ExamTimetableCell exams={slotExams} onOpen={onOpen} />
-                      </td>
-                      {index < rules.examShifts.length - 1 && (
-                        <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
-                          <ExamBreakCell startTime={rules.examShifts[index].endTime} endTime={rules.examShifts[index + 1].startTime} />
-                        </td>
-                      )}
-                    </Fragment>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {showCreatePeriod && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm" onClick={() => !creatingPeriod && setShowCreatePeriod(false)}>
+          <div className="w-full max-w-lg rounded-3xl bg-[var(--color-surface-primary)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-[var(--color-border-subtle)] px-5 py-4">
+              <div>
+                <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Create Exam</h2>
+                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Create the exam first; its schedule grid will be built from the saved Rules.</p>
+              </div>
+              <button type="button" onClick={() => setShowCreatePeriod(false)} disabled={creatingPeriod} className="rounded-xl p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)] disabled:opacity-50">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="grid gap-4 p-5">
+              <label>
+                <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Exam Name *</span>
+                <input
+                  autoFocus
+                  value={periodForm.name}
+                  onChange={(e) => setPeriodForm((current) => ({ ...current, name: e.target.value }))}
+                  placeholder="e.g. Midterm Exam, Final Exam"
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20"
+                />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Academic Year *</span>
+                  <input
+                    value={periodForm.academicYear}
+                    onChange={(e) => setPeriodForm((current) => ({ ...current, academicYear: e.target.value }))}
+                    placeholder="2026/27"
+                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm"
+                  />
+                </label>
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Term / Semester</span>
+                  <input
+                    value={periodForm.term}
+                    onChange={(e) => setPeriodForm((current) => ({ ...current, term: e.target.value }))}
+                    placeholder="Term 1"
+                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm"
+                  />
+                </label>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Start Date</span>
+                  <input type="date" value={periodForm.startDate} onChange={(e) => setPeriodForm((current) => ({ ...current, startDate: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                </label>
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">End Date</span>
+                  <input type="date" value={periodForm.endDate} min={periodForm.startDate || undefined} onChange={(e) => setPeriodForm((current) => ({ ...current, endDate: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                </label>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[var(--color-border-subtle)] px-5 py-4">
+              <button type="button" onClick={() => setShowCreatePeriod(false)} disabled={creatingPeriod} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={createPeriod} disabled={creatingPeriod || !periodForm.name.trim() || !periodForm.academicYear.trim()} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+                {creatingPeriod ? 'Creating…' : 'Create Exam'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
-    </section>
+    </>
   );
 }
 
