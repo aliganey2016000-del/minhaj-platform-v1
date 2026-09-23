@@ -51,6 +51,7 @@ router.post('/seating-plan', adminOrTeacher, asyncHandler(masterSeatController.a
 router.patch('/seating-plan/:id', adminOrTeacher, asyncHandler(masterSeatController.update));
 router.delete('/seating-plan/:id', adminOrTeacher, asyncHandler(masterSeatController.remove));
 router.delete('/seating-plan', adminOrTeacher, asyncHandler(masterSeatController.bulkRemove));
+router.patch('/seating-plan/lock', adminOrTeacher, asyncHandler(masterSeatController.bulkLock));
 router.post('/seating-plan/import-preview', adminOrTeacher, upload.single('file'), asyncHandler(masterSeatController.previewImport));
 router.post('/seating-plan/import', adminOrTeacher, upload.single('file'), asyncHandler(masterSeatController.importExcel));
 // JSON-body variants used by the preview table's "Apply Fix" flow — re-validate
