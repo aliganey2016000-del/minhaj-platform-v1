@@ -34,6 +34,7 @@ router.post('/import', adminOrTeacher, upload.single('file'), asyncHandler(examC
 // Per-organization rules used by fixed exam scheduling and seating checks.
 router.get('/schedule-rules', adminOnly, asyncHandler(examController.getScheduleRules));
 router.patch('/schedule-rules', adminOnly, asyncHandler(examController.updateScheduleRules));
+router.post('/schedule-grid', adminOnly, asyncHandler(examController.saveScheduleGrid));
 
 // Master seating: one room + seat for every student across all subjects in an exam period.
 router.get('/seating-plan', adminOrTeacher, asyncHandler(masterSeatController.list));
