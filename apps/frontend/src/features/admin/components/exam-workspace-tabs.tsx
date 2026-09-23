@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import { Building2, CalendarDays, ClipboardCheck, Percent } from 'lucide-react';
+import { Building2, CalendarDays, ClipboardCheck, Percent, UserCheck } from 'lucide-react';
 
 const tabs = [
   { to: '/admin/exams/schedule', label: 'Schedule', icon: CalendarDays },
   { to: '/admin/exams/rooms', label: 'Room Assignment', icon: Building2 },
+  { to: '/admin/exams/invigilators', label: 'Assign Invigilator', icon: UserCheck },
   { to: '/admin/exams/attendance', label: 'Attendance', icon: ClipboardCheck },
   { to: '/admin/exams/grading-rules', label: 'Grading Rules', icon: Percent },
 ] as const;
@@ -14,7 +15,7 @@ export function ExamWorkspaceTabs() {
       aria-label="Exam management sections"
       className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm"
     >
-      <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-[var(--color-surface-secondary)] p-1 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-[var(--color-surface-secondary)] p-1 sm:grid-cols-5">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
