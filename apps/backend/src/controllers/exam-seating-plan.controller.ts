@@ -62,7 +62,7 @@ export const update = async (req: Request,res: Response) => {
   const row=await ExamSeatingPlan.findById(req.params.id);
   if(!row) throw new NotFoundError('Seating assignment');
   assertOwnOrg(req,row,'school');
-  const {room,seat,academicYear,examType}=req.body as any;
+  const {room,seat,academicYear,examType,locked}=req.body as any;
   const t=examType?examTypeValue(examType):row.examType;
   if(!t) throw new BadRequestError('Invalid Exam Type');
   const roomDoc=await ExamRoom.findOne({name:norm(room),...(row.school?{school:row.school}:{})}).lean();
@@ -95,6 +95,7 @@ export const update = async (req: Request,res: Response) => {
   row.deskNumber=seatValue;
   row.academicYear=nextAcademicYear;
   row.examType=t;
+  if (locked !== undefined) row.locked = Boolean(locked);
   await row.save();
   const populated=await populate(ExamSeatingPlan.findById(row._id));
   return ApiResponse.success(res,payload(populated),'Room assignment updated');
@@ -106,6 +107,19 @@ export const remove = async (req: Request,res: Response) => { const row=await Ex
 // any ids belonging to another organization are silently excluded from the
 // delete rather than aborting the whole batch.
 export const bulkRemove = async (req: Request,res: Response) => { const ids=req.body?.ids; if(!Array.isArray(ids)||ids.length===0)throw new BadRequestError('ids is required'); const filter=applyOrgFilter(req,{_id:{$in:ids}},'school'); const result=await ExamSeatingPlan.deleteMany(filter); return ApiResponse.success(res,{deleted:result.deletedCount},`Removed ${result.deletedCount} seating assignment(s)`); };
+
+export const bulkLock = async (req: Request,res: Response) => {
+  const ids=req.body?.ids;
+  const locked=Boolean(req.body?.locked);
+  if(!Array.isArray(ids)||ids.length===0) throw new BadRequestError('ids is required');
+  const filter=applyOrgFilter(req,{_id:{$in:ids}},'school');
+  const result=await ExamSeatingPlan.updateMany(filter,{ $set:{ locked } });
+  return ApiResponse.success(
+    res,
+    { updated: result.modifiedCount, locked },
+    locked ? `Locked ${result.modifiedCount} room assignment(s)` : `Unlocked ${result.modifiedCount} room assignment(s)`
+  );
+};
 
 function readRowsFromFile(req: Request): Record<string, unknown>[] {
   if (!req.file) throw new BadRequestError('An Excel or CSV file is required');
