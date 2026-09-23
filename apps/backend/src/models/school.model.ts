@@ -58,6 +58,12 @@ export interface IBranding {
   themeColor?: string;
 }
 
+export interface IExamShiftRule {
+  name: string;
+  startTime: string;
+  endTime: string;
+}
+
 export interface IExamSchedulingRules {
   preventClassOverlap: boolean;
   allowSharedRooms: boolean;
@@ -65,6 +71,8 @@ export interface IExamSchedulingRules {
   maxExamsPerClassPerDay: number;
   minimumGapMinutes: number;
   durationValidation: boolean;
+  examShiftCount: number;
+  examShifts: IExamShiftRule[];
 }
 
 export interface ISchool extends Document {
@@ -135,6 +143,15 @@ const brandingSchema = new Schema<IBranding>(
   { _id: false }
 );
 
+const examShiftRuleSchema = new Schema<IExamShiftRule>(
+  {
+    name: { type: String, required: true, trim: true, maxlength: 40 },
+    startTime: { type: String, required: true, match: [/^\\d{2}:\\d{2}$/, 'Shift start time must use HH:MM format'] },
+    endTime: { type: String, required: true, match: [/^\\d{2}:\\d{2}$/, 'Shift end time must use HH:MM format'] },
+  },
+  { _id: false }
+);
+
 const examSchedulingRulesSchema = new Schema<IExamSchedulingRules>(
   {
     preventClassOverlap: { type: Boolean, default: true },
@@ -146,6 +163,14 @@ const examSchedulingRulesSchema = new Schema<IExamSchedulingRules>(
     maxExamsPerClassPerDay: { type: Number, default: 1, min: 1, max: 10 },
     minimumGapMinutes: { type: Number, default: 30, min: 0, max: 1440 },
     durationValidation: { type: Boolean, default: true },
+    examShiftCount: { type: Number, default: 2, min: 1, max: 4 },
+    examShifts: {
+      type: [examShiftRuleSchema],
+      default: () => [
+        { name: 'Shift 1', startTime: '08:00', endTime: '10:00' },
+        { name: 'Shift 2', startTime: '10:30', endTime: '12:30' },
+      ],
+    },
   },
   { _id: false }
 );
