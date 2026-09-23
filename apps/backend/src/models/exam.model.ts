@@ -4,6 +4,9 @@ export interface IExam extends Document {
   title: string;
   course: mongoose.Types.ObjectId;
   school?: mongoose.Types.ObjectId;
+  // Optional reusable exam period (e.g. Midterm 2026/27, Final 2026/27).
+  // Grid-generated exams always carry this reference; legacy/manual exams may not.
+  period?: mongoose.Types.ObjectId;
   // Fixed calendar schedule — required unless autoSchedule is on, in which
   // case the exam has no shared date/time at all; each student gets it the
   // moment they personally become eligible (see milestone below).
@@ -41,6 +44,7 @@ const examSchema = new Schema<IExam>(
     // Stamped server-side from the linked course's own org — keeps exams
     // queryable/scoped the same way Course/Class/Student already are.
     school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
+    period: { type: Schema.Types.ObjectId, ref: 'ExamPeriod', default: null, index: true },
     examDate: { type: Date, required: function (this: IExam) { return !this.autoSchedule; } },
     startTime: { type: String, match: /^([01]\d|2[0-3]):([0-5]\d)$/, required: function (this: IExam) { return !this.autoSchedule; } },
     endTime: { type: String, match: /^([01]\d|2[0-3]):([0-5]\d)$/, required: function (this: IExam) { return !this.autoSchedule; } },
@@ -61,5 +65,6 @@ const examSchema = new Schema<IExam>(
 );
 
 examSchema.index({ course: 1, examDate: 1 });
+examSchema.index({ period: 1, course: 1, examDate: 1, startTime: 1 });
 
 export default mongoose.model<IExam>('Exam', examSchema);
