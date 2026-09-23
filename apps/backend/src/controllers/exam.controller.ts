@@ -725,10 +725,23 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
     .sort({ examDate: 1, startTime: 1 })
     .lean();
 
-  // Draft named exams are administrative work-in-progress and must not leak
-  // into the student's schedule. Published and closed periods remain visible;
-  // legacy exams without a period keep their previous behaviour.
-  const exams = (rawExams as any[]).filter((exam: any) => !exam.period || exam.period.status !== 'draft');
+  // The live student schedule follows BOTH the student's current class and
+  // that class's current academic year. This matters because Classes/Courses
+  // are persistent across years: a Grade 6 course can still have last year's
+  // exams attached to it. Named periods give us an explicit academic year;
+  // legacy exams fall back to their calendar year.
+  const currentAcademicYearKey = academicYearStartKey((myClass as any)?.academicYear);
+  const currentAcademicStart = currentAcademicYearKey ? Number(currentAcademicYearKey) : 0;
+  const exams = (rawExams as any[]).filter((exam: any) => {
+    if (exam.period) {
+      if (exam.period.status === 'draft') return false;
+      const periodYear = academicYearStartKey(exam.period.academicYear);
+      return !currentAcademicYearKey || !periodYear || periodYear === currentAcademicYearKey;
+    }
+    if (!currentAcademicStart || !exam.examDate) return true;
+    const examYear = new Date(exam.examDate).getUTCFullYear();
+    return examYear === currentAcademicStart || examYear === currentAcademicStart + 1;
+  });
 
   // Join in this student's own attempt status per exam — lets the frontend
   // tell "time's up, you submitted" (completed) apart from "time's up, you
@@ -781,7 +794,7 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
   const seating = await ExamSeatingPlan.find({ student: student._id })
     .populate('room', 'name building')
     .lean();
-  const myAcademicYearKey = academicYearStartKey((myClass as any)?.academicYear);
+  const myAcademicYearKey = currentAcademicYearKey;
   const seatByType = new Map<string, any>();
   for (const s of seating as any[]) {
     const seatYear = academicYearStartKey(s.academicYear);
@@ -821,7 +834,7 @@ export const browseExams = async (req: Request, res: Response): Promise<Response
   const student = await ensureStudentRecord(req.user!.userId);
   const studentSchool = (student as any).school;
 
-  const targetClass = await ClassModel.findById(classId).select('title section department school').lean();
+  const targetClass = await ClassModel.findById(classId).select('title section department school academicYear').lean();
   if (!targetClass) throw new NotFoundError('Class');
   if (!studentSchool || String((targetClass as any).school) !== String(studentSchool)) {
     throw new NotFoundError('Class');
@@ -839,7 +852,20 @@ export const browseExams = async (req: Request, res: Response): Promise<Response
     .sort({ examDate: 1, startTime: 1 })
     .lean();
 
-  return ApiResponse.success(res, (exams as any[]).filter((exam: any) => !exam.period || exam.period.status !== 'draft'));
+  const targetAcademicYearKey = academicYearStartKey((targetClass as any).academicYear);
+  const targetAcademicStart = targetAcademicYearKey ? Number(targetAcademicYearKey) : 0;
+  const visible = (exams as any[]).filter((exam: any) => {
+    if (exam.period) {
+      if (exam.period.status === 'draft') return false;
+      const periodYear = academicYearStartKey(exam.period.academicYear);
+      return !targetAcademicYearKey || !periodYear || periodYear === targetAcademicYearKey;
+    }
+    if (!targetAcademicStart || !exam.examDate) return true;
+    const examYear = new Date(exam.examDate).getUTCFullYear();
+    return examYear === targetAcademicStart || examYear === targetAcademicStart + 1;
+  });
+
+  return ApiResponse.success(res, visible);
 };
 
 // PATCH /exams/:id/status
