@@ -67,6 +67,13 @@ async function validateFixedExamSchedule(input: {
   if (!Number.isFinite(duration) || duration <= 0) throw new BadRequestError('Duration must be a positive number of minutes');
 
   const rules = await getExamSchedulingRulesForSchool(input.schoolId);
+
+  const examDay = new Date(`${dateKey}T00:00:00.000Z`).getUTCDay();
+  if (!rules.allowedExamDays.includes(examDay)) {
+    const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][examDay];
+    throw new ConflictError(`Exam day restriction: ${dayName} is not enabled in Exam Scheduling Rules.`);
+  }
+
   if (rules.durationValidation && duration > end - start) {
     throw new ConflictError(`Exam duration (${duration} min) does not fit inside the selected time window (${end - start} min)`);
   }
@@ -195,6 +202,10 @@ export const updateScheduleRules = async (req: Request, res: Response): Promise<
   if (!school) throw new NotFoundError('Organization');
   const current = normalizeExamSchedulingRules((school as any).examSchedulingRules);
   const next = normalizeExamSchedulingRules({ ...current, ...(req.body?.rules || {}) });
+
+  if (!next.allowedExamDays.length) {
+    throw new BadRequestError('Select at least one allowed exam day');
+  }
 
   for (let index = 0; index < next.examShifts.length; index += 1) {
     const shift = next.examShifts[index];
