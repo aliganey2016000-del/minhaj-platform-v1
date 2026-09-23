@@ -6,6 +6,7 @@ import * as seatImportController from '../../controllers/seat-allocation-import.
 import * as masterSeatController from '../../controllers/exam-seating-plan.controller';
 import * as autoSeatController from '../../controllers/exam-seating-auto.controller';
 import * as examAttendanceController from '../../controllers/exam-attendance.controller';
+import * as invigilatorController from '../../controllers/exam-invigilator.controller';
 import * as paperController from '../../controllers/exam-paper.controller';
 import * as appealController from '../../controllers/exam-appeal.controller';
 import * as attemptController from '../../controllers/exam-attempt.controller';
@@ -62,6 +63,15 @@ router.post('/seating-plan/import-rows', adminOrTeacher, asyncHandler(masterSeat
 // Automatic room assignment changes many student records at once, so only
 // administrators may execute it. org_admin is tenant-scoped inside the controller.
 router.post('/seating-plan/auto-generate', adminOnly, asyncHandler(autoSeatController.generate));
+
+// Room-based exam invigilation: admin assigns one teacher per physical room/session.
+// Assigned teachers then receive exactly the mixed-grade students in that room.
+router.get('/invigilators/context', adminOnly, asyncHandler(invigilatorController.context));
+router.post('/invigilators', adminOnly, asyncHandler(invigilatorController.assign));
+router.delete('/invigilators/:assignmentId', adminOnly, asyncHandler(invigilatorController.remove));
+router.get('/invigilators/my', adminOrTeacher, asyncHandler(invigilatorController.myAssignments));
+router.get('/invigilators/:assignmentId/roster', adminOrTeacher, asyncHandler(invigilatorController.roster));
+router.post('/invigilators/:assignmentId/attendance', adminOrTeacher, asyncHandler(invigilatorController.markAttendance));
 
 router.get('/', adminOrTeacher, asyncHandler(examController.getAll));
 router.post('/', adminOrTeacher, asyncHandler(examController.create));
