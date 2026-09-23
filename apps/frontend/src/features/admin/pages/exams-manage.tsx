@@ -3,7 +3,7 @@
  * Lists, creates, edits, deletes exams via /api/v1/exams
  */
 
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
@@ -1506,11 +1506,13 @@ function ExamTimetable({
   onOpen,
   onChanged,
   editRequest,
+  onEditRequestHandled,
 }: {
   exams: Exam[];
   onOpen: (exam: Exam) => void;
   onChanged: () => Promise<void> | void;
   editRequest: number;
+  onEditRequestHandled: () => void;
 }) {
   const { user } = useAuth();
   const ownOrgId = String((user as any)?.organizationId?._id || (user as any)?.organizationId || '');
@@ -1700,7 +1702,13 @@ function ExamTimetable({
     if (editRequest <= lastEditRequest.current) return;
     lastEditRequest.current = editRequest;
     beginEdit();
-  }, [beginEdit, editRequest]);
+    onEditRequestHandled();
+  }, [beginEdit, editRequest, onEditRequestHandled]);
+
+  useEffect(() => {
+    if (!editMode) return;
+    classes.forEach((cls) => void loadClassCourses(cls._id));
+  }, [classes, editMode, loadClassCourses]);
 
   const cancelEdit = () => {
     if (Object.keys(draft).length && !window.confirm('Discard unsaved exam schedule changes?')) return;
@@ -1898,7 +1906,7 @@ function ExamTimetable({
                   Grade / Class
                 </th>
                 {rules.examShifts.map((shift, index) => (
-                  <span key={`head-wrap-${index}`} className="contents">
+                  <Fragment key={`head-wrap-${index}`}>
                     <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
                       <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
                       <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
@@ -1909,7 +1917,7 @@ function ExamTimetable({
                         <div className="mt-0.5 text-[9px] font-semibold text-amber-700/70 dark:text-amber-300/70">{shift.endTime} – {rules.examShifts[index + 1].startTime}</div>
                       </th>
                     )}
-                  </span>
+                  </Fragment>
                 ))}
               </tr>
             </thead>
@@ -1923,7 +1931,7 @@ function ExamTimetable({
                     const key = draftKey(row.id, index);
                     const current = currentCourseId(row.id, index);
                     return (
-                      <span key={`row-${row.id}-${index}`} className="contents">
+                      <Fragment key={`row-${row.id}-${index}`}>
                         <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
                           <ExamTimetableCell
                             exams={slotExams}
@@ -1941,7 +1949,7 @@ function ExamTimetable({
                             <ExamBreakCell startTime={rules.examShifts[index].endTime} endTime={rules.examShifts[index + 1].startTime} />
                           </td>
                         )}
-                      </span>
+                      </Fragment>
                     );
                   })}
                 </tr>
@@ -1958,7 +1966,7 @@ function ExamTimetable({
                   Exam Date
                 </th>
                 {rules.examShifts.map((shift, index) => (
-                  <span key={`class-head-${index}`} className="contents">
+                  <Fragment key={`class-head-${index}`}>
                     <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
                       <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
                       <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
@@ -1966,7 +1974,7 @@ function ExamTimetable({
                     {index < rules.examShifts.length - 1 && (
                       <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">Break</th>
                     )}
-                  </span>
+                  </Fragment>
                 ))}
               </tr>
             </thead>
@@ -1986,7 +1994,7 @@ function ExamTimetable({
                     </div>
                   </th>
                   {row.slots.map((slotExams, index) => (
-                    <span key={`class-row-${row.date}-${index}`} className="contents">
+                    <Fragment key={`class-row-${row.date}-${index}`}>
                       <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
                         <ExamTimetableCell exams={slotExams} onOpen={onOpen} />
                       </td>
@@ -1995,7 +2003,7 @@ function ExamTimetable({
                           <ExamBreakCell startTime={rules.examShifts[index].endTime} endTime={rules.examShifts[index + 1].startTime} />
                         </td>
                       )}
-                    </span>
+                    </Fragment>
                   ))}
                 </tr>
               ))}
@@ -2329,6 +2337,7 @@ export function ExamsManage() {
                 onOpen={(exam) => setViewingExam(exam)}
                 onChanged={fetchData}
                 editRequest={editScheduleRequest}
+                onEditRequestHandled={() => setEditScheduleRequest(0)}
               />
             )}
 
