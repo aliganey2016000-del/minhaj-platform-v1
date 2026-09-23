@@ -1519,6 +1519,7 @@ function ExamTimetable({
   onChanged,
   editRequest,
   createRequest,
+  refreshKey,
   onEditRequestHandled,
   onCreateRequestHandled,
 }: {
@@ -1527,6 +1528,7 @@ function ExamTimetable({
   onChanged: () => Promise<void> | void;
   editRequest: number;
   createRequest: number;
+  refreshKey: number;
   onEditRequestHandled: () => void;
   onCreateRequestHandled: () => void;
 }) {
@@ -1647,7 +1649,7 @@ function ExamTimetable({
 
   useEffect(() => {
     void loadContext();
-  }, [loadContext]);
+  }, [loadContext, refreshKey]);
 
   const availableDates = useMemo(
     () => Array.from(new Set(periodExams.map(examDateKey).filter((date) => date && isAllowedExamDate(date, rules.allowedExamDays)))).sort(),
@@ -2308,6 +2310,7 @@ export function ExamsManage() {
   const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
   const [editScheduleRequest, setEditScheduleRequest] = useState(0);
   const [createExamRequest, setCreateExamRequest] = useState(0);
+  const [scheduleContextRefreshKey, setScheduleContextRefreshKey] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
   const [viewingExam, setViewingExam] = useState<Exam | undefined>(undefined);
@@ -2618,6 +2621,7 @@ export function ExamsManage() {
                 onChanged={fetchData}
                 editRequest={editScheduleRequest}
                 createRequest={createExamRequest}
+                refreshKey={scheduleContextRefreshKey}
                 onEditRequestHandled={() => setEditScheduleRequest(0)}
                 onCreateRequestHandled={() => setCreateExamRequest(0)}
               />
@@ -2712,7 +2716,10 @@ export function ExamsManage() {
       {editingExam && <ExamModal exam={editingExam} onClose={() => setEditingExam(undefined)} onSaved={() => { setEditingExam(undefined); fetchData(); }} />}
       {viewingExam && <ViewModal exam={viewingExam} onClose={() => setViewingExam(undefined)} />}
       {showImportModal && <ExamsImportModal onClose={() => setShowImportModal(false)} onImported={fetchData} />}
-      {showRulesModal && <ExamScheduleRulesModal onClose={() => setShowRulesModal(false)} />}
+      {showRulesModal && <ExamScheduleRulesModal onClose={() => {
+        setShowRulesModal(false);
+        setScheduleContextRefreshKey((value) => value + 1);
+      }} />}
       {showBulkDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => setShowBulkDeleteModal(false)}>
           <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
