@@ -195,6 +195,23 @@ export const updateScheduleRules = async (req: Request, res: Response): Promise<
   if (!school) throw new NotFoundError('Organization');
   const current = normalizeExamSchedulingRules((school as any).examSchedulingRules);
   const next = normalizeExamSchedulingRules({ ...current, ...(req.body?.rules || {}) });
+
+  for (let index = 0; index < next.examShifts.length; index += 1) {
+    const shift = next.examShifts[index];
+    const start = timeToMinutes(shift.startTime);
+    const end = timeToMinutes(shift.endTime);
+    if (start < 0 || end < 0 || start >= end) {
+      throw new BadRequestError(`${shift.name}: End Time must be later than Start Time`);
+    }
+    if (index > 0) {
+      const previous = next.examShifts[index - 1];
+      const previousEnd = timeToMinutes(previous.endTime);
+      if (start < previousEnd) {
+        throw new BadRequestError(`${shift.name} overlaps ${previous.name}. Exam shifts cannot overlap.`);
+      }
+    }
+  }
+
   (school as any).examSchedulingRules = next;
   await school.save();
   return ApiResponse.success(res, {
