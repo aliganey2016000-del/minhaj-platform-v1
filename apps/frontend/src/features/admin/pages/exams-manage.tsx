@@ -1612,6 +1612,14 @@ function ExamTimetable({
   const periodDateValue = (value?: string | null): string =>
     value ? new Date(value).toISOString().slice(0, 10) : '';
 
+  const localTodayKey = (): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const fixedExams = useMemo(
     () => exams
       .filter((exam) => !exam.autoSchedule && exam.examDate && exam.status !== 'cancelled')
@@ -1690,30 +1698,46 @@ function ExamTimetable({
     [periodExams, rules.allowedExamDays],
   );
 
+  const examDayTabs = useMemo(() => {
+    if (!selectedPeriod?.startDate) return availableDates;
+
+    const startKey = periodDateValue(selectedPeriod.startDate);
+    const endKey = selectedPeriod.endDate ? periodDateValue(selectedPeriod.endDate) : '';
+    if (!startKey) return availableDates;
+
+    const dates: string[] = [];
+    const cursor = new Date(`${startKey}T00:00:00.000Z`);
+    const hardEnd = endKey
+      ? new Date(`${endKey}T00:00:00.000Z`)
+      : new Date(cursor.getTime() + 31 * 86400000);
+
+    for (let guard = 0; guard < 366 && cursor <= hardEnd; guard += 1) {
+      const key = cursor.toISOString().slice(0, 10);
+      if (rules.allowedExamDays.includes(cursor.getUTCDay())) dates.push(key);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+
+    return dates.length ? dates : availableDates;
+  }, [availableDates, rules.allowedExamDays, selectedPeriod]);
+
   useEffect(() => {
     if (!selectedPeriod) {
       setSelectedDate('');
       return;
     }
-    const withinPeriod = (value: string) => {
-      if (!value || !isAllowedExamDate(value, rules.allowedExamDays)) return false;
-      if (selectedPeriod.startDate && value < new Date(selectedPeriod.startDate).toISOString().slice(0, 10)) return false;
-      if (selectedPeriod.endDate && value > new Date(selectedPeriod.endDate).toISOString().slice(0, 10)) return false;
-      return true;
-    };
-    if (withinPeriod(selectedDate)) return;
-
-    const firstScheduled = availableDates.find(withinPeriod);
-    if (firstScheduled) {
-      setSelectedDate(firstScheduled);
+    if (!examDayTabs.length) {
+      setSelectedDate('');
       return;
     }
+    if (selectedDate && examDayTabs.includes(selectedDate)) return;
 
-    const base = selectedPeriod.startDate ? new Date(selectedPeriod.startDate) : new Date();
-    let next = nextAllowedExamDate(rules.allowedExamDays, base);
-    if (selectedPeriod.endDate && next > new Date(selectedPeriod.endDate).toISOString().slice(0, 10)) next = '';
-    setSelectedDate(next);
-  }, [availableDates, rules.allowedExamDays, selectedDate, selectedPeriod]);
+    const today = localTodayKey();
+    const activeDate = examDayTabs.includes(today)
+      ? today
+      : examDayTabs.find((date) => date > today) || examDayTabs[examDayTabs.length - 1];
+
+    setSelectedDate(activeDate);
+  }, [examDayTabs, selectedDate, selectedPeriod]);
 
   useEffect(() => {
     if (selectedClassId && periodClasses.some((item) => item._id === selectedClassId)) return;
@@ -2038,6 +2062,10 @@ function ExamTimetable({
 
   const changeDate = (value: string) => {
     if (!selectedPeriod) return;
+    if (value !== selectedDate && editMode && Object.keys(draft).length > 0) {
+      setGridError('Save or cancel the current schedule changes before switching exam day.');
+      return;
+    }
     if (!isAllowedExamDate(value, rules.allowedExamDays)) {
       const dayName = new Date(`${value}T00:00:00.000Z`).toLocaleDateString(undefined, { weekday: 'long' });
       setGridError(`${dayName} is disabled in Exam Scheduling Rules.`);
@@ -2201,16 +2229,10 @@ function ExamTimetable({
               )}
             </div>
 
-            {selectedPeriod && (perspective === 'day' || editMode) && (
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => changeDate(e.target.value)}
-                disabled={editMode && Object.keys(draft).length > 0}
-                min={selectedPeriod.startDate ? new Date(selectedPeriod.startDate).toISOString().slice(0, 10) : undefined}
-                max={selectedPeriod.endDate ? new Date(selectedPeriod.endDate).toISOString().slice(0, 10) : undefined}
-                className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-              />
+            {selectedPeriod && (perspective === 'day' || editMode) && selectedDate && (
+              <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)]">
+                {new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+              </div>
             )}
 
             {selectedPeriod && perspective === 'class' && !editMode && (
@@ -2224,6 +2246,39 @@ function ExamTimetable({
               </select>
             )}
           </div>
+
+          {selectedPeriod && (perspective === 'day' || editMode) && examDayTabs.length > 0 && (
+            <div className="mt-3">
+              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
+                {examDayTabs.map((date, index) => {
+                  const active = date === selectedDate;
+                  const isToday = date === localTodayKey();
+                  const parsed = new Date(`${date}T00:00:00`);
+                  return (
+                    <button
+                      key={date}
+                      type="button"
+                      onClick={() => changeDate(date)}
+                      aria-pressed={active}
+                      className={`min-w-[92px] shrink-0 rounded-xl border px-3 py-2 text-left transition-colors ${active
+                        ? 'border-primary-600 bg-primary-600 text-white shadow-sm'
+                        : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}
+                    >
+                      <div className={`text-[9px] font-extrabold uppercase tracking-wide ${active ? 'text-white/80' : 'text-[var(--color-text-tertiary)]'}`}>
+                        Day {index + 1}{isToday ? ' · Today' : ''}
+                      </div>
+                      <div className="mt-0.5 text-xs font-extrabold">
+                        {parsed.toLocaleDateString(undefined, { weekday: 'short' })}
+                      </div>
+                      <div className={`text-[10px] font-semibold ${active ? 'text-white/90' : 'text-[var(--color-text-tertiary)]'}`}>
+                        {parsed.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {gridError && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{gridError}</div>}
           {gridSuccess && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">{gridSuccess}</div>}
