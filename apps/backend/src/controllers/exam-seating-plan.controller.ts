@@ -26,7 +26,7 @@ export const rooms = async (req: Request,res: Response) => { const filter=applyO
 
 export const add = async (req: Request,res: Response) => {
   const {organization,studentId,room,seat,academicYear,examType}=req.body as any;
-  if(!studentId||!room||!seat||!academicYear||!examType) throw new BadRequestError('Student ID, Room, Seat, Academic Year and Exam Type are required');
+  if(!studentId||!room||!academicYear||!examType) throw new BadRequestError('Student ID, Room, Academic Year and Exam Type are required');
   const t=examTypeValue(examType);
   if(!t) throw new BadRequestError('Exam Type must be Mid Exam or Final');
   const student=await Student.findOne({studentId:norm(studentId)})
@@ -40,10 +40,10 @@ export const add = async (req: Request,res: Response) => {
   const roomDoc=await ExamRoom.findOne({name:norm(room),...(schoolId?{school:schoolId}:{})}).lean();
   if(!roomDoc) throw new NotFoundError('Exam room');
   assertOwnOrg(req,roomDoc,'school');
-  const seatValue=norm(seat);
+  const seatValue=norm(seat) || `__ROOM_ONLY__${String(student._id)}`;
   const scope={school:schoolId,academicYear:norm(academicYear),examType:t};
-  if(await ExamSeatingPlan.exists({...scope,student:student._id})) throw new BadRequestError('This student already has a seating assignment for this Academic Year and Exam Type');
-  if(await ExamSeatingPlan.exists({...scope,room:roomDoc._id,deskNumber:seatValue})) throw new BadRequestError(`Seat "${seatValue}" is already occupied in ${roomDoc.name}`);
+  if(await ExamSeatingPlan.exists({...scope,student:student._id})) throw new BadRequestError('This student already has a room assignment for this Academic Year and Exam Type');
+  if(!seatValue.startsWith('__ROOM_ONLY__') && await ExamSeatingPlan.exists({...scope,room:roomDoc._id,deskNumber:seatValue})) throw new BadRequestError(`Seat "${seatValue}" is already occupied in ${roomDoc.name}`);
 
   const rules=await getExamSchedulingRulesForSchool(schoolId);
   if(rules.roomCapacityCheck){
@@ -55,7 +55,7 @@ export const add = async (req: Request,res: Response) => {
 
   const created=await ExamSeatingPlan.create({student:student._id,room:roomDoc._id,deskNumber:seatValue,academicYear:norm(academicYear),examType:t,school:schoolId});
   const row=await populate(ExamSeatingPlan.findById(created._id));
-  return ApiResponse.success(res,payload(row),'Seating added');
+  return ApiResponse.success(res,payload(row),'Room assignment added');
 };
 
 export const update = async (req: Request,res: Response) => {
@@ -68,14 +68,17 @@ export const update = async (req: Request,res: Response) => {
   const roomDoc=await ExamRoom.findOne({name:norm(room),...(row.school?{school:row.school}:{})}).lean();
   if(!roomDoc) throw new NotFoundError('Exam room');
   assertOwnOrg(req,roomDoc,'school');
-  const seatValue=norm(seat);
+  const requestedSeat=norm(seat);
+  const seatValue=requestedSeat || (String(row.deskNumber||'').startsWith('__ROOM_ONLY__') ? String(row.deskNumber) : `__ROOM_ONLY__${String(row.student)}`);
   const nextAcademicYear=norm(academicYear||row.academicYear);
 
-  const seatTaken=await ExamSeatingPlan.exists({
-    _id:{$ne:row._id}, school:row.school||null, academicYear:nextAcademicYear,
-    examType:t, room:roomDoc._id, deskNumber:seatValue,
-  });
-  if(seatTaken) throw new BadRequestError(`Seat "${seatValue}" is already occupied in ${roomDoc.name}`);
+  if(!seatValue.startsWith('__ROOM_ONLY__')){
+    const seatTaken=await ExamSeatingPlan.exists({
+      _id:{$ne:row._id}, school:row.school||null, academicYear:nextAcademicYear,
+      examType:t, room:roomDoc._id, deskNumber:seatValue,
+    });
+    if(seatTaken) throw new BadRequestError(`Seat "${seatValue}" is already occupied in ${roomDoc.name}`);
+  }
 
   const rules=await getExamSchedulingRulesForSchool(row.school);
   if(rules.roomCapacityCheck){
@@ -94,7 +97,7 @@ export const update = async (req: Request,res: Response) => {
   row.examType=t;
   await row.save();
   const populated=await populate(ExamSeatingPlan.findById(row._id));
-  return ApiResponse.success(res,payload(populated),'Seating updated');
+  return ApiResponse.success(res,payload(populated),'Room assignment updated');
 };
 export const remove = async (req: Request,res: Response) => { const row=await ExamSeatingPlan.findById(req.params.id); if(!row)throw new NotFoundError('Seating assignment'); assertOwnOrg(req,row,'school'); await row.deleteOne(); return ApiResponse.noContent(res,'Seating removed'); };
 
