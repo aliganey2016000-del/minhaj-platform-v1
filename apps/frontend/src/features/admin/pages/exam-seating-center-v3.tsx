@@ -892,10 +892,11 @@ export function ExamSeatingCenterV3() {
       result.set(room._id,Math.max(0,Math.min(100,Math.round((1-tv/2)*100))));
     });
     return result;
-  },[allocations,allocationsByRoom,rooms]);
+  },[allocations,allocationsByRoom,rooms,stats.unassigned]);
 
   const issues=useMemo(()=>{
     const list:string[]=[];
+    if(stats.unassigned>0)list.push(`${stats.unassigned} active student${stats.unassigned===1?' is':'s are'} not assigned to an exam room`);
     rooms.forEach(room=>{
       const count=(allocationsByRoom.get(room._id)||[]).length;
       if(count>room.capacity)list.push(`${room.name} is over capacity by ${count-room.capacity}`);
