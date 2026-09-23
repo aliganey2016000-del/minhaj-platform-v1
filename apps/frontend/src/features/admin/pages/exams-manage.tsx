@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, Upload, Download, X, ShieldCheck, Building2, Clock3 } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -1520,6 +1520,7 @@ export function ExamsManage() {
   const [classFilter, setClassFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
   const [viewingExam, setViewingExam] = useState<Exam | undefined>(undefined);
@@ -1789,7 +1790,36 @@ export function ExamsManage() {
 
             <ExamWorkspaceTabs />
 
-            <ExamTimetable exams={exams} onOpen={(exam) => setViewingExam(exam)} />
+            <div
+              role="tablist"
+              aria-label="Exam schedule display"
+              className="grid grid-cols-2 gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1 sm:inline-grid sm:min-w-[280px]"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === 'list'}
+                onClick={() => setViewMode('list')}
+                className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-bold transition-colors ${viewMode === 'list' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+              >
+                <List className="h-4 w-4" />
+                List
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === 'table'}
+                onClick={() => setViewMode('table')}
+                className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-bold transition-colors ${viewMode === 'table' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+              >
+                <LayoutGrid className="h-4 w-4" />
+                Table Grid
+              </button>
+            </div>
+
+            {viewMode === 'table' && (
+              <ExamTimetable exams={visibleExams} onOpen={(exam) => setViewingExam(exam)} />
+            )}
 
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-600 dark:border-red-900/40 dark:bg-red-950/30">
@@ -1798,7 +1828,8 @@ export function ExamsManage() {
               </div>
             )}
 
-            <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+            {viewMode === 'list' && (
+              <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
                 <div className="flex flex-col gap-2 border-b border-[var(--color-border-subtle)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="font-bold text-[var(--color-text-primary)]">Exam Records <span className="text-[var(--color-text-tertiary)]">({visibleExams.length})</span></h2>
@@ -1869,6 +1900,7 @@ export function ExamsManage() {
                   })}
                 </div>
               </section>
+            )}
           </main>
 
         </div>
