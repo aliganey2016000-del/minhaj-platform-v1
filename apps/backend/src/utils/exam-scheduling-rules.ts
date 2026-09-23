@@ -68,13 +68,14 @@ export function normalizeExamSchedulingRules(value: any): ExamSchedulingRules {
     };
   });
 
-  const allowedExamDays = Array.isArray(value?.allowedExamDays)
-    ? Array.from(new Set(
-        value.allowedExamDays
-          .map((day: unknown) => Number(day))
-          .filter((day: number) => Number.isInteger(day) && day >= 0 && day <= 6)
-      )).sort((a, b) => a - b)
+  const normalizedAllowedExamDays: number[] = Array.isArray(value?.allowedExamDays)
+    ? value.allowedExamDays
+        .map((day: unknown): number => Number(day))
+        .filter((day: number): boolean => Number.isInteger(day) && day >= 0 && day <= 6)
     : [...DEFAULT_EXAM_SCHEDULING_RULES.allowedExamDays];
+
+  const allowedExamDays: number[] = Array.from(new Set<number>(normalizedAllowedExamDays))
+    .sort((a: number, b: number) => a - b);
 
   return {
     preventClassOverlap: typeof value?.preventClassOverlap === 'boolean'
