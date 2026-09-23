@@ -231,6 +231,138 @@ export const updateScheduleRules = async (req: Request, res: Response): Promise<
   }, 'Exam scheduling rules saved');
 };
 
+// POST /exams/schedule-grid — bulk-save editable cells from the rules-driven grid.
+// Each changed cell is applied independently so a single conflict does not discard
+// other valid changes. Course changes are allowed here only when the replacement
+// course belongs to the exact same class and organization represented by the row.
+export const saveScheduleGrid = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const dateKey = examDateKey(req.body?.examDate);
+  if (!dateKey) throw new BadRequestError('A valid Exam Date is required');
+
+  const rules = await getExamSchedulingRulesForSchool(schoolId);
+  const examDay = new Date(`${dateKey}T00:00:00.000Z`).getUTCDay();
+  if (!rules.allowedExamDays.includes(examDay)) {
+    const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][examDay];
+    throw new ConflictError(`Exam day restriction: ${dayName} is not enabled in Exam Scheduling Rules.`);
+  }
+
+  const cells = Array.isArray(req.body?.cells) ? req.body.cells : [];
+  if (!cells.length) throw new BadRequestError('At least one changed schedule cell is required');
+  if (cells.length > 500) throw new BadRequestError('A maximum of 500 schedule cells can be saved at once');
+
+  const dayStart = new Date(`${dateKey}T00:00:00.000Z`);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+  const saved: string[] = [];
+  const failures: { key: string; message: string }[] = [];
+
+  for (const rawCell of cells) {
+    const key = String(rawCell?.key || '');
+    try {
+      const classId = String(rawCell?.classId || '');
+      const shiftIndex = Number(rawCell?.shiftIndex);
+      const courseId = String(rawCell?.courseId || '');
+
+      if (!/^[a-f\d]{24}$/i.test(classId)) throw new BadRequestError('A valid class is required');
+      if (!Number.isInteger(shiftIndex) || shiftIndex < 0 || shiftIndex >= rules.examShifts.length) {
+        throw new BadRequestError('A valid exam shift is required');
+      }
+
+      const cls = await ClassModel.findOne({ _id: classId, school: schoolId }).select('title section school').lean() as any;
+      if (!cls) throw new NotFoundError('Class');
+
+      const shift = rules.examShifts[shiftIndex];
+      const siblingCourseIds = await Course.find({ class: classId, school: schoolId }).distinct('_id');
+
+      // HH:MM strings sort lexicographically, so these predicates safely locate
+      // any existing exam occupying the configured shift window.
+      const existing = await Exam.find({
+        course: { $in: siblingCourseIds },
+        autoSchedule: { $ne: true },
+        status: { $ne: 'cancelled' },
+        examDate: { $gte: dayStart, $lt: dayEnd },
+        startTime: { $lt: shift.endTime },
+        endTime: { $gt: shift.startTime },
+      }).sort({ createdAt: 1 });
+
+      if (!courseId) {
+        if (existing.length) {
+          await Exam.deleteMany({ _id: { $in: existing.map((exam: any) => exam._id) } });
+        }
+        saved.push(key);
+        continue;
+      }
+
+      if (!/^[a-f\d]{24}$/i.test(courseId)) throw new BadRequestError('A valid course is required');
+      const course = await Course.findOne({ _id: courseId, class: classId, school: schoolId })
+        .select('title teacher class school')
+        .lean() as any;
+      if (!course) throw new BadRequestError('The selected course does not belong to this grade/class');
+
+      if (existing.length > 1) {
+        throw new ConflictError('Multiple exams already overlap this grid cell. Resolve the duplicate exams before editing this cell.');
+      }
+
+      const existingExam = existing[0] as any;
+      const duration = timeToMinutes(shift.endTime) - timeToMinutes(shift.startTime);
+      await validateFixedExamSchedule({
+        schoolId,
+        classId,
+        title: existingExam?.title || `${course.title?.en || 'Course'} Exam`,
+        examDate: dateKey,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        duration,
+        room: existingExam?.room || '',
+        autoSchedule: false,
+        excludeExamId: existingExam?._id ? String(existingExam._id) : undefined,
+      });
+
+      if (existingExam) {
+        await Exam.findByIdAndUpdate(existingExam._id, {
+          course: courseId,
+          examDate: dayStart,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+          duration,
+        }, { runValidators: true });
+      } else {
+        await Exam.create({
+          title: `${course.title?.en || 'Course'} Exam`,
+          course: courseId,
+          school: schoolId,
+          examDate: dayStart,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+          duration,
+          totalMarks: 100,
+          passingMarks: 50,
+          room: '',
+          instructions: '',
+          status: 'scheduled',
+          autoSchedule: false,
+          createdBy: req.user!.userId,
+        });
+      }
+
+      saved.push(key);
+    } catch (error: any) {
+      failures.push({
+        key,
+        message: error?.message || 'Could not save this schedule cell',
+      });
+    }
+  }
+
+  return ApiResponse.success(res, {
+    saved,
+    failures,
+    total: cells.length,
+  }, failures.length ? 'Exam schedule saved with some conflicts' : 'Exam schedule saved successfully');
+};
+
 // GET /exams — List all with optional filters
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
   const { courseId, status, school, page = '1', limit = '50', search } = req.query;
