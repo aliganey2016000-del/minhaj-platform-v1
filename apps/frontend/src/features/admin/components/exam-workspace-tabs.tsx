@@ -3,7 +3,7 @@ import { Building2, CalendarDays, ClipboardCheck, Percent } from 'lucide-react';
 
 const tabs = [
   { to: '/admin/exams/schedule', label: 'Schedule', icon: CalendarDays },
-  { to: '/admin/exams/rooms', label: 'Assign Seat', icon: Building2 },
+  { to: '/admin/exams/rooms', label: 'Room Assignment', icon: Building2 },
   { to: '/admin/exams/attendance', label: 'Attendance', icon: ClipboardCheck },
   { to: '/admin/exams/grading-rules', label: 'Grading Rules', icon: Percent },
 ] as const;
