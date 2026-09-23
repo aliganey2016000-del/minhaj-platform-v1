@@ -539,6 +539,334 @@ export const duplicateExamPeriod = async (req: Request, res: Response): Promise<
   }
 };
 
+// POST /exams/periods/:periodId/auto-generate — build the whole school exam
+// timetable in one action. Courses with the same normalized subject name are
+// deliberately placed on the same date + shift inside their education band:
+// Primary/Middle (Grades 1-8) and Secondary (Grades 9-12). The generated
+// records remain ordinary Exam rows, so admins can freely move individual
+// cells afterwards with the existing Grade × Shift editor.
+export const autoGeneratePeriodSchedule = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const periodId = String(req.params.periodId || '');
+  if (!/^[a-f\d]{24}$/i.test(periodId)) throw new BadRequestError('A valid Exam is required');
+
+  const period = await ExamPeriod.findOne({ _id: periodId, school: schoolId }).lean() as any;
+  if (!period) throw new NotFoundError('Exam');
+  if (period.status === 'closed') throw new ConflictError('This exam is closed. Reopen it before generating a schedule.');
+  if (!period.startDate) throw new BadRequestError('Set the Exam Start Date before using Auto Generate.');
+
+  const overwrite = req.body?.overwrite === true;
+  const existingCount = await Exam.countDocuments({
+    period: periodId,
+    school: schoolId,
+    autoSchedule: { $ne: true },
+    status: { $ne: 'cancelled' },
+  });
+  if (existingCount > 0 && !overwrite) {
+    throw new ConflictError(
+      `This exam already has ${existingCount} scheduled exam(s). Confirm Regenerate to replace the current timetable.`
+    );
+  }
+
+  const rules = await getExamSchedulingRulesForSchool(schoolId);
+  if (!rules.examShifts.length) throw new BadRequestError('Add at least one Exam Shift in Scheduling Rules.');
+  if (!rules.allowedExamDays.length) throw new BadRequestError('Select at least one allowed exam day in Scheduling Rules.');
+
+  const classes = await ClassModel.find({ school: schoolId, status: 'active' })
+    .select('_id title section school status')
+    .sort({ title: 1, section: 1 })
+    .lean() as any[];
+  if (!classes.length) throw new BadRequestError('No active grades/classes were found for this school.');
+
+  const classIds = classes.map((cls) => cls._id);
+  const courses = await Course.find({
+    school: schoolId,
+    class: { $in: classIds },
+    status: { $ne: 'archived' },
+  })
+    .select('_id title class teacher status')
+    .sort({ 'title.en': 1 })
+    .lean() as any[];
+  if (!courses.length) throw new BadRequestError('No active courses were found for the school classes.');
+
+  const classById = new Map(classes.map((cls) => [String(cls._id), cls]));
+  const normalizeSubject = (value: unknown) => String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+
+  const gradeNumber = (cls: any): number | null => {
+    const label = `${cls?.title || ''} ${cls?.section || ''}`;
+    const explicit = label.match(/\b(?:grade|class|form)\s*(\d{1,2})\b/i);
+    const fallback = label.match(/\b(\d{1,2})\b/);
+    const value = Number((explicit || fallback)?.[1] || 0);
+    return value >= 1 && value <= 12 ? value : null;
+  };
+
+  const bandOf = (cls: any): 'primary-middle' | 'secondary' | 'other' => {
+    const grade = gradeNumber(cls);
+    if (grade !== null && grade >= 9) return 'secondary';
+    if (grade !== null && grade <= 8) return 'primary-middle';
+    return 'other';
+  };
+
+  type SubjectGroup = {
+    band: 'primary-middle' | 'secondary' | 'other';
+    subjectKey: string;
+    subject: string;
+    coursesByClass: Map<string, any>;
+  };
+
+  const grouped = new Map<string, SubjectGroup>();
+  for (const course of courses) {
+    const classId = String(course.class || '');
+    const cls = classById.get(classId);
+    const subject = String(course.title?.en || '').trim();
+    const subjectKey = normalizeSubject(subject);
+    if (!cls || !subjectKey) continue;
+
+    const band = bandOf(cls);
+    const groupKey = `${band}::${subjectKey}`;
+    const group = grouped.get(groupKey) || {
+      band,
+      subjectKey,
+      subject,
+      coursesByClass: new Map<string, any>(),
+    };
+
+    // A class can only sit one exam in this shared subject slot. If legacy
+    // data contains duplicate same-name courses, the first active course is
+    // used instead of producing two overlapping exams for the same class.
+    if (!group.coursesByClass.has(classId)) group.coursesByClass.set(classId, course);
+    grouped.set(groupKey, group);
+  }
+
+  const groups = Array.from(grouped.values());
+  if (!groups.length) throw new BadRequestError('No schedulable course names were found.');
+
+  const byBand = new Map<string, SubjectGroup[]>();
+  for (const group of groups) {
+    const list = byBand.get(group.band) || [];
+    list.push(group);
+    byBand.set(group.band, list);
+  }
+  for (const list of byBand.values()) {
+    list.sort((a, b) =>
+      b.coursesByClass.size - a.coursesByClass.size
+      || a.subject.localeCompare(b.subject, undefined, { numeric: true })
+    );
+  }
+
+  const maxPerClassPerDay = Math.max(1, Number(rules.maxExamsPerClassPerDay) || 1);
+  const usableShiftsPerDay = Math.max(1, Math.min(rules.examShifts.length, maxPerClassPerDay));
+  const requiredDays = Math.max(
+    1,
+    ...Array.from(byBand.values()).map((list) => Math.ceil(list.length / usableShiftsPerDay))
+  );
+
+  const startDate = utcDateOnly(period.startDate);
+  const endDate = period.endDate ? utcDateOnly(period.endDate) : null;
+  const examDates = buildAllowedExamDates(
+    startDate,
+    rules.allowedExamDays,
+    requiredDays,
+    endDate,
+  );
+
+  const firstDay = examDates[0];
+  const lastDay = examDates[examDates.length - 1];
+  const rangeStart = new Date(firstDay);
+  const rangeEnd = new Date(lastDay);
+  rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 1);
+
+  // Existing exams outside this period are treated as occupied time so Auto
+  // Generate never silently creates a class overlap with another exam plan.
+  const externalExams = await Exam.find({
+    school: schoolId,
+    period: { $ne: period._id },
+    autoSchedule: { $ne: true },
+    status: { $ne: 'cancelled' },
+    examDate: { $gte: rangeStart, $lt: rangeEnd },
+  })
+    .populate({ path: 'course', select: 'class' })
+    .select('course examDate startTime endTime')
+    .lean() as any[];
+
+  const externalByClassDay = new Map<string, Array<{ startTime: string; endTime: string }>>();
+  for (const exam of externalExams) {
+    const classId = String(exam.course?.class || '');
+    const date = examDateKey(exam.examDate);
+    if (!classId || !date) continue;
+    const mapKey = `${classId}::${date}`;
+    const list = externalByClassDay.get(mapKey) || [];
+    list.push({ startTime: String(exam.startTime || ''), endTime: String(exam.endTime || '') });
+    externalByClassDay.set(mapKey, list);
+  }
+
+  const slots = examDates.flatMap((date) =>
+    rules.examShifts.map((shift: any, shiftIndex: number) => ({
+      date,
+      dateKey: examDateKey(date),
+      shift,
+      shiftIndex,
+    }))
+  );
+
+  const generatedByClassDay = new Map<string, number>();
+  const generatedByClassSlot = new Set<string>();
+  const assignments: Array<{
+    group: SubjectGroup;
+    course: any;
+    classId: string;
+    date: Date;
+    dateKey: string;
+    shift: any;
+    shiftIndex: number;
+  }> = [];
+  const subjectSchedule: Array<{
+    band: string;
+    subject: string;
+    examDate: string;
+    shift: string;
+    startTime: string;
+    endTime: string;
+    classes: string[];
+  }> = [];
+
+  const slotWorksForClass = (classId: string, slot: any): boolean => {
+    const classDayKey = `${classId}::${slot.dateKey}`;
+    const classSlotKey = `${classId}::${slot.dateKey}::${slot.shiftIndex}`;
+    if (generatedByClassSlot.has(classSlotKey)) return false;
+
+    const external = externalByClassDay.get(classDayKey) || [];
+    const generatedCount = generatedByClassDay.get(classDayKey) || 0;
+    if (external.length + generatedCount >= maxPerClassPerDay) return false;
+
+    const start = timeToMinutes(slot.shift.startTime);
+    const end = timeToMinutes(slot.shift.endTime);
+    for (const other of external) {
+      const otherStart = timeToMinutes(other.startTime);
+      const otherEnd = timeToMinutes(other.endTime);
+      if (otherStart < 0 || otherEnd < 0) continue;
+      if (rules.preventClassOverlap && rangesOverlap(start, end, otherStart, otherEnd)) return false;
+      if (rules.minimumGapMinutes > 0) {
+        let gap = -1;
+        if (otherEnd <= start) gap = start - otherEnd;
+        else if (end <= otherStart) gap = otherStart - end;
+        if (gap >= 0 && gap < rules.minimumGapMinutes) return false;
+      }
+    }
+    return true;
+  };
+
+  const bandOrder = ['primary-middle', 'secondary', 'other'];
+  for (const band of bandOrder) {
+    const bandGroups = byBand.get(band) || [];
+    for (const group of bandGroups) {
+      const groupCourses = Array.from(group.coursesByClass.entries());
+      const slot = slots.find((candidate) =>
+        groupCourses.every(([classId]) => slotWorksForClass(classId, candidate))
+      );
+
+      if (!slot) {
+        const bandLabel = band === 'secondary'
+          ? 'Secondary (Grades 9-12)'
+          : band === 'primary-middle'
+            ? 'Primary/Middle (Grades 1-8)'
+            : 'Other classes';
+        throw new ConflictError(
+          `Auto Generate could not place "${group.subject}" for ${bandLabel}. Extend the exam date range or allow more exams per class/day in Scheduling Rules.`
+        );
+      }
+
+      const classLabels: string[] = [];
+      for (const [classId, course] of groupCourses) {
+        const classDayKey = `${classId}::${slot.dateKey}`;
+        const classSlotKey = `${classId}::${slot.dateKey}::${slot.shiftIndex}`;
+        generatedByClassDay.set(classDayKey, (generatedByClassDay.get(classDayKey) || 0) + 1);
+        generatedByClassSlot.add(classSlotKey);
+
+        const cls = classById.get(classId);
+        classLabels.push(
+          cls ? `${cls.title || ''}${cls.section ? ` - ${cls.section}` : ''}`.trim() : classId
+        );
+        assignments.push({
+          group,
+          course,
+          classId,
+          date: slot.date,
+          dateKey: slot.dateKey,
+          shift: slot.shift,
+          shiftIndex: slot.shiftIndex,
+        });
+      }
+
+      subjectSchedule.push({
+        band,
+        subject: group.subject,
+        examDate: slot.dateKey,
+        shift: slot.shift.name || `Shift ${slot.shiftIndex + 1}`,
+        startTime: slot.shift.startTime,
+        endTime: slot.shift.endTime,
+        classes: classLabels.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+      });
+    }
+  }
+
+  const documents = assignments.map((item) => ({
+    title: period.name,
+    course: item.course._id,
+    school: schoolId,
+    period: period._id,
+    examDate: item.date,
+    startTime: item.shift.startTime,
+    endTime: item.shift.endTime,
+    duration: timeToMinutes(item.shift.endTime) - timeToMinutes(item.shift.startTime),
+    totalMarks: 100,
+    passingMarks: 50,
+    room: '',
+    instructions: '',
+    status: 'scheduled',
+    autoSchedule: false,
+    createdBy: req.user!.userId,
+  }));
+
+  // Replace only after the full plan has been computed successfully.
+  if (overwrite && existingCount > 0) {
+    await Exam.deleteMany({ period: period._id, school: schoolId });
+  }
+  if (documents.length) await Exam.insertMany(documents);
+
+  // When the admin supplied only a Start Date, persist the generated last day
+  // so the day tabs immediately reflect the exact auto-generated timetable.
+  if (!period.endDate && lastDay) {
+    await ExamPeriod.updateOne(
+      { _id: period._id, school: schoolId },
+      { $set: { endDate: lastDay } },
+    );
+  }
+
+  const bandSummary = Array.from(byBand.entries()).map(([band, list]) => ({
+    band,
+    subjects: list.length,
+    exams: assignments.filter((item) => item.group.band === band).length,
+  }));
+
+  return ApiResponse.success(res, {
+    periodId: period._id,
+    created: documents.length,
+    sharedSubjectSlots: subjectSchedule.length,
+    firstDate: examDateKey(firstDay),
+    lastDate: examDateKey(lastDay),
+    bandSummary,
+    subjectSchedule,
+  }, `Generated ${documents.length} exams from ${subjectSchedule.length} shared subject slot(s)`);
+};
+
 // POST /exams/schedule-grid — bulk-save editable cells from the rules-driven grid.
 // Each changed cell is applied independently so a single conflict does not discard
 // other valid changes. Course changes are allowed here only when the replacement
