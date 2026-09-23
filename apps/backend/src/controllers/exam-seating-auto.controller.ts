@@ -153,6 +153,7 @@ function balancedRoomTargets(
   rooms: any[],
   studentsToPlace: number,
   initialCounts: Map<string, number>,
+  frozenRoomIds: Set<string>,
 ): Map<string, number> {
   const targets = new Map<string, number>();
   rooms.forEach(room => targets.set(String(room._id), initialCounts.get(String(room._id)) || 0));
@@ -160,7 +161,10 @@ function balancedRoomTargets(
   let remaining = studentsToPlace;
   while (remaining > 0) {
     const available = rooms
-      .filter(room => (targets.get(String(room._id)) || 0) < Math.max(0, Number(room.capacity) || 0))
+      .filter(room =>
+        !frozenRoomIds.has(String(room._id)) &&
+        (targets.get(String(room._id)) || 0) < Math.max(0, Number(room.capacity) || 0)
+      )
       .sort((a, b) => {
         const aCount = targets.get(String(a._id)) || 0;
         const bCount = targets.get(String(b._id)) || 0;
@@ -306,6 +310,18 @@ export const generate = async (req: Request, res: Response) => {
 
   const selectedRoomSet = new Set(selectedRooms.map(room => String(room._id)));
   const lockedRows = existingRows.filter(row => row.locked === true);
+  const existingByRoom = new Map<string, any[]>();
+  for (const row of existingRows) {
+    const roomId = String(row.room);
+    const list = existingByRoom.get(roomId) || [];
+    list.push(row);
+    existingByRoom.set(roomId, list);
+  }
+  const frozenRoomIds = new Set(
+    Array.from(existingByRoom.entries())
+      .filter(([, rows]) => rows.length > 0 && rows.every(row => row.locked === true))
+      .map(([roomId]) => roomId)
+  );
   const invalidLocked = lockedRows.find(row => !selectedRoomSet.has(String(row.room)));
   if (invalidLocked) {
     throw new BadRequestError(
@@ -340,7 +356,7 @@ export const generate = async (req: Request, res: Response) => {
 
   const availableStudents = selected.filter(student => !lockedStudentIds.has(String(student._id)));
   const mixed = roundRobinMix(availableStudents, allocationSeed);
-  const targets = balancedRoomTargets(selectedRooms, mixed.length, initialCounts);
+  const targets = balancedRoomTargets(selectedRooms, mixed.length, initialCounts, frozenRoomIds);
   let cursor = 0;
 
   for (const room of selectedRooms) {
@@ -383,6 +399,7 @@ export const generate = async (req: Request, res: Response) => {
     totalCapacity,
     freeCapacity: Math.max(0, totalCapacity - selected.length),
     lockedStudents: lockedRows.length,
+    lockedRooms: frozenRoomIds.size,
     selectedClasses: targetClasses.map(c => ({
       _id: c._id,
       name: norm([c.title, c.section].filter(Boolean).join(' ')),
