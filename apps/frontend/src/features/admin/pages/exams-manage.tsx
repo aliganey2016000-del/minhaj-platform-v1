@@ -1561,10 +1561,27 @@ function ExamTimetable({
   const [gridSuccess, setGridSuccess] = useState('');
   const [showCreatePeriod, setShowCreatePeriod] = useState(false);
   const [creatingPeriod, setCreatingPeriod] = useState(false);
+  const [showEditPeriod, setShowEditPeriod] = useState(false);
+  const [showReusePeriod, setShowReusePeriod] = useState(false);
+  const [periodActionBusy, setPeriodActionBusy] = useState(false);
   const currentYear = new Date().getFullYear();
   const [periodForm, setPeriodForm] = useState({
     name: '',
     academicYear: `${currentYear}/${String(currentYear + 1).slice(-2)}`,
+    term: '',
+    startDate: '',
+    endDate: '',
+  });
+  const [editPeriodForm, setEditPeriodForm] = useState({
+    name: '',
+    academicYear: '',
+    term: '',
+    startDate: '',
+    endDate: '',
+  });
+  const [reusePeriodForm, setReusePeriodForm] = useState({
+    name: '',
+    academicYear: '',
     term: '',
     startDate: '',
     endDate: '',
@@ -1576,6 +1593,24 @@ function ExamTimetable({
     typeof exam.period === 'string' ? exam.period : exam.period?._id || '';
 
   const yearKey = (value?: string): string => String(value || '').match(/\d{4}/)?.[0] || '';
+
+  const nextAcademicYearLabel = (value?: string): string => {
+    const start = Number(yearKey(value)) || currentYear;
+    return String(value || '').includes('/')
+      ? `${start + 1}/${String(start + 2).slice(-2)}`
+      : `${start + 1}-${start + 2}`;
+  };
+
+  const shiftDateOneYear = (value?: string | null): string => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    date.setUTCFullYear(date.getUTCFullYear() + 1);
+    return date.toISOString().slice(0, 10);
+  };
+
+  const periodDateValue = (value?: string | null): string =>
+    value ? new Date(value).toISOString().slice(0, 10) : '';
 
   const fixedExams = useMemo(
     () => exams
@@ -1611,11 +1646,10 @@ function ExamTimetable({
     [fallbackClasses, gridClasses],
   );
 
-  const periodClasses = useMemo(() => {
-    if (!selectedPeriod?.academicYear) return classes;
-    const target = yearKey(selectedPeriod.academicYear);
-    return classes.filter((cls) => !cls.academicYear || !target || yearKey(cls.academicYear) === target);
-  }, [classes, selectedPeriod]);
+  // Classes are persistent Grade containers reused every year. The admin
+  // timetable therefore always shows all active classes; academic-year
+  // matching is enforced only in the student view after promotion.
+  const periodClasses = classes;
 
   const loadContext = useCallback(async () => {
     if (!effectiveSchoolId) {
@@ -1901,11 +1935,104 @@ function ExamTimetable({
         school: effectiveSchoolId,
         status,
       });
-      const updated: ExamPeriod = response.data?.data;
+      const updated: ExamPeriod = response.data?.data?.period || response.data?.data;
       setPeriods((current) => current.map((period) => period._id === updated._id ? updated : period));
       setGridSuccess(status === 'published' ? 'Exam published to students.' : status === 'closed' ? 'Exam closed.' : 'Exam moved back to draft.');
     } catch (err: any) {
       setGridError(err?.response?.data?.message || 'Could not update exam status.');
+    }
+  };
+
+  const openEditPeriod = () => {
+    if (!selectedPeriod) return;
+    setGridError('');
+    setEditPeriodForm({
+      name: selectedPeriod.name,
+      academicYear: selectedPeriod.academicYear,
+      term: selectedPeriod.term || '',
+      startDate: periodDateValue(selectedPeriod.startDate),
+      endDate: periodDateValue(selectedPeriod.endDate),
+    });
+    setShowEditPeriod(true);
+  };
+
+  const savePeriodDetails = async () => {
+    if (!selectedPeriod || !effectiveSchoolId) return;
+    if (!editPeriodForm.name.trim() || !editPeriodForm.academicYear.trim()) {
+      setGridError('Exam Name and Academic Year are required.');
+      return;
+    }
+    setPeriodActionBusy(true);
+    setGridError('');
+    setGridSuccess('');
+    try {
+      const response = await api.patch(`/exams/periods/${selectedPeriod._id}`, {
+        school: effectiveSchoolId,
+        name: editPeriodForm.name.trim(),
+        academicYear: editPeriodForm.academicYear.trim(),
+        term: editPeriodForm.term.trim(),
+        startDate: editPeriodForm.startDate || null,
+        endDate: editPeriodForm.endDate || null,
+      });
+      const data = response.data?.data || {};
+      const updated: ExamPeriod = data.period || data;
+      await onChanged();
+      await loadContext();
+      setSelectedPeriodId(updated._id);
+      setShowEditPeriod(false);
+      setGridSuccess(data.remappedExams
+        ? `Exam updated. ${data.remappedExams} scheduled exam(s) were moved into the new date window.`
+        : 'Exam details updated.');
+    } catch (err: any) {
+      setGridError(err?.response?.data?.message || 'Could not update exam.');
+    } finally {
+      setPeriodActionBusy(false);
+    }
+  };
+
+  const openReusePeriod = () => {
+    if (!selectedPeriod) return;
+    setGridError('');
+    setReusePeriodForm({
+      name: selectedPeriod.name,
+      academicYear: nextAcademicYearLabel(selectedPeriod.academicYear),
+      term: selectedPeriod.term || '',
+      startDate: shiftDateOneYear(selectedPeriod.startDate),
+      endDate: shiftDateOneYear(selectedPeriod.endDate),
+    });
+    setShowReusePeriod(true);
+  };
+
+  const reuseScheduleForNewYear = async () => {
+    if (!selectedPeriod || !effectiveSchoolId) return;
+    if (!reusePeriodForm.name.trim() || !reusePeriodForm.academicYear.trim() || !reusePeriodForm.startDate) {
+      setGridError('Exam Name, Academic Year and Start Date are required.');
+      return;
+    }
+    setPeriodActionBusy(true);
+    setGridError('');
+    setGridSuccess('');
+    try {
+      const response = await api.post(`/exams/periods/${selectedPeriod._id}/duplicate`, {
+        school: effectiveSchoolId,
+        name: reusePeriodForm.name.trim(),
+        academicYear: reusePeriodForm.academicYear.trim(),
+        term: reusePeriodForm.term.trim(),
+        startDate: reusePeriodForm.startDate,
+        endDate: reusePeriodForm.endDate || null,
+      });
+      const data = response.data?.data || {};
+      const created: ExamPeriod = data.period;
+      await onChanged();
+      await loadContext();
+      setSelectedPeriodId(created._id);
+      setShowReusePeriod(false);
+      setPerspective('day');
+      setGridSuccess(`${created.name} ${created.academicYear} created as Draft. ${data.copiedExams || 0} scheduled exam(s) were reused. Review dates, then Publish when ready.`);
+    } catch (err: any) {
+      setGridError(err?.response?.data?.message || 'Could not reuse this exam schedule.');
+    } finally {
+      setPeriodActionBusy(false);
     }
   };
 
@@ -2006,6 +2133,17 @@ function ExamTimetable({
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
+                {selectedPeriod && (
+                  <>
+                    <button type="button" onClick={openEditPeriod} className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit Exam
+                    </button>
+                    <button type="button" onClick={openReusePeriod} className="rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-bold text-primary-700 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-300">
+                      Reuse Schedule
+                    </button>
+                  </>
+                )}
                 {selectedPeriod?.status === 'draft' && (
                   <button type="button" onClick={() => updatePeriodStatus('published')} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
                     Publish
@@ -2284,6 +2422,101 @@ function ExamTimetable({
               <button type="button" onClick={() => setShowCreatePeriod(false)} disabled={creatingPeriod} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] disabled:opacity-50">Cancel</button>
               <button type="button" onClick={createPeriod} disabled={creatingPeriod || !periodForm.name.trim() || !periodForm.academicYear.trim()} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">
                 {creatingPeriod ? 'Creating…' : 'Create Exam'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditPeriod && selectedPeriod && (
+        <div className="fixed inset-0 z-[61] flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm" onClick={() => !periodActionBusy && setShowEditPeriod(false)}>
+          <div className="w-full max-w-lg rounded-3xl bg-[var(--color-surface-primary)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-[var(--color-border-subtle)] px-5 py-4">
+              <div>
+                <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Edit Exam</h2>
+                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Changing Start Date moves the saved timetable to the new allowed exam days automatically.</p>
+              </div>
+              <button type="button" onClick={() => setShowEditPeriod(false)} disabled={periodActionBusy} className="rounded-xl p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)] disabled:opacity-50"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="grid gap-4 p-5">
+              <label>
+                <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Exam Name *</span>
+                <input value={editPeriodForm.name} onChange={(e) => setEditPeriodForm((current) => ({ ...current, name: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Academic Year *</span>
+                  <input value={editPeriodForm.academicYear} onChange={(e) => setEditPeriodForm((current) => ({ ...current, academicYear: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                </label>
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Term / Semester</span>
+                  <input value={editPeriodForm.term} onChange={(e) => setEditPeriodForm((current) => ({ ...current, term: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                </label>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Start Date</span>
+                  <input type="date" value={editPeriodForm.startDate} onChange={(e) => setEditPeriodForm((current) => ({ ...current, startDate: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                </label>
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">End Date</span>
+                  <input type="date" value={editPeriodForm.endDate} min={editPeriodForm.startDate || undefined} onChange={(e) => setEditPeriodForm((current) => ({ ...current, endDate: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                </label>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[var(--color-border-subtle)] px-5 py-4">
+              <button type="button" onClick={() => setShowEditPeriod(false)} disabled={periodActionBusy} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={savePeriodDetails} disabled={periodActionBusy || !editPeriodForm.name.trim() || !editPeriodForm.academicYear.trim()} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+                {periodActionBusy ? 'Saving…' : 'Save Exam'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReusePeriod && selectedPeriod && (
+        <div className="fixed inset-0 z-[61] flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm" onClick={() => !periodActionBusy && setShowReusePeriod(false)}>
+          <div className="w-full max-w-lg rounded-3xl bg-[var(--color-surface-primary)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-[var(--color-border-subtle)] px-5 py-4">
+              <div>
+                <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Reuse Schedule for New Academic Year</h2>
+                <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">Copies every Grade × Shift cell. Exam Day 1, Day 2, etc. are moved to the new allowed dates. The new exam starts as Draft.</p>
+              </div>
+              <button type="button" onClick={() => setShowReusePeriod(false)} disabled={periodActionBusy} className="rounded-xl p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)] disabled:opacity-50"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="grid gap-4 p-5">
+              <label>
+                <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Exam Name *</span>
+                <input value={reusePeriodForm.name} onChange={(e) => setReusePeriodForm((current) => ({ ...current, name: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">New Academic Year *</span>
+                  <input value={reusePeriodForm.academicYear} onChange={(e) => setReusePeriodForm((current) => ({ ...current, academicYear: e.target.value }))} placeholder="2027/28" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                </label>
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Term / Semester</span>
+                  <input value={reusePeriodForm.term} onChange={(e) => setReusePeriodForm((current) => ({ ...current, term: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                </label>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">New Start Date *</span>
+                  <input type="date" value={reusePeriodForm.startDate} onChange={(e) => setReusePeriodForm((current) => ({ ...current, startDate: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                </label>
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">New End Date</span>
+                  <input type="date" value={reusePeriodForm.endDate} min={reusePeriodForm.startDate || undefined} onChange={(e) => setReusePeriodForm((current) => ({ ...current, endDate: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                </label>
+              </div>
+              <div className="rounded-xl border border-primary-100 bg-primary-50/70 p-3 text-xs leading-5 text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-200">
+                Students see only a <strong>Published</strong> exam that matches their <strong>current Grade/Class and academic year</strong>. After promotion, a Grade 5 student moved to Grade 6 automatically receives the published Grade 6 schedule for the new year.
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[var(--color-border-subtle)] px-5 py-4">
+              <button type="button" onClick={() => setShowReusePeriod(false)} disabled={periodActionBusy} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={reuseScheduleForNewYear} disabled={periodActionBusy || !reusePeriodForm.name.trim() || !reusePeriodForm.academicYear.trim() || !reusePeriodForm.startDate} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+                {periodActionBusy ? 'Copying…' : 'Reuse Schedule'}
               </button>
             </div>
           </div>
