@@ -15,6 +15,7 @@ type Fields = { organization: string; department: string; className: string; shi
 type PreviewRow = { row: number; organization: string; department: string; className: string; shift: string; studentId: string; studentName: string; academicYear: string; examType: string; room: string; seat: string; status: 'valid' | 'error'; message?: string; suggestion?: { room: string; seat: string } };
 
 const columns = ['Organization','Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Seat'];
+const roomAssignmentColumns = ['Organization','Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room'];
 const card = 'rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card';
 const input = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2.5 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20';
 const readonly = `${input} bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)]`;
@@ -34,14 +35,14 @@ function AcademicYearSelect({ value, onChange, required = false }: { value: stri
 }
 
 function Modal({ title, close, children, wide = false }: { title:string; close:()=>void; children:ReactNode; wide?:boolean }) {
-  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" onClick={close}><div onClick={e=>e.stopPropagation()} className={`max-h-[94vh] w-full ${wide?'max-w-6xl':'max-w-3xl'} overflow-auto rounded-3xl bg-[var(--color-surface-primary)] p-6 shadow-2xl`}><div className="mb-6 flex items-start justify-between gap-4"><div><h2 className="text-xl font-bold">{title}</h2><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Exam Seating Center</p></div><button type="button" onClick={close} className="rounded-lg p-1 hover:bg-[var(--color-surface-secondary)]"><X size={20}/></button></div>{children}</div></div>;
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" onClick={close}><div onClick={e=>e.stopPropagation()} className={`max-h-[94vh] w-full ${wide?'max-w-6xl':'max-w-3xl'} overflow-auto rounded-3xl bg-[var(--color-surface-primary)] p-6 shadow-2xl`}><div className="mb-6 flex items-start justify-between gap-4"><div><h2 className="text-xl font-bold">{title}</h2><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Exam Room Assignment</p></div><button type="button" onClick={close} className="rounded-lg p-1 hover:bg-[var(--color-surface-secondary)]"><X size={20}/></button></div>{children}</div></div>;
 }
 
 function Actions({ add, imp, exp, auto }: { add:()=>void; imp:()=>void; exp:()=>void; auto:()=>void }) {
   const [open,setOpen]=useState(false); const ref=useRef<HTMLDivElement>(null);
   useEffect(()=>{ if(!open)return; const h=(e:MouseEvent)=>{if(ref.current&&!ref.current.contains(e.target as Node))setOpen(false)}; document.addEventListener('mousedown',h); return()=>document.removeEventListener('mousedown',h)},[open]);
   const run=(fn:()=>void)=>{setOpen(false);fn()};
-  return <div ref={ref} className="relative"><button type="button" aria-label="Exam Seating Center actions" onClick={()=>setOpen(v=>!v)} className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--color-border-default)]"><MoreVertical size={21}/></button>{open&&<div className="absolute right-0 top-12 z-[120] w-64 rounded-2xl border bg-[var(--color-surface-primary)] p-1.5 shadow-2xl"><button onClick={()=>run(auto)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-primary-600 hover:bg-[var(--color-surface-secondary)]"><Zap size={17}/>Auto Generate Seating</button><button onClick={()=>run(add)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Plus size={17}/>Add Seating</button><button onClick={()=>run(imp)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Upload size={17}/>Import Excel</button><button onClick={()=>run(exp)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Download size={17}/>Export</button></div>}</div>;
+  return <div ref={ref} className="relative"><button type="button" aria-label="Exam Room Assignment actions" onClick={()=>setOpen(v=>!v)} className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--color-border-default)]"><MoreVertical size={21}/></button>{open&&<div className="absolute right-0 top-12 z-[120] w-64 rounded-2xl border bg-[var(--color-surface-primary)] p-1.5 shadow-2xl"><button onClick={()=>run(auto)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-primary-600 hover:bg-[var(--color-surface-secondary)]"><Zap size={17}/>Auto Assign Rooms</button><button onClick={()=>run(add)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Plus size={17}/>Add Room Assignment</button><button onClick={()=>run(imp)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Upload size={17}/>Import Excel</button><button onClick={()=>run(exp)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Download size={17}/>Export</button></div>}</div>;
 }
 
 function RoomActions({add,imp,exp}:{add:()=>void;imp:()=>void;exp:()=>void}) {
@@ -72,21 +73,20 @@ function FieldsGrid({fields,setField,rooms,lockedStudent=false}:{fields:Fields;s
     <Field label="Student Name" value={fields.studentName} onChange={v=>setField('studentName',v)} editable={!lockedStudent}/>
     <Field label="Academic Year" editable><AcademicYearSelect value={fields.academicYear} onChange={v=>setField('academicYear',v)} required/></Field>
     <Field label="Exam Type" editable><select className={input} value={fields.examType} onChange={e=>setField('examType',e.target.value)}><option value="">Select exam type...</option><option value="mid">Mid Exam</option><option value="final">Final</option></select></Field>
-    <Field label="Room" editable><select className={input} value={fields.room} onChange={e=>setField('room',e.target.value)} required><option value="">Select room...</option>{rooms.map(r=><option key={r._id} value={r.name}>{r.name} · {r.building||'Main Campus'} · {r.capacity} seats</option>)}</select></Field>
-    <Field label="Seat" value={fields.seat} onChange={v=>setField('seat',v)} editable/>
+    <Field label="Room" editable><select className={input} value={fields.room} onChange={e=>setField('room',e.target.value)} required><option value="">Select room...</option>{rooms.map(r=><option key={r._id} value={r.name}>{r.name} · {r.building||'Main Campus'} · capacity {r.capacity}</option>)}</select></Field>
   </div>;
 }
 
 function AddModal({rooms,close,onSaved}:{rooms:Room[];close:()=>void;onSaved:()=>void}) {
   const [fields,setFields]=useState<Fields>(emptyFields); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const set=(k:keyof Fields,v:string)=>setFields(x=>({...x,[k]:v}));
   const submit=async(e:FormEvent)=>{e.preventDefault();setBusy(true);setError('');try{await api.post('/exams/seating-plan',fields);onSaved();close()}catch(err:any){setError(err.response?.data?.message||'Failed to add seating')}finally{setBusy(false)}};
-  return <Modal title="Add Seating" close={close}><form onSubmit={submit} className="space-y-5">{error&&<div className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}<FieldsGrid fields={fields} setField={set} rooms={rooms}/><div className="flex justify-end gap-2"><button type="button" onClick={close} className="rounded-xl border px-4 py-2.5">Cancel</button><button disabled={busy} className="rounded-xl bg-primary-600 px-5 py-2.5 font-semibold text-white">{busy?'Saving...':'Add Seating'}</button></div></form></Modal>;
+  return <Modal title="Add Room Assignment" close={close}><form onSubmit={submit} className="space-y-5">{error&&<div className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}<FieldsGrid fields={fields} setField={set} rooms={rooms}/><div className="flex justify-end gap-2"><button type="button" onClick={close} className="rounded-xl border px-4 py-2.5">Cancel</button><button disabled={busy} className="rounded-xl bg-primary-600 px-5 py-2.5 font-semibold text-white">{busy?'Saving...':'Add Room Assignment'}</button></div></form></Modal>;
 }
 
 function EditModal({allocation,rooms,close,onSaved}:{allocation:Allocation;rooms:Room[];close:()=>void;onSaved:()=>void}) {
   const s=allocation.student; const [fields,setFields]=useState<Fields>({organization:s?.organization||'',department:s?.department||'',className:s?.className||'',shift:s?.shift||'',studentId:s?.studentId||'',studentName:nameOf(s),academicYear:allocation.academicYear||currentAcademicYear,examType:allocation.examType,room:allocation.room?.name||'',seat:allocation.deskNumber||''}); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const set=(k:keyof Fields,v:string)=>setFields(x=>({...x,[k]:v}));
   const submit=async(e:FormEvent)=>{e.preventDefault();setBusy(true);setError('');try{await api.patch(`/exams/seating-plan/${allocation._id}`,{room:fields.room,seat:fields.seat,academicYear:fields.academicYear,examType:fields.examType});onSaved();close()}catch(err:any){setError(err.response?.data?.message||'Failed to update seating')}finally{setBusy(false)}};
-  return <Modal title="Edit Seating" close={close}><form onSubmit={submit} className="space-y-5">{error&&<div className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}<FieldsGrid fields={fields} setField={set} rooms={rooms} lockedStudent/><div className="flex justify-end gap-2"><button type="button" onClick={close} className="rounded-xl border px-4 py-2.5">Cancel</button><button disabled={busy} className="rounded-xl bg-primary-600 px-5 py-2.5 font-semibold text-white">{busy?'Saving...':'Save Changes'}</button></div></form></Modal>;
+  return <Modal title="Edit Room Assignment" close={close}><form onSubmit={submit} className="space-y-5">{error&&<div className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}<FieldsGrid fields={fields} setField={set} rooms={rooms} lockedStudent/><div className="flex justify-end gap-2"><button type="button" onClick={close} className="rounded-xl border px-4 py-2.5">Cancel</button><button disabled={busy} className="rounded-xl bg-primary-600 px-5 py-2.5 font-semibold text-white">{busy?'Saving...':'Save Changes'}</button></div></form></Modal>;
 }
 
 const asJsonRows=(rows:PreviewRow[])=>rows.map(x=>({organization:x.organization,department:x.department,className:x.className,shift:x.shift,studentId:x.studentId,studentName:x.studentName,academicYear:x.academicYear,examType:x.examType,room:x.room,seat:x.seat}));
@@ -106,23 +106,141 @@ function RoomImportModal({close,onImported}:{close:()=>void;onImported:(message:
   return <Modal title="Import Rooms from Excel" close={close}><div className="space-y-5"><div className="rounded-2xl border bg-[var(--color-surface-secondary)] p-4"><p className="font-semibold">Room · Building · Capacity</p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Export the current Rooms list, change Capacity in Excel, then import it again. Room + Building identifies an existing room. A different Building creates a separate room.</p></div><input type="file" accept=".xlsx,.xls,.csv" className={input} onChange={e=>{setFile(e.target.files?.[0]||null);setError('')}}/>{error&&<div className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}<div className="flex justify-end gap-2"><button type="button" onClick={close} className="rounded-xl border px-4 py-2.5">Cancel</button><button type="button" disabled={!file||busy} onClick={submit} className="rounded-xl bg-primary-600 px-5 py-2.5 font-semibold text-white">{busy?'Importing...':'Import Excel'}</button></div></div></Modal>;
 }
 
-function AutoGenerateModal({orgs,departments,classes,rooms,selectedOrg,close,onGenerated}:{orgs:Org[];departments:Department[];classes:ClassItem[];rooms:Room[];selectedOrg:string;close:()=>void;onGenerated:(message:string)=>void}) {
-  const [year,setYear]=useState(currentAcademicYear); const [type,setType]=useState(''); const [perRoom,setPerRoom]=useState('12'); const [seatMode,setSeatMode]=useState<'none'|'sequential'>('none'); const [org,setOrg]=useState(selectedOrg); const [deptIds,setDeptIds]=useState<string[]>([]); const [classIds,setClassIds]=useState<string[]>([]); const [overwrite,setOverwrite]=useState(false); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const [result,setResult]=useState<any>(null);
-  const visibleClasses=useMemo(()=>classes.filter(c=>!deptIds.length||deptIds.includes(deptIdOf(c))),[classes,deptIds]);
+function AutoGenerateModal({orgs,departments: _departments,classes,rooms,selectedOrg,close,onGenerated}:{orgs:Org[];departments:Department[];classes:ClassItem[];rooms:Room[];selectedOrg:string;close:()=>void;onGenerated:(message:string)=>void}) {
+  const [year,setYear]=useState(currentAcademicYear);
+  const [type,setType]=useState('');
+  const [org,setOrg]=useState(selectedOrg);
+  const [classIds,setClassIds]=useState<string[]>([]);
+  const [roomIds,setRoomIds]=useState<string[]>([]);
+  const [overwrite,setOverwrite]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [result,setResult]=useState<any>(null);
+
   const toggle=(arr:string[],id:string,setter:(v:string[])=>void)=>setter(arr.includes(id)?arr.filter(x=>x!==id):[...arr,id]);
-  const allClasses=visibleClasses.length>0&&classIds.length===visibleClasses.length;
-  const submit=async(e:FormEvent)=>{e.preventDefault();setBusy(true);setError('');setResult(null);try{const r=await api.post('/exams/seating-plan/auto-generate',{academicYear:year,examType:type,maxPerRoom:Number(perRoom),seatMode,organization:org,departmentIds:deptIds,classIds,overwrite});setResult(r.data.data);onGenerated(r.data.message||'Seating generated successfully.')}catch(err:any){setError(err.response?.data?.message||'Automatic generation failed')}finally{setBusy(false)}};
-  return <Modal title="Auto Generate Seating" close={close} wide><form onSubmit={submit} className="space-y-6"><div className="rounded-2xl border border-primary-200 bg-primary-50/50 p-4"><p className="font-semibold">One master seating plan for all subjects</p><p className="mt-1 text-sm text-[var(--color-text-secondary)]">Students are pulled from the existing student/class records, mixed across selected classes, then distributed into the rooms already attached to those classes.</p></div>
-    <div className="grid gap-4 md:grid-cols-3"><Field label="Academic Year" editable><AcademicYearSelect value={year} onChange={setYear} required/></Field><Field label="Exam Type" editable><select className={input} value={type} onChange={e=>setType(e.target.value)} required><option value="">Select...</option><option value="mid">Mid Exam</option><option value="final">Final</option></select></Field><Field label="Students per Room" editable><select className={input} value={perRoom} onChange={e=>setPerRoom(e.target.value)}>{Array.from({length:6},(_,i)=>i+10).map(n=><option key={n} value={n}>{n}</option>)}</select></Field></div>
-    <div><p className="mb-2 text-sm font-semibold">Organization</p>{orgs.length>1?<select className={input} value={org} onChange={e=>{setOrg(e.target.value);setDeptIds([]);setClassIds([])}}><option value="">Select organization...</option>{orgs.map(o=><option key={o._id} value={o._id}>{o.name}</option>)}</select>:<div className={readonly}>{orgs[0]?.name||'Current organization'}</div>}</div>
-    <div className="grid gap-5 lg:grid-cols-2"><div className={`${card} p-4`}><div className="mb-3 flex items-center justify-between"><p className="font-semibold">Departments</p><button type="button" onClick={()=>setDeptIds(deptIds.length===departments.length?[]:departments.map(d=>d._id))} className="text-xs font-semibold text-primary-600">{deptIds.length===departments.length?'Clear all':'Select all'}</button></div><div className="max-h-52 space-y-2 overflow-auto">{departments.length===0?<p className="text-sm text-[var(--color-text-tertiary)]">No departments.</p>:departments.map(d=><button type="button" key={d._id} onClick={()=>toggle(deptIds,d._id,setDeptIds)} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-[var(--color-surface-secondary)]">{deptIds.includes(d._id)?<CheckSquare size={18} className="text-primary-600"/>:<Square size={18}/>}<span>{d.name}</span></button>)}</div><p className="mt-2 text-xs text-[var(--color-text-tertiary)]">Leave empty to include all departments.</p></div>
-      <div className={`${card} p-4`}><div className="mb-3 flex items-center justify-between"><p className="font-semibold">Classes</p><button type="button" onClick={()=>setClassIds(allClasses?[]:visibleClasses.map(c=>c._id))} className="text-xs font-semibold text-primary-600">{allClasses?'Clear all':'Select all'}</button></div><div className="max-h-52 space-y-2 overflow-auto">{visibleClasses.length===0?<p className="text-sm text-[var(--color-text-tertiary)]">No classes match the selected departments.</p>:visibleClasses.map(c=><button type="button" key={c._id} onClick={()=>toggle(classIds,c._id,setClassIds)} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-[var(--color-surface-secondary)]">{classIds.includes(c._id)?<CheckSquare size={18} className="text-primary-600"/>:<Square size={18}/>}<span>{classNameOf(c)}</span><span className="ml-auto text-xs text-[var(--color-text-tertiary)]">{c.room||'No room'}</span></button>)}</div><p className="mt-2 text-xs text-[var(--color-text-tertiary)]">Leave empty to include all classes under the selected departments/organization.</p></div></div>
-    <div className="grid gap-4 md:grid-cols-2"><label className="flex items-start gap-3 rounded-2xl border p-4"><input type="radio" checked={seatMode==='none'} onChange={()=>setSeatMode('none')} className="mt-1"/><span><b>Room only</b><span className="block text-xs text-[var(--color-text-tertiary)]">Seat numbers remain optional.</span></span></label><label className="flex items-start gap-3 rounded-2xl border p-4"><input type="radio" checked={seatMode==='sequential'} onChange={()=>setSeatMode('sequential')} className="mt-1"/><span><b>Assign seats</b><span className="block text-xs text-[var(--color-text-tertiary)]">Generate S01, S02, S03... inside each room.</span></span></label></div>
-    <label className="flex items-start gap-3 rounded-2xl border p-4"><input type="checkbox" checked={overwrite} onChange={e=>setOverwrite(e.target.checked)} className="mt-1 h-4 w-4"/><span><b>Regenerate existing plan</b><span className="block text-xs text-[var(--color-text-tertiary)]">Replace assignments for the selected Academic Year + Exam Type only.</span></span></label>
-    {rooms.length>0&&<div className="rounded-2xl border bg-[var(--color-surface-secondary)] p-4"><p className="mb-2 text-sm font-semibold">Available Rooms</p><div className="flex flex-wrap gap-2">{rooms.map(r=><span key={r._id} className="rounded-full border px-3 py-1 text-xs">{r.name} · {r.building||'Main Campus'} · {r.capacity}</span>)}</div></div>}
-    {error&&<div className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}{result&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm"><b>{result.students} students</b> → <b>{result.rooms} rooms</b><div className="mt-3 space-y-1">{(result.roomBreakdown||[]).map((r:any)=><div key={r.room}>{r.room}: {r.students} students{r.classes?.length?` · ${r.classes.join(', ')}`:''}</div>)}</div></div>}
-    <div className="flex justify-end gap-2"><button type="button" onClick={close} className="rounded-xl border px-4 py-2.5">Cancel</button><button disabled={busy||!year||!type||!org} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 font-semibold text-white disabled:opacity-50"><Zap size={17}/>{busy?'Generating...':'Generate Seating'}</button></div>
-  </form></Modal>;
+  const sortedClasses=useMemo(()=>classes.slice().sort((a,b)=>classNameOf(a).localeCompare(classNameOf(b),undefined,{numeric:true})),[classes]);
+  const sortedRooms=useMemo(()=>rooms.slice().sort((a,b)=>(a.building||'').localeCompare(b.building||'')||a.name.localeCompare(b.name,undefined,{numeric:true})),[rooms]);
+  const allClasses=sortedClasses.length>0&&classIds.length===sortedClasses.length;
+  const allRooms=sortedRooms.length>0&&roomIds.length===sortedRooms.length;
+  const selectedCapacity=sortedRooms.filter(r=>roomIds.includes(r._id)).reduce((sum,r)=>sum+(Number(r.capacity)||0),0);
+
+  const submit=async(e:FormEvent)=>{
+    e.preventDefault();
+    if(!classIds.length){setError('Select at least one Grade / Class.');return;}
+    if(!roomIds.length){setError('Select at least one Room.');return;}
+    setBusy(true);setError('');setResult(null);
+    try{
+      const r=await api.post('/exams/seating-plan/auto-generate',{
+        academicYear:year,
+        examType:type,
+        organization:org,
+        classIds,
+        roomIds,
+        overwrite,
+      });
+      const generated=r.data.data;
+      setResult(generated);
+      onGenerated(r.data.message||'Room assignments generated successfully.');
+    }catch(err:any){
+      setError(err.response?.data?.message||'Automatic room assignment failed');
+    }finally{
+      setBusy(false);
+    }
+  };
+
+  return <Modal title="Auto Balance Room Assignment" close={close} wide>
+    <form onSubmit={submit} className="space-y-6">
+      <div className="rounded-2xl border border-primary-200 bg-primary-50/50 p-4 dark:border-primary-900/40 dark:bg-primary-950/20">
+        <p className="font-semibold">Mix grades and balance students across rooms</p>
+        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Select the grades and rooms. The system mixes students from the selected grades and assigns only a Room — no seat number is needed.</p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Academic Year" editable><AcademicYearSelect value={year} onChange={setYear} required/></Field>
+        <Field label="Exam Type" editable>
+          <select className={input} value={type} onChange={e=>setType(e.target.value)} required>
+            <option value="">Select...</option>
+            <option value="mid">Mid Exam</option>
+            <option value="final">Final</option>
+          </select>
+        </Field>
+      </div>
+
+      <div>
+        <p className="mb-2 text-sm font-semibold">Organization</p>
+        {orgs.length>1?
+          <select className={input} value={org} onChange={e=>{setOrg(e.target.value);setClassIds([]);setRoomIds([])}}>
+            <option value="">Select organization...</option>
+            {orgs.map(o=><option key={o._id} value={o._id}>{o.name}</option>)}
+          </select>
+          :<div className={readonly}>{orgs[0]?.name||'Current organization'}</div>}
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className={`${card} p-4`}>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div><p className="font-semibold">Grades / Classes</p><p className="text-xs text-[var(--color-text-tertiary)]">{classIds.length} selected</p></div>
+            <button type="button" onClick={()=>setClassIds(allClasses?[]:sortedClasses.map(c=>c._id))} className="text-xs font-semibold text-primary-600">{allClasses?'Clear all':'Select all'}</button>
+          </div>
+          <div className="max-h-72 space-y-2 overflow-auto">
+            {sortedClasses.length===0?<p className="text-sm text-[var(--color-text-tertiary)]">No active grades/classes.</p>:sortedClasses.map(c=>
+              <button type="button" key={c._id} onClick={()=>toggle(classIds,c._id,setClassIds)} className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition ${classIds.includes(c._id)?'border-primary-300 bg-primary-50 dark:border-primary-900/50 dark:bg-primary-950/20':'border-transparent hover:bg-[var(--color-surface-secondary)]'}`}>
+                {classIds.includes(c._id)?<CheckSquare size={18} className="text-primary-600"/>:<Square size={18}/>}
+                <span className="font-medium">{classNameOf(c)}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className={`${card} p-4`}>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div><p className="font-semibold">Rooms</p><p className="text-xs text-[var(--color-text-tertiary)]">{roomIds.length} selected · {selectedCapacity} total capacity</p></div>
+            <button type="button" onClick={()=>setRoomIds(allRooms?[]:sortedRooms.map(r=>r._id))} className="text-xs font-semibold text-primary-600">{allRooms?'Clear all':'Select all'}</button>
+          </div>
+          <div className="max-h-72 space-y-2 overflow-auto">
+            {sortedRooms.length===0?<p className="text-sm text-[var(--color-text-tertiary)]">No exam rooms available.</p>:sortedRooms.map(r=>
+              <button type="button" key={r._id} onClick={()=>toggle(roomIds,r._id,setRoomIds)} className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${roomIds.includes(r._id)?'border-emerald-300 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20':'border-transparent hover:bg-[var(--color-surface-secondary)]'}`}>
+                {roomIds.includes(r._id)?<CheckSquare size={18} className="text-emerald-600"/>:<Square size={18}/>}
+                <div className="min-w-0 flex-1"><p className="font-medium">{r.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{r.building||'Main Campus'}</p></div>
+                <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-bold">{r.capacity}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div><p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Grades</p><p className="mt-1 text-xl font-bold">{classIds.length}</p></div>
+          <div><p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Rooms</p><p className="mt-1 text-xl font-bold">{roomIds.length}</p></div>
+          <div><p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Room Capacity</p><p className="mt-1 text-xl font-bold">{selectedCapacity}</p></div>
+        </div>
+        <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">Students are mixed by Grade/Class first, then room headcounts are kept as equal as possible without exceeding room capacity.</p>
+      </div>
+
+      <label className="flex items-start gap-3 rounded-2xl border p-4">
+        <input type="checkbox" checked={overwrite} onChange={e=>setOverwrite(e.target.checked)} className="mt-1 h-4 w-4"/>
+        <span><b>Rebalance existing assignments</b><span className="block text-xs text-[var(--color-text-tertiary)]">Replace existing room assignments for the selected students in this Academic Year + Exam Type.</span></span>
+      </label>
+
+      {error&&<div className="rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
+      {result&&<div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm dark:border-emerald-900/40 dark:bg-emerald-950/20">
+        <b>{result.students} students</b> assigned to <b>{result.rooms} rooms</b>.
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">{(result.roomBreakdown||[]).map((r:any)=>
+          <div key={r.roomId||r.room} className="rounded-xl border border-emerald-200 bg-white/70 p-3 dark:border-emerald-900/40 dark:bg-black/10">
+            <div className="flex items-center justify-between gap-3"><b>{r.room}</b><span>{r.students}/{r.capacity}</span></div>
+            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{(r.classes||[]).map((c:any)=>`${c.name}: ${c.count}`).join(' · ')}</p>
+          </div>)}</div>
+      </div>}
+
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={close} className="rounded-xl border px-4 py-2.5">Cancel</button>
+        <button disabled={busy||!year||!type||!org||!classIds.length||!roomIds.length} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 font-semibold text-white disabled:opacity-50">
+          <Zap size={17}/>{busy?'Balancing...':'Auto Balance & Assign'}
+        </button>
+      </div>
+    </form>
+  </Modal>;
 }
 
 function RoomModal({room,close,onSaved}:{room?:Room;close:()=>void;onSaved:()=>void}) {
@@ -161,25 +279,25 @@ export function ExamSeatingCenterV3() {
   const allFilteredSelected=filtered.length>0&&filtered.every(a=>selectedIds.includes(a._id));
   const toggleSelect=(id:string)=>setSelectedIds(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
   const toggleSelectAll=()=>setSelectedIds(allFilteredSelected?[]:filtered.map(a=>a._id));
-  const handleBulkDelete=async()=>{if(selectedIds.length===0)return;if(!window.confirm(`Delete ${selectedIds.length} selected seating assignment(s)? This cannot be undone.`))return;setBulkDeleting(true);try{const{data}=await api.delete('/exams/seating-plan',{data:{ids:selectedIds}});setMessage(data.message||`Removed ${selectedIds.length} seating assignment(s).`);setSelectedIds([]);await loadSeating()}catch(err:any){setError(err.response?.data?.message||'Failed to delete selected seating assignments')}finally{setBulkDeleting(false)}};
+  const handleBulkDelete=async()=>{if(selectedIds.length===0)return;if(!window.confirm(`Delete ${selectedIds.length} selected room assignment(s)? This cannot be undone.`))return;setBulkDeleting(true);try{const{data}=await api.delete('/exams/seating-plan',{data:{ids:selectedIds}});setMessage(data.message||`Removed ${selectedIds.length} room assignment(s).`);setSelectedIds([]);await loadSeating()}catch(err:any){setError(err.response?.data?.message||'Failed to delete selected room assignments')}finally{setBulkDeleting(false)}};
   const exportCsv=()=>{const rows=[columns,...filtered.map(a=>[a.student?.organization||'',a.student?.department||'',a.student?.className||'',a.student?.shift||'',a.student?.studentId||'',nameOf(a.student),a.academicYear,a.examType,a.room?.name||'',a.deskNumber||''])];const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');const u=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));const a=document.createElement('a');a.href=u;a.download=`exam-seating-${year}-${type}.csv`;a.click();URL.revokeObjectURL(u)};
   const exportRooms=async()=>{try{const r=await api.get('/exam-rooms/export',{responseType:'blob'});const u=URL.createObjectURL(r.data);const a=document.createElement('a');a.href=u;a.download=`exam-rooms-${new Date().toISOString().slice(0,10)}.xlsx`;a.click();URL.revokeObjectURL(u)}catch(err:any){setError(err.response?.data?.message||'Room export failed')}};
   const deleteRoom=async(room:Room)=>{if(!window.confirm(`Delete ${room.name} from ${room.building||'Main Campus'}?`))return;try{await api.delete(`/exam-rooms/${room._id}`);setMessage('Room deleted successfully.');await loadBase()}catch(err:any){setError(err.response?.data?.message||'Failed to delete room')}};
   const orgForAuto=orgs.length===1?orgs[0]._id:'';
   if(loading)return <div className="p-20 text-center">Loading...</div>;
   return <div className="p-6 pt-20 lg:p-10 lg:pt-10"><div className="mx-auto max-w-screen-2xl space-y-6"><BackButton fallback="/admin/exams"/>
-    <div className="flex items-start justify-between gap-4"><div><h1 className="text-3xl font-bold">Exam Seating Center</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">One master room assignment for every student across all exam subjects.</p></div><Actions add={()=>setModal('add')} imp={()=>setModal('import')} exp={exportCsv} auto={()=>setModal('auto')}/></div>
+    <div className="flex items-start justify-between gap-4"><div><h1 className="text-3xl font-bold">Exam Room Assignment</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">One master room assignment for every student across all exam subjects.</p></div><Actions add={()=>setModal('add')} imp={()=>setModal('import')} exp={exportCsv} auto={()=>setModal('auto')}/></div>
     <ExamWorkspaceTabs />
     {error&&<div className="flex items-center justify-between gap-3 rounded-xl bg-red-50 p-3 text-sm text-red-700"><span>{error}</span><button type="button" onClick={()=>void loadBase()} className="flex-shrink-0 rounded-lg border border-red-300 px-3 py-1 text-xs font-semibold hover:bg-red-100">Retry</button></div>}{message&&<div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
-    <div className="flex gap-2 rounded-xl bg-[var(--color-surface-secondary)] p-1 w-fit"><button onClick={()=>setTab('seating')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${tab==='seating'?'bg-[var(--color-surface-primary)] shadow-sm':''}`}>Seating Plan</button><button onClick={()=>setTab('rooms')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${tab==='rooms'?'bg-[var(--color-surface-primary)] shadow-sm':''}`}><Building2 size={15} className="mr-1 inline"/>Rooms</button></div>
+    <div className="flex gap-2 rounded-xl bg-[var(--color-surface-secondary)] p-1 w-fit"><button onClick={()=>setTab('seating')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${tab==='seating'?'bg-[var(--color-surface-primary)] shadow-sm':''}`}>Room Assignment</button><button onClick={()=>setTab('rooms')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${tab==='rooms'?'bg-[var(--color-surface-primary)] shadow-sm':''}`}><Building2 size={15} className="mr-1 inline"/>Rooms</button></div>
     {tab==='rooms'?<div className="space-y-4"><div className="flex items-center justify-between"><div><h2 className="text-xl font-bold">Rooms</h2><p className="text-sm text-[var(--color-text-tertiary)]">Rooms are automatically created from Class → Room assignments. Building defaults to Main Campus, and capacity follows the maximum active students across shifts unless manually overridden.</p></div><RoomActions add={()=>{setEditingRoom(undefined);setModal('room')}} imp={()=>setModal('room-import')} exp={exportRooms}/></div><div className={`${card} overflow-hidden`}><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-[var(--color-surface-secondary)]"><tr><th className="px-5 py-3 text-left">Room</th><th className="px-5 py-3 text-left">Building</th><th className="px-5 py-3 text-left">Capacity</th><th className="px-5 py-3 text-left">Capacity Source</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody>{rooms.map(r=><tr key={r._id} className="border-t"><td className="px-5 py-4 font-semibold">{r.name}</td><td className="px-5 py-4">{r.building||'Main Campus'}</td><td className="px-5 py-4">{r.capacity}</td><td className="px-5 py-4"><span className="rounded-full border px-2.5 py-1 text-xs">{r.capacityMode==='manual'?'Manual':'Automatic'}</span></td><td className="px-5 py-4 text-right"><RoomRowActions room={r} onEdit={()=>{setEditingRoom(r);setModal('room')}} onDelete={()=>void deleteRoom(r)}/></td></tr>)}</tbody></table></div></div></div>:<>
       <div className={`${card} p-5`}><div className="grid gap-4 md:grid-cols-2"><Field label="Academic Year" editable><AcademicYearSelect value={year} onChange={setYear} required/></Field><Field label="Exam Type" editable><select className={input} value={type} onChange={e=>setType(e.target.value)}><option value="">Select exam type...</option><option value="mid">Mid Exam</option><option value="final">Final</option></select></Field></div><p className="mt-2 text-xs text-[var(--color-text-tertiary)]">There is no Examination/Subject dropdown. This plan applies to all subjects for the selected Academic Year + Exam Type.</p></div>
-      {selectedIds.length>0&&<div className="flex items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-900/50 px-4 py-3"><p className="text-sm font-semibold text-red-700 dark:text-red-300">{selectedIds.length} seating assignment{selectedIds.length!==1?'s':''} selected</p><button type="button" onClick={()=>void handleBulkDelete()} disabled={bulkDeleting} className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60 transition-colors"><Trash2 size={16}/>{bulkDeleting?'Deleting...':'Delete Selected'}</button></div>}
-      <div className={`${card} overflow-hidden`}><div className="flex flex-col gap-3 border-b p-5 lg:flex-row"><div className="relative flex-1"><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2"/><input className={`${input} pl-9`} value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search student, organization, department, class, room..." disabled={!year||!type}/></div><select className={`${input} lg:w-52`} value={roomFilter} onChange={e=>setRoomFilter(e.target.value)} disabled={!year||!type}><option value="all">All Rooms</option>{rooms.map(r=><option key={r._id} value={r._id}>{r.name} · {r.building||'Main Campus'}</option>)}</select></div>{!year||!type?<div className="p-20 text-center text-sm text-[var(--color-text-tertiary)]">Select Academic Year and Exam Type to view the master seating plan.</div>:filtered.length===0?<div className="p-20 text-center"><b>No seating assignments</b><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Use Auto Generate, Add Seating, or Import Excel.</p></div>:<div className="overflow-x-auto"><table className="w-full min-w-[1300px] text-sm"><thead className="bg-[var(--color-surface-secondary)]"><tr><th className="w-10 px-5 py-3 text-center"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="h-4 w-4 accent-red-600"/></th>{columns.map(c=><th key={c} className="px-5 py-3 text-left text-xs font-semibold uppercase">{c}</th>)}<th className="px-5 py-3 text-right text-xs font-semibold uppercase">Action</th></tr></thead><tbody>{filtered.map(a=><tr key={a._id} className="border-t"><td className="px-5 py-4 text-center"><input type="checkbox" checked={selectedIds.includes(a._id)} onChange={()=>toggleSelect(a._id)} className="h-4 w-4 accent-red-600"/></td><td className="px-5 py-4">{a.student?.organization||'—'}</td><td className="px-5 py-4">{a.student?.department||'—'}</td><td className="px-5 py-4">{a.student?.className||'—'}</td><td className="px-5 py-4">{a.student?.shift||'—'}</td><td className="px-5 py-4 font-semibold">{a.student?.studentId||'—'}</td><td className="px-5 py-4">{nameOf(a.student)||'—'}</td><td className="px-5 py-4">{a.academicYear}</td><td className="px-5 py-4">{a.examType==='mid'?'Mid Exam':'Final'}</td><td className="px-5 py-4">{a.room?.name||'—'}</td><td className="px-5 py-4 font-semibold">{a.deskNumber||'—'}</td><td className="px-5 py-4 text-right"><button onClick={()=>{setEditing(a);setModal('edit')}} className="rounded-lg border p-2"><Pencil size={16}/></button></td></tr>)}</tbody></table></div>}</div>
+      {selectedIds.length>0&&<div className="flex items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-900/50 px-4 py-3"><p className="text-sm font-semibold text-red-700 dark:text-red-300">{selectedIds.length} room assignment{selectedIds.length!==1?'s':''} selected</p><button type="button" onClick={()=>void handleBulkDelete()} disabled={bulkDeleting} className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60 transition-colors"><Trash2 size={16}/>{bulkDeleting?'Deleting...':'Delete Selected'}</button></div>}
+      <div className={`${card} overflow-hidden`}><div className="flex flex-col gap-3 border-b p-5 lg:flex-row"><div className="relative flex-1"><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2"/><input className={`${input} pl-9`} value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search student, organization, department, class, room..." disabled={!year||!type}/></div><select className={`${input} lg:w-52`} value={roomFilter} onChange={e=>setRoomFilter(e.target.value)} disabled={!year||!type}><option value="all">All Rooms</option>{rooms.map(r=><option key={r._id} value={r._id}>{r.name} · {r.building||'Main Campus'}</option>)}</select></div>{!year||!type?<div className="p-20 text-center text-sm text-[var(--color-text-tertiary)]">Select Academic Year and Exam Type to view the master seating plan.</div>:filtered.length===0?<div className="p-20 text-center"><b>No room assignments</b><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Use Auto Generate, Add Room Assignment, or Import Excel.</p></div>:<div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-sm"><thead className="bg-[var(--color-surface-secondary)]"><tr><th className="w-10 px-5 py-3 text-center"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="h-4 w-4 accent-red-600"/></th>{roomAssignmentColumns.map(c=><th key={c} className="px-5 py-3 text-left text-xs font-semibold uppercase">{c}</th>)}<th className="px-5 py-3 text-right text-xs font-semibold uppercase">Action</th></tr></thead><tbody>{filtered.map(a=><tr key={a._id} className="border-t"><td className="px-5 py-4 text-center"><input type="checkbox" checked={selectedIds.includes(a._id)} onChange={()=>toggleSelect(a._id)} className="h-4 w-4 accent-red-600"/></td><td className="px-5 py-4">{a.student?.organization||'—'}</td><td className="px-5 py-4">{a.student?.department||'—'}</td><td className="px-5 py-4">{a.student?.className||'—'}</td><td className="px-5 py-4">{a.student?.shift||'—'}</td><td className="px-5 py-4 font-semibold">{a.student?.studentId||'—'}</td><td className="px-5 py-4">{nameOf(a.student)||'—'}</td><td className="px-5 py-4">{a.academicYear}</td><td className="px-5 py-4">{a.examType==='mid'?'Mid Exam':'Final'}</td><td className="px-5 py-4 font-semibold">{a.room?.name||'—'}</td><td className="px-5 py-4 text-right"><button onClick={()=>{setEditing(a);setModal('edit')}} className="rounded-lg border p-2"><Pencil size={16}/></button></td></tr>)}</tbody></table></div>}</div>
     </>}
-    {modal==='add'&&<AddModal rooms={rooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Seating added successfully.');void loadSeating()}}/>}
-    {modal==='edit'&&editing&&<EditModal allocation={editing} rooms={rooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Seating updated successfully.');void loadSeating()}}/>}
-    {modal==='import'&&<ImportModal close={()=>setModal(null)} onImported={(info)=>{setYear(info.academicYear);setType(info.examType);setMessage(`Imported ${info.count} seating assignments successfully.`);void loadSeating(info.academicYear,info.examType)}}/>}
+    {modal==='add'&&<AddModal rooms={rooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment added successfully.');void loadSeating()}}/>}
+    {modal==='edit'&&editing&&<EditModal allocation={editing} rooms={rooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment updated successfully.');void loadSeating()}}/>}
+    {modal==='import'&&<ImportModal close={()=>setModal(null)} onImported={(info)=>{setYear(info.academicYear);setType(info.examType);setMessage(`Imported ${info.count} room assignments successfully.`);void loadSeating(info.academicYear,info.examType)}}/>}
     {modal==='auto'&&<AutoGenerateModal orgs={orgs} departments={departments} classes={classes} rooms={rooms} selectedOrg={orgForAuto} close={()=>setModal(null)} onGenerated={m=>{setMessage(m);setModal(null);void loadSeating()}}/>}
     {modal==='room'&&<RoomModal room={editingRoom} close={()=>setModal(null)} onSaved={()=>{setMessage('Room saved successfully.');void loadBase()}}/>}
     {modal==='room-import'&&<RoomImportModal close={()=>setModal(null)} onImported={m=>{setMessage(m);void loadBase()}}/>}
