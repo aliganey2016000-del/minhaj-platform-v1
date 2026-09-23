@@ -1168,6 +1168,9 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
 
 export const exportData = async (req: Request, res: Response): Promise<void> => {
   const filter: Record<string, unknown> = applyOrgFilter(req, {}, 'school');
+  if (req.query?.period && /^[a-f\d]{24}$/i.test(String(req.query.period))) {
+    filter.period = String(req.query.period);
+  }
   if (req.user?.role === 'teacher') {
     const teacher = await getOwnTeacherRecord(req);
     const teacherCourseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
@@ -1175,25 +1178,102 @@ export const exportData = async (req: Request, res: Response): Promise<void> => 
   }
 
   const exams = await Exam.find(filter)
-    .populate('course', 'title.en')
+    .populate({
+      path: 'course',
+      select: 'title.en class teacher school',
+      populate: [
+        { path: 'class', select: 'title section' },
+        { path: 'teacher', select: 'profile user', populate: [
+          { path: 'profile', select: 'firstName lastName' },
+          { path: 'user', select: 'email' },
+        ] },
+      ],
+    })
     .populate('school', 'name')
+    .populate('period', 'name academicYear term status startDate endDate')
     .sort({ examDate: 1, startTime: 1 })
     .lean();
 
-  const headers = ['Organization', 'Course', 'Exam Title', 'Exam Date', 'Start Time', 'End Time', 'Duration (min)', 'Total Marks', 'Passing Marks', 'Room', 'Status', 'Scheduling'];
-  const rows = exams.map((e: any) => [
+  const schoolIds = Array.from(new Set(
+    (exams as any[])
+      .map((exam: any) => String(exam.school?._id || exam.school || ''))
+      .filter((id: string) => /^[a-f\d]{24}$/i.test(id))
+  ));
+  const rulesBySchool = new Map<string, any>();
+  await Promise.all(schoolIds.map(async (schoolId) => {
+    try {
+      rulesBySchool.set(schoolId, await getExamSchedulingRulesForSchool(schoolId));
+    } catch {
+      rulesBySchool.set(schoolId, null);
+    }
+  }));
+
+  const teacherLabel = (course: any): string => {
+    const name = [course?.teacher?.profile?.firstName, course?.teacher?.profile?.lastName]
+      .filter(Boolean).join(' ').trim();
+    return name || course?.teacher?.user?.email || '';
+  };
+
+  const classLabel = (course: any): string => {
+    const cls = course?.class;
+    if (!cls?.title) return '';
+    return cls.section ? `${cls.title} - ${cls.section}` : cls.title;
+  };
+
+  const shiftLabel = (exam: any): string => {
+    if (exam.autoSchedule) return 'Automatic';
+    const schoolId = String(exam.school?._id || exam.school || '');
+    const rules = rulesBySchool.get(schoolId);
+    const shift = rules?.examShifts?.find((item: any) =>
+      item.startTime === exam.startTime && item.endTime === exam.endTime
+    );
+    return shift?.name || '';
+  };
+
+  const headers = [
+    'Organization',
+    'Exam Period',
+    'Academic Year',
+    'Term / Semester',
+    'Grade / Class',
+    'Course Title',
+    'Teacher',
+    'Exam Title',
+    'Exam Date',
+    'Shift',
+    'Start Time',
+    'End Time',
+    'Duration (min)',
+    'Total Marks',
+    'Passing Marks',
+    'Room',
+    'Period Status',
+    'Exam Status',
+    'Scheduling',
+    'Instructions',
+  ];
+
+  const rows = (exams as any[]).map((e: any) => [
     e.school?.name || '',
+    e.period?.name || '',
+    e.period?.academicYear || '',
+    e.period?.term || '',
+    classLabel(e.course),
     e.course?.title?.en || '',
-    e.title,
-    e.autoSchedule ? '' : (e.examDate ? new Date(e.examDate).toLocaleDateString() : ''),
+    teacherLabel(e.course),
+    e.title || '',
+    e.autoSchedule ? '' : examDateKey(e.examDate),
+    shiftLabel(e),
     e.autoSchedule ? '' : (e.startTime || ''),
     e.autoSchedule ? '' : (e.endTime || ''),
     e.duration,
     e.totalMarks,
     e.passingMarks,
     e.room || '',
+    e.period?.status || '',
     e.status,
     e.autoSchedule ? 'Automatic' : 'Manual',
+    e.instructions || '',
   ]);
 
   const buffer = buildXlsxBuffer(headers, rows, 'Exams');
@@ -1203,22 +1283,50 @@ export const exportData = async (req: Request, res: Response): Promise<void> => 
 };
 
 // ---------------------------------------------------------------------------
-// GET /exams/template — Download bulk-import template (XLSX)
-//
-// Scoped to MANUAL scheduling only — an auto-scheduled exam has no fixed
-// date/time of its own (see the `autoSchedule` branch on the model), which
-// doesn't fit a "one row = one dated exam" spreadsheet; those are still
-// set up individually via "+ Schedule Exam".
+// GET /exams/template — Download the period-aware bulk-import template.
+// New imports can be linked directly to the same Exam Period used by the
+// Table Grid. Legacy files without period columns are still accepted.
 // ---------------------------------------------------------------------------
 
 export const downloadTemplate = async (req: Request, res: Response): Promise<void> => {
   const isOrgAdmin = req.user?.role === 'org_admin';
-  const headers = isOrgAdmin
-    ? ['Course Title', 'Exam Title', 'Exam Date (YYYY-MM-DD)', 'Start Time (HH:MM)', 'End Time (HH:MM)', 'Duration (minutes)', 'Total Marks', 'Passing Marks', 'Room', 'Instructions']
-    : ['Organization', 'Course Title', 'Exam Title', 'Exam Date (YYYY-MM-DD)', 'Start Time (HH:MM)', 'End Time (HH:MM)', 'Duration (minutes)', 'Total Marks', 'Passing Marks', 'Room', 'Instructions'];
-  const sampleRow = isOrgAdmin
-    ? ['Quran Recitation', 'Mid-Term Exam', '2026-03-15', '09:00', '11:00', '120', '100', '50', 'Room 12', '']
-    : ['Madrasa Al-Noor', 'Quran Recitation', 'Mid-Term Exam', '2026-03-15', '09:00', '11:00', '120', '100', '50', 'Room 12', ''];
+  const sharedHeaders = [
+    'Exam Period',
+    'Academic Year',
+    'Term / Semester',
+    'Grade / Class',
+    'Course Title',
+    'Exam Title',
+    'Exam Date (YYYY-MM-DD)',
+    'Shift',
+    'Start Time (HH:MM)',
+    'End Time (HH:MM)',
+    'Duration (minutes)',
+    'Total Marks',
+    'Passing Marks',
+    'Room',
+    'Instructions',
+  ];
+  const headers = isOrgAdmin ? sharedHeaders : ['Organization', ...sharedHeaders];
+
+  const sampleShared = [
+    'Midterm Exam',
+    '2026/27',
+    'Term 1',
+    'Grade 5 - A',
+    'Mathematics',
+    'Midterm Exam',
+    '2026-09-26',
+    'Shift 1',
+    '08:00',
+    '10:00',
+    '120',
+    '100',
+    '50',
+    'Room 5',
+    '',
+  ];
+  const sampleRow = isOrgAdmin ? sampleShared : ['Balad Primary and Secondary School', ...sampleShared];
 
   const buffer = buildXlsxBuffer(headers, [sampleRow], 'Exams Template');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -1230,14 +1338,26 @@ function getExamImportField(row: Record<string, any>, ...names: string[]): unkno
   const keys = Object.keys(row);
   for (const name of names) {
     const target = name.toLowerCase();
-    const key = keys.find((k) => k.trim().toLowerCase() === target) ?? keys.find((k) => k.trim().toLowerCase().startsWith(target));
+    const key = keys.find((k) => k.trim().toLowerCase() === target)
+      ?? keys.find((k) => k.trim().toLowerCase().startsWith(target));
     if (key !== undefined) return row[key];
   }
   return undefined;
 }
 
+const normalizeImportText = (value: unknown): string =>
+  String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const normalizeImportClass = (value: unknown): string =>
+  normalizeImportText(value).replace(/[\s_\-–—]+/g, '');
+
+const importPeriodKey = (schoolId: string, name: string, academicYear: string, term: string): string =>
+  [schoolId, normalizeImportText(name), normalizeImportText(academicYear), normalizeImportText(term)].join('|||');
+
 // ---------------------------------------------------------------------------
-// POST /exams/import — Bulk import manually-scheduled exams from Excel/CSV
+// POST /exams/import — Bulk import manually-scheduled exams from Excel/CSV.
+// Period-aware rows feed BOTH List and Table Grid because they are stored as
+// ordinary Exam records linked to an ExamPeriod. Legacy rows remain supported.
 // ---------------------------------------------------------------------------
 
 export const bulkImport = async (req: Request, res: Response): Promise<Response> => {
@@ -1253,39 +1373,95 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   const ownOrgId = resolveOrgIdForCreate(req) as string | undefined;
   const createdBy = req.user!.userId;
 
-  // Batch-resolve every distinct School/Course referenced up front instead
-  // of a query per row — same fix already applied to Class Schedules'
-  // importer (sequential per-row lookups against a remote cluster don't
-  // scale to large files).
   let schoolIdByName: Map<string, string> | null = null;
   if (!ownOrgId) {
     const allSchools = await School.find({}, { name: 1 }).lean();
-    schoolIdByName = new Map(allSchools.map((s: any) => [String(s.name).trim().toLowerCase(), s._id.toString()]));
+    schoolIdByName = new Map(
+      allSchools.map((s: any) => [normalizeImportText(s.name), s._id.toString()])
+    );
   }
   const relevantSchoolIds = ownOrgId ? [ownOrgId] : Array.from(schoolIdByName!.values());
-  const allCourses = await Course.find({ school: { $in: relevantSchoolIds } }, { title: 1, school: 1, class: 1 }).lean();
-  const courseByKey = new Map<string, any>();
-  for (const c of allCourses as any[]) courseByKey.set(`${c.school}|||${String((c as any).title?.en || '').trim().toLowerCase()}`, c);
 
-  // Duplicate guard: insertMany below has no uniqueness check at all (the
-  // course+examDate index is for query speed, not for rejecting dupes), so
-  // importing the same file twice — or two files covering overlapping dates
-  // (e.g. a re-exported timetable re-imported after edits) — silently
-  // created a second identical Exam per row, which is exactly what showed
-  // up as every subject appearing twice on the student's exam schedule.
-  // Pre-fetch every existing exam for these courses once and key it the
-  // same way a row is keyed, so a row matching an already-scheduled exam
-  // (same course + title + date + start time) is skipped instead of
-  // inserted again.
+  const [allCourses, allClasses, allPeriods] = await Promise.all([
+    Course.find(
+      { school: { $in: relevantSchoolIds }, status: { $ne: 'archived' } },
+      { title: 1, school: 1, class: 1, teacher: 1 }
+    ).lean(),
+    ClassModel.find(
+      { school: { $in: relevantSchoolIds } },
+      { title: 1, section: 1, school: 1 }
+    ).lean(),
+    ExamPeriod.find({ school: { $in: relevantSchoolIds } }).lean(),
+  ]);
+
+  const classIdsByAlias = new Map<string, Set<string>>();
+  for (const cls of allClasses as any[]) {
+    const schoolId = String(cls.school || '');
+    const title = String(cls.title || '').trim();
+    const section = String(cls.section || '').trim();
+    const aliases = new Set<string>([
+      title,
+      section ? `${title} ${section}` : '',
+      section ? `${title} - ${section}` : '',
+      section ? `${title}-${section}` : '',
+    ].filter(Boolean).map(normalizeImportClass));
+    for (const alias of aliases) {
+      const key = `${schoolId}|||${alias}`;
+      const current = classIdsByAlias.get(key) || new Set<string>();
+      current.add(String(cls._id));
+      classIdsByAlias.set(key, current);
+    }
+  }
+
+  const courseCandidatesByTitle = new Map<string, any[]>();
+  for (const course of allCourses as any[]) {
+    const key = `${course.school}|||${normalizeImportText(course.title?.en)}`;
+    const list = courseCandidatesByTitle.get(key) || [];
+    list.push(course);
+    courseCandidatesByTitle.set(key, list);
+  }
+
+  const periodsByKey = new Map<string, any>();
+  const periodsById = new Map<string, any>();
+  for (const period of allPeriods as any[]) {
+    periodsByKey.set(
+      importPeriodKey(String(period.school), period.name, period.academicYear, period.term || ''),
+      period
+    );
+    periodsById.set(String(period._id), period);
+  }
+
   const existingExams = await Exam.find(
-    { course: { $in: allCourses.map((c: any) => c._id) } },
-    { course: 1, title: 1, examDate: 1, startTime: 1 }
+    { course: { $in: (allCourses as any[]).map((course: any) => course._id) } },
+    { course: 1, period: 1, title: 1, examDate: 1, startTime: 1 }
   ).lean();
+
+  const dedupeKeyFor = (
+    periodId: string,
+    courseId: string,
+    title: string,
+    date: string,
+    startTime: string,
+  ): string => [
+    periodId || 'legacy',
+    courseId,
+    normalizeImportText(title),
+    date,
+    startTime,
+  ].join('|||');
+
   const existingExamKeys = new Set(
-    existingExams.map((e: any) => `${e.course}|||${String(e.title).trim().toLowerCase()}|||${new Date(e.examDate).toISOString().slice(0, 10)}|||${e.startTime}`)
+    (existingExams as any[]).map((e: any) =>
+      dedupeKeyFor(
+        e.period ? String(e.period) : '',
+        String(e.course),
+        e.title,
+        examDateKey(e.examDate),
+        e.startTime,
+      )
+    )
   );
 
-  // Teacher caller: only allowed to import exams for their own courses.
   let teacherCourseIdSet: Set<string> | null = null;
   if (req.user?.role === 'teacher') {
     const teacher = await getOwnTeacherRecord(req);
@@ -1293,25 +1469,39 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     teacherCourseIdSet = new Set(ids.map((id: any) => id.toString()));
   }
 
+  const rulesBySchool = new Map<string, any>();
+  const getRules = async (schoolId: string) => {
+    if (!rulesBySchool.has(schoolId)) {
+      rulesBySchool.set(schoolId, await getExamSchedulingRulesForSchool(schoolId));
+    }
+    return rulesBySchool.get(schoolId);
+  };
+
+  const periodRanges = new Map<string, { min: Date; max: Date }>();
   const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
   const errors: { row: number; message: string }[] = [];
   const documents: any[] = [];
   const pendingSchedules: PendingFixedExam[] = [];
 
   for (let i = 0; i < rows.length; i++) {
-    const rowNum = i + 2; // header is row 1
+    const rowNum = i + 2;
     const row = rows[i];
 
     try {
       const cellValues = Object.values(row).map((v) => String(v ?? '').trim());
-      if (cellValues.every((v) => v === '')) continue; // blank row
+      if (cellValues.every((v) => v === '')) continue;
 
       const schoolName = String(getExamImportField(row, 'Organization', 'School') ?? '').trim();
+      const periodName = String(getExamImportField(row, 'Exam Period', 'Period') ?? '').trim();
+      const academicYear = String(getExamImportField(row, 'Academic Year', 'Year') ?? '').trim();
+      const term = String(getExamImportField(row, 'Term / Semester', 'Term', 'Semester') ?? '').trim();
+      const classLabel = String(getExamImportField(row, 'Grade / Class', 'Class', 'Grade') ?? '').trim();
       const courseTitle = String(getExamImportField(row, 'Course Title', 'Course') ?? '').trim();
-      const examTitle = String(getExamImportField(row, 'Exam Title', 'Title') ?? '').trim();
+      const examTitleRaw = String(getExamImportField(row, 'Exam Title', 'Title') ?? '').trim();
       const examDateRaw = getExamImportField(row, 'Exam Date', 'Date');
-      const startTime = String(getExamImportField(row, 'Start Time', 'Start') ?? '').trim();
-      const endTime = String(getExamImportField(row, 'End Time', 'End') ?? '').trim();
+      const shiftName = String(getExamImportField(row, 'Shift') ?? '').trim();
+      let startTime = String(getExamImportField(row, 'Start Time', 'Start') ?? '').trim();
+      let endTime = String(getExamImportField(row, 'End Time', 'End') ?? '').trim();
       const durationRaw = getExamImportField(row, 'Duration');
       const totalMarksRaw = getExamImportField(row, 'Total Marks');
       const passingMarksRaw = getExamImportField(row, 'Passing Marks');
@@ -1319,55 +1509,130 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const instructions = String(getExamImportField(row, 'Instructions') ?? '').trim();
 
       if (!courseTitle) throw new Error('Course Title is required');
-      if (!examTitle) throw new Error('Exam Title is required');
       if (!examDateRaw) throw new Error('Exam Date is required');
-      if (!startTime) throw new Error('Start Time is required');
-      if (!endTime) throw new Error('End Time is required');
+      if (!!periodName !== !!academicYear) {
+        throw new Error('Exam Period and Academic Year must be provided together');
+      }
 
       let schoolId: string | undefined = ownOrgId;
       if (!schoolId) {
         if (!schoolName) throw new Error('Organization is required');
-        schoolId = schoolIdByName!.get(schoolName.toLowerCase());
+        schoolId = schoolIdByName!.get(normalizeImportText(schoolName));
         if (!schoolId) throw new Error(`Organization "${schoolName}" not found`);
       }
 
-      const courseDoc = courseByKey.get(`${schoolId}|||${courseTitle.toLowerCase()}`);
-      if (!courseDoc) throw new Error(`Course "${courseTitle}" not found`);
+      let classId = '';
+      if (classLabel) {
+        const matches = classIdsByAlias.get(`${schoolId}|||${normalizeImportClass(classLabel)}`);
+        if (!matches?.size) throw new Error(`Grade/Class "${classLabel}" not found`);
+        if (matches.size > 1) throw new Error(`Grade/Class "${classLabel}" is ambiguous; include its section`);
+        classId = Array.from(matches)[0];
+      }
+
+      const courseCandidates = courseCandidatesByTitle.get(
+        `${schoolId}|||${normalizeImportText(courseTitle)}`
+      ) || [];
+      const matchingCourses = classId
+        ? courseCandidates.filter((course: any) => String(course.class || '') === classId)
+        : courseCandidates;
+
+      if (!matchingCourses.length) {
+        throw new Error(classLabel
+          ? `Course "${courseTitle}" was not found in "${classLabel}"`
+          : `Course "${courseTitle}" not found`);
+      }
+      if (matchingCourses.length > 1) {
+        throw new Error(`Multiple courses named "${courseTitle}" exist; provide Grade / Class to identify the correct one`);
+      }
+      const courseDoc = matchingCourses[0];
+      classId = classId || String(courseDoc.class || '');
+
       if (teacherCourseIdSet && !teacherCourseIdSet.has(String(courseDoc._id))) {
         throw new Error(`You are not the assigned teacher for "${courseTitle}"`);
       }
 
       const examDate = new Date(examDateRaw as any);
-      if (isNaN(examDate.getTime())) throw new Error(`Invalid Exam Date "${examDateRaw}"`);
+      if (Number.isNaN(examDate.getTime())) throw new Error(`Invalid Exam Date "${examDateRaw}"`);
+      const examDateString = examDate.toISOString().slice(0, 10);
+
+      if (shiftName) {
+        const rules = await getRules(String(schoolId));
+        const configuredShift = rules.examShifts.find((shift: any) =>
+          normalizeImportText(shift.name) === normalizeImportText(shiftName)
+        );
+        if (!configuredShift) {
+          throw new Error(`Shift "${shiftName}" is not configured in Exam Scheduling Rules`);
+        }
+        if (startTime && startTime !== configuredShift.startTime) {
+          throw new Error(`${configuredShift.name} must start at ${configuredShift.startTime}`);
+        }
+        if (endTime && endTime !== configuredShift.endTime) {
+          throw new Error(`${configuredShift.name} must end at ${configuredShift.endTime}`);
+        }
+        startTime = startTime || configuredShift.startTime;
+        endTime = endTime || configuredShift.endTime;
+      }
+
+      if (!startTime) throw new Error('Start Time or Shift is required');
+      if (!endTime) throw new Error('End Time or Shift is required');
       if (!HHMM.test(startTime)) throw new Error(`Invalid Start Time "${startTime}" (expected HH:MM)`);
       if (!HHMM.test(endTime)) throw new Error(`Invalid End Time "${endTime}" (expected HH:MM)`);
       if (endTime <= startTime) throw new Error('End Time must be after Start Time');
 
-      const duration = Number(durationRaw);
+      const calculatedDuration = timeToMinutes(endTime) - timeToMinutes(startTime);
+      const duration = String(durationRaw ?? '').trim() ? Number(durationRaw) : calculatedDuration;
       if (!duration || duration <= 0) throw new Error('Duration must be a positive number of minutes');
+
       const totalMarks = Number(totalMarksRaw);
       if (!totalMarks || totalMarks <= 0) throw new Error('Total Marks must be a positive number');
       const passingMarks = Number(passingMarksRaw);
       if (!passingMarks || passingMarks <= 0) throw new Error('Passing Marks must be a positive number');
 
-      // Checked against both already-scheduled exams AND rows already
-      // queued earlier in this same file, so a spreadsheet with the same
-      // row pasted in twice (or exported-then-re-imported unchanged) is
-      // caught either way instead of silently doubling up.
-      const dedupeKey = `${courseDoc._id}|||${examTitle.trim().toLowerCase()}|||${examDate.toISOString().slice(0, 10)}|||${startTime}`;
-      if (existingExamKeys.has(dedupeKey)) {
-        throw new Error(`An exam titled "${examTitle}" already exists for "${courseTitle}" on ${examDate.toISOString().slice(0, 10)} at ${startTime} — skipped to avoid a duplicate`);
+      let periodDoc: any = null;
+      if (periodName && academicYear) {
+        periodDoc = periodsByKey.get(importPeriodKey(String(schoolId), periodName, academicYear, term)) || null;
+        if (periodDoc?.status === 'closed') {
+          throw new Error(`Exam Period "${periodName}" is closed and cannot be imported into`);
+        }
+      }
+
+      const examTitle = examTitleRaw || periodName;
+      if (!examTitle) throw new Error('Exam Title is required');
+
+      if (periodDoc) {
+        const duplicateKey = dedupeKeyFor(
+          String(periodDoc._id),
+          String(courseDoc._id),
+          examTitle,
+          examDateString,
+          startTime,
+        );
+        if (existingExamKeys.has(duplicateKey)) {
+          throw new Error(`An exam titled "${examTitle}" already exists for "${courseTitle}" on ${examDateString} at ${startTime} — skipped to avoid a duplicate`);
+        }
+      } else if (!periodName) {
+        const duplicateKey = dedupeKeyFor(
+          '',
+          String(courseDoc._id),
+          examTitle,
+          examDateString,
+          startTime,
+        );
+        if (existingExamKeys.has(duplicateKey)) {
+          throw new Error(`An exam titled "${examTitle}" already exists for "${courseTitle}" on ${examDateString} at ${startTime} — skipped to avoid a duplicate`);
+        }
       }
 
       const pendingSchedule: PendingFixedExam = {
-        schoolId: String(schoolId || ''),
-        classId: courseDoc.class ? String(courseDoc.class) : '',
-        examDate: examDate.toISOString().slice(0, 10),
+        schoolId: String(schoolId),
+        classId,
+        examDate: examDateString,
         startTime,
         endTime,
         room,
         title: examTitle,
       };
+
       await validateFixedExamSchedule({
         schoolId: pendingSchedule.schoolId,
         classId: pendingSchedule.classId,
@@ -1380,13 +1645,55 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         autoSchedule: false,
         pending: pendingSchedules,
       });
-      existingExamKeys.add(dedupeKey);
+
+      if (periodName && academicYear && !periodDoc) {
+        if (req.user?.role === 'teacher') {
+          throw new Error(`Exam Period "${periodName}" does not exist. Ask an administrator to create it first`);
+        }
+        periodDoc = await ExamPeriod.create({
+          school: schoolId,
+          name: periodName,
+          academicYear,
+          term,
+          startDate: examDate,
+          endDate: examDate,
+          status: 'draft',
+          createdBy,
+        });
+        periodsByKey.set(importPeriodKey(String(schoolId), periodName, academicYear, term), periodDoc);
+        periodsById.set(String(periodDoc._id), periodDoc);
+      }
+
+      const periodId = periodDoc ? String(periodDoc._id) : '';
+      const duplicateKey = dedupeKeyFor(
+        periodId,
+        String(courseDoc._id),
+        examTitle,
+        examDateString,
+        startTime,
+      );
+      if (existingExamKeys.has(duplicateKey)) {
+        throw new Error(`An exam titled "${examTitle}" already exists for "${courseTitle}" on ${examDateString} at ${startTime} — skipped to avoid a duplicate`);
+      }
+
+      existingExamKeys.add(duplicateKey);
       pendingSchedules.push(pendingSchedule);
 
+      if (periodId) {
+        const current = periodRanges.get(periodId);
+        const day = utcDateOnly(examDate);
+        if (!current) periodRanges.set(periodId, { min: day, max: day });
+        else {
+          if (day < current.min) current.min = day;
+          if (day > current.max) current.max = day;
+        }
+      }
+
       documents.push({
-        title: examTitle,
+        title: periodDoc?.name || examTitle,
         course: courseDoc._id,
-        school: courseDoc.school || null,
+        school: courseDoc.school || schoolId,
+        period: periodDoc?._id || null,
         examDate,
         startTime,
         endTime,
@@ -1395,6 +1702,8 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         passingMarks,
         room: room || '',
         instructions: instructions || '',
+        status: 'scheduled',
+        autoSchedule: false,
         createdBy,
       });
     } catch (err: any) {
@@ -1402,9 +1711,6 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     }
   }
 
-  // No transaction — this deployment's MongoDB is a standalone instance (no
-  // replica set); insertMany with ordered:false continues past individual
-  // row/document errors and reports what succeeded.
   let inserted = 0;
   if (documents.length > 0) {
     try {
@@ -1420,6 +1726,18 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         errors.push({ row: 0, message: txErr.message || 'Import failed.' });
       }
     }
+  }
+
+  for (const [periodId, range] of periodRanges.entries()) {
+    const period = periodsById.get(periodId);
+    const currentStart = period?.startDate ? utcDateOnly(period.startDate) : null;
+    const currentEnd = period?.endDate ? utcDateOnly(period.endDate) : null;
+    const nextStart = !currentStart || range.min < currentStart ? range.min : currentStart;
+    const nextEnd = !currentEnd || range.max > currentEnd ? range.max : currentEnd;
+    await ExamPeriod.updateOne(
+      { _id: periodId },
+      { $set: { startDate: nextStart, endDate: nextEnd } }
+    );
   }
 
   return ApiResponse.success(res, {
