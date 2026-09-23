@@ -11,18 +11,51 @@ import { assertOwnOrg } from '../utils/tenant-scope';
 
 const norm = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
 const key = (v: unknown) => norm(v).toLowerCase();
+
 const examTypeValue = (v: string) => {
   const x = key(v);
   if (x === 'mid' || x === 'mid exam' || x === 'midterm') return 'mid';
   if (x === 'final' || x === 'final exam') return 'final';
   return '';
 };
+
 const classLabel = (s: any) => norm([s?.class?.title, s?.class?.section].filter(Boolean).join(' '));
 const departmentLabel = (s: any) => norm(s?.class?.department?.name || s?.department?.name || s?.department || '');
 const shiftLabel = (s: any) => norm(s?.class?.shiftMode || s?.shiftMode || '');
 
-function roundRobinMix(students: any[]): any[] {
+function hashSeed(value: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < value.length; i += 1) {
+    h ^= value.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffle<T>(items: T[], random: () => number): T[] {
+  const copy = items.slice();
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function roundRobinMix(students: any[], seed: string): any[] {
+  const random = mulberry32(hashSeed(seed || 'room-allocation'));
   const buckets = new Map<string, any[]>();
+
   for (const student of students) {
     const id = String(student.class?._id || student.class || 'unclassified');
     const bucket = buckets.get(id) || [];
@@ -30,18 +63,24 @@ function roundRobinMix(students: any[]): any[] {
     buckets.set(id, bucket);
   }
 
-  for (const bucket of buckets.values()) {
-    for (let i = bucket.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [bucket[i], bucket[j]] = [bucket[j], bucket[i]];
-    }
-  }
+  const entries = shuffle(
+    Array.from(buckets.entries()).map(([id, bucket]) => [
+      id,
+      shuffle(
+        bucket.slice().sort((a, b) =>
+          String(a.studentId || a._id).localeCompare(String(b.studentId || b._id), undefined, { numeric: true })
+        ),
+        random,
+      ),
+    ] as [string, any[]]),
+    random,
+  );
 
   const mixed: any[] = [];
   let remaining = true;
   while (remaining) {
     remaining = false;
-    for (const bucket of buckets.values()) {
+    for (const [, bucket] of entries) {
       const next = bucket.shift();
       if (next) {
         mixed.push(next);
@@ -60,13 +99,41 @@ function classCounts(students: any[]) {
   }
   return Array.from(counts.entries())
     .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
-function roomReport(rooms: any[], assignments: any[]) {
+function distributionMap(students: any[]) {
+  const map = new Map<string, number>();
+  for (const student of students) {
+    const label = classLabel(student) || 'Unclassified';
+    map.set(label, (map.get(label) || 0) + 1);
+  }
+  return map;
+}
+
+function roomBalanceScore(roomStudents: any[], allStudents: any[]): number {
+  if (!roomStudents.length || !allStudents.length) return 100;
+  const room = distributionMap(roomStudents);
+  const global = distributionMap(allStudents);
+  const labels = new Set([...room.keys(), ...global.keys()]);
+  let totalVariation = 0;
+
+  for (const label of labels) {
+    const roomShare = (room.get(label) || 0) / roomStudents.length;
+    const globalShare = (global.get(label) || 0) / allStudents.length;
+    totalVariation += Math.abs(roomShare - globalShare);
+  }
+
+  return Math.max(0, Math.min(100, Math.round((1 - totalVariation / 2) * 100)));
+}
+
+function roomReport(rooms: any[], assignments: any[], allStudents: any[]) {
   return rooms.map(room => {
     const assigned = assignments.filter(a => String(a.roomId) === String(room._id));
     const capacity = Math.max(0, Number(room.capacity) || 0);
+    const roomStudents = assigned.map(a => a.student);
+    const score = roomBalanceScore(roomStudents, allStudents);
+
     return {
       roomId: room._id,
       room: room.name,
@@ -74,16 +141,23 @@ function roomReport(rooms: any[], assignments: any[]) {
       capacity,
       students: assigned.length,
       remainingCapacity: Math.max(capacity - assigned.length, 0),
-      classes: classCounts(assigned.map(a => a.student)),
+      locked: assigned.filter(a => a.locked).length,
+      balanceScore: score,
+      balanceLabel: score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Needs Review',
+      classes: classCounts(roomStudents),
     };
   });
 }
 
-function balancedRoomTargets(rooms: any[], studentCount: number): Map<string, number> {
+function balancedRoomTargets(
+  rooms: any[],
+  studentsToPlace: number,
+  initialCounts: Map<string, number>,
+): Map<string, number> {
   const targets = new Map<string, number>();
-  rooms.forEach(room => targets.set(String(room._id), 0));
+  rooms.forEach(room => targets.set(String(room._id), initialCounts.get(String(room._id)) || 0));
 
-  let remaining = studentCount;
+  let remaining = studentsToPlace;
   while (remaining > 0) {
     const available = rooms
       .filter(room => (targets.get(String(room._id)) || 0) < Math.max(0, Number(room.capacity) || 0))
@@ -110,6 +184,8 @@ export const generate = async (req: Request, res: Response) => {
     academicYear,
     examType,
     overwrite = false,
+    preview = false,
+    seed = '',
     organization = '',
     department = '',
     departmentIds = [],
@@ -120,6 +196,8 @@ export const generate = async (req: Request, res: Response) => {
 
   const year = norm(academicYear);
   const type = examTypeValue(norm(examType));
+  const allocationSeed = norm(seed) || `${year}|${type}|default`;
+
   if (!year) throw new BadRequestError('Academic Year is required');
   if (!type) throw new BadRequestError('Exam Type must be Mid Exam or Final');
 
@@ -193,24 +271,13 @@ export const generate = async (req: Request, res: Response) => {
     }).sort({ building: 1, name: 1 }).lean();
 
     if (selectedRooms.length !== normalizedRoomIds.length) {
-      throw new BadRequestError('One or more selected Rooms are missing, inactive, or have no capacity');
+      throw new BadRequestError('One or more selected Rooms are missing or have no capacity');
     }
   } else {
-    // Backward-compatible fallback for older clients: use class-linked rooms.
-    const roomNames = Array.from(new Set(targetClasses.map(c => norm(c.room)).filter(Boolean)));
-    if (roomNames.length) {
-      selectedRooms = await ExamRoom.find({
-        school: targetSchoolId,
-        name: { $in: roomNames },
-        capacity: { $gt: 0 },
-      }).sort({ building: 1, name: 1 }).lean();
-    }
-    if (!selectedRooms.length) {
-      selectedRooms = await ExamRoom.find({
-        school: targetSchoolId,
-        capacity: { $gt: 0 },
-      }).sort({ building: 1, name: 1 }).lean();
-    }
+    selectedRooms = await ExamRoom.find({
+      school: targetSchoolId,
+      capacity: { $gt: 0 },
+    }).sort({ building: 1, name: 1 }).lean();
   }
 
   selectedRooms.forEach(r => assertOwnOrg(req, r, 'school'));
@@ -223,22 +290,71 @@ export const generate = async (req: Request, res: Response) => {
     );
   }
 
-  // Mix students by class first (G12 → G11 → G10 → ... style), then divide
-  // the mixed list into room targets whose headcounts are as equal as room
-  // capacities permit. Seat numbers are intentionally not part of this flow.
-  const mixed = roundRobinMix(selected);
-  const targets = balancedRoomTargets(selectedRooms, mixed.length);
-  const assignments: Array<{ roomId: any; student: any; seat: string }> = [];
+  const scope: any = { academicYear: year, examType: type, school: targetSchoolId };
+  const selectedIds = selected.map(s => s._id);
+  const selectedIdStrings = new Set(selectedIds.map(id => String(id)));
+  const existingRows = await ExamSeatingPlan.find({
+    ...scope,
+    student: { $in: selectedIds },
+  }).lean() as any[];
+
+  if (existingRows.length && !overwrite) {
+    throw new BadRequestError(
+      `Some selected students already have room assignments for ${year} / ${type}. Enable Rebalance existing assignments to preview or replace them.`
+    );
+  }
+
+  const selectedRoomSet = new Set(selectedRooms.map(room => String(room._id)));
+  const lockedRows = existingRows.filter(row => row.locked === true);
+  const invalidLocked = lockedRows.find(row => !selectedRoomSet.has(String(row.room)));
+  if (invalidLocked) {
+    throw new BadRequestError(
+      'A locked student is assigned to a room that is not selected. Include that room or unlock the student before rebalancing.'
+    );
+  }
+
+  const studentById = new Map(selected.map(student => [String(student._id), student]));
+  const lockedStudentIds = new Set(lockedRows.map(row => String(row.student)));
+  const initialCounts = new Map<string, number>();
+  const assignments: Array<{ roomId: any; student: any; locked: boolean; allocationId?: any }> = [];
+
+  for (const row of lockedRows) {
+    const student = studentById.get(String(row.student));
+    if (!student || !selectedIdStrings.has(String(row.student))) continue;
+    const roomId = String(row.room);
+    initialCounts.set(roomId, (initialCounts.get(roomId) || 0) + 1);
+    assignments.push({
+      roomId: row.room,
+      student,
+      locked: true,
+      allocationId: row._id,
+    });
+  }
+
+  for (const room of selectedRooms) {
+    const lockedCount = initialCounts.get(String(room._id)) || 0;
+    if (lockedCount > Number(room.capacity || 0)) {
+      throw new BadRequestError(`${room.name} has more locked students than its room capacity`);
+    }
+  }
+
+  const availableStudents = selected.filter(student => !lockedStudentIds.has(String(student._id)));
+  const mixed = roundRobinMix(availableStudents, allocationSeed);
+  const targets = balancedRoomTargets(selectedRooms, mixed.length, initialCounts);
   let cursor = 0;
 
   for (const room of selectedRooms) {
-    const target = targets.get(String(room._id)) || 0;
-    const group = mixed.slice(cursor, cursor + target);
+    const roomId = String(room._id);
+    const lockedCount = initialCounts.get(roomId) || 0;
+    const finalTarget = targets.get(roomId) || lockedCount;
+    const needed = Math.max(0, finalTarget - lockedCount);
+    const group = mixed.slice(cursor, cursor + needed);
     cursor += group.length;
+
     group.forEach(student => assignments.push({
       roomId: room._id,
       student,
-      seat: '',
+      locked: false,
     }));
   }
 
@@ -246,36 +362,18 @@ export const generate = async (req: Request, res: Response) => {
     throw new BadRequestError('Could not place every selected student into the chosen rooms');
   }
 
-  const scope: any = { academicYear: year, examType: type, school: targetSchoolId };
-  const selectedIds = selected.map(s => s._id);
-  const existing = await ExamSeatingPlan.countDocuments({ ...scope, student: { $in: selectedIds } });
-  if (existing && !overwrite) {
-    throw new BadRequestError(
-      `Some selected students already have room assignments for ${year} / ${type}. Enable Regenerate existing assignments to rebalance them.`
-    );
-  }
-  if (overwrite) {
-    await ExamSeatingPlan.deleteMany({ ...scope, student: { $in: selectedIds } });
-  }
+  const breakdown = roomReport(selectedRooms, assignments, selected);
+  const issues = [
+    ...breakdown
+      .filter(room => room.students > room.capacity)
+      .map(room => `${room.room} exceeds capacity by ${room.students - room.capacity}`),
+  ];
 
-  const docs: any[] = assignments.map(a => ({
-    student: a.student._id,
-    room: a.roomId,
-    // Internal deterministic placeholder only; the model hides it from JSON.
-    deskNumber: `__ROOM_ONLY__${String(a.student._id)}`,
+  const responseData = {
     academicYear: year,
     examType: type,
-    school: targetSchoolId,
-  }));
-
-  await ExamSeatingPlan.insertMany(docs);
-
-  const breakdown = roomReport(selectedRooms, assignments);
-  const assignedByClass = classCounts(assignments.map(a => a.student));
-
-  return ApiResponse.success(res, {
-    academicYear: year,
-    examType: type,
+    seed: allocationSeed,
+    preview: Boolean(preview),
     students: selected.length,
     assigned: assignments.length,
     remaining: 0,
@@ -283,11 +381,50 @@ export const generate = async (req: Request, res: Response) => {
     mixedClasses: true,
     roomOnly: true,
     totalCapacity,
+    freeCapacity: Math.max(0, totalCapacity - selected.length),
+    lockedStudents: lockedRows.length,
     selectedClasses: targetClasses.map(c => ({
       _id: c._id,
       name: norm([c.title, c.section].filter(Boolean).join(' ')),
     })),
-    classBreakdown: assignedByClass,
+    classBreakdown: classCounts(selected),
     roomBreakdown: breakdown,
-  }, `Assigned ${selected.length} students across ${breakdown.length} balanced mixed-grade rooms`);
+    issues,
+  };
+
+  if (preview) {
+    return ApiResponse.success(
+      res,
+      responseData,
+      `Preview ready: ${selected.length} students balanced across ${breakdown.length} rooms`
+    );
+  }
+
+  if (overwrite) {
+    await ExamSeatingPlan.deleteMany({
+      ...scope,
+      student: { $in: selectedIds },
+      locked: { $ne: true },
+    });
+  }
+
+  const docs: any[] = assignments
+    .filter(item => !item.locked)
+    .map(item => ({
+      student: item.student._id,
+      room: item.roomId,
+      deskNumber: `__ROOM_ONLY__${String(item.student._id)}`,
+      academicYear: year,
+      examType: type,
+      school: targetSchoolId,
+      locked: false,
+    }));
+
+  if (docs.length) await ExamSeatingPlan.insertMany(docs);
+
+  return ApiResponse.success(
+    res,
+    responseData,
+    `Assigned ${selected.length} students across ${breakdown.length} balanced mixed-grade rooms`
+  );
 };
