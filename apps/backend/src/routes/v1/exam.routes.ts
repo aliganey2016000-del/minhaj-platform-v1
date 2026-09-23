@@ -34,6 +34,12 @@ router.post('/import', adminOrTeacher, upload.single('file'), asyncHandler(examC
 // Per-organization rules used by fixed exam scheduling and seating checks.
 router.get('/schedule-rules', adminOnly, asyncHandler(examController.getScheduleRules));
 router.patch('/schedule-rules', adminOnly, asyncHandler(examController.updateScheduleRules));
+
+// Named exam containers (Midterm, Final, etc.) are created first; their
+// grade/shift grid is then edited through /schedule-grid.
+router.get('/periods', adminOnly, asyncHandler(examController.getExamPeriods));
+router.post('/periods', adminOnly, asyncHandler(examController.createExamPeriod));
+router.patch('/periods/:periodId', adminOnly, asyncHandler(examController.updateExamPeriod));
 router.post('/schedule-grid', adminOnly, asyncHandler(examController.saveScheduleGrid));
 
 // Master seating: one room + seat for every student across all subjects in an exam period.
