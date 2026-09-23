@@ -20,6 +20,7 @@ interface CourseBrief {
   title: { en: string };
   slug: string;
   category: string;
+  status?: string;
   enrolledStudents: number | unknown[];
   teacher?: {
     _id?: string;
@@ -42,6 +43,7 @@ interface Exam {
   _id: string;
   title: string;
   course: CourseBrief;
+  school?: string | SchoolBrief;
   examDate?: string;
   startTime?: string;
   endTime?: string;
@@ -202,8 +204,9 @@ function RowActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEd
 // three-dot trigger beside the Exam Schedule heading.
 // ---------------------------------------------------------------------------
 
-function ExamsActionsMenu({ onSchedule, onRules, onImport, onExport, exporting, onBulkDelete, selectedCount }: {
+function ExamsActionsMenu({ onSchedule, onEditSchedule, onRules, onImport, onExport, exporting, onBulkDelete, selectedCount }: {
   onSchedule: () => void;
+  onEditSchedule: () => void;
   onRules: () => void;
   onImport: () => void;
   onExport: () => void;
@@ -235,6 +238,9 @@ function ExamsActionsMenu({ onSchedule, onRules, onImport, onExport, exporting, 
         <div className="absolute right-0 z-20 mt-1 w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-lg py-1 text-left">
           <button onClick={() => { setOpen(false); onSchedule(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} /> Schedule Exam
+          </button>
+          <button onClick={() => { setOpen(false); onEditSchedule(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
+            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit Schedule
           </button>
           <button onClick={() => { setOpen(false); onRules(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} /> Scheduling Rules
@@ -1343,10 +1349,10 @@ function ExamsImportModal({ onClose, onImported }: { onClose: () => void; onImpo
 
 
 // ---------------------------------------------------------------------------
-// Timetable View — By Day / By Class
-// Rows and columns intentionally mirror the Class Timetable visual language:
-// By Day  => rows are Grades / Classes, columns are Shift 1 | Break | Shift 2.
-// By Class => rows are Exam Dates, columns are Shift 1 | Break | Shift 2.
+// Timetable View — generated from Exam Scheduling Rules.
+// Rows = active grades/classes. Columns = configured shifts with the rule-defined
+// break windows between them. Edit mode lets admins choose a class course in
+// every shift cell; the assigned teacher is shown automatically.
 // ---------------------------------------------------------------------------
 
 type ExamTimetablePerspective = 'day' | 'class';
@@ -1360,23 +1366,104 @@ const examClassLabel = (exam: Exam): string => {
   return cls.section ? `${cls.title} - ${cls.section}` : cls.title;
 };
 
+const classBriefLabel = (cls?: ClassBrief): string =>
+  cls?.title ? (cls.section ? `${cls.title} - ${cls.section}` : cls.title) : 'Class';
+
 const examTeacherLabel = (exam: Exam): string => {
   const profile = exam.course?.teacher?.profile;
   const name = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
   return name || exam.course?.teacher?.user?.email || 'Teacher not assigned';
 };
 
+const courseTeacherLabel = (course?: CourseBrief): string => {
+  const profile = course?.teacher?.profile;
+  const name = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
+  return name || course?.teacher?.user?.email || 'Teacher not assigned';
+};
+
 const compareExamTimes = (a: Exam, b: Exam) =>
   String(a.startTime || '').localeCompare(String(b.startTime || '')) ||
   String(a.endTime || '').localeCompare(String(b.endTime || ''));
 
+const examSchoolId = (exam: Exam): string =>
+  typeof exam.school === 'string' ? exam.school : exam.school?._id || '';
+
+const minutesOf = (value?: string): number => {
+  const match = String(value || '').match(/^([01]\\d|2[0-3]):([0-5]\\d)$/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : -1;
+};
+
+const examOverlapsShift = (exam: Exam, shift: ExamShiftRule): boolean => {
+  const start = minutesOf(exam.startTime);
+  const end = minutesOf(exam.endTime);
+  const shiftStart = minutesOf(shift.startTime);
+  const shiftEnd = minutesOf(shift.endTime);
+  return start >= 0 && end >= 0 && shiftStart >= 0 && shiftEnd >= 0 && start < shiftEnd && shiftStart < end;
+};
+
+const isAllowedExamDate = (date: string, allowedDays: number[]): boolean => {
+  if (!date) return false;
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && allowedDays.includes(parsed.getUTCDay());
+};
+
+const nextAllowedExamDate = (allowedDays: number[], start = new Date()): string => {
+  const safeDays = allowedDays.length ? allowedDays : [0, 1, 2, 3, 4, 5, 6];
+  for (let offset = 0; offset < 21; offset += 1) {
+    const candidate = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + offset));
+    if (safeDays.includes(candidate.getUTCDay())) return candidate.toISOString().slice(0, 10);
+  }
+  return new Date().toISOString().slice(0, 10);
+};
+
 function ExamTimetableCell({
   exams,
   onOpen,
+  editMode = false,
+  courses = [],
+  value = '',
+  onChange,
+  loadingCourses = false,
+  changed = false,
 }: {
   exams: Exam[];
   onOpen: (exam: Exam) => void;
+  editMode?: boolean;
+  courses?: CourseBrief[];
+  value?: string;
+  onChange?: (courseId: string) => void;
+  loadingCourses?: boolean;
+  changed?: boolean;
 }) {
+  if (editMode) {
+    const existingCourse = exams[0]?.course;
+    const options = existingCourse && !courses.some((course) => course._id === existingCourse._id)
+      ? [existingCourse, ...courses]
+      : courses;
+    const selected = options.find((course) => course._id === value);
+
+    return (
+      <div className={`min-h-[86px] rounded-xl border p-2.5 transition-colors ${changed ? 'border-primary-400 bg-primary-50/70 dark:bg-primary-950/20' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)]'}`}>
+        <select
+          value={value}
+          onChange={(e) => onChange?.(e.target.value)}
+          disabled={loadingCourses}
+          className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2.5 py-2 text-xs font-bold text-[var(--color-text-primary)] outline-none focus:ring-2 focus:ring-primary-500/20 disabled:opacity-60"
+        >
+          <option value="">— No exam —</option>
+          {options
+            .filter((course) => course.status !== 'archived')
+            .map((course) => (
+              <option key={course._id} value={course._id}>{course.title?.en || 'Untitled course'}</option>
+            ))}
+        </select>
+        <div className="mt-2 min-h-4 text-[10px] font-semibold leading-4 text-[var(--color-text-tertiary)] sm:text-xs">
+          {loadingCourses ? 'Loading courses…' : selected ? courseTeacherLabel(selected) : 'Select a course for this grade'}
+        </div>
+      </div>
+    );
+  }
+
   if (!exams.length) {
     return <div className="py-5 text-center text-xs text-[var(--color-text-tertiary)]">—</div>;
   }
@@ -1402,13 +1489,13 @@ function ExamTimetableCell({
   );
 }
 
-function ExamBreakCell({ first, second }: { first?: Exam; second?: Exam }) {
-  const hasWindow = !!first?.endTime && !!second?.startTime;
+function ExamBreakCell({ startTime, endTime }: { startTime?: string; endTime?: string }) {
+  const hasWindow = !!startTime && !!endTime && minutesOf(endTime) > minutesOf(startTime);
   return (
     <div className="flex min-h-[76px] flex-col items-center justify-center rounded-xl bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">
       <span className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">Break</span>
       <span className="mt-1 text-[9px] font-semibold text-amber-700/70 dark:text-amber-300/70 sm:text-[10px]">
-        {hasWindow ? `${first!.endTime} – ${second!.startTime}` : '—'}
+        {hasWindow ? `${startTime} – ${endTime}` : '—'}
       </span>
     </div>
   );
@@ -1417,13 +1504,40 @@ function ExamBreakCell({ first, second }: { first?: Exam; second?: Exam }) {
 function ExamTimetable({
   exams,
   onOpen,
+  onChanged,
+  editRequest,
 }: {
   exams: Exam[];
   onOpen: (exam: Exam) => void;
+  onChanged: () => Promise<void> | void;
+  editRequest: number;
 }) {
+  const { user } = useAuth();
+  const ownOrgId = String((user as any)?.organizationId?._id || (user as any)?.organizationId || '');
+  const examSchoolIds = useMemo(
+    () => Array.from(new Set(exams.map(examSchoolId).filter(Boolean))),
+    [exams],
+  );
+  const effectiveSchoolId = user?.role === 'org_admin'
+    ? ownOrgId
+    : examSchoolIds.length === 1
+      ? examSchoolIds[0]
+      : '';
+
+  const [rules, setRules] = useState<ExamScheduleRules>(DEFAULT_EXAM_SCHEDULE_RULES);
+  const [gridClasses, setGridClasses] = useState<ClassBrief[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(false);
   const [perspective, setPerspective] = useState<ExamTimetablePerspective>('day');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [coursesByClass, setCoursesByClass] = useState<Record<string, CourseBrief[]>>({});
+  const [loadingCourses, setLoadingCourses] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [gridError, setGridError] = useState('');
+  const [gridSuccess, setGridSuccess] = useState('');
+  const lastEditRequest = useRef(0);
 
   const fixedExams = useMemo(
     () => exams
@@ -1432,119 +1546,306 @@ function ExamTimetable({
     [exams],
   );
 
-  const availableDates = useMemo(
-    () => Array.from(new Set(fixedExams.map(examDateKey).filter(Boolean))).sort(),
-    [fixedExams],
-  );
-
-  const classes = useMemo(() => {
-    const map = new Map<string, { id: string; label: string }>();
+  const fallbackClasses = useMemo(() => {
+    const map = new Map<string, ClassBrief>();
     fixedExams.forEach((exam) => {
-      const id = exam.course?.class?._id;
-      if (!id) return;
-      map.set(id, { id, label: examClassLabel(exam) });
+      const cls = exam.course?.class;
+      if (!cls?._id || !cls.title) return;
+      map.set(cls._id, { _id: cls._id, title: cls.title, section: cls.section || '' });
     });
-    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+    return Array.from(map.values());
   }, [fixedExams]);
 
-  useEffect(() => {
-    if (!availableDates.length) {
-      setSelectedDate('');
+  const classes = useMemo(
+    () => (gridClasses.length ? gridClasses : fallbackClasses)
+      .slice()
+      .sort((a, b) => classBriefLabel(a).localeCompare(classBriefLabel(b), undefined, { numeric: true })),
+    [fallbackClasses, gridClasses],
+  );
+
+  const loadRulesAndClasses = useCallback(async () => {
+    if (!effectiveSchoolId) {
+      setGridClasses([]);
       return;
     }
-    if (selectedDate && availableDates.includes(selectedDate)) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const nextDate = availableDates.find((date) => date >= today) || availableDates[availableDates.length - 1];
-    setSelectedDate(nextDate);
-  }, [availableDates, selectedDate]);
+    setRulesLoading(true);
+    setGridError('');
+    try {
+      const [rulesResponse, classesResponse] = await Promise.all([
+        api.get('/exams/schedule-rules', { params: { school: effectiveSchoolId } }),
+        api.get('/classes', { params: { school: effectiveSchoolId, status: 'active', limit: 300 } }),
+      ]);
+      setRules({ ...DEFAULT_EXAM_SCHEDULE_RULES, ...(rulesResponse.data?.data?.rules || {}) });
+      setGridClasses(classesResponse.data?.data || []);
+    } catch (err: any) {
+      setGridError(err?.response?.data?.message || 'Could not load exam scheduling rules.');
+    } finally {
+      setRulesLoading(false);
+    }
+  }, [effectiveSchoolId]);
 
   useEffect(() => {
-    if (!classes.length) {
-      setSelectedClassId('');
-      return;
-    }
-    if (selectedClassId && classes.some((item) => item.id === selectedClassId)) return;
-    setSelectedClassId(classes[0].id);
+    void loadRulesAndClasses();
+  }, [loadRulesAndClasses]);
+
+  const availableDates = useMemo(
+    () => Array.from(new Set(fixedExams.map(examDateKey).filter((date) => date && isAllowedExamDate(date, rules.allowedExamDays)))).sort(),
+    [fixedExams, rules.allowedExamDays],
+  );
+
+  useEffect(() => {
+    if (selectedDate && isAllowedExamDate(selectedDate, rules.allowedExamDays)) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const scheduled = availableDates.find((date) => date >= today) || availableDates[0];
+    setSelectedDate(scheduled || nextAllowedExamDate(rules.allowedExamDays));
+  }, [availableDates, rules.allowedExamDays, selectedDate]);
+
+  useEffect(() => {
+    if (selectedClassId && classes.some((item) => item._id === selectedClassId)) return;
+    setSelectedClassId(classes[0]?._id || '');
   }, [classes, selectedClassId]);
 
+  const cellExams = useCallback((classId: string, shiftIndex: number, date = selectedDate) => {
+    const shift = rules.examShifts[shiftIndex];
+    if (!shift) return [];
+    return fixedExams.filter(
+      (exam) =>
+        examDateKey(exam) === date &&
+        exam.course?.class?._id === classId &&
+        examOverlapsShift(exam, shift),
+    );
+  }, [fixedExams, rules.examShifts, selectedDate]);
+
   const dayRows = useMemo(
-    () => classes.map((cls) => {
-      const rowExams = fixedExams
-        .filter((exam) => examDateKey(exam) === selectedDate && exam.course?.class?._id === cls.id)
-        .sort(compareExamTimes);
-      return {
-        ...cls,
-        shift1: rowExams.slice(0, 1),
-        shift2: rowExams.slice(1),
-      };
-    }),
-    [classes, fixedExams, selectedDate],
+    () => classes.map((cls) => ({
+      id: cls._id,
+      label: classBriefLabel(cls),
+      slots: rules.examShifts.map((_, index) => cellExams(cls._id, index)),
+    })),
+    [classes, rules.examShifts, cellExams],
   );
 
   const classRows = useMemo(() => {
     if (!selectedClassId) return [];
-    const byDate = new Map<string, Exam[]>();
-    fixedExams
-      .filter((exam) => exam.course?.class?._id === selectedClassId)
-      .forEach((exam) => {
-        const key = examDateKey(exam);
-        const list = byDate.get(key) || [];
-        list.push(exam);
-        byDate.set(key, list);
-      });
-
-    return Array.from(byDate.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, rowExams]) => {
-        const sorted = [...rowExams].sort(compareExamTimes);
-        return {
-          date,
-          shift1: sorted.slice(0, 1),
-          shift2: sorted.slice(1),
-        };
-      });
-  }, [fixedExams, selectedClassId]);
+    const dates = Array.from(new Set(
+      fixedExams
+        .filter((exam) => exam.course?.class?._id === selectedClassId)
+        .map(examDateKey)
+        .filter(Boolean),
+    )).sort();
+    return dates.map((date) => ({
+      date,
+      slots: rules.examShifts.map((_, index) => cellExams(selectedClassId, index, date)),
+    }));
+  }, [cellExams, fixedExams, rules.examShifts, selectedClassId]);
 
   const automaticCount = exams.filter((exam) => exam.autoSchedule && exam.status !== 'cancelled').length;
+
+  const loadClassCourses = useCallback(async (classId: string) => {
+    if (!effectiveSchoolId || coursesByClass[classId]) return;
+    setLoadingCourses((current) => new Set(current).add(classId));
+    try {
+      const response = await api.get('/courses/admin', {
+        params: { school: effectiveSchoolId, classId, limit: 300 },
+      });
+      const available = (response.data?.data || []).filter((course: CourseBrief) => course.status !== 'archived');
+      setCoursesByClass((current) => ({ ...current, [classId]: available }));
+    } catch (err: any) {
+      setGridError(err?.response?.data?.message || `Could not load courses for ${classBriefLabel(classes.find((item) => item._id === classId))}.`);
+    } finally {
+      setLoadingCourses((current) => {
+        const next = new Set(current);
+        next.delete(classId);
+        return next;
+      });
+    }
+  }, [classes, coursesByClass, effectiveSchoolId]);
+
+  const draftKey = (classId: string, shiftIndex: number) => `${classId}|${shiftIndex}`;
+
+  const baseCourseId = useCallback((classId: string, shiftIndex: number) =>
+    cellExams(classId, shiftIndex)[0]?.course?._id || '', [cellExams]);
+
+  const currentCourseId = useCallback((classId: string, shiftIndex: number) => {
+    const key = draftKey(classId, shiftIndex);
+    return Object.prototype.hasOwnProperty.call(draft, key)
+      ? draft[key]
+      : baseCourseId(classId, shiftIndex);
+  }, [baseCourseId, draft]);
+
+  const setCellCourse = (classId: string, shiftIndex: number, courseId: string) => {
+    const key = draftKey(classId, shiftIndex);
+    const base = baseCourseId(classId, shiftIndex);
+    setDraft((current) => {
+      const next = { ...current };
+      if (courseId === base) delete next[key];
+      else next[key] = courseId;
+      return next;
+    });
+  };
+
+  const beginEdit = useCallback(() => {
+    if (!effectiveSchoolId) {
+      setGridError('Edit Schedule requires one organization/school context.');
+      return;
+    }
+    setPerspective('day');
+    setEditMode(true);
+    setGridError('');
+    setGridSuccess('');
+    classes.forEach((cls) => void loadClassCourses(cls._id));
+  }, [classes, effectiveSchoolId, loadClassCourses]);
+
+  useEffect(() => {
+    if (editRequest <= lastEditRequest.current) return;
+    lastEditRequest.current = editRequest;
+    beginEdit();
+  }, [beginEdit, editRequest]);
+
+  const cancelEdit = () => {
+    if (Object.keys(draft).length && !window.confirm('Discard unsaved exam schedule changes?')) return;
+    setDraft({});
+    setEditMode(false);
+    setGridError('');
+    setGridSuccess('');
+  };
+
+  const saveSchedule = async () => {
+    const entries = Object.entries(draft);
+    if (!entries.length) {
+      setEditMode(false);
+      return;
+    }
+    if (!selectedDate || !effectiveSchoolId) return;
+
+    setSaving(true);
+    setGridError('');
+    setGridSuccess('');
+    try {
+      const cells = entries.map(([key, courseId]) => {
+        const [classId, shiftIndexRaw] = key.split('|');
+        return { key, classId, shiftIndex: Number(shiftIndexRaw), courseId };
+      });
+      const response = await api.post('/exams/schedule-grid', {
+        school: effectiveSchoolId,
+        examDate: selectedDate,
+        cells,
+      });
+      const result = response.data?.data || {};
+      const savedKeys: string[] = Array.isArray(result.saved) ? result.saved : [];
+      const failures: { key: string; message: string }[] = Array.isArray(result.failures) ? result.failures : [];
+
+      if (savedKeys.length) {
+        setDraft((current) => {
+          const next = { ...current };
+          savedKeys.forEach((key) => delete next[key]);
+          return next;
+        });
+      }
+
+      await onChanged();
+
+      if (!failures.length) {
+        setEditMode(false);
+        setGridSuccess(`Exam schedule saved — ${savedKeys.length} ${savedKeys.length === 1 ? 'cell' : 'cells'} updated.`);
+      } else {
+        setGridError(`${savedKeys.length} of ${entries.length} changes saved. ${failures.length} failed: ${failures.map((item) => item.message).join('; ')}`);
+      }
+    } catch (err: any) {
+      setGridError(err?.response?.data?.message || 'Could not save exam schedule.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changeDate = (value: string) => {
+    if (!isAllowedExamDate(value, rules.allowedExamDays)) {
+      const dayName = new Date(`${value}T00:00:00.000Z`).toLocaleDateString(undefined, { weekday: 'long' });
+      setGridError(`${dayName} is disabled in Exam Scheduling Rules.`);
+      return;
+    }
+    setGridError('');
+    setGridSuccess('');
+    setSelectedDate(value);
+  };
+
+  const dynamicColumnCount = Math.max(1, rules.examShifts.length * 2 - 1);
+  const tableMinWidth = Math.max(720, 190 + rules.examShifts.length * 230 + Math.max(0, rules.examShifts.length - 1) * 105);
+  const allowedDayLabels = EXAM_DAY_OPTIONS
+    .filter((item) => rules.allowedExamDays.includes(item.value))
+    .map((item) => item.label)
+    .join(', ');
+
+  if (rulesLoading && !classes.length) {
+    return (
+      <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center shadow-sm">
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
+        <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">Building the exam grid from Scheduling Rules…</p>
+      </section>
+    );
+  }
 
   return (
     <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
       <div className="border-b border-[var(--color-border-subtle)] p-3 sm:p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <h2 className="font-bold text-[var(--color-text-primary)]">Exam Timetable</h2>
-            <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">
-              Grades are rows. The three schedule columns are Shift 1, Break and Shift 2.
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="font-bold text-[var(--color-text-primary)]">Exam Timetable</h2>
+              <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
+                {rules.examShiftCount} shift{rules.examShiftCount === 1 ? '' : 's'}
+              </span>
+              {editMode && (
+                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                  Editing · {Object.keys(draft).length} changed
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
+              Grid is generated from Scheduling Rules. Allowed days: {allowedDayLabels || 'None'}.
             </p>
           </div>
 
-          <div className="inline-flex w-full rounded-xl bg-[var(--color-surface-secondary)] p-1 sm:w-auto">
-            <button
-              type="button"
-              onClick={() => setPerspective('day')}
-              className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold transition sm:flex-none ${perspective === 'day' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
-            >
-              By Day
-            </button>
-            <button
-              type="button"
-              onClick={() => setPerspective('class')}
-              className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold transition sm:flex-none ${perspective === 'class' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
-            >
-              By Class
-            </button>
-          </div>
+          {editMode ? (
+            <div className="flex gap-2">
+              <button type="button" onClick={cancelEdit} disabled={saving} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-xs font-bold text-[var(--color-text-secondary)] disabled:opacity-50">
+                Cancel
+              </button>
+              <button type="button" onClick={saveSchedule} disabled={saving || Object.keys(draft).length === 0} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-xs font-bold text-white shadow-sm disabled:opacity-50">
+                <CheckCircle2 className="h-4 w-4" />
+                {saving ? 'Saving…' : `Save Schedule${Object.keys(draft).length ? ` (${Object.keys(draft).length})` : ''}`}
+              </button>
+            </div>
+          ) : (
+            <div className="inline-flex w-full rounded-xl bg-[var(--color-surface-secondary)] p-1 sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setPerspective('day')}
+                className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold transition sm:flex-none ${perspective === 'day' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+              >
+                By Day
+              </button>
+              <button
+                type="button"
+                onClick={() => setPerspective('class')}
+                className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold transition sm:flex-none ${perspective === 'class' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+              >
+                By Class
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-          {perspective === 'day' ? (
+          {perspective === 'day' || editMode ? (
             <>
               <label className="text-xs font-bold text-[var(--color-text-secondary)]">Exam Date</label>
               <input
                 type="date"
                 value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm sm:w-52"
+                onChange={(e) => changeDate(e.target.value)}
+                disabled={editMode && Object.keys(draft).length > 0}
+                className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60 sm:w-52"
               />
               {selectedDate && (
                 <span className="text-xs text-[var(--color-text-tertiary)]">
@@ -1561,43 +1862,55 @@ function ExamTimetable({
                 className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm sm:min-w-64"
               >
                 {classes.length === 0 && <option value="">No classes available</option>}
-                {classes.map((cls) => <option key={cls.id} value={cls.id}>{cls.label}</option>)}
+                {classes.map((cls) => <option key={cls._id} value={cls._id}>{classBriefLabel(cls)}</option>)}
               </select>
             </>
           )}
-          {automaticCount > 0 && (
+
+          {automaticCount > 0 && !editMode && (
             <span className="sm:ml-auto rounded-full bg-violet-50 px-3 py-1 text-[10px] font-bold text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">
               {automaticCount} automatic exam{automaticCount === 1 ? '' : 's'} not placed in fixed shifts
             </span>
           )}
         </div>
+
+        {gridError && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{gridError}</div>}
+        {gridSuccess && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">{gridSuccess}</div>}
       </div>
 
-      {fixedExams.length === 0 ? (
-        <div className="px-4 py-14 text-center text-sm text-[var(--color-text-tertiary)]">
-          No fixed-date exams are scheduled yet.
+      {!effectiveSchoolId && user?.role === 'admin' ? (
+        <div className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">
+          Select/filter one organization before using the rules-driven Exam Grid.
         </div>
-      ) : perspective === 'day' ? (
+      ) : classes.length === 0 ? (
+        <div className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">
+          No active grades/classes were found for this organization.
+        </div>
+      ) : perspective === 'day' || editMode ? (
         <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
-          <table className="w-full min-w-[720px] table-fixed border-collapse text-xs sm:text-sm">
+          <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
             <thead>
               <tr>
                 <th
                   scope="col"
-                  aria-label="Grade / Class"
-                  className="sticky left-0 z-20 w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 sm:w-52"
+                  className="sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]"
                 >
-                  <span className="sr-only">Grade / Class</span>
+                  Grade / Class
                 </th>
-                <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
-                  <div className="font-extrabold text-emerald-700 dark:text-emerald-300">Shift 1</div>
-                </th>
-                <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-3 py-3 text-center dark:bg-amber-950/20">
-                  <div className="font-extrabold text-amber-700 dark:text-amber-300">Break</div>
-                </th>
-                <th className="border-b border-[var(--color-border-default)] bg-sky-50 px-3 py-3 text-center dark:bg-sky-950/20">
-                  <div className="font-extrabold text-sky-700 dark:text-sky-300">Shift 2</div>
-                </th>
+                {rules.examShifts.map((shift, index) => (
+                  <span key={`head-wrap-${index}`} className="contents">
+                    <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
+                      <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
+                      <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
+                    </th>
+                    {index < rules.examShifts.length - 1 && (
+                      <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">
+                        <div className="font-extrabold text-amber-700 dark:text-amber-300">Break</div>
+                        <div className="mt-0.5 text-[9px] font-semibold text-amber-700/70 dark:text-amber-300/70">{shift.endTime} – {rules.examShifts[index + 1].startTime}</div>
+                      </th>
+                    )}
+                  </span>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -1606,15 +1919,31 @@ function ExamTimetable({
                   <th scope="row" className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                     <div className="font-extrabold text-[var(--color-text-primary)]">{row.label}</div>
                   </th>
-                  <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
-                    <ExamTimetableCell exams={row.shift1} onOpen={onOpen} />
-                  </td>
-                  <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
-                    <ExamBreakCell first={row.shift1[0]} second={row.shift2[0]} />
-                  </td>
-                  <td className="border-b border-[var(--color-border-default)] p-2 align-top">
-                    <ExamTimetableCell exams={row.shift2} onOpen={onOpen} />
-                  </td>
+                  {row.slots.map((slotExams, index) => {
+                    const key = draftKey(row.id, index);
+                    const current = currentCourseId(row.id, index);
+                    return (
+                      <span key={`row-${row.id}-${index}`} className="contents">
+                        <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
+                          <ExamTimetableCell
+                            exams={slotExams}
+                            onOpen={onOpen}
+                            editMode={editMode}
+                            courses={coursesByClass[row.id] || []}
+                            value={current}
+                            onChange={(courseId) => setCellCourse(row.id, index, courseId)}
+                            loadingCourses={loadingCourses.has(row.id)}
+                            changed={Object.prototype.hasOwnProperty.call(draft, key)}
+                          />
+                        </td>
+                        {index < rules.examShifts.length - 1 && (
+                          <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
+                            <ExamBreakCell startTime={rules.examShifts[index].endTime} endTime={rules.examShifts[index + 1].startTime} />
+                          </td>
+                        )}
+                      </span>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -1622,47 +1951,52 @@ function ExamTimetable({
         </div>
       ) : (
         <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
-          <table className="w-full min-w-[720px] table-fixed border-collapse text-xs sm:text-sm">
+          <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
             <thead>
               <tr>
-                <th className="sticky left-0 z-20 w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)] sm:w-52">
+                <th className="sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
                   Exam Date
                 </th>
-                <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
-                  <div className="font-extrabold text-emerald-700 dark:text-emerald-300">Shift 1</div>
-                </th>
-                <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-3 py-3 text-center dark:bg-amber-950/20">
-                  <div className="font-extrabold text-amber-700 dark:text-amber-300">Break</div>
-                </th>
-                <th className="border-b border-[var(--color-border-default)] bg-sky-50 px-3 py-3 text-center dark:bg-sky-950/20">
-                  <div className="font-extrabold text-sky-700 dark:text-sky-300">Shift 2</div>
-                </th>
+                {rules.examShifts.map((shift, index) => (
+                  <span key={`class-head-${index}`} className="contents">
+                    <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
+                      <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
+                      <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
+                    </th>
+                    {index < rules.examShifts.length - 1 && (
+                      <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">Break</th>
+                    )}
+                  </span>
+                ))}
               </tr>
             </thead>
             <tbody>
               {classRows.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No exams scheduled for this class.</td>
+                  <td colSpan={dynamicColumnCount + 1} className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No exams scheduled for this class yet.</td>
                 </tr>
               ) : classRows.map((row) => (
                 <tr key={row.date}>
-                  <td className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                  <th scope="row" className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                     <div className="font-extrabold text-[var(--color-text-primary)]">
                       {new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                     </div>
                     <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">
                       {new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long' })}
                     </div>
-                  </td>
-                  <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
-                    <ExamTimetableCell exams={row.shift1} onOpen={onOpen} />
-                  </td>
-                  <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
-                    <ExamBreakCell first={row.shift1[0]} second={row.shift2[0]} />
-                  </td>
-                  <td className="border-b border-[var(--color-border-default)] p-2 align-top">
-                    <ExamTimetableCell exams={row.shift2} onOpen={onOpen} />
-                  </td>
+                  </th>
+                  {row.slots.map((slotExams, index) => (
+                    <span key={`class-row-${row.date}-${index}`} className="contents">
+                      <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
+                        <ExamTimetableCell exams={slotExams} onOpen={onOpen} />
+                      </td>
+                      {index < rules.examShifts.length - 1 && (
+                        <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
+                          <ExamBreakCell startTime={rules.examShifts[index].endTime} endTime={rules.examShifts[index + 1].startTime} />
+                        </td>
+                      )}
+                    </span>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -1688,6 +2022,7 @@ export function ExamsManage() {
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
+  const [editScheduleRequest, setEditScheduleRequest] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
   const [viewingExam, setViewingExam] = useState<Exam | undefined>(undefined);
@@ -1867,6 +2202,10 @@ export function ExamsManage() {
                 <div className="shrink-0">
                   <ExamsActionsMenu
                     onSchedule={() => setShowCreate(true)}
+                    onEditSchedule={() => {
+                      setViewMode('table');
+                      setEditScheduleRequest((value) => value + 1);
+                    }}
                     onRules={() => setShowRulesModal(true)}
                     onImport={() => setShowImportModal(true)}
                     onExport={handleExport}
@@ -1985,7 +2324,12 @@ export function ExamsManage() {
             </div>
 
             {viewMode === 'table' && (
-              <ExamTimetable exams={visibleExams} onOpen={(exam) => setViewingExam(exam)} />
+              <ExamTimetable
+                exams={exams}
+                onOpen={(exam) => setViewingExam(exam)}
+                onChanged={fetchData}
+                editRequest={editScheduleRequest}
+              />
             )}
 
             {error && (
