@@ -1408,7 +1408,7 @@ const examSchoolId = (exam: Exam): string =>
   typeof exam.school === 'string' ? exam.school : exam.school?._id || '';
 
 const minutesOf = (value?: string): number => {
-  const match = String(value || '').match(/^([01]\\d|2[0-3]):([0-5]\\d)$/);
+  const match = String(value || '').match(/^([01]\d|2[0-3]):([0-5]\d)$/);
   return match ? Number(match[1]) * 60 + Number(match[2]) : -1;
 };
 
