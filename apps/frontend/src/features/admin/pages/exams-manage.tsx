@@ -1444,6 +1444,7 @@ function ExamTimetableCell({
   onChange,
   loadingCourses = false,
   changed = false,
+  usedCourseIds = [],
 }: {
   exams: Exam[];
   onOpen: (exam: Exam) => void;
@@ -1453,6 +1454,7 @@ function ExamTimetableCell({
   onChange?: (courseId: string) => void;
   loadingCourses?: boolean;
   changed?: boolean;
+  usedCourseIds?: string[];
 }) {
   if (editMode) {
     const existingCourse = exams[0]?.course;
@@ -1460,6 +1462,7 @@ function ExamTimetableCell({
       ? [existingCourse, ...courses]
       : courses;
     const selected = options.find((course) => course._id === value);
+    const usedSet = new Set(usedCourseIds);
 
     return (
       <div className={`min-h-[86px] rounded-xl border p-2.5 transition-colors ${changed ? 'border-primary-400 bg-primary-50/70 dark:bg-primary-950/20' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)]'}`}>
@@ -1472,12 +1475,21 @@ function ExamTimetableCell({
           <option value="">— No exam —</option>
           {options
             .filter((course) => course.status !== 'archived')
-            .map((course) => (
-              <option key={course._id} value={course._id}>{course.title?.en || 'Untitled course'}</option>
-            ))}
+            .map((course) => {
+              const alreadyUsed = usedSet.has(course._id);
+              return (
+                <option
+                  key={course._id}
+                  value={course._id}
+                  style={alreadyUsed ? { backgroundColor: '#dcfce7', color: '#166534', fontWeight: 700 } : undefined}
+                >
+                  {alreadyUsed ? '✓ Used · ' : ''}{course.title?.en || 'Untitled course'}
+                </option>
+              );
+            })}
         </select>
         <div className="mt-2 min-h-4 text-[10px] font-semibold leading-4 text-[var(--color-text-tertiary)] sm:text-xs">
-          {loadingCourses ? 'Loading courses…' : selected ? courseTeacherLabel(selected) : 'Select a course for this grade'}
+          {loadingCourses ? 'Loading courses…' : selected ? courseTeacherLabel(selected) : 'Green / ✓ Used = already scheduled for this grade'}
         </div>
       </div>
     );
@@ -1847,6 +1859,33 @@ function ExamTimetable({
       return next;
     });
   };
+
+  // Highlight every course that this grade/class has already used anywhere
+  // in the selected exam period. Include the current unsaved draft too, so
+  // admins get immediate feedback while building the timetable.
+  const usedCourseIdsByClass = useMemo(() => {
+    const map: Record<string, Set<string>> = {};
+
+    periodExams.forEach((exam) => {
+      const classId = exam.course?.class?._id;
+      const courseId = exam.course?._id;
+      if (!classId || !courseId) return;
+      if (!map[classId]) map[classId] = new Set<string>();
+      map[classId].add(courseId);
+    });
+
+    Object.entries(draft).forEach(([key, courseId]) => {
+      if (!courseId) return;
+      const [classId] = key.split('|');
+      if (!classId) return;
+      if (!map[classId]) map[classId] = new Set<string>();
+      map[classId].add(courseId);
+    });
+
+    return Object.fromEntries(
+      Object.entries(map).map(([classId, ids]) => [classId, Array.from(ids)])
+    ) as Record<string, string[]>;
+  }, [draft, periodExams]);
 
   const beginEdit = useCallback(() => {
     if (!effectiveSchoolId) {
@@ -2375,6 +2414,7 @@ function ExamTimetable({
                               onChange={(courseId) => setCellCourse(row.id, index, courseId)}
                               loadingCourses={loadingCourses.has(row.id)}
                               changed={Object.prototype.hasOwnProperty.call(draft, key)}
+                              usedCourseIds={usedCourseIdsByClass[row.id] || []}
                             />
                           </td>
                           {index < rules.examShifts.length - 1 && (
