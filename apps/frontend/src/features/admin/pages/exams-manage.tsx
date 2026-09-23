@@ -1677,11 +1677,19 @@ function ExamTimetable({
       setGridClasses(classesResponse.data?.data || []);
       const nextPeriods: ExamPeriod[] = periodsResponse.data?.data || [];
       setPeriods(nextPeriods);
-      setSelectedPeriodId((current) =>
-        current && nextPeriods.some((period) => period._id === current)
-          ? current
-          : nextPeriods[0]?._id || ''
-      );
+
+      let storedPeriodId = '';
+      try {
+        storedPeriodId = window.localStorage.getItem(`examSchedule:selectedPeriod:${effectiveSchoolId}`) || '';
+      } catch {
+        storedPeriodId = '';
+      }
+
+      setSelectedPeriodId((current) => {
+        if (current && nextPeriods.some((period) => period._id === current)) return current;
+        if (storedPeriodId && nextPeriods.some((period) => period._id === storedPeriodId)) return storedPeriodId;
+        return nextPeriods[0]?._id || '';
+      });
     } catch (err: any) {
       setGridError(err?.response?.data?.message || 'Could not load exam scheduling workspace.');
     } finally {
@@ -1692,6 +1700,18 @@ function ExamTimetable({
   useEffect(() => {
     void loadContext();
   }, [loadContext, refreshKey]);
+
+  useEffect(() => {
+    if (!effectiveSchoolId || !selectedPeriodId) return;
+    try {
+      window.localStorage.setItem(
+        `examSchedule:selectedPeriod:${effectiveSchoolId}`,
+        selectedPeriodId,
+      );
+    } catch {
+      // Storage can be unavailable in restricted/private browser contexts.
+    }
+  }, [effectiveSchoolId, selectedPeriodId]);
 
   const availableDates = useMemo(
     () => Array.from(new Set(periodExams.map(examDateKey).filter((date) => date && isAllowedExamDate(date, rules.allowedExamDays)))).sort(),
@@ -2595,7 +2615,13 @@ export function ExamsManage() {
   const [classFilter, setClassFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
-  const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'table'>(() => {
+    try {
+      return window.localStorage.getItem('examSchedule:viewMode') === 'table' ? 'table' : 'list';
+    } catch {
+      return 'list';
+    }
+  });
   const [editScheduleRequest, setEditScheduleRequest] = useState(0);
   const [createExamRequest, setCreateExamRequest] = useState(0);
   const [scheduleContextRefreshKey, setScheduleContextRefreshKey] = useState(0);
@@ -2627,6 +2653,14 @@ export function ExamsManage() {
   }, [search]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('examSchedule:viewMode', viewMode);
+    } catch {
+      // Keep the page functional even when browser storage is unavailable.
+    }
+  }, [viewMode]);
 
   const handleStatusChange = async (id: string, newStatus: string) => {
     try {
