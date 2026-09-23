@@ -52,13 +52,6 @@ function roundRobinMix(students: any[]): any[] {
   return mixed;
 }
 
-// Room capacity is a soft planning number here, not a hard limit: the admin
-// controls how many students each room can take. We distribute by the chosen
-// "students per room" target and only fall back to the configured capacity
-// when the admin has not set a target (which never happens via the UI).
-const effectiveCapacity = (room: any, perRoom: number) =>
-  perRoom || (Number(room.capacity) || 0);
-
 function classCounts(students: any[]) {
   const counts = new Map<string, number>();
   for (const student of students) {
@@ -70,50 +63,69 @@ function classCounts(students: any[]) {
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
-function roomReport(rooms: any[], assignments: any[], perRoom: number) {
+function roomReport(rooms: any[], assignments: any[]) {
   return rooms.map(room => {
     const assigned = assignments.filter(a => String(a.roomId) === String(room._id));
+    const capacity = Math.max(0, Number(room.capacity) || 0);
     return {
       roomId: room._id,
       room: room.name,
       building: room.building,
-      capacity: Number(room.capacity) || 0,
-      usableCapacity: effectiveCapacity(room, perRoom),
+      capacity,
       students: assigned.length,
-      remainingCapacity: Math.max(effectiveCapacity(room, perRoom) - assigned.length, 0),
+      remainingCapacity: Math.max(capacity - assigned.length, 0),
       classes: classCounts(assigned.map(a => a.student)),
-      source: room.source || 'class-room',
     };
   });
+}
+
+function balancedRoomTargets(rooms: any[], studentCount: number): Map<string, number> {
+  const targets = new Map<string, number>();
+  rooms.forEach(room => targets.set(String(room._id), 0));
+
+  let remaining = studentCount;
+  while (remaining > 0) {
+    const available = rooms
+      .filter(room => (targets.get(String(room._id)) || 0) < Math.max(0, Number(room.capacity) || 0))
+      .sort((a, b) => {
+        const aCount = targets.get(String(a._id)) || 0;
+        const bCount = targets.get(String(b._id)) || 0;
+        return aCount - bCount
+          || (Number(b.capacity) || 0) - (Number(a.capacity) || 0)
+          || String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true });
+      });
+
+    if (!available.length) break;
+    const room = available[0];
+    const id = String(room._id);
+    targets.set(id, (targets.get(id) || 0) + 1);
+    remaining -= 1;
+  }
+
+  return targets;
 }
 
 export const generate = async (req: Request, res: Response) => {
   const {
     academicYear,
     examType,
-    maxPerRoom = 12,
-    seatMode = 'none',
     overwrite = false,
     organization = '',
     department = '',
     departmentIds = [],
     classIds = [],
+    roomIds = [],
     shift = '',
   } = req.body as any;
 
   const year = norm(academicYear);
   const type = examTypeValue(norm(examType));
-  const perRoom = Number(maxPerRoom);
   if (!year) throw new BadRequestError('Academic Year is required');
   if (!type) throw new BadRequestError('Exam Type must be Mid Exam or Final');
-  if (!Number.isInteger(perRoom) || perRoom < 10 || perRoom > 15) {
-    throw new BadRequestError('Students per room must be between 10 and 15');
-  }
-  if (!['none', 'sequential'].includes(seatMode)) throw new BadRequestError('Invalid seat mode');
 
   let targetSchoolId: string | null = null;
   if (req.user?.role === 'org_admin') {
-    targetSchoolId = String((req.user as any)?.organizationId || '');
+    targetSchoolId = String((req.user as any)?.organizationId?._id || (req.user as any)?.organizationId || '');
   } else if (req.user?.role === 'admin') {
     targetSchoolId = norm(organization) || null;
   }
@@ -130,6 +142,9 @@ export const generate = async (req: Request, res: Response) => {
   const normalizedClassIds = Array.isArray(classIds)
     ? classIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)
     : [];
+  const normalizedRoomIds = Array.isArray(roomIds)
+    ? roomIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)
+    : [];
 
   const classFilter: any = { status: 'active', school: targetSchoolId };
   if (normalizedClassIds.length) classFilter._id = { $in: normalizedClassIds };
@@ -139,18 +154,17 @@ export const generate = async (req: Request, res: Response) => {
   const targetClasses = await ClassModel.find(classFilter)
     .select('_id title section department shiftMode room school')
     .populate('department', 'name')
+    .sort({ title: 1, section: 1 })
     .lean() as any[];
 
-  if (!targetClasses.length) throw new BadRequestError('No active classes matched the selected filters');
+  if (!targetClasses.length) throw new BadRequestError('Select at least one active Grade / Class');
 
   const classIdsForStudents = targetClasses.map(c => c._id);
-  const studentQuery: any = {
+  const students = await Student.find({
     status: 'active',
     class: { $in: classIdsForStudents },
     school: targetSchoolId,
-  };
-
-  const students = await Student.find(studentQuery)
+  })
     .populate('profile', 'firstName lastName')
     .populate('school', 'name')
     .populate({
@@ -168,89 +182,87 @@ export const generate = async (req: Request, res: Response) => {
     (!department || key(departmentLabel(s)) === key(department)) &&
     (!shift || key(shiftLabel(s)) === key(shift))
   );
-  if (!selected.length) throw new BadRequestError('No active students matched the selected filters');
+  if (!selected.length) throw new BadRequestError('No active students matched the selected Grade / Class selection');
 
-  const roomNames = Array.from(new Set(targetClasses.map(c => norm(c.room)).filter(Boolean)));
-  if (!roomNames.length) throw new BadRequestError('The selected classes have no Rooms configured');
+  let selectedRooms: any[] = [];
+  if (normalizedRoomIds.length) {
+    selectedRooms = await ExamRoom.find({
+      school: targetSchoolId,
+      _id: { $in: normalizedRoomIds },
+      capacity: { $gt: 0 },
+    }).sort({ building: 1, name: 1 }).lean();
 
-  const roomQuery: any = { school: targetSchoolId, name: { $in: roomNames } };
-  const configuredClassRooms = await ExamRoom.find(roomQuery).sort({ building: 1, name: 1 }).lean();
-  configuredClassRooms.forEach(r => assertOwnOrg(req, r, 'school'));
-
-  const roomsByName = new Map<string, any[]>();
-  for (const room of configuredClassRooms) {
-    const list = roomsByName.get(key(room.name)) || [];
-    list.push(room);
-    roomsByName.set(key(room.name), list);
+    if (selectedRooms.length !== normalizedRoomIds.length) {
+      throw new BadRequestError('One or more selected Rooms are missing, inactive, or have no capacity');
+    }
+  } else {
+    // Backward-compatible fallback for older clients: use class-linked rooms.
+    const roomNames = Array.from(new Set(targetClasses.map(c => norm(c.room)).filter(Boolean)));
+    if (roomNames.length) {
+      selectedRooms = await ExamRoom.find({
+        school: targetSchoolId,
+        name: { $in: roomNames },
+        capacity: { $gt: 0 },
+      }).sort({ building: 1, name: 1 }).lean();
+    }
+    if (!selectedRooms.length) {
+      selectedRooms = await ExamRoom.find({
+        school: targetSchoolId,
+        capacity: { $gt: 0 },
+      }).sort({ building: 1, name: 1 }).lean();
+    }
   }
 
-  const missingRooms = roomNames.filter(name => !roomsByName.has(key(name)));
-  if (missingRooms.length) {
-    throw new BadRequestError(`Room records are missing for: ${missingRooms.join(', ')}. Open Rooms and create/fix those rooms first.`);
+  selectedRooms.forEach(r => assertOwnOrg(req, r, 'school'));
+  if (!selectedRooms.length) throw new BadRequestError('Select at least one Room with a valid capacity');
+
+  const totalCapacity = selectedRooms.reduce((sum, room) => sum + Math.max(0, Number(room.capacity) || 0), 0);
+  if (totalCapacity < selected.length) {
+    throw new BadRequestError(
+      `Insufficient room capacity: ${selected.length} students selected but the chosen rooms hold only ${totalCapacity}. Add another room or increase room capacity.`
+    );
   }
 
-  const ambiguousRooms = roomNames.filter(name => (roomsByName.get(key(name)) || []).length > 1);
-  if (ambiguousRooms.length) {
-    throw new BadRequestError(`Room names are ambiguous across buildings: ${ambiguousRooms.join(', ')}. Each class must point to one physical room before seating can be generated.`);
-  }
-
-  const classRooms = roomNames
-    .map(name => roomsByName.get(key(name))?.[0])
-    .filter(Boolean)
-    .map(room => ({ ...room, source: 'class-room' }));
-
-  let selectedRooms = [...classRooms];
-  const requiredGroups = Math.ceil(selected.length / perRoom);
-
-  // Try to bring in additional rooms when the class-linked rooms look small,
-  // but never hard-block on capacity: the admin owns the final call. Any
-  // students that don't fit a room's target spill into the remaining rooms.
-  const selectedRoomIds = new Set(selectedRooms.map(room => String(room._id)));
-  const additionalRooms = await ExamRoom.find({
-    school: targetSchoolId,
-    _id: { $nin: Array.from(selectedRoomIds).map(id => new mongoose.Types.ObjectId(id)) },
-    capacity: { $gt: 0 },
-  })
-    .sort({ capacity: -1, building: 1, name: 1 })
-    .lean();
-
-  additionalRooms.forEach(r => assertOwnOrg(req, r, 'school'));
-  for (const room of additionalRooms) {
-    if (selectedRooms.length * perRoom >= selected.length) break;
-    selectedRooms.push({ ...room, source: 'additional-room' });
-  }
-
+  // Mix students by class first (G12 → G11 → G10 → ... style), then divide
+  // the mixed list into room targets whose headcounts are as equal as room
+  // capacities permit. Seat numbers are intentionally not part of this flow.
   const mixed = roundRobinMix(selected);
+  const targets = balancedRoomTargets(selectedRooms, mixed.length);
   const assignments: Array<{ roomId: any; student: any; seat: string }> = [];
   let cursor = 0;
-  const usableRooms = selectedRooms.filter(room => effectiveCapacity(room, perRoom) > 0);
-  for (let i = 0; i < usableRooms.length && cursor < mixed.length; i++) {
-    const room = usableRooms[i];
-    const remaining = mixed.length - cursor;
-    // The last usable room absorbs any leftover students so no one is dropped,
-    // even when the total count exceeds the planned capacity.
-    const groupSize = i === usableRooms.length - 1 ? remaining : Math.min(effectiveCapacity(room, perRoom), remaining);
-    const group = mixed.slice(cursor, cursor + groupSize);
+
+  for (const room of selectedRooms) {
+    const target = targets.get(String(room._id)) || 0;
+    const group = mixed.slice(cursor, cursor + target);
     cursor += group.length;
-    group.forEach((student, index) => assignments.push({
+    group.forEach(student => assignments.push({
       roomId: room._id,
       student,
-      seat: seatMode === 'sequential' ? `S${String(index + 1).padStart(2, '0')}` : '',
+      seat: '',
     }));
+  }
+
+  if (assignments.length !== selected.length) {
+    throw new BadRequestError('Could not place every selected student into the chosen rooms');
   }
 
   const scope: any = { academicYear: year, examType: type, school: targetSchoolId };
   const selectedIds = selected.map(s => s._id);
   const existing = await ExamSeatingPlan.countDocuments({ ...scope, student: { $in: selectedIds } });
   if (existing && !overwrite) {
-    throw new BadRequestError(`Some selected students already have seating for ${year} / ${type}. Enable Regenerate existing plan to replace their assignments.`);
+    throw new BadRequestError(
+      `Some selected students already have room assignments for ${year} / ${type}. Enable Regenerate existing assignments to rebalance them.`
+    );
   }
-  if (overwrite) await ExamSeatingPlan.deleteMany({ ...scope, student: { $in: selectedIds } });
+  if (overwrite) {
+    await ExamSeatingPlan.deleteMany({ ...scope, student: { $in: selectedIds } });
+  }
 
   const docs: any[] = assignments.map(a => ({
     student: a.student._id,
     room: a.roomId,
-    deskNumber: a.seat || `__ROOM_ONLY__${String(a.student._id)}`,
+    // Internal deterministic placeholder only; the model hides it from JSON.
+    deskNumber: `__ROOM_ONLY__${String(a.student._id)}`,
     academicYear: year,
     examType: type,
     school: targetSchoolId,
@@ -258,7 +270,7 @@ export const generate = async (req: Request, res: Response) => {
 
   await ExamSeatingPlan.insertMany(docs);
 
-  const breakdown = roomReport(selectedRooms, assignments, perRoom);
+  const breakdown = roomReport(selectedRooms, assignments);
   const assignedByClass = classCounts(assignments.map(a => a.student));
 
   return ApiResponse.success(res, {
@@ -266,21 +278,16 @@ export const generate = async (req: Request, res: Response) => {
     examType: type,
     students: selected.length,
     assigned: assignments.length,
-    remaining: selected.length - assignments.length,
-    requiredGroups,
+    remaining: 0,
     rooms: breakdown.length,
-    studentsPerRoom: perRoom,
-    seatMode,
     mixedClasses: true,
-    totalConfiguredCapacity: selectedRooms.reduce((sum, room) => sum + (Number(room.capacity) || 0), 0),
-    totalUsableCapacity: selectedRooms.reduce((sum, room) => sum + effectiveCapacity(room, perRoom), 0),
-    additionalRoomsUsed: breakdown.filter(r => r.source === 'additional-room').length,
+    roomOnly: true,
+    totalCapacity,
     selectedClasses: targetClasses.map(c => ({
       _id: c._id,
       name: norm([c.title, c.section].filter(Boolean).join(' ')),
-      room: c.room,
     })),
     classBreakdown: assignedByClass,
     roomBreakdown: breakdown,
-  }, `Generated seating for ${selected.length} students across ${breakdown.length} mixed-class rooms`);
+  }, `Assigned ${selected.length} students across ${breakdown.length} balanced mixed-grade rooms`);
 };
