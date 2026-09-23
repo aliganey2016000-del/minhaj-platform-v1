@@ -276,6 +276,7 @@ interface ExamScheduleRules {
   durationValidation: boolean;
   examShiftCount: number;
   examShifts: ExamShiftRule[];
+  allowedExamDays: number[];
 }
 
 const DEFAULT_EXAM_SHIFTS: ExamShiftRule[] = [
@@ -294,7 +295,18 @@ const DEFAULT_EXAM_SCHEDULE_RULES: ExamScheduleRules = {
   durationValidation: true,
   examShiftCount: 2,
   examShifts: DEFAULT_EXAM_SHIFTS.slice(0, 2).map((shift) => ({ ...shift })),
+  allowedExamDays: [0, 1, 2, 3, 4, 5, 6],
 };
+
+const EXAM_DAY_OPTIONS = [
+  { value: 6, label: 'Sat' },
+  { value: 0, label: 'Sun' },
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+] as const;
 
 function RulesToggle({
   checked,
@@ -419,6 +431,19 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
     }));
   };
 
+  const toggleExamDay = (day: number) => {
+    setRules((prev) => {
+      const selected = prev.allowedExamDays.includes(day);
+      if (selected && prev.allowedExamDays.length === 1) return prev;
+      return {
+        ...prev,
+        allowedExamDays: selected
+          ? prev.allowedExamDays.filter((value) => value !== day)
+          : [...prev.allowedExamDays, day].sort((a, b) => a - b),
+      };
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm sm:p-5" onClick={onClose}>
       <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-[var(--color-surface-primary)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -494,6 +519,42 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
                   title="Exam Duration Validation"
                   description="The exam duration must fit inside the selected start and end time."
                 />
+              </div>
+
+              <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
+                      <CalendarDays className="h-4 w-4 text-primary-600" />
+                      Allowed Exam Days
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
+                      Choose the weekdays on which exams are allowed to be scheduled.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-7">
+                  {EXAM_DAY_OPTIONS.map((day) => {
+                    const active = rules.allowedExamDays.includes(day.value);
+                    return (
+                      <button
+                        key={day.value}
+                        type="button"
+                        onClick={() => toggleExamDay(day.value)}
+                        aria-pressed={active}
+                        className={`rounded-xl border px-2 py-2.5 text-xs font-bold transition-colors ${active
+                          ? 'border-primary-500 bg-primary-600 text-white shadow-sm'
+                          : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+                      >
+                        {day.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-3 text-[11px] text-[var(--color-text-tertiary)]">
+                  At least one exam day must remain selected.
+                </p>
               </div>
 
               <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
