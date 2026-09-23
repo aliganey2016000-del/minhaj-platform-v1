@@ -25,7 +25,6 @@ import {
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
-import { useAuth } from '../../../store/auth-context';
 
 type Org = { _id: string; name: string };
 type ClassItem = {
@@ -805,8 +804,6 @@ function RoomStudentsModal({
 }
 
 export function ExamSeatingCenterV3() {
-  const { user } = useAuth();
-  const isSuperAdmin=user?.role==='admin';
   const [orgs,setOrgs]=useState<Org[]>([]);
   const [classes,setClasses]=useState<ClassItem[]>([]);
   const [rooms,setRooms]=useState<Room[]>([]);
@@ -855,7 +852,7 @@ export function ExamSeatingCenterV3() {
     }catch(err:any){setError(err.response?.data?.message||'Failed to load room allocation')}
   };
 
-  useEffect(()=>{void loadBase()},[isSuperAdmin]);
+  useEffect(()=>{void loadBase()},[]);
   useEffect(()=>{void loadSeating()},[year,type]);
 
   const filtered=useMemo(()=>allocations.filter(a=>{
