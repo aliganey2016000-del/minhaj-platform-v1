@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import Exam from '../models/exam.model';
+import ExamPeriod from '../models/exam-period.model';
 import Course from '../models/course.model';
 import School from '../models/school.model';
 import ClassModel from '../models/class.model';
@@ -231,14 +232,113 @@ export const updateScheduleRules = async (req: Request, res: Response): Promise<
   }, 'Exam scheduling rules saved');
 };
 
+// GET /exams/periods — reusable named exam periods such as Midterm / Final.
+export const getExamPeriods = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const periods = await ExamPeriod.find({ school: schoolId })
+    .populate('school', 'name')
+    .sort({ academicYear: -1, startDate: -1, createdAt: -1 })
+    .lean();
+  return ApiResponse.success(res, periods);
+};
+
+// POST /exams/periods — create the exam container before building its grid.
+export const createExamPeriod = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const name = String(req.body?.name || '').trim();
+  const academicYear = String(req.body?.academicYear || '').trim();
+  const term = String(req.body?.term || '').trim();
+  const startDate = req.body?.startDate ? new Date(req.body.startDate) : null;
+  const endDate = req.body?.endDate ? new Date(req.body.endDate) : null;
+
+  if (!name) throw new BadRequestError('Exam name is required');
+  if (!academicYear) throw new BadRequestError('Academic Year is required');
+  if (startDate && Number.isNaN(startDate.getTime())) throw new BadRequestError('Start Date is invalid');
+  if (endDate && Number.isNaN(endDate.getTime())) throw new BadRequestError('End Date is invalid');
+  if (startDate && endDate && endDate < startDate) throw new BadRequestError('End Date must be on or after Start Date');
+
+  try {
+    const period = await ExamPeriod.create({
+      school: schoolId,
+      name,
+      academicYear,
+      term,
+      startDate,
+      endDate,
+      status: 'draft',
+      createdBy: req.user!.userId,
+    });
+    return ApiResponse.created(res, period, 'Exam created successfully');
+  } catch (error: any) {
+    if (error?.code === 11000) {
+      throw new ConflictError('An exam with this name, academic year and term already exists');
+    }
+    throw error;
+  }
+};
+
+// PATCH /exams/periods/:periodId — rename/publish/close a reusable exam period.
+export const updateExamPeriod = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const period = await ExamPeriod.findOne({ _id: req.params.periodId, school: schoolId });
+  if (!period) throw new NotFoundError('Exam');
+
+  const updates: Record<string, any> = {};
+  if (req.body?.name !== undefined) {
+    const name = String(req.body.name || '').trim();
+    if (!name) throw new BadRequestError('Exam name is required');
+    updates.name = name;
+  }
+  if (req.body?.academicYear !== undefined) {
+    const academicYear = String(req.body.academicYear || '').trim();
+    if (!academicYear) throw new BadRequestError('Academic Year is required');
+    updates.academicYear = academicYear;
+  }
+  if (req.body?.term !== undefined) updates.term = String(req.body.term || '').trim();
+  if (req.body?.status !== undefined) {
+    if (!['draft', 'published', 'closed'].includes(req.body.status)) {
+      throw new BadRequestError('Status must be draft, published or closed');
+    }
+    updates.status = req.body.status;
+  }
+  if (req.body?.startDate !== undefined) updates.startDate = req.body.startDate ? new Date(req.body.startDate) : null;
+  if (req.body?.endDate !== undefined) updates.endDate = req.body.endDate ? new Date(req.body.endDate) : null;
+
+  const nextStart = updates.startDate !== undefined ? updates.startDate : period.startDate;
+  const nextEnd = updates.endDate !== undefined ? updates.endDate : period.endDate;
+  if (nextStart && Number.isNaN(new Date(nextStart).getTime())) throw new BadRequestError('Start Date is invalid');
+  if (nextEnd && Number.isNaN(new Date(nextEnd).getTime())) throw new BadRequestError('End Date is invalid');
+  if (nextStart && nextEnd && new Date(nextEnd) < new Date(nextStart)) {
+    throw new BadRequestError('End Date must be on or after Start Date');
+  }
+
+  Object.assign(period, updates);
+  await period.save();
+  return ApiResponse.success(res, period, 'Exam updated successfully');
+};
+
 // POST /exams/schedule-grid — bulk-save editable cells from the rules-driven grid.
 // Each changed cell is applied independently so a single conflict does not discard
 // other valid changes. Course changes are allowed here only when the replacement
 // course belongs to the exact same class and organization represented by the row.
 export const saveScheduleGrid = async (req: Request, res: Response): Promise<Response> => {
   const schoolId = scheduleRulesSchoolId(req);
+  const periodId = String(req.body?.periodId || '');
   const dateKey = examDateKey(req.body?.examDate);
+  if (!/^[a-f\d]{24}$/i.test(periodId)) throw new BadRequestError('Create or select an Exam before editing its schedule');
   if (!dateKey) throw new BadRequestError('A valid Exam Date is required');
+
+  const period = await ExamPeriod.findOne({ _id: periodId, school: schoolId }).lean() as any;
+  if (!period) throw new NotFoundError('Exam');
+  if (period.status === 'closed') throw new ConflictError('This exam is closed and its schedule can no longer be edited');
+
+  const scheduledDate = new Date(`${dateKey}T00:00:00.000Z`);
+  if (period.startDate && scheduledDate < new Date(period.startDate)) {
+    throw new ConflictError('Exam Date is before this exam\'s Start Date');
+  }
+  if (period.endDate && scheduledDate > new Date(period.endDate)) {
+    throw new ConflictError('Exam Date is after this exam\'s End Date');
+  }
 
   const rules = await getExamSchedulingRulesForSchool(schoolId);
   const examDay = new Date(`${dateKey}T00:00:00.000Z`).getUTCDay();
@@ -279,6 +379,7 @@ export const saveScheduleGrid = async (req: Request, res: Response): Promise<Res
       // HH:MM strings sort lexicographically, so these predicates safely locate
       // any existing exam occupying the configured shift window.
       const existing = await Exam.find({
+        period: periodId,
         course: { $in: siblingCourseIds },
         autoSchedule: { $ne: true },
         status: { $ne: 'cancelled' },
@@ -310,7 +411,7 @@ export const saveScheduleGrid = async (req: Request, res: Response): Promise<Res
       await validateFixedExamSchedule({
         schoolId,
         classId,
-        title: existingExam?.title || `${course.title?.en || 'Course'} Exam`,
+        title: existingExam?.title || period.name,
         examDate: dateKey,
         startTime: shift.startTime,
         endTime: shift.endTime,
@@ -322,6 +423,8 @@ export const saveScheduleGrid = async (req: Request, res: Response): Promise<Res
 
       if (existingExam) {
         await Exam.findByIdAndUpdate(existingExam._id, {
+          title: period.name,
+          period: periodId,
           course: courseId,
           examDate: dayStart,
           startTime: shift.startTime,
@@ -330,7 +433,8 @@ export const saveScheduleGrid = async (req: Request, res: Response): Promise<Res
         }, { runValidators: true });
       } else {
         await Exam.create({
-          title: `${course.title?.en || 'Course'} Exam`,
+          title: period.name,
+          period: periodId,
           course: courseId,
           school: schoolId,
           examDate: dayStart,
@@ -365,10 +469,11 @@ export const saveScheduleGrid = async (req: Request, res: Response): Promise<Res
 
 // GET /exams — List all with optional filters
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
-  const { courseId, status, school, page = '1', limit = '50', search } = req.query;
+  const { courseId, status, school, period, page = '1', limit = '50', search } = req.query;
 
   const filter: Record<string, unknown> = {};
   if (courseId) filter.course = courseId as string;
+  if (period) filter.period = period as string;
   if (status && ['scheduled', 'ongoing', 'completed', 'cancelled'].includes(status as string))
     filter.status = status;
   // applyOrgFilter below auto-scopes org_admin to their own org and leaves
@@ -401,6 +506,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
         ],
       })
       .populate('school', 'name')
+      .populate('period', 'name academicYear term status startDate endDate')
       .populate('createdBy', 'email')
       .sort({ examDate: 1, startTime: 1 })
       .skip((pageNum - 1) * limitNum)
