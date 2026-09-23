@@ -663,9 +663,15 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
 
   const maxPerClassPerDay = Math.max(1, Number(rules.maxExamsPerClassPerDay) || 1);
   const usableShiftsPerDay = Math.max(1, Math.min(rules.examShifts.length, maxPerClassPerDay));
+  const courseCountByClass = new Map<string, number>();
+  for (const group of groups) {
+    for (const classId of group.coursesByClass.keys()) {
+      courseCountByClass.set(classId, (courseCountByClass.get(classId) || 0) + 1);
+    }
+  }
   const requiredDays = Math.max(
     1,
-    ...Array.from(byBand.values()).map((list) => Math.ceil(list.length / usableShiftsPerDay))
+    ...Array.from(courseCountByClass.values()).map((count) => Math.ceil(count / usableShiftsPerDay))
   );
 
   const startDate = utcDateOnly(period.startDate);
@@ -718,6 +724,7 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
 
   const generatedByClassDay = new Map<string, number>();
   const generatedByClassSlot = new Set<string>();
+  const generatedTimesByClassDay = new Map<string, Array<{ startTime: string; endTime: string }>>();
   const assignments: Array<{
     group: SubjectGroup;
     course: any;
@@ -743,12 +750,13 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
     if (generatedByClassSlot.has(classSlotKey)) return false;
 
     const external = externalByClassDay.get(classDayKey) || [];
+    const generatedTimes = generatedTimesByClassDay.get(classDayKey) || [];
     const generatedCount = generatedByClassDay.get(classDayKey) || 0;
     if (external.length + generatedCount >= maxPerClassPerDay) return false;
 
     const start = timeToMinutes(slot.shift.startTime);
     const end = timeToMinutes(slot.shift.endTime);
-    for (const other of external) {
+    for (const other of [...external, ...generatedTimes]) {
       const otherStart = timeToMinutes(other.startTime);
       const otherEnd = timeToMinutes(other.endTime);
       if (otherStart < 0 || otherEnd < 0) continue;
@@ -789,6 +797,9 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
         const classSlotKey = `${classId}::${slot.dateKey}::${slot.shiftIndex}`;
         generatedByClassDay.set(classDayKey, (generatedByClassDay.get(classDayKey) || 0) + 1);
         generatedByClassSlot.add(classSlotKey);
+        const generatedTimes = generatedTimesByClassDay.get(classDayKey) || [];
+        generatedTimes.push({ startTime: slot.shift.startTime, endTime: slot.shift.endTime });
+        generatedTimesByClassDay.set(classDayKey, generatedTimes);
 
         const cls = classById.get(classId);
         classLabels.push(
