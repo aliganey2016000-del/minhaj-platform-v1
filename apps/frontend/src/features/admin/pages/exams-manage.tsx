@@ -37,13 +37,25 @@ interface CourseBrief {
 
 interface SchoolBrief { _id: string; name: string; status?: string; }
 interface DepartmentBrief { _id: string; name: string; }
-interface ClassBrief { _id: string; title: string; section: string; }
+interface ClassBrief { _id: string; title: string; section: string; academicYear?: string; }
+
+interface ExamPeriod {
+  _id: string;
+  name: string;
+  academicYear: string;
+  term?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  status: 'draft' | 'published' | 'closed';
+  school?: string | SchoolBrief;
+}
 
 interface Exam {
   _id: string;
   title: string;
   course: CourseBrief;
   school?: string | SchoolBrief;
+  period?: string | ExamPeriod | null;
   examDate?: string;
   startTime?: string;
   endTime?: string;
@@ -237,7 +249,7 @@ function ExamsActionsMenu({ onSchedule, onEditSchedule, onRules, onImport, onExp
       {open && (
         <div className="absolute right-0 z-20 mt-1 w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-lg py-1 text-left">
           <button onClick={() => { setOpen(false); onSchedule(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
-            <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} /> Schedule Exam
+            <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} /> Create Exam
           </button>
           <button onClick={() => { setOpen(false); onEditSchedule(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit Schedule
@@ -2031,6 +2043,7 @@ export function ExamsManage() {
   const [dateFilter, setDateFilter] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
   const [editScheduleRequest, setEditScheduleRequest] = useState(0);
+  const [createExamRequest, setCreateExamRequest] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
   const [viewingExam, setViewingExam] = useState<Exam | undefined>(undefined);
@@ -2209,7 +2222,10 @@ export function ExamsManage() {
                 </div>
                 <div className="shrink-0">
                   <ExamsActionsMenu
-                    onSchedule={() => setShowCreate(true)}
+                    onSchedule={() => {
+                      setViewMode('table');
+                      setCreateExamRequest((value) => value + 1);
+                    }}
                     onEditSchedule={() => {
                       setViewMode('table');
                       setEditScheduleRequest((value) => value + 1);
@@ -2337,7 +2353,9 @@ export function ExamsManage() {
                 onOpen={(exam) => setViewingExam(exam)}
                 onChanged={fetchData}
                 editRequest={editScheduleRequest}
+                createRequest={createExamRequest}
                 onEditRequestHandled={() => setEditScheduleRequest(0)}
+                onCreateRequestHandled={() => setCreateExamRequest(0)}
               />
             )}
 
