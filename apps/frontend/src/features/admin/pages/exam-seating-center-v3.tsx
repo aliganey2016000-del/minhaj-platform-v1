@@ -28,7 +28,6 @@ import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
 import { useAuth } from '../../../store/auth-context';
 
 type Org = { _id: string; name: string };
-type Department = { _id: string; name: string; code?: string };
 type ClassItem = {
   _id: string;
   title: string;
@@ -590,7 +589,7 @@ function AutoGenerateModal({
     if(!preview)return;
     setBusy(true);setError('');
     try{
-      const r=await api.post('/exams/seating-plan/auto-generate',payload(false));
+      const r=await api.post('/exams/seating-plan/auto-generate',{...payload(false),seed:preview.seed});
       onGenerated({
         message:r.data.message||'Room allocation saved successfully.',
         academicYear:year,
@@ -809,7 +808,6 @@ export function ExamSeatingCenterV3() {
   const { user } = useAuth();
   const isSuperAdmin=user?.role==='admin';
   const [orgs,setOrgs]=useState<Org[]>([]);
-  const [departments,setDepartments]=useState<Department[]>([]);
   const [classes,setClasses]=useState<ClassItem[]>([]);
   const [rooms,setRooms]=useState<Room[]>([]);
   const [allocations,setAllocations]=useState<Allocation[]>([]);
@@ -829,19 +827,16 @@ export function ExamSeatingCenterV3() {
   const [selectedIds,setSelectedIds]=useState<string[]>([]);
   const [bulkBusy,setBulkBusy]=useState(false);
   const [draggedId,setDraggedId]=useState('');
-  const selectedOrg=orgs.length===1?orgs[0]._id:'';
 
   const loadBase=async()=>{
     setLoading(true);setError('');
-    const [o,d,c,r]=await Promise.allSettled([
+    const [o,c,r]=await Promise.allSettled([
       api.get('/schools?limit=100'),
-      api.get('/departments',isSuperAdmin?{}:undefined),
       api.get('/classes?limit=500'),
       api.get('/exam-rooms'),
     ]);
     const failed:string[]=[];
     if(o.status==='fulfilled')setOrgs((o.value.data.data||[]).map((x:any)=>({_id:x._id,name:x.name})));else failed.push(`Organizations (${o.reason?.response?.data?.message||o.reason?.message||'failed'})`);
-    if(d.status==='fulfilled')setDepartments(d.value.data.data||[]);else failed.push(`Departments (${d.reason?.response?.data?.message||d.reason?.message||'failed'})`);
     if(c.status==='fulfilled')setClasses(c.value.data.data||[]);else failed.push(`Classes (${c.reason?.response?.data?.message||c.reason?.message||'failed'})`);
     if(r.status==='fulfilled')setRooms(r.value.data.data||[]);else failed.push(`Rooms (${r.reason?.response?.data?.message||r.reason?.message||'failed'})`);
     if(failed.length)setError(`Some room configuration didn't load: ${failed.join('; ')}. Retry below.`);
