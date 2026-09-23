@@ -15,6 +15,7 @@ export interface ExamSchedulingRules {
   durationValidation: boolean;
   examShiftCount: number;
   examShifts: ExamShiftRule[];
+  allowedExamDays: number[];
 }
 
 export const DEFAULT_EXAM_SHIFTS: ExamShiftRule[] = [
@@ -33,6 +34,10 @@ export const DEFAULT_EXAM_SCHEDULING_RULES: ExamSchedulingRules = {
   durationValidation: true,
   examShiftCount: 2,
   examShifts: DEFAULT_EXAM_SHIFTS.slice(0, 2).map((shift) => ({ ...shift })),
+  // JavaScript UTC weekday numbers: 0=Sunday ... 6=Saturday.
+  // Default keeps existing behaviour: exams may be scheduled on any day until
+  // an institution explicitly restricts the allowed days in Scheduling Rules.
+  allowedExamDays: [0, 1, 2, 3, 4, 5, 6],
 };
 
 const isValidClockTime = (value: unknown): value is string => {
@@ -63,6 +68,14 @@ export function normalizeExamSchedulingRules(value: any): ExamSchedulingRules {
     };
   });
 
+  const allowedExamDays = Array.isArray(value?.allowedExamDays)
+    ? Array.from(new Set(
+        value.allowedExamDays
+          .map((day: unknown) => Number(day))
+          .filter((day: number) => Number.isInteger(day) && day >= 0 && day <= 6)
+      )).sort((a, b) => a - b)
+    : [...DEFAULT_EXAM_SCHEDULING_RULES.allowedExamDays];
+
   return {
     preventClassOverlap: typeof value?.preventClassOverlap === 'boolean'
       ? value.preventClassOverlap
@@ -84,6 +97,7 @@ export function normalizeExamSchedulingRules(value: any): ExamSchedulingRules {
       : DEFAULT_EXAM_SCHEDULING_RULES.durationValidation,
     examShiftCount,
     examShifts,
+    allowedExamDays,
   };
 }
 
