@@ -1583,6 +1583,7 @@ function ExamTimetable({
   const [showEditPeriod, setShowEditPeriod] = useState(false);
   const [showReusePeriod, setShowReusePeriod] = useState(false);
   const [periodActionBusy, setPeriodActionBusy] = useState(false);
+  const [autoGenerating, setAutoGenerating] = useState(false);
   const currentYear = new Date().getFullYear();
   const [periodForm, setPeriodForm] = useState({
     name: '',
@@ -2126,6 +2127,68 @@ function ExamTimetable({
     }
   };
 
+  const autoGenerateSchedule = async () => {
+    if (!selectedPeriod || !effectiveSchoolId) {
+      setGridError('Create or select an Exam before using Auto Generate.');
+      return;
+    }
+    if (selectedPeriod.status === 'closed') {
+      setGridError('This exam is closed. Reopen it before generating the schedule.');
+      return;
+    }
+    if (!selectedPeriod.startDate) {
+      setGridError('Set the Exam Start Date first. Auto Generate uses the exam date window and Scheduling Rules.');
+      return;
+    }
+
+    const overwrite = periodExams.length > 0;
+    if (overwrite) {
+      const confirmed = window.confirm(
+        `Regenerate ${selectedPeriod.name}?\n\nThis will replace the current ${periodExams.length} scheduled exam(s). Any manual cell positions in this exam will be replaced. You can edit the generated schedule afterwards.`
+      );
+      if (!confirmed) return;
+    }
+
+    setAutoGenerating(true);
+    setGridError('');
+    setGridSuccess('');
+    try {
+      const response = await api.post(`/exams/periods/${selectedPeriod._id}/auto-generate`, {
+        school: effectiveSchoolId,
+        overwrite,
+      });
+      const result = response.data?.data || {};
+      await onChanged();
+      await loadContext();
+      if (result.firstDate) setSelectedDate(result.firstDate);
+      setPerspective('day');
+      setEditMode(false);
+      setDraft({});
+
+      const bandDetails = Array.isArray(result.bandSummary)
+        ? result.bandSummary
+            .filter((item: any) => item.subjects > 0)
+            .map((item: any) => {
+              const label = item.band === 'secondary'
+                ? 'Secondary'
+                : item.band === 'primary-middle'
+                  ? 'Primary/Middle'
+                  : 'Other';
+              return `${label}: ${item.subjects} subjects`;
+            })
+            .join(' · ')
+        : '';
+
+      setGridSuccess(
+        `Auto Generate complete — ${result.created || 0} exams created from ${result.sharedSubjectSlots || 0} shared subject slots.${bandDetails ? ` ${bandDetails}.` : ''} Same subject names now use the same date and shift within each school group. You can still edit any cell manually.`
+      );
+    } catch (err: any) {
+      setGridError(err?.response?.data?.message || 'Could not auto-generate the exam schedule.');
+    } finally {
+      setAutoGenerating(false);
+    }
+  };
+
   const changeDate = (value: string) => {
     if (!selectedPeriod) return;
     if (value !== selectedDate && editMode && Object.keys(draft).length > 0) {
@@ -2211,7 +2274,7 @@ function ExamTimetable({
                 )}
               </div>
               <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
-                Create/select an Exam first. Its Grade × Shift grid follows Scheduling Rules. Allowed days: {allowedDayLabels || 'None'}.
+                Create/select an Exam first. Auto Generate keeps same-name subjects on the same date + shift within Primary/Middle and Secondary groups. Allowed days: {allowedDayLabels || 'None'}.
               </p>
             </div>
 
@@ -2236,6 +2299,18 @@ function ExamTimetable({
                     <button type="button" onClick={openReusePeriod} className="rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-bold text-primary-700 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-300">
                       Reuse Schedule
                     </button>
+                    {selectedPeriod.status !== 'closed' && (
+                      <button
+                        type="button"
+                        onClick={() => void autoGenerateSchedule()}
+                        disabled={autoGenerating || periodActionBusy}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-primary-700 disabled:opacity-50"
+                        title="Build the whole timetable by matching subject names across Primary/Middle and Secondary grades"
+                      >
+                        <PlayCircle className="h-3.5 w-3.5" />
+                        {autoGenerating ? 'Generating…' : 'Auto Generate'}
+                      </button>
+                    )}
                   </>
                 )}
                 {selectedPeriod?.status === 'draft' && (
