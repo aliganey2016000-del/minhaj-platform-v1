@@ -146,8 +146,8 @@ const brandingSchema = new Schema<IBranding>(
 const examShiftRuleSchema = new Schema<IExamShiftRule>(
   {
     name: { type: String, required: true, trim: true, maxlength: 40 },
-    startTime: { type: String, required: true, match: [/^\\d{2}:\\d{2}$/, 'Shift start time must use HH:MM format'] },
-    endTime: { type: String, required: true, match: [/^\\d{2}:\\d{2}$/, 'Shift end time must use HH:MM format'] },
+    startTime: { type: String, required: true, match: [/^\d{2}:\d{2}$/, 'Shift start time must use HH:MM format'] },
+    endTime: { type: String, required: true, match: [/^\d{2}:\d{2}$/, 'Shift end time must use HH:MM format'] },
   },
   { _id: false }
 );
