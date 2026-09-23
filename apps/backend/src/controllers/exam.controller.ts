@@ -187,6 +187,87 @@ function scheduleRulesSchoolId(req: Request): string {
   return schoolId;
 }
 
+const utcDateOnly = (value: Date | string): Date => {
+  const key = examDateKey(value);
+  if (!key) throw new BadRequestError('A valid date is required');
+  return new Date(`${key}T00:00:00.000Z`);
+};
+
+const buildAllowedExamDates = (
+  start: Date,
+  allowedDays: number[],
+  needed: number,
+  end?: Date | null,
+): Date[] => {
+  if (needed <= 0) return [];
+  const dates: Date[] = [];
+  const cursor = utcDateOnly(start);
+  const endKey = end ? utcDateOnly(end).getTime() : null;
+
+  // Hard safety cap: enough for very long school exam windows without
+  // risking an accidental infinite loop when rules are misconfigured.
+  for (let guard = 0; guard < 730 && dates.length < needed; guard += 1) {
+    if (endKey !== null && cursor.getTime() > endKey) break;
+    if (allowedDays.includes(cursor.getUTCDay())) dates.push(new Date(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  if (dates.length < needed) {
+    throw new BadRequestError(
+      `The selected exam date range contains only ${dates.length} allowed exam day(s), but this schedule needs ${needed}.`
+    );
+  }
+  return dates;
+};
+
+async function remapPeriodScheduleDates(params: {
+  periodId: string;
+  schoolId: string;
+  newStartDate: Date;
+  newEndDate?: Date | null;
+}): Promise<number> {
+  const exams = await Exam.find({
+    period: params.periodId,
+    school: params.schoolId,
+    autoSchedule: { $ne: true },
+    status: { $ne: 'cancelled' },
+    examDate: { $ne: null },
+  }).select('_id examDate').lean() as any[];
+
+  const sourceDateKeys = Array.from(new Set(
+    exams.map((exam) => examDateKey(exam.examDate)).filter(Boolean)
+  )).sort();
+
+  if (!sourceDateKeys.length) return 0;
+
+  const rules = await getExamSchedulingRulesForSchool(params.schoolId);
+  const targetDates = buildAllowedExamDates(
+    params.newStartDate,
+    rules.allowedExamDays,
+    sourceDateKeys.length,
+    params.newEndDate,
+  );
+
+  let changed = 0;
+  for (let index = 0; index < sourceDateKeys.length; index += 1) {
+    const sourceKey = sourceDateKeys[index];
+    const sourceStart = new Date(`${sourceKey}T00:00:00.000Z`);
+    const sourceEnd = new Date(sourceStart);
+    sourceEnd.setUTCDate(sourceEnd.getUTCDate() + 1);
+    const result = await Exam.updateMany(
+      {
+        period: params.periodId,
+        school: params.schoolId,
+        examDate: { $gte: sourceStart, $lt: sourceEnd },
+      },
+      { $set: { examDate: targetDates[index] } },
+    );
+    changed += result.modifiedCount;
+  }
+
+  return changed;
+}
+
 export const getScheduleRules = async (req: Request, res: Response): Promise<Response> => {
   const schoolId = scheduleRulesSchoolId(req);
   const school = await School.findById(schoolId).select('name examSchedulingRules').lean() as any;
@@ -312,9 +393,150 @@ export const updateExamPeriod = async (req: Request, res: Response): Promise<Res
     throw new BadRequestError('End Date must be on or after Start Date');
   }
 
+  const oldStartKey = period.startDate ? examDateKey(period.startDate) : '';
+  const nextStartKey = nextStart ? examDateKey(nextStart) : '';
+  const startDateChanged = !!nextStartKey && nextStartKey !== oldStartKey;
+
+  // If the exam session's start date moves, keep the reusable timetable's
+  // Day 1 / Day 2 / ... pattern intact. We remap each existing scheduled
+  // date to the next allowed exam day under the current Scheduling Rules.
+  // This lets the same timetable be safely reused without hand-editing every cell.
+  let remappedExams = 0;
+  if (startDateChanged) {
+    remappedExams = await remapPeriodScheduleDates({
+      periodId: String(period._id),
+      schoolId,
+      newStartDate: new Date(nextStart),
+      newEndDate: nextEnd ? new Date(nextEnd) : null,
+    });
+  } else if (nextEnd) {
+    const afterEnd = await Exam.countDocuments({
+      period: period._id,
+      school: schoolId,
+      autoSchedule: { $ne: true },
+      status: { $ne: 'cancelled' },
+      examDate: { $gt: utcDateOnly(new Date(nextEnd)) },
+    });
+    if (afterEnd > 0) {
+      throw new BadRequestError(
+        'The new End Date is before one or more scheduled exam days. Move the Start Date or extend the End Date.'
+      );
+    }
+  }
+
   Object.assign(period, updates);
   await period.save();
-  return ApiResponse.success(res, period, 'Exam updated successfully');
+
+  if (updates.name) {
+    await Exam.updateMany(
+      { period: period._id, school: schoolId },
+      { $set: { title: updates.name } },
+    );
+  }
+
+  return ApiResponse.success(res, {
+    period,
+    remappedExams,
+  }, remappedExams
+    ? `Exam updated and ${remappedExams} scheduled exam(s) moved to the new date window`
+    : 'Exam updated successfully');
+};
+
+// POST /exams/periods/:periodId/duplicate — reuse the complete Grade × Shift
+// timetable in a new academic year. The new session starts as Draft; its
+// scheduled days are remapped in order to the current allowed exam weekdays.
+export const duplicateExamPeriod = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const source = await ExamPeriod.findOne({ _id: req.params.periodId, school: schoolId }).lean() as any;
+  if (!source) throw new NotFoundError('Exam');
+
+  const name = String(req.body?.name ?? source.name ?? '').trim();
+  const academicYear = String(req.body?.academicYear || '').trim();
+  const term = String(req.body?.term ?? source.term ?? '').trim();
+  const startDate = req.body?.startDate ? new Date(req.body.startDate) : null;
+  const endDate = req.body?.endDate ? new Date(req.body.endDate) : null;
+
+  if (!name) throw new BadRequestError('Exam name is required');
+  if (!academicYear) throw new BadRequestError('Academic Year is required');
+  if (!startDate || Number.isNaN(startDate.getTime())) throw new BadRequestError('Start Date is required');
+  if (endDate && Number.isNaN(endDate.getTime())) throw new BadRequestError('End Date is invalid');
+  if (endDate && endDate < startDate) throw new BadRequestError('End Date must be on or after Start Date');
+
+  const sourceExams = await Exam.find({
+    period: source._id,
+    school: schoolId,
+    autoSchedule: { $ne: true },
+    status: { $ne: 'cancelled' },
+  }).lean() as any[];
+
+  const sourceDateKeys = Array.from(new Set(
+    sourceExams.map((exam) => examDateKey(exam.examDate)).filter(Boolean)
+  )).sort();
+
+  const rules = await getExamSchedulingRulesForSchool(schoolId);
+  const targetDates = buildAllowedExamDates(
+    startDate,
+    rules.allowedExamDays,
+    sourceDateKeys.length,
+    endDate,
+  );
+  const dateMap = new Map<string, Date>(
+    sourceDateKeys.map((key, index) => [key, targetDates[index]])
+  );
+
+  let createdPeriod: any = null;
+  try {
+    createdPeriod = await ExamPeriod.create({
+      school: schoolId,
+      name,
+      academicYear,
+      term,
+      startDate,
+      endDate,
+      status: 'draft',
+      createdBy: req.user!.userId,
+    });
+
+    if (sourceExams.length) {
+      const clones = sourceExams.map((exam: any) => {
+        const sourceDate = examDateKey(exam.examDate);
+        return {
+          title: name,
+          course: exam.course,
+          school: schoolId,
+          period: createdPeriod._id,
+          examDate: sourceDate ? dateMap.get(sourceDate) || startDate : null,
+          startTime: exam.startTime,
+          endTime: exam.endTime,
+          duration: exam.duration,
+          totalMarks: exam.totalMarks,
+          passingMarks: exam.passingMarks,
+          room: exam.room || '',
+          instructions: exam.instructions || '',
+          status: 'scheduled',
+          autoSchedule: false,
+          milestone: exam.milestone,
+          createdBy: req.user!.userId,
+        };
+      });
+      await Exam.insertMany(clones);
+    }
+
+    return ApiResponse.created(res, {
+      period: createdPeriod,
+      copiedExams: sourceExams.length,
+      copiedDays: sourceDateKeys.length,
+    }, `${name} created from ${source.name}; ${sourceExams.length} scheduled exam(s) copied`);
+  } catch (error: any) {
+    if (createdPeriod?._id) {
+      await Exam.deleteMany({ period: createdPeriod._id, school: schoolId });
+      await ExamPeriod.deleteOne({ _id: createdPeriod._id, school: schoolId });
+    }
+    if (error?.code === 11000) {
+      throw new ConflictError('An exam with this name, academic year and term already exists');
+    }
+    throw error;
+  }
 };
 
 // POST /exams/schedule-grid — bulk-save editable cells from the rules-driven grid.
