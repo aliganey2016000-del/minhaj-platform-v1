@@ -1229,10 +1229,6 @@ function ExamTimetableCell({
           <div className="mt-1 break-words text-[10px] font-semibold leading-4 text-primary-800/80 dark:text-primary-200/80 sm:text-xs">
             {examTeacherLabel(exam)}
           </div>
-          <div className="mt-2 flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] font-medium text-[var(--color-text-tertiary)] sm:text-[10px]">
-            <span>{exam.startTime || '—'}{exam.endTime ? ` – ${exam.endTime}` : ''}</span>
-            {exam.room && <span>· {exam.room}</span>}
-          </div>
         </button>
       ))}
     </div>
@@ -1351,7 +1347,7 @@ function ExamTimetable({
           <div>
             <h2 className="font-bold text-[var(--color-text-primary)]">Exam Timetable</h2>
             <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">
-              Grades are rows. Exam sessions are shown as Shift 1, Break and Shift 2.
+              Grades are rows. The three schedule columns are Shift 1, Break and Shift 2.
             </p>
           </div>
 
@@ -1419,28 +1415,30 @@ function ExamTimetable({
           <table className="w-full min-w-[720px] table-fixed border-collapse text-xs sm:text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 z-20 w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)] sm:w-52">
-                  Grade / Class
+                <th
+                  scope="col"
+                  aria-label="Grade / Class"
+                  className="sticky left-0 z-20 w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 sm:w-52"
+                >
+                  <span className="sr-only">Grade / Class</span>
                 </th>
-                <th className="border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-center">
-                  <div className="font-extrabold text-[var(--color-text-primary)]">Shift 1</div>
-                  <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">First Exam</div>
+                <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
+                  <div className="font-extrabold text-emerald-700 dark:text-emerald-300">Shift 1</div>
                 </th>
                 <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-3 py-3 text-center dark:bg-amber-950/20">
                   <div className="font-extrabold text-amber-700 dark:text-amber-300">Break</div>
                 </th>
-                <th className="border-b border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-center">
-                  <div className="font-extrabold text-[var(--color-text-primary)]">Shift 2</div>
-                  <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">Second Exam</div>
+                <th className="border-b border-[var(--color-border-default)] bg-sky-50 px-3 py-3 text-center dark:bg-sky-950/20">
+                  <div className="font-extrabold text-sky-700 dark:text-sky-300">Shift 2</div>
                 </th>
               </tr>
             </thead>
             <tbody>
               {dayRows.map((row) => (
                 <tr key={row.id}>
-                  <td className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                  <th scope="row" className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                     <div className="font-extrabold text-[var(--color-text-primary)]">{row.label}</div>
-                  </td>
+                  </th>
                   <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
                     <ExamTimetableCell exams={row.shift1} onOpen={onOpen} />
                   </td>
@@ -1463,16 +1461,14 @@ function ExamTimetable({
                 <th className="sticky left-0 z-20 w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)] sm:w-52">
                   Exam Date
                 </th>
-                <th className="border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-center">
-                  <div className="font-extrabold text-[var(--color-text-primary)]">Shift 1</div>
-                  <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">First Exam</div>
+                <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
+                  <div className="font-extrabold text-emerald-700 dark:text-emerald-300">Shift 1</div>
                 </th>
                 <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-3 py-3 text-center dark:bg-amber-950/20">
                   <div className="font-extrabold text-amber-700 dark:text-amber-300">Break</div>
                 </th>
-                <th className="border-b border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-center">
-                  <div className="font-extrabold text-[var(--color-text-primary)]">Shift 2</div>
-                  <div className="mt-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">Second Exam</div>
+                <th className="border-b border-[var(--color-border-default)] bg-sky-50 px-3 py-3 text-center dark:bg-sky-950/20">
+                  <div className="font-extrabold text-sky-700 dark:text-sky-300">Shift 2</div>
                 </th>
               </tr>
             </thead>
