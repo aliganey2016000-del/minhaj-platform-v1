@@ -385,7 +385,9 @@ export const assign = async (req: Request, res: Response): Promise<Response> => 
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
 
+  if (!saved) throw new BadRequestError('Could not save invigilator assignment');
   const populated = await populateAssignment(String(saved._id));
+  if (!populated) throw new NotFoundError('Invigilation assignment');
   return ApiResponse.success(res, populated, `${teacherName(populated.teacher)} assigned to ${populated.room?.name || 'room'}`);
 };
 
