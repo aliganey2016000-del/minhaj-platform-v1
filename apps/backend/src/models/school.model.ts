@@ -73,6 +73,7 @@ export interface IExamSchedulingRules {
   durationValidation: boolean;
   examShiftCount: number;
   examShifts: IExamShiftRule[];
+  allowedExamDays: number[];
 }
 
 export interface ISchool extends Document {
@@ -170,6 +171,17 @@ const examSchedulingRulesSchema = new Schema<IExamSchedulingRules>(
         { name: 'Shift 1', startTime: '08:00', endTime: '10:00' },
         { name: 'Shift 2', startTime: '10:30', endTime: '12:30' },
       ],
+    },
+    allowedExamDays: {
+      type: [Number],
+      default: () => [0, 1, 2, 3, 4, 5, 6],
+      validate: {
+        validator: (days: number[]) =>
+          Array.isArray(days) &&
+          days.length >= 1 &&
+          days.every((day) => Number.isInteger(day) && day >= 0 && day <= 6),
+        message: 'At least one valid exam day must be selected',
+      },
     },
   },
   { _id: false }
