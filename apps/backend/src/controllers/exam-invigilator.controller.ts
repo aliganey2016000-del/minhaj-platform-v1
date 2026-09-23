@@ -106,7 +106,7 @@ async function loadAccessibleAssignment(req: Request, assignmentId: string) {
 
 async function sessionExams(assignment: any) {
   const { start, end } = dayBounds(assignment.examDate);
-  return Exam.find({
+  return await Exam.find({
     school: assignment.school,
     period: assignment.period,
     autoSchedule: { $ne: true },
@@ -458,13 +458,13 @@ export const markAttendance = async (req: Request, res: Response): Promise<Respo
     }
   }
 
-  const pairs = records.map((record: any) => ({
+  const pairs: Array<{ student: string; exam: string }> = records.map((record: any) => ({
     student: String(record.student),
     exam: allowed.get(String(record.student))!,
   }));
 
   const existing = await ExamAttendance.find({
-    $or: pairs.map(pair => ({ exam: pair.exam, student: pair.student })),
+    $or: pairs.map((pair: { student: string; exam: string }) => ({ exam: pair.exam, student: pair.student })),
   }).select('exam student status notes').lean() as any[];
 
   const existingMap = new Map(
@@ -495,7 +495,7 @@ export const markAttendance = async (req: Request, res: Response): Promise<Respo
   await ExamAttendance.bulkWrite(ops);
 
   const updated = await ExamAttendance.find({
-    $or: pairs.map(pair => ({ exam: pair.exam, student: pair.student })),
+    $or: pairs.map((pair: { student: string; exam: string }) => ({ exam: pair.exam, student: pair.student })),
   }).select('_id exam student').lean() as any[];
   const updatedMap = new Map(updated.map(row => [`${row.exam}::${row.student}`, row._id]));
 
