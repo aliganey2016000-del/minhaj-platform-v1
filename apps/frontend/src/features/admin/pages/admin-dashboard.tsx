@@ -348,8 +348,8 @@ export function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--color-surface-secondary)] px-3 pb-28 pt-4 sm:px-6 sm:pt-6 lg:px-8 lg:pb-10 lg:pt-8">
-      <div className="mx-auto max-w-6xl space-y-5 sm:space-y-6">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[var(--color-surface-secondary)] px-3 pb-28 pt-4 sm:px-6 sm:pt-6 lg:px-8 lg:pb-10 lg:pt-8">
+      <div className="mx-auto w-full max-w-6xl min-w-0 space-y-5 sm:space-y-6">
         <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -364,7 +364,7 @@ export function AdminDashboard() {
         </section>
 
         {canQuickAct && (
-          <section className="grid grid-cols-4 gap-2.5 sm:gap-4">
+          <section className="grid min-w-0 grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-4">
             <QuickAction icon={UserPlus} label="New Student" tone="blue" onClick={() => navigate('/admin/students', { state: { openCreate: true } })} />
             <QuickAction icon={DollarSign} label="Collect Fee" tone="green" onClick={() => navigate('/admin/payments/record')} />
             <QuickAction icon={CalendarCheck} label="Attendance" tone="purple" onClick={() => navigate('/admin/attendance')} />
