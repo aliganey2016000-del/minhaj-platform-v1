@@ -6,14 +6,17 @@ import mongoose from 'mongoose';
 import School from '../models/school.model';
 import WebsiteConfig, {
   WebsiteCard,
+  WebsiteLanguage,
   WebsiteLink,
   WebsitePage,
   WebsiteSection,
   WebsiteSectionType,
   WebsiteSiteDocument,
 } from '../models/website-config.model';
+import WebsiteVersion from '../models/website-version.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
+import { deleteFromR2, getFromR2, r2Enabled, uploadToR2, websiteMediaProxyUrl } from '../utils/r2-storage';
 
 const SECTION_TYPES = new Set<WebsiteSectionType>([
   'hero', 'about', 'services', 'programs', 'stats', 'gallery',
@@ -23,26 +26,27 @@ const BACKGROUNDS = new Set(['default', 'muted', 'primary', 'dark']);
 const ALIGNMENTS = new Set(['left', 'center']);
 const BUTTON_STYLES = new Set(['rounded', 'pill', 'square']);
 const CARD_STYLES = new Set(['soft', 'bordered', 'flat']);
-const SITE_MAX_BYTES = 2 * 1024 * 1024;
+const LANGUAGE_DIRECTIONS = new Set(['ltr', 'rtl']);
+const SITE_MAX_BYTES = 3 * 1024 * 1024;
 
-const text = (value: unknown, max = 5000, fallback = ''): string =>
+export const cleanText = (value: unknown, max = 5000, fallback = ''): string =>
   typeof value === 'string' ? value.trim().slice(0, max) : fallback;
 const bool = (value: unknown, fallback = true): boolean =>
   typeof value === 'boolean' ? value : fallback;
 const id = (value: unknown, prefix: string): string => {
-  const cleaned = text(value, 80).replace(/[^a-zA-Z0-9_-]/g, '');
+  const cleaned = cleanText(value, 80).replace(/[^a-zA-Z0-9_-]/g, '');
   return cleaned || `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 };
 const color = (value: unknown, fallback: string): string => {
-  const candidate = text(value, 20);
+  const candidate = cleanText(value, 20);
   return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(candidate) ? candidate : fallback;
 };
 
 function normalizeLink(value: any, prefix: string): WebsiteLink {
   return {
     id: id(value?.id, prefix),
-    label: text(value?.label, 80, 'Link'),
-    href: text(value?.href, 2048, '#'),
+    label: cleanText(value?.label, 80, 'Link'),
+    href: cleanText(value?.href, 2048, '#'),
     visible: bool(value?.visible, true),
   };
 }
@@ -50,33 +54,33 @@ function normalizeLink(value: any, prefix: string): WebsiteLink {
 function normalizeCard(value: any, prefix: string): WebsiteCard {
   return {
     id: id(value?.id, prefix),
-    title: text(value?.title, 160),
-    text: text(value?.text, 4000),
-    value: text(value?.value, 80),
-    icon: text(value?.icon, 50),
-    imageUrl: text(value?.imageUrl, 2048),
-    link: text(value?.link, 2048),
-    question: text(value?.question, 500),
-    answer: text(value?.answer, 4000),
+    title: cleanText(value?.title, 160),
+    text: cleanText(value?.text, 4000),
+    value: cleanText(value?.value, 80),
+    icon: cleanText(value?.icon, 50),
+    imageUrl: cleanText(value?.imageUrl, 2048),
+    link: cleanText(value?.link, 2048),
+    question: cleanText(value?.question, 500),
+    answer: cleanText(value?.answer, 4000),
   };
 }
 
 function normalizeSection(value: any, index: number): WebsiteSection {
-  const requestedType = text(value?.type, 30) as WebsiteSectionType;
+  const requestedType = cleanText(value?.type, 30) as WebsiteSectionType;
   const type: WebsiteSectionType = SECTION_TYPES.has(requestedType) ? requestedType : 'custom';
-  const requestedBackground = text(value?.background, 20);
-  const requestedAlignment = text(value?.alignment, 20);
+  const requestedBackground = cleanText(value?.background, 20);
+  const requestedAlignment = cleanText(value?.alignment, 20);
   return {
     id: id(value?.id, `section${index + 1}`),
     type,
-    title: text(value?.title, 240),
-    subtitle: text(value?.subtitle, 500),
-    body: text(value?.body, 12000),
-    imageUrl: text(value?.imageUrl, 2048),
-    videoUrl: text(value?.videoUrl, 2048),
-    icon: text(value?.icon, 50),
-    buttonText: text(value?.buttonText, 80),
-    buttonUrl: text(value?.buttonUrl, 2048),
+    title: cleanText(value?.title, 240),
+    subtitle: cleanText(value?.subtitle, 500),
+    body: cleanText(value?.body, 12000),
+    imageUrl: cleanText(value?.imageUrl, 2048),
+    videoUrl: cleanText(value?.videoUrl, 2048),
+    icon: cleanText(value?.icon, 50),
+    buttonText: cleanText(value?.buttonText, 80),
+    buttonUrl: cleanText(value?.buttonUrl, 2048),
     background: (BACKGROUNDS.has(requestedBackground) ? requestedBackground : 'default') as WebsiteSection['background'],
     alignment: (ALIGNMENTS.has(requestedAlignment) ? requestedAlignment : 'left') as WebsiteSection['alignment'],
     visible: bool(value?.visible, true),
@@ -87,7 +91,7 @@ function normalizeSection(value: any, index: number): WebsiteSection {
 }
 
 function normalizeSlug(raw: unknown, index: number): string {
-  const candidate = text(raw, 80).toLowerCase().replace(/^\/+|\/+$/g, '');
+  const candidate = cleanText(raw, 80).toLowerCase().replace(/^\/+|\/+$/g, '');
   if (!candidate || candidate === 'home') return index === 0 ? '' : `page-${index + 1}`;
   const cleaned = candidate.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
   return cleaned || `page-${index + 1}`;
@@ -96,24 +100,60 @@ function normalizeSlug(raw: unknown, index: number): string {
 function normalizePage(value: any, index: number): WebsitePage {
   return {
     id: id(value?.id, `page${index + 1}`),
-    title: text(value?.title, 160, index === 0 ? 'Home' : `Page ${index + 1}`),
+    title: cleanText(value?.title, 160, index === 0 ? 'Home' : `Page ${index + 1}`),
     slug: normalizeSlug(value?.slug, index),
     showInNavigation: bool(value?.showInNavigation, true),
-    seoTitle: text(value?.seoTitle, 180),
-    seoDescription: text(value?.seoDescription, 500),
+    seoTitle: cleanText(value?.seoTitle, 180),
+    seoDescription: cleanText(value?.seoDescription, 500),
     sections: Array.isArray(value?.sections)
       ? value.sections.slice(0, 50).map((section: any, sectionIndex: number) => normalizeSection(section, sectionIndex))
       : [],
   };
 }
 
-function normalizeSite(raw: any, school: any): WebsiteSiteDocument {
+function normalizeLanguages(raw: any): WebsiteLanguage[] {
+  const source = Array.isArray(raw) ? raw.slice(0, 8) : [];
+  const seen = new Set<string>();
+  const items: WebsiteLanguage[] = [];
+  for (const item of source) {
+    const code = cleanText(item?.code, 12).toLowerCase().replace(/[^a-z-]/g, '');
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    const direction = cleanText(item?.direction, 3) as 'ltr' | 'rtl';
+    items.push({
+      code,
+      label: cleanText(item?.label, 60, code.toUpperCase()),
+      direction: LANGUAGE_DIRECTIONS.has(direction) ? direction : 'ltr',
+      enabled: bool(item?.enabled, true),
+    });
+  }
+  if (!items.length) items.push({ code: 'en', label: 'English', direction: 'ltr', enabled: true });
+  return items;
+}
+
+function normalizeTranslations(raw: any, languages: WebsiteLanguage[]): Record<string, Record<string, string>> {
+  const result: Record<string, Record<string, string>> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return result;
+  const allowed = new Set(languages.map((language) => language.code));
+  for (const [language, entries] of Object.entries(raw)) {
+    if (!allowed.has(language) || !entries || typeof entries !== 'object' || Array.isArray(entries)) continue;
+    const translated: Record<string, string> = {};
+    for (const [key, value] of Object.entries(entries as Record<string, unknown>).slice(0, 1000)) {
+      const safeKey = cleanText(key, 180).replace(/[^a-zA-Z0-9_.:-]/g, '');
+      if (safeKey && typeof value === 'string') translated[safeKey] = value.trim().slice(0, 12000);
+    }
+    result[language] = translated;
+  }
+  return result;
+}
+
+export function normalizeSite(raw: any, school: any): WebsiteSiteDocument {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new BadRequestError('Website content must be an object.');
   }
   const rawBytes = Buffer.byteLength(JSON.stringify(raw), 'utf8');
   if (rawBytes > SITE_MAX_BYTES) {
-    throw new BadRequestError('Website content is too large. Keep the draft under 2 MB (media files should be uploaded separately).');
+    throw new BadRequestError('Website content is too large. Keep the draft under 3 MB (media files should be uploaded separately).');
   }
 
   const pagesInput = Array.isArray(raw.pages) && raw.pages.length ? raw.pages.slice(0, 30) : buildDefaultSite(school).pages;
@@ -130,55 +170,74 @@ function normalizeSite(raw: any, school: any): WebsiteSiteDocument {
   const footer = raw.footer || {};
   const theme = raw.theme || {};
   const seo = raw.seo || {};
+  const settings = raw.settings || {};
+  const languages = normalizeLanguages(raw.languages);
+  const defaultLanguageCandidate = cleanText(raw.defaultLanguage, 12).toLowerCase();
+  const defaultLanguage = languages.some((language) => language.code === defaultLanguageCandidate && language.enabled)
+    ? defaultLanguageCandidate
+    : languages.find((language) => language.enabled)?.code || languages[0].code;
 
   return {
     header: {
-      logoUrl: text(header.logoUrl, 2048),
+      logoUrl: cleanText(header.logoUrl, 2048),
       showOrganizationName: bool(header.showOrganizationName, true),
       sticky: bool(header.sticky, true),
       navItems: Array.isArray(header.navItems)
-        ? header.navItems.slice(0, 20).map((link: any, index: number) => normalizeLink(link, `nav${index + 1}`))
+        ? header.navItems.slice(0, 30).map((link: any, index: number) => normalizeLink(link, `nav${index + 1}`))
         : [],
-      ctaText: text(header.ctaText, 80, 'Portal Login'),
-      ctaUrl: text(header.ctaUrl, 2048, '/auth/login'),
+      ctaText: cleanText(header.ctaText, 80, 'Portal Login'),
+      ctaUrl: cleanText(header.ctaUrl, 2048, '/auth/login'),
     },
     pages,
     footer: {
-      description: text(footer.description, 2500, `Welcome to ${school.name}.`),
-      address: text(footer.address, 500, school.address || ''),
-      phone: text(footer.phone, 80, school.phone || ''),
-      email: text(footer.email, 160, school.email || ''),
+      description: cleanText(footer.description, 2500, `Welcome to ${school.name}.`),
+      address: cleanText(footer.address, 500, school.address || ''),
+      phone: cleanText(footer.phone, 80, school.phone || ''),
+      email: cleanText(footer.email, 160, school.email || ''),
       quickLinks: Array.isArray(footer.quickLinks)
-        ? footer.quickLinks.slice(0, 20).map((link: any, index: number) => normalizeLink(link, `footer${index + 1}`))
+        ? footer.quickLinks.slice(0, 30).map((link: any, index: number) => normalizeLink(link, `footer${index + 1}`))
         : [],
       socials: Array.isArray(footer.socials)
-        ? footer.socials.slice(0, 12).map((link: any, index: number) => normalizeLink(link, `social${index + 1}`))
+        ? footer.socials.slice(0, 20).map((link: any, index: number) => normalizeLink(link, `social${index + 1}`))
         : [],
-      copyright: text(footer.copyright, 300, `© ${new Date().getFullYear()} ${school.name}. All rights reserved.`),
+      copyright: cleanText(footer.copyright, 300, `© ${new Date().getFullYear()} ${school.name}. All rights reserved.`),
     },
     theme: {
       primaryColor: color(theme.primaryColor, school.branding?.themeColor || '#0d9488'),
       secondaryColor: color(theme.secondaryColor, '#0f172a'),
       accentColor: color(theme.accentColor, '#f59e0b'),
-      fontFamily: text(theme.fontFamily, 120, 'Inter, ui-sans-serif, system-ui, sans-serif'),
-      buttonStyle: (BUTTON_STYLES.has(text(theme.buttonStyle, 20)) ? text(theme.buttonStyle, 20) : 'rounded') as WebsiteSiteDocument['theme']['buttonStyle'],
-      cardStyle: (CARD_STYLES.has(text(theme.cardStyle, 20)) ? text(theme.cardStyle, 20) : 'soft') as WebsiteSiteDocument['theme']['cardStyle'],
+      fontFamily: cleanText(theme.fontFamily, 120, 'Inter, ui-sans-serif, system-ui, sans-serif'),
+      buttonStyle: (BUTTON_STYLES.has(cleanText(theme.buttonStyle, 20)) ? cleanText(theme.buttonStyle, 20) : 'rounded') as WebsiteSiteDocument['theme']['buttonStyle'],
+      cardStyle: (CARD_STYLES.has(cleanText(theme.cardStyle, 20)) ? cleanText(theme.cardStyle, 20) : 'soft') as WebsiteSiteDocument['theme']['cardStyle'],
     },
     seo: {
-      siteTitle: text(seo.siteTitle, 180, school.name),
-      description: text(seo.description, 500, `${school.name} official website`),
-      keywords: text(seo.keywords, 800),
-      ogImage: text(seo.ogImage, 2048),
+      siteTitle: cleanText(seo.siteTitle, 180, school.name),
+      description: cleanText(seo.description, 500, `${school.name} official website`),
+      keywords: cleanText(seo.keywords, 800),
+      ogImage: cleanText(seo.ogImage, 2048),
     },
+    settings: {
+      contactFormEnabled: bool(settings.contactFormEnabled, true),
+      analyticsEnabled: bool(settings.analyticsEnabled, true),
+    },
+    defaultLanguage,
+    languages,
+    translations: normalizeTranslations(raw.translations, languages),
     media: Array.isArray(raw.media)
-      ? raw.media.slice(0, 200).map((item: any, index: number) => ({
+      ? raw.media.slice(0, 400).map((item: any, index: number) => ({
           id: id(item?.id, `media${index + 1}`),
-          name: text(item?.name, 160, `Media ${index + 1}`),
-          type: ['image', 'video', 'document'].includes(text(item?.type, 20))
-            ? text(item?.type, 20) as 'image' | 'video' | 'document'
+          name: cleanText(item?.name, 160, `Media ${index + 1}`),
+          type: ['image', 'video', 'document'].includes(cleanText(item?.type, 20))
+            ? cleanText(item?.type, 20) as 'image' | 'video' | 'document'
             : 'image',
-          url: text(item?.url, 2048),
-          alt: text(item?.alt, 300),
+          url: cleanText(item?.url, 2048),
+          alt: cleanText(item?.alt, 300),
+          storageKey: cleanText(item?.storageKey, 1024),
+          storageProvider: ['r2', 'local'].includes(cleanText(item?.storageProvider, 12))
+            ? cleanText(item?.storageProvider, 12) as 'r2' | 'local'
+            : undefined,
+          mimeType: cleanText(item?.mimeType, 120),
+          size: Number.isFinite(Number(item?.size)) ? Math.max(0, Math.min(Number(item.size), 100 * 1024 * 1024)) : undefined,
         }))
       : [],
   };
@@ -268,13 +327,21 @@ export function buildDefaultSite(school: any): WebsiteSiteDocument {
       keywords: 'education, learning, students',
       ogImage: school.branding?.logo || '',
     },
+    settings: { contactFormEnabled: true, analyticsEnabled: true },
+    defaultLanguage: 'en',
+    languages: [
+      { code: 'en', label: 'English', direction: 'ltr', enabled: true },
+      { code: 'so', label: 'Somali', direction: 'ltr', enabled: false },
+      { code: 'ar', label: 'العربية', direction: 'rtl', enabled: false },
+    ],
+    translations: {},
     media: [],
   };
 }
 
-async function getManagedSchool(req: Request, requestedSchoolId?: unknown): Promise<any> {
+export async function getManagedSchool(req: Request, requestedSchoolId?: unknown): Promise<any> {
   if (!req.user) throw new ForbiddenError('Authentication required.');
-  let schoolId = text(requestedSchoolId, 80);
+  let schoolId = cleanText(requestedSchoolId, 80);
 
   if (req.user.role === 'org_admin') {
     if (!req.user.organizationId) throw new ForbiddenError('No organization is linked to this account.');
@@ -288,12 +355,12 @@ async function getManagedSchool(req: Request, requestedSchoolId?: unknown): Prom
     throw new BadRequestError('Select a valid organization.');
   }
 
-  const school = await School.findById(schoolId).select('name slug subdomain customDomain branding address phone email status').lean();
+  const school = await School.findById(schoolId).select('name slug subdomain customDomain branding address phone email status institutionType').lean();
   if (!school) throw new NotFoundError('Organization');
   return school;
 }
 
-function schoolSummary(school: any) {
+export function schoolSummary(school: any) {
   return {
     _id: school._id,
     name: school.name,
@@ -304,6 +371,7 @@ function schoolSummary(school: any) {
     address: school.address || '',
     phone: school.phone || '',
     email: school.email || '',
+    institutionType: school.institutionType || 'school',
   };
 }
 
@@ -327,11 +395,12 @@ export async function getWebsiteConfig(req: Request, res: Response): Promise<Res
   const currentConfig = config!;
   return ApiResponse.success(res, {
     school: schoolSummary(school),
-    draft: currentConfig.draft,
+    draft: normalizeSite(currentConfig.draft, school),
     isPublished: currentConfig.isPublished,
     publishedAt: currentConfig.publishedAt || null,
     version: currentConfig.version || 1,
     updatedAt: currentConfig.updatedAt,
+    storage: { provider: r2Enabled ? 'r2' : 'local', durable: r2Enabled },
   });
 }
 
@@ -372,6 +441,20 @@ export async function publishWebsite(req: Request, res: Response): Promise<Respo
   config.updatedBy = new mongoose.Types.ObjectId(req.user!.userId);
   config.version += 1;
   await config.save();
+
+  await WebsiteVersion.findOneAndUpdate(
+    { school: school._id, version: config.version },
+    {
+      $setOnInsert: {
+        school: school._id,
+        version: config.version,
+        site: config.published,
+        publishedBy: req.user!.userId,
+        note: cleanText(req.body?.note, 300),
+      },
+    },
+    { upsert: true, new: true },
+  );
 
   return ApiResponse.success(res, {
     isPublished: true,
@@ -433,18 +516,28 @@ export async function uploadWebsiteMedia(req: Request, res: Response): Promise<R
   const extension = MEDIA_EXTENSIONS[req.file.mimetype];
   if (!extension) throw new BadRequestError('Unsupported media type. Use JPG, PNG, WEBP, GIF, MP4, WEBM, or PDF.');
 
-  const directory = path.resolve(process.cwd(), 'uploads', 'organization-websites', String(school._id));
-  fs.mkdirSync(directory, { recursive: true });
-  const filename = `${Date.now()}-${crypto.randomUUID()}${extension}`;
-  fs.writeFileSync(path.join(directory, filename), req.file.buffer);
-
-  const baseUrl = String(process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-  const url = `${baseUrl}/uploads/organization-websites/${school._id}/${filename}`;
   const mediaType = req.file.mimetype.startsWith('image/')
     ? 'image'
     : req.file.mimetype.startsWith('video/')
       ? 'video'
       : 'document';
+
+  const filename = `${Date.now()}-${crypto.randomUUID()}${extension}`;
+  const storageKey = `organization-websites/${school._id}/${filename}`;
+  let url = '';
+  let storageProvider: 'r2' | 'local' = 'local';
+
+  if (r2Enabled) {
+    await uploadToR2(storageKey, req.file.buffer, req.file.mimetype);
+    url = websiteMediaProxyUrl(String(school._id), storageKey);
+    storageProvider = 'r2';
+  } else {
+    const directory = path.resolve(process.cwd(), 'uploads', 'organization-websites', String(school._id));
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, filename), req.file.buffer);
+    const baseUrl = String(process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    url = `${baseUrl}/uploads/organization-websites/${school._id}/${filename}`;
+  }
 
   return ApiResponse.success(res, {
     id: `media-${crypto.randomUUID().slice(0, 12)}`,
@@ -452,7 +545,61 @@ export async function uploadWebsiteMedia(req: Request, res: Response): Promise<R
     type: mediaType,
     url,
     alt: '',
-  }, 'Media uploaded.');
+    storageKey,
+    storageProvider,
+    mimeType: req.file.mimetype,
+    size: req.file.size,
+  }, r2Enabled ? 'Media uploaded to Cloudflare R2.' : 'Media uploaded to local storage.');
+}
+
+export async function deleteWebsiteMedia(req: Request, res: Response): Promise<Response> {
+  const school = await getManagedSchool(req, req.body?.schoolId || req.query.schoolId);
+  const mediaId = cleanText(req.params.mediaId, 120);
+  const config = await WebsiteConfig.findOne({ school: school._id });
+  if (!config) throw new NotFoundError('Website configuration');
+
+  const draft = normalizeSite(config.draft, school);
+  const media = draft.media.find((item) => item.id === mediaId);
+  if (!media) throw new NotFoundError('Media item');
+
+  if (media.storageProvider === 'r2' && media.storageKey && r2Enabled) {
+    await deleteFromR2(media.storageKey);
+  } else if (media.storageKey && media.storageProvider === 'local') {
+    const root = path.resolve(process.cwd(), 'uploads');
+    const target = path.resolve(process.cwd(), 'uploads', media.storageKey);
+    if (target.startsWith(root + path.sep) && fs.existsSync(target)) fs.unlinkSync(target);
+  }
+
+  draft.media = draft.media.filter((item) => item.id !== mediaId);
+  config.draft = draft;
+  config.updatedBy = new mongoose.Types.ObjectId(req.user!.userId);
+  config.version += 1;
+  await config.save();
+
+  return ApiResponse.success(res, { media: draft.media, version: config.version }, 'Media deleted.');
+}
+
+export async function getPublicMedia(req: Request, res: Response): Promise<void> {
+  const schoolId = cleanText(req.params.schoolId, 80);
+  const key = cleanText(req.query.key, 1024);
+  if (!mongoose.Types.ObjectId.isValid(schoolId) || !key || !key.startsWith(`organization-websites/${schoolId}/`)) {
+    throw new BadRequestError('Invalid media request.');
+  }
+
+  const config = await WebsiteConfig.findOne({ school: schoolId }).select('draft published isPublished').lean();
+  if (!config) throw new NotFoundError('Website media');
+  const allMedia = [
+    ...((config.published as any)?.media || []),
+    ...((config.draft as any)?.media || []),
+  ];
+  const media = allMedia.find((item: any) => item?.storageKey === key);
+  if (!media) throw new NotFoundError('Website media');
+
+  if (media.storageProvider !== 'r2' || !r2Enabled) throw new NotFoundError('R2 media');
+  const object = await getFromR2(key);
+  res.set('Content-Type', media.mimeType || object.contentType || 'application/octet-stream');
+  res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+  res.send(object.body);
 }
 
 export async function getPublicWebsite(req: Request, res: Response): Promise<Response> {
@@ -461,7 +608,7 @@ export async function getPublicWebsite(req: Request, res: Response): Promise<Res
   }
 
   const school = await School.findOne({ slug: req.tenant.slug, status: 'active' })
-    .select('name slug subdomain customDomain branding address phone email')
+    .select('name slug subdomain customDomain branding address phone email institutionType')
     .lean();
   if (!school) throw new NotFoundError('Organization');
 
@@ -472,7 +619,7 @@ export async function getPublicWebsite(req: Request, res: Response): Promise<Res
   return ApiResponse.success(res, {
     isMainSite: false,
     school: schoolSummary(school),
-    site: config?.published || null,
+    site: config?.published ? normalizeSite(config.published, school) : null,
     publishedAt: config?.publishedAt || null,
     version: config?.version || 0,
   });

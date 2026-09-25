@@ -72,6 +72,17 @@ export interface WebsiteMediaItem {
   type: 'image' | 'video' | 'document';
   url: string;
   alt: string;
+  storageKey?: string;
+  storageProvider?: 'r2' | 'local';
+  mimeType?: string;
+  size?: number;
+}
+
+export interface WebsiteLanguage {
+  code: string;
+  label: string;
+  direction: 'ltr' | 'rtl';
+  enabled: boolean;
 }
 
 export interface WebsiteSiteDocument {
@@ -107,6 +118,13 @@ export interface WebsiteSiteDocument {
     keywords: string;
     ogImage: string;
   };
+  settings: {
+    contactFormEnabled: boolean;
+    analyticsEnabled: boolean;
+  };
+  defaultLanguage: string;
+  languages: WebsiteLanguage[];
+  translations: Record<string, Record<string, string>>;
   media: WebsiteMediaItem[];
 }
 

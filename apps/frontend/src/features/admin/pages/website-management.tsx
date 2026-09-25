@@ -18,8 +18,13 @@ import {
   type WebsiteSectionType,
   type WebsiteSiteDocument,
 } from '../../../components/website/website-renderer';
+import {
+  ADVANCED_WEBSITE_TABS,
+  WebsiteAdvancedPanel,
+  type AdvancedWebsiteTab,
+} from './website-management-advanced';
 
-type TabKey = 'pages' | 'header' | 'sections' | 'media' | 'theme' | 'footer' | 'seo' | 'preview';
+type TabKey = 'pages' | 'header' | 'sections' | 'media' | 'theme' | 'footer' | 'seo' | 'preview' | AdvancedWebsiteTab;
 
 interface SchoolOption extends WebsiteOrganization {
   _id: string;
@@ -33,6 +38,7 @@ interface ConfigResponse {
   publishedAt?: string | null;
   version: number;
   updatedAt?: string;
+  storage?: { provider: 'r2' | 'local'; durable: boolean };
 }
 
 const TABS: Array<{ key: TabKey; label: string; icon: any }> = [
@@ -43,6 +49,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: any }> = [
   { key: 'theme', label: 'Theme', icon: Palette },
   { key: 'footer', label: 'Footer', icon: LayoutTemplate },
   { key: 'seo', label: 'SEO', icon: Search },
+  ...ADVANCED_WEBSITE_TABS,
   { key: 'preview', label: 'Preview', icon: Eye },
 ];
 
@@ -135,6 +142,43 @@ function newPage(index: number): WebsitePage {
   };
 }
 
+async function optimizeImageFile(file: File): Promise<File> {
+  if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.size < 450 * 1024) return file;
+  return new Promise((resolve) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      const maxDimension = 1920;
+      const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+      const width = Math.max(1, Math.round(image.width * scale));
+      const height = Math.max(1, Math.round(image.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+        return;
+      }
+      context.drawImage(image, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(objectUrl);
+        if (!blob || blob.size >= file.size) {
+          resolve(file);
+          return;
+        }
+        resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.webp'), { type: 'image/webp', lastModified: Date.now() }));
+      }, 'image/webp', 0.82);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+    image.src = objectUrl;
+  });
+}
+
 function LinkEditor({ items, onChange, title }: { items: WebsiteLink[]; onChange: (items: WebsiteLink[]) => void; title: string }) {
   const update = (index: number, patch: Partial<WebsiteLink>) => onChange(items.map((item, i) => i === index ? { ...item, ...patch } : item));
   return (
@@ -203,6 +247,7 @@ export function WebsiteManagement() {
   const [isPublished, setIsPublished] = useState(false);
   const [publishedAt, setPublishedAt] = useState<string | null>(null);
   const [version, setVersion] = useState(1);
+  const [storageProvider, setStorageProvider] = useState<'r2' | 'local'>('local');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -240,6 +285,7 @@ export function WebsiteManagement() {
       setIsPublished(config.isPublished);
       setPublishedAt(config.publishedAt || null);
       setVersion(config.version || 1);
+      setStorageProvider(config.storage?.provider || 'local');
       setActivePageId(config.draft.pages[0]?.id || '');
       setActiveSectionId(config.draft.pages[0]?.sections[0]?.id || '');
     } catch (err: any) {
@@ -329,10 +375,31 @@ export function WebsiteManagement() {
   const addPage = () => {
     if (!site) return;
     const page = newPage(site.pages.length);
-    updateSite((current) => ({ ...current, pages: [...current.pages, page] }));
+    updateSite((current) => ({
+      ...current,
+      pages: [...current.pages, page],
+      header: {
+        ...current.header,
+        navItems: [...current.header.navItems, { id: makeId('nav'), label: page.title, href: `/${page.slug}`, visible: true }],
+      },
+    }));
     setActivePageId(page.id);
     setActiveSectionId(page.sections[0]?.id || '');
     setTab('pages');
+  };
+
+  const syncNavigation = () => {
+    if (!site) return;
+    updateSite((current) => {
+      const pageLinks = current.pages.filter((page) => page.showInNavigation).map((page) => {
+        const href = page.slug ? `/${page.slug}` : '/';
+        const existing = current.header.navItems.find((item) => item.href === href);
+        return existing ? { ...existing, label: page.title, visible: true } : { id: makeId('nav'), label: page.title, href, visible: true };
+      });
+      const nonPageLinks = current.header.navItems.filter((item) => !current.pages.some((page) => item.href === (page.slug ? `/${page.slug}` : '/')));
+      return { ...current, header: { ...current.header, navItems: [...pageLinks, ...nonPageLinks] } };
+    });
+    setNotice({ type: 'success', text: 'Header navigation synced with visible pages.' });
   };
 
   const deletePage = (page: WebsitePage) => {
@@ -372,19 +439,40 @@ export function WebsiteManagement() {
     setUploading(true);
     setNotice(null);
     try {
+      const optimized = await optimizeImageFile(file);
       const form = new FormData();
-      form.append('file', file);
+      form.append('file', optimized);
       form.append('schoolId', selectedSchoolId);
       const { data } = await api.post('/website-management/media', form);
       const item = data.data as WebsiteMediaItem;
       updateSite((current) => ({ ...current, media: [item, ...current.media] }));
-      setNotice({ type: 'success', text: 'Media uploaded. Save the draft to keep it in the library.' });
+      const optimizedNote = optimized.size < file.size ? ` Image optimized from ${Math.round(file.size / 1024)} KB to ${Math.round(optimized.size / 1024)} KB.` : '';
+      setNotice({ type: 'success', text: `Media uploaded to ${item.storageProvider === 'r2' ? 'Cloudflare R2' : 'storage'}.${optimizedNote} Save Draft to keep the library reference.` });
     } catch (err: any) {
       setNotice({ type: 'error', text: err.response?.data?.message || 'Media upload failed.' });
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
     }
+  };
+
+  const deleteMedia = async (item: WebsiteMediaItem) => {
+    if (!selectedSchoolId || !window.confirm(`Delete "${item.name}" from the media library and storage?`)) return;
+    try {
+      const { data } = await api.delete(`/website-management/media/${item.id}`, { params: { schoolId: selectedSchoolId } });
+      updateSite((current) => ({ ...current, media: data.data?.media || current.media.filter((media) => media.id !== item.id) }));
+      if (data.data?.version) setVersion(data.data.version);
+      setNotice({ type: 'success', text: 'Media deleted from the library and storage.' });
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err.response?.data?.message || 'Could not delete media.' });
+    }
+  };
+
+  const replaceDraft = (draft: WebsiteSiteDocument, nextVersion?: number) => {
+    setSite(draft);
+    setActivePageId(draft.pages[0]?.id || '');
+    setActiveSectionId(draft.pages[0]?.sections[0]?.id || '');
+    if (nextVersion) setVersion(nextVersion);
   };
 
   const domain = organization
@@ -438,7 +526,7 @@ export function WebsiteManagement() {
           {tab === 'pages' && (
             <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
               <div className={`${panelClass} p-4`}>
-                <div className="mb-3 flex items-center justify-between"><h2 className="font-bold">Pages</h2><button type="button" onClick={addPage} className="inline-flex items-center gap-1 rounded-lg bg-primary-50 px-2.5 py-1.5 text-xs font-semibold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"><Plus className="h-3.5 w-3.5" />New Page</button></div>
+                <div className="mb-3 flex items-center justify-between gap-2"><h2 className="font-bold">Pages</h2><div className="flex gap-1"><button type="button" onClick={syncNavigation} className="rounded-lg border border-[var(--color-border-default)] px-2.5 py-1.5 text-[11px] font-semibold">Sync Menu</button><button type="button" onClick={addPage} className="inline-flex items-center gap-1 rounded-lg bg-primary-50 px-2.5 py-1.5 text-xs font-semibold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"><Plus className="h-3.5 w-3.5" />New Page</button></div></div>
                 <div className="space-y-2">{site.pages.map((page) => <button key={page.id} type="button" onClick={() => { setActivePageId(page.id); setActiveSectionId(page.sections[0]?.id || ''); }} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${activePage?.id === page.id ? 'border-primary-300 bg-primary-50 dark:border-primary-800 dark:bg-primary-950/20' : 'border-[var(--color-border-subtle)]'}`}><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{page.title}</p><p className="truncate text-xs text-[var(--color-text-tertiary)]">/{page.slug}</p></div><ChevronRight className="h-4 w-4 text-[var(--color-text-tertiary)]" /></button>)}</div>
               </div>
               {activePage && <div className={`${panelClass} p-5 sm:p-6`}>
@@ -495,8 +583,8 @@ export function WebsiteManagement() {
 
           {tab === 'media' && (
             <div className={`${panelClass} p-5 sm:p-6`}>
-              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-bold">Media Library</h2><p className="text-xs text-[var(--color-text-tertiary)]">Upload images, videos and PDFs for this organization only.</p></div><div><input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,application/pdf" className="hidden" onChange={(e) => uploadMedia(e.target.files?.[0])} /><button type="button" disabled={uploading} onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}Upload Media</button></div></div>
-              {site.media.length ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{site.media.map((item) => <div key={item.id} className="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)]">{item.type === 'image' ? <img src={item.url} alt={item.alt || item.name} className="aspect-video w-full object-cover" /> : <div className="flex aspect-video items-center justify-center bg-slate-900 text-white">{item.type === 'video' ? <Video className="h-8 w-8" /> : <FileText className="h-8 w-8" />}</div>}<div className="p-3"><p className="truncate text-sm font-semibold">{item.name}</p><p className="mt-0.5 text-[11px] uppercase text-[var(--color-text-tertiary)]">{item.type}</p><div className="mt-3 flex gap-2"><button type="button" onClick={() => navigator.clipboard?.writeText(item.url)} className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-[var(--color-border-default)] px-2 py-1.5 text-xs font-semibold"><Copy className="h-3.5 w-3.5" />Copy URL</button><button type="button" onClick={() => updateSite((s) => ({ ...s, media: s.media.filter((media) => media.id !== item.id) }))} className="rounded-lg border border-red-200 p-1.5 text-red-500"><Trash2 className="h-3.5 w-3.5" /></button></div></div></div>)}</div> : <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] py-16 text-center"><ImageIcon className="mx-auto h-9 w-9 text-[var(--color-text-tertiary)]" /><p className="mt-3 text-sm font-semibold">No media uploaded yet</p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Upload JPG, PNG, WEBP, GIF, MP4, WEBM or PDF.</p></div>}
+              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><h2 className="text-lg font-bold">Media Library</h2><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${storageProvider === 'r2' ? 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'}`}>{storageProvider === 'r2' ? 'Cloudflare R2' : 'Local fallback'}</span></div><p className="text-xs text-[var(--color-text-tertiary)]">Images are compressed in the browser before upload; public images use lazy loading.</p></div><div><input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,application/pdf" className="hidden" onChange={(e) => uploadMedia(e.target.files?.[0])} /><button type="button" disabled={uploading} onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}Upload Media</button></div></div>
+              {site.media.length ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{site.media.map((item) => <div key={item.id} className="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)]">{item.type === 'image' ? <img src={item.url} alt={item.alt || item.name} className="aspect-video w-full object-cover" /> : <div className="flex aspect-video items-center justify-center bg-slate-900 text-white">{item.type === 'video' ? <Video className="h-8 w-8" /> : <FileText className="h-8 w-8" />}</div>}<div className="p-3"><p className="truncate text-sm font-semibold">{item.name}</p><p className="mt-0.5 text-[11px] uppercase text-[var(--color-text-tertiary)]">{item.type}{item.size ? ` · ${Math.round(item.size / 1024)} KB` : ''}</p><div className="mt-3 flex gap-2"><button type="button" onClick={() => navigator.clipboard?.writeText(item.url)} className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg border border-[var(--color-border-default)] px-2 py-1.5 text-xs font-semibold"><Copy className="h-3.5 w-3.5" />Copy URL</button><button type="button" onClick={() => deleteMedia(item)} className="rounded-lg border border-red-200 p-1.5 text-red-500"><Trash2 className="h-3.5 w-3.5" /></button></div></div></div>)}</div> : <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] py-16 text-center"><ImageIcon className="mx-auto h-9 w-9 text-[var(--color-text-tertiary)]" /><p className="mt-3 text-sm font-semibold">No media uploaded yet</p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Upload JPG, PNG, WEBP, GIF, MP4, WEBM or PDF.</p></div>}
             </div>
           )}
 
@@ -529,6 +617,18 @@ export function WebsiteManagement() {
               <div><label className={labelClass}>Keywords</label><input className={fieldClass} value={site.seo.keywords} onChange={(e) => updateSite((s) => ({ ...s, seo: { ...s.seo, keywords: e.target.value } }))} placeholder="education, school, university..." /></div>
               <div><label className={labelClass}>Social preview image URL</label><input className={fieldClass} value={site.seo.ogImage} onChange={(e) => updateSite((s) => ({ ...s, seo: { ...s.seo, ogImage: e.target.value } }))} /></div>
             </div></div>
+          )}
+
+          {ADVANCED_WEBSITE_TABS.some((item) => item.key === tab) && (
+            <WebsiteAdvancedPanel
+              tab={tab as AdvancedWebsiteTab}
+              schoolId={selectedSchoolId}
+              site={site}
+              organization={organization}
+              onReplaceDraft={replaceDraft}
+              onUpdateSite={updateSite}
+              showNotice={(next) => setNotice(next)}
+            />
           )}
 
           {tab === 'preview' && (

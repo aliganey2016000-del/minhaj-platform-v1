@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Construction, LogIn } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -15,12 +15,48 @@ interface PublicWebsitePayload {
   site?: WebsiteSiteDocument | null;
 }
 
+function getWebsiteSessionId() {
+  if (typeof window === 'undefined') return '';
+  const key = 'sahal_website_session';
+  let value = sessionStorage.getItem(key);
+  if (!value) {
+    value = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    sessionStorage.setItem(key, value);
+  }
+  return value;
+}
+
+function upsertMeta(selector: string, attribute: 'name' | 'property', key: string, content: string) {
+  if (!content) return;
+  let element = document.querySelector<HTMLMetaElement>(selector);
+  if (!element) {
+    element = document.createElement('meta');
+    element.setAttribute(attribute, key);
+    document.head.appendChild(element);
+  }
+  element.content = content;
+}
+
+function upsertCanonical(url: string) {
+  let link = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'canonical';
+    document.head.appendChild(link);
+  }
+  link.href = url;
+}
+
 export function TenantWebsitePage() {
   const { pageSlug = '' } = useParams();
   const { tenant, isLoading: tenantLoading, error: tenantError } = useTenant();
   const [payload, setPayload] = useState<PublicWebsitePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const trackedRef = useRef('');
+  const sessionId = useMemo(() => getWebsiteSessionId(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,17 +90,40 @@ export function TenantWebsitePage() {
     const normalized = pageSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
     const page = site.pages.find((item) => item.slug.toLowerCase() === normalized)
       || (!normalized ? site.pages.find((item) => item.slug === '') : undefined);
-    document.title = page?.seoTitle || site.seo.siteTitle || school.name;
-
+    const title = page?.seoTitle || site.seo.siteTitle || school.name;
     const description = page?.seoDescription || site.seo.description;
-    let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-    if (!meta) {
-      meta = document.createElement('meta');
-      meta.name = 'description';
-      document.head.appendChild(meta);
-    }
-    if (description) meta.content = description;
+    const canonical = `${window.location.origin}${normalized ? `/${normalized}` : '/'}`;
+
+    document.title = title;
+    upsertMeta('meta[name="description"]', 'name', 'description', description);
+    upsertMeta('meta[name="keywords"]', 'name', 'keywords', site.seo.keywords || '');
+    upsertMeta('meta[property="og:title"]', 'property', 'og:title', title);
+    upsertMeta('meta[property="og:description"]', 'property', 'og:description', description);
+    upsertMeta('meta[property="og:url"]', 'property', 'og:url', canonical);
+    upsertMeta('meta[property="og:type"]', 'property', 'og:type', 'website');
+    if (site.seo.ogImage) upsertMeta('meta[property="og:image"]', 'property', 'og:image', site.seo.ogImage);
+    upsertMeta('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image');
+    upsertCanonical(canonical);
   }, [payload, pageSlug]);
+
+  useEffect(() => {
+    const site = payload?.site;
+    if (!site || site.settings?.analyticsEnabled === false) return;
+    const page = pageSlug ? `/${pageSlug}` : '/';
+    const key = `${tenant?.slug || 'tenant'}:${page}`;
+    if (trackedRef.current === key) return;
+    trackedRef.current = key;
+    api.post('/website-management/public/analytics', {
+      event: 'view',
+      page,
+      sessionId,
+    }).catch(() => undefined);
+  }, [payload, pageSlug, sessionId, tenant?.slug]);
+
+  const track = (event: 'cta', page: string) => {
+    if (payload?.site?.settings?.analyticsEnabled === false) return;
+    api.post('/website-management/public/analytics', { event, page, sessionId }).catch(() => undefined);
+  };
 
   if (tenantLoading || loading) {
     return <div className="flex min-h-screen items-center justify-center bg-white"><div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-emerald-600" /></div>;
@@ -90,7 +149,7 @@ export function TenantWebsitePage() {
     );
   }
 
-  return <WebsiteRenderer site={payload.site} organization={payload.school} pageSlug={pageSlug} />;
+  return <WebsiteRenderer site={payload.site} organization={payload.school} pageSlug={pageSlug} sessionId={sessionId} onTrack={track} />;
 }
 
 export default TenantWebsitePage;
