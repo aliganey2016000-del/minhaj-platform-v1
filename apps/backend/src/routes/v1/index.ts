@@ -33,6 +33,7 @@ import telegramRoutes from './telegram.routes';
 import contentRoutes from './content.routes';
 import systemRoutes from './system.routes';
 import schoolRoutes from './school.routes';
+import * as schoolBrandingController from '../../controllers/school-branding.controller';
 import courseContentRoutes from './course-content.routes';
 import contentBlocksImportRoutes from './content-blocks-import.routes';
 import lessonBlockProgressRoutes from './lesson-block-progress.routes';
@@ -101,6 +102,10 @@ router.use('/news', authMiddleware, requireModulePermission('content'), contentR
 router.use('/events', authMiddleware, requireModulePermission('content'), contentRoutes('Event'));
 router.use('/gallery', authMiddleware, requireModulePermission('content'), contentRoutes('Gallery'));
 router.use('/system', authMiddleware, requireModulePermission('system'), systemRoutes);
+// The bucket stays private. This endpoint only serves the exact R2 logo key
+// currently stored on the organization, and must run before the protected
+// /schools router so public websites/print windows can load the image.
+router.get('/schools/:id/branding/logo/public', asyncHandler(schoolBrandingController.getPublicLogo));
 router.use('/schools', authMiddleware, requireModulePermission('organization'), schoolRoutes);
 router.use('/courses/:courseId/content', authMiddleware, requireModulePermission('courses'), courseContentRoutes);
 router.use('/content-blocks-import', contentBlocksImportRoutes);
