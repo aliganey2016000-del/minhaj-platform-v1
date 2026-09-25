@@ -218,6 +218,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
         });
         return children.length ? { ...item, children } : null;
       }
+      if (item.path === '/admin/website' && !['admin', 'org_admin'].includes(user?.role || '')) return null;
       const key = keyForPath(item.path);
       const module = moduleForPath(item.path);
       return isVisible(key) && staffSidebar(key) && (!module || staffRead(module, key)) ? item : null;

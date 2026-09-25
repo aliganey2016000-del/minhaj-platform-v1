@@ -44,6 +44,7 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/courses/exam-paper-edit', label: 'Course Exam Paper Editor', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/courses/preview', label: 'Course Preview', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/schools', label: 'Organization Management', section: 'INSTITUTION MANAGEMENT' },
+  { key: 'admin/website', label: 'Website Management', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/users', label: 'User Management', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/classes', label: 'Manage Classes', section: 'INSTITUTION MANAGEMENT' },
 
@@ -112,7 +113,7 @@ export function moduleForSidebarKey(key: string): 'finance' | 'exams' | 'admissi
   if (key.startsWith('admin/exams') || key.startsWith('admin/results') || key === 'admin/certificates' || key === 'group:exam-management') return 'exams';
   if (key.startsWith('admin/students') || key === 'admin/activity') return 'admissions';
   if (key.startsWith('admin/courses') || key === 'group:learning-assessments' || key === 'admin/analytics' || key.startsWith('admin/analytics?tab=lessons') || key.startsWith('admin/analytics?tab=quizzes') || key.startsWith('admin/analytics?tab=questions') || key.startsWith('admin/analytics?tab=performance')) return 'courses';
-  if (['admin/parents', 'admin/teachers', 'admin/staff', 'admin/schools', 'admin/users', 'admin/classes', 'admin/hr?tab=structure', 'admin/hr', 'admin/hr/access', 'group:hr-management'].includes(key)) return 'organization';
+  if (['admin/parents', 'admin/teachers', 'admin/staff', 'admin/schools', 'admin/website', 'admin/users', 'admin/classes', 'admin/hr?tab=structure', 'admin/hr', 'admin/hr/access', 'group:hr-management'].includes(key)) return 'organization';
   if (['admin/schedules', 'admin/attendance', 'admin/assignments'].includes(key)) return 'academic';
   if (['admin/announcements', 'admin/news', 'admin/events', 'admin/gallery'].includes(key)) return 'content';
   if (['admin/forum', 'admin/whatsapp', 'admin/telegram'].includes(key)) return 'communication';

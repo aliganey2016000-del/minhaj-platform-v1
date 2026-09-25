@@ -57,6 +57,7 @@ import teacherAssignmentGradingRoutes from '../teacher-assignment-grading.routes
 import cashSessionRoutes from './cash-session.routes';
 import accountingRoutes from './accounting.routes';
 import financeReconciliationRoutes from './finance-reconciliation.routes';
+import websiteManagementRoutes from './website-management.routes';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { requireModulePermission } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -109,6 +110,7 @@ router.use('/ai', aiRoutes);
 router.use('/forum', authMiddleware, requireModulePermission('communication'), forumRoutes);
 router.use('/sidebar-settings', authMiddleware, requireModulePermission('system'), sidebarSettingRoutes);
 router.use('/tenant', tenantRoutes);
+router.use('/website-management', websiteManagementRoutes);
 router.use('/departments', departmentRoutes);
 router.use('/programs', authMiddleware, requireModulePermission('organization'), programRoutes);
 router.use('/course-categories', courseCategoryRoutes);
