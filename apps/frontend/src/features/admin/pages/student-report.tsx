@@ -165,7 +165,7 @@ function monthLabel(key: string): string {
 // codebase, and charts can't be replayed into a raw print window anyway).
 // ---------------------------------------------------------------------------
 
-function buildPrintHtml(stats: StudentStats, orgLabel: string): string {
+function buildPrintHtml(stats: StudentStats, orgLabel: string, logoUrl = ''): string {
   const section = (title: string, rows: [string, number][]) => `
     <h2>${title}</h2>
     <table>
@@ -181,8 +181,11 @@ function buildPrintHtml(stats: StudentStats, orgLabel: string): string {
         <title>Student Analytics Report</title>
         <style>
           body { font-family: -apple-system, Segoe UI, Arial, sans-serif; color: #1e293b; padding: 32px; }
-          h1 { font-size: 22px; margin-bottom: 2px; }
-          .meta { color: #64748b; font-size: 13px; margin-bottom: 24px; }
+          .brand { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 16px; }
+          .brand-logo, .brand-fallback { width: 54px; height: 54px; flex: 0 0 54px; border-radius: 10px; object-fit: contain; }
+          .brand-fallback { display: flex; align-items: center; justify-content: center; background: #f1f5f9; font-weight: 800; }
+          h1 { font-size: 22px; margin: 0 0 2px; }
+          .meta { color: #64748b; font-size: 13px; margin: 0; }
           h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; color: #334155; margin: 22px 0 8px; }
           table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
           th { text-align: left; background: #f1f5f9; padding: 6px 10px; font-size: 12px; }
@@ -192,8 +195,10 @@ function buildPrintHtml(stats: StudentStats, orgLabel: string): string {
         </style>
       </head>
       <body>
-        <h1>🎓 Student Analytics Report</h1>
-        <p class="meta">${orgLabel} · Generated ${new Date().toLocaleString()}</p>
+        <div class="brand">
+          ${logoUrl ? `<img class="brand-logo" src="${logoUrl}" alt="" />` : `<div class="brand-fallback">${orgLabel.slice(0, 2).toUpperCase()}</div>`}
+          <div><h1>Student Analytics Report</h1><p class="meta">${orgLabel} · Generated ${new Date().toLocaleString()}</p></div>
+        </div>
         <p class="total">Total Students: ${stats.total.toLocaleString()}</p>
         ${section('Status Breakdown', Object.entries(stats.byStatus).map(([k, v]) => [k[0].toUpperCase() + k.slice(1), v]))}
         ${section('Gender', stats.byGender.map(r => [genderLabels[r.gender] || 'Unspecified', r.count]))}
@@ -266,13 +271,23 @@ export function StudentReport() {
     }
   };
 
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
     if (!stats) return;
+    const schoolId = isOrgAdmin ? String(user?.organizationId || '') : filterSchool;
+    let logoUrl = '';
+    if (schoolId) {
+      try {
+        const response = await api.get(`/schools/${schoolId}/branding`);
+        logoUrl = response.data?.data?.school?.branding?.logo || '';
+      } catch {
+        // Report remains printable with the organization-name fallback.
+      }
+    }
     const win = window.open('', '_blank');
     if (!win) return;
-    win.document.write(buildPrintHtml(stats, orgLabel));
+    win.document.write(buildPrintHtml(stats, orgLabel, logoUrl));
     win.document.close();
-    setTimeout(() => win.print(), 300);
+    setTimeout(() => win.print(), 350);
   };
 
   const genderLabels: Record<string, string> = { male: 'Male', female: 'Female' };

@@ -972,13 +972,27 @@ export function ExamSeatingCenterV3() {
     await bulkLock(ids,locked);
   };
 
-  const printRoom=(room:Room)=>{
+  const printRoom=async(room:Room)=>{
     const list=allocationsByRoom.get(room._id)||[];
     const rows=list.map(a=>`<tr><td>${escapeHtml(a.student?.studentId||'')}</td><td>${escapeHtml(nameOf(a.student))}</td><td>${escapeHtml(a.student?.className||'')}</td></tr>`).join('');
+    const schoolId=schoolIdOf(room.school);
+    let schoolName=typeof room.school==='object'&&room.school?.name?room.school.name:(orgs.find(item=>item._id===schoolId)?.name||'Organization');
+    let logoUrl='';
+    if(schoolId){
+      try{
+        const response=await api.get(`/schools/${schoolId}/branding`);
+        const school=response.data?.data?.school||{};
+        schoolName=school.name||schoolName;
+        logoUrl=school.branding?.logo||'';
+      }catch{/* keep printable fallback */}
+    }
+    const logoHtml=logoUrl
+      ?`<img class="org-logo" src="${escapeHtml(logoUrl)}" alt="" />`
+      :`<div class="org-logo-fallback">${escapeHtml(schoolName.slice(0,2).toUpperCase())}</div>`;
     const w=window.open('','_blank','width=900,height=700');
     if(!w)return;
-    w.document.write(`<!doctype html><html><head><title>${escapeHtml(room.name)} Room List</title><style>body{font-family:Arial,sans-serif;padding:28px;color:#111}h1{margin:0 0 4px}.meta{color:#555;margin-bottom:18px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:8px;text-align:left}th{background:#f3f4f6}</style></head><body><h1>${escapeHtml(room.name)} — Exam Room List</h1><div class="meta">${escapeHtml(year)} · ${escapeHtml(type==='mid'?'Mid Exam':'Final')} · ${list.length}/${room.capacity} students</div><table><thead><tr><th>Student ID</th><th>Student Name</th><th>Grade / Class</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
-    w.document.close();w.focus();w.print();
+    w.document.write(`<!doctype html><html><head><title>${escapeHtml(room.name)} Room List</title><style>body{font-family:Arial,sans-serif;padding:28px;color:#111}.org-header{display:flex;align-items:center;gap:12px;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:16px}.org-logo,.org-logo-fallback{width:54px;height:54px;flex:0 0 54px;border-radius:10px;object-fit:contain}.org-logo-fallback{display:flex;align-items:center;justify-content:center;background:#f3f4f6;font-weight:800}.org-name{font-size:19px;font-weight:800;margin-bottom:2px}h1{margin:0 0 4px}.meta{color:#555;margin-bottom:18px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:8px;text-align:left}th{background:#f3f4f6}</style></head><body><div class="org-header">${logoHtml}<div><div class="org-name">${escapeHtml(schoolName)}</div><div>Exam Room List</div></div></div><h1>${escapeHtml(room.name)} — Exam Room List</h1><div class="meta">${escapeHtml(year)} · ${escapeHtml(type==='mid'?'Mid Exam':'Final')} · ${list.length}/${room.capacity} students</div><table><thead><tr><th>Student ID</th><th>Student Name</th><th>Grade / Class</th></tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>setTimeout(()=>window.print(),350)</script></body></html>`);
+    w.document.close();w.focus();
   };
 
   const exportRoom=(room:Room)=>{
