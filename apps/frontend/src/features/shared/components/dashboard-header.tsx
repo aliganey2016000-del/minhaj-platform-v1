@@ -35,6 +35,7 @@ interface HeaderData {
   title?: string;
   orgName: string;
   orgInitial: string;
+  orgLogo: string;
 }
 
 interface DashboardHeaderProps {
@@ -134,10 +135,24 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
         const { data: res } = await api.get('/auth/me');
         const me = res.data;
         const profile = me?.profile;
+        const rawOrg = me?.user?.organizationId;
         const orgName = me?.user?.organizationName ||
-          (typeof me?.user?.organizationId === 'object' && me?.user?.organizationId?.name) ||
+          (typeof rawOrg === 'object' && rawOrg?.name) ||
           user.organizationName ||
           'Sahal Education Platform';
+        const orgId = typeof rawOrg === 'object'
+          ? String(rawOrg?._id || rawOrg?.id || '')
+          : String(rawOrg || user.organizationId || '');
+        let orgLogo = typeof rawOrg === 'object' ? (rawOrg?.branding?.logo || '') : '';
+
+        if (!orgLogo && orgId) {
+          try {
+            const brandingResponse = await api.get(`/schools/${orgId}/branding`);
+            orgLogo = brandingResponse.data?.data?.school?.branding?.logo || '';
+          } catch {
+            // Keep the initial fallback if branding is unavailable.
+          }
+        }
 
         setData({
           firstName: profile?.firstName || user.email?.split('@')[0] || '',
@@ -147,10 +162,20 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
           title: me?.user?.title || user.title,
           orgName,
           orgInitial: orgName.charAt(0).toUpperCase(),
+          orgLogo,
         });
       } catch {
         // Fall back to auth-context data
         const fallbackOrg = user.organizationName || 'Sahal Education Platform';
+        let orgLogo = '';
+        if (user.organizationId) {
+          try {
+            const brandingResponse = await api.get(`/schools/${user.organizationId}/branding`);
+            orgLogo = brandingResponse.data?.data?.school?.branding?.logo || '';
+          } catch {
+            // Keep the initial fallback if branding is unavailable.
+          }
+        }
         setData({
           firstName: user.email?.split('@')[0] || '',
           lastName: '',
@@ -159,12 +184,23 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
           title: user.title,
           orgName: fallbackOrg,
           orgInitial: fallbackOrg.charAt(0).toUpperCase(),
+          orgLogo,
         });
       } finally {
         setLoading(false);
       }
     })();
   }, [user]);
+
+  useEffect(() => {
+    const handleBrandingUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ organizationId?: string; logo?: string }>).detail;
+      if (!detail?.organizationId || String(detail.organizationId) !== String(user?.organizationId || '')) return;
+      setData((current) => current ? { ...current, orgLogo: detail.logo || '' } : current);
+    };
+    window.addEventListener('organization-branding-updated', handleBrandingUpdate);
+    return () => window.removeEventListener('organization-branding-updated', handleBrandingUpdate);
+  }, [user?.organizationId]);
 
   // Format today's date
   const now = new Date();
@@ -195,12 +231,16 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
   // content above the fold.
   return (
     <div className="relative bg-[var(--color-surface-primary)] border-b border-[var(--color-border-subtle)] shadow-sm">
-      <div className="relative mx-auto max-w-6xl px-6 py-3 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+      <div className="relative mx-auto max-w-6xl pl-20 pr-4 py-3 lg:px-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0" title={dateStr}>
-          <div className="flex-shrink-0 flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 dark:bg-primary-950/40 border border-primary-100 dark:border-primary-900">
-            <span className="text-sm font-bold text-primary-600 dark:text-primary-400">
-              {data.orgInitial}
-            </span>
+          <div className="flex-shrink-0 flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-primary-50 dark:bg-primary-950/40 border border-primary-100 dark:border-primary-900">
+            {data.orgLogo ? (
+              <img src={data.orgLogo} alt={`${data.orgName} logo`} className="h-full w-full bg-white object-contain p-1" />
+            ) : (
+              <span className="text-sm font-bold text-primary-600 dark:text-primary-400">
+                {data.orgInitial}
+              </span>
+            )}
           </div>
           <div className="min-w-0">
             {showGreeting ? (
