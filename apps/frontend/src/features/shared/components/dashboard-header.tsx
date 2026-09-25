@@ -230,9 +230,9 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
   // the same row as search/notifications/theme, so every page keeps more
   // content above the fold.
   return (
-    <div className="relative bg-[var(--color-surface-primary)] border-b border-[var(--color-border-subtle)] shadow-sm">
-      <div className="relative mx-auto max-w-6xl pl-20 pr-4 py-3 lg:px-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0" title={dateStr}>
+    <div className="relative w-full max-w-full overflow-x-clip bg-[var(--color-surface-primary)] border-b border-[var(--color-border-subtle)] shadow-sm">
+      <div className="relative mx-auto flex w-full max-w-6xl min-w-0 flex-col items-start justify-between gap-2.5 py-3 pl-16 pr-3 sm:gap-3 sm:pl-[68px] sm:pr-4 lg:flex-row lg:items-center lg:px-6">
+        <div className="flex w-full min-w-0 items-center gap-2 sm:gap-3 lg:w-auto" title={dateStr}>
           <div className="flex-shrink-0 flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-primary-50 dark:bg-primary-950/40 border border-primary-100 dark:border-primary-900">
             {data.orgLogo ? (
               <img src={data.orgLogo} alt={`${data.orgName} logo`} className="h-full w-full bg-white object-contain p-1" />
@@ -242,31 +242,33 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
               </span>
             )}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             {showGreeting ? (
               <>
-                <p className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight truncate">
+                <p className="truncate text-xs font-bold tracking-tight text-[var(--color-text-primary)] sm:text-sm">
                   Welcome back, <span className="text-primary-600 dark:text-primary-400">{data.firstName}</span>
                 </p>
-                <p className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] truncate">
-                  {data.orgName}
-                  <span className={`inline-flex items-center rounded-full px-1.5 py-0 text-[10px] font-medium ${badge.color}`}>
+                <div className="flex w-full min-w-0 items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
+                  <span className="min-w-0 truncate">{data.orgName}</span>
+                  <span className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-0 text-[10px] font-medium ${badge.color}`}>
                     {badge.label}
                   </span>
-                </p>
+                </div>
               </>
             ) : (
-              <p className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight truncate">
+              <p className="truncate text-xs font-bold tracking-tight text-[var(--color-text-primary)] sm:text-sm">
                 {data.orgName}
               </p>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2.5 w-full sm:w-auto">
-          <GlobalSearchBar />
-          <NotificationBell />
-          <ThemeToggle />
-          {canQuickAct && <QuickActions />}
+        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:w-auto sm:gap-2.5">
+          <div className="min-w-0"><GlobalSearchBar /></div>
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <NotificationBell />
+            <ThemeToggle />
+            {canQuickAct && <QuickActions />}
+          </div>
         </div>
       </div>
     </div>
