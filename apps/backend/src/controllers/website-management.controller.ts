@@ -324,13 +324,14 @@ export async function getWebsiteConfig(req: Request, res: Response): Promise<Res
     config = created.toObject() as any;
   }
 
+  const currentConfig = config!;
   return ApiResponse.success(res, {
     school: schoolSummary(school),
-    draft: config.draft,
-    isPublished: config.isPublished,
-    publishedAt: config.publishedAt || null,
-    version: config.version || 1,
-    updatedAt: config.updatedAt,
+    draft: currentConfig.draft,
+    isPublished: currentConfig.isPublished,
+    publishedAt: currentConfig.publishedAt || null,
+    version: currentConfig.version || 1,
+    updatedAt: currentConfig.updatedAt,
   });
 }
 

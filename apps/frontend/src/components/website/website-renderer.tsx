@@ -1,9 +1,10 @@
-import { useMemo, useState, type CSSProperties, type ComponentType, type ReactNode } from 'react';
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   ArrowRight, Award, BookOpen, Briefcase, Building2, CalendarDays,
   CheckCircle2, Globe2, GraduationCap, Heart, Mail, MapPin, Menu,
   Phone, PlayCircle, Star, Users, X,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 export type WebsiteSectionType =
   | 'hero' | 'about' | 'services' | 'programs' | 'stats' | 'gallery'
@@ -111,7 +112,7 @@ export interface WebsiteOrganization {
   email?: string;
 }
 
-const ICONS: Record<string, ComponentType<{ className?: string; strokeWidth?: number }>> = {
+const ICONS: Record<string, LucideIcon> = {
   Award, BookOpen, Briefcase, Building2, CalendarDays, CheckCircle2, Globe2,
   GraduationCap, Heart, Mail, MapPin, Phone, PlayCircle, Star, Users,
 };
