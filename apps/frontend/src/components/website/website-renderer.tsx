@@ -451,7 +451,7 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
   const secondary = site.theme.secondaryColor || '#0f172a';
   const buttonRadius = site.theme.buttonStyle === 'pill' ? '999px' : site.theme.buttonStyle === 'square' ? '4px' : '12px';
   const css = { fontFamily: site.theme.fontFamily || undefined, '--website-primary': primary } as CSSProperties;
-  const logo = site.header.logoUrl || organization.branding?.logo || '';
+  const logo = organization.branding?.logo || site.header.logoUrl || '';
 
   return (
     <div dir={currentLanguage.direction} lang={currentLanguage.code} style={css} className={`min-h-full bg-white text-slate-900 ${preview ? 'overflow-hidden' : ''}`}>

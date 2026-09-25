@@ -10,6 +10,7 @@ import ensureStudentRecord from '../utils/ensure-student';
 import { collectPaymentService, recalcStudentBalance } from '../services/billing.service';
 import { buildReceiptPdf } from '../utils/receipt-pdf';
 import { escapeRegex } from '../utils/escape-regex';
+import { getFromR2, r2Enabled } from '../utils/r2-storage';
 
 // ---------------------------------------------------------------------------
 // POST /payments — Record an ad-hoc payment for a single student (walk-in
@@ -442,7 +443,7 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
 export const getReceipt = async (req: Request, res: Response): Promise<void> => {
   const payment = await Payment.findById(req.params.id)
     .populate({ path: 'student', select: 'studentId user enrolledCourses school', populate: { path: 'profile', select: 'firstName lastName' } })
-    .populate('school', 'name')
+    .populate('school', 'name branding')
     .populate('recordedBy', 'email')
     .populate('invoice', 'title period');
 
@@ -462,10 +463,23 @@ export const getReceipt = async (req: Request, res: Response): Promise<void> => 
 
   const student = payment.student as any;
   const invoice = payment.invoice as any;
+  const school = payment.school as any;
+
+  let logo: Buffer | undefined;
+  const logoStorageKey = school?.branding?.logoStorageKey;
+  if (r2Enabled && logoStorageKey) {
+    try {
+      const storedLogo = await getFromR2(logoStorageKey);
+      if (/^image\/(png|jpeg)$/i.test(storedLogo.contentType || '')) logo = storedLogo.body;
+    } catch {
+      // Receipt generation must remain available even if logo delivery fails.
+    }
+  }
 
   const pdf = await buildReceiptPdf({
     receiptNumber: payment.receiptNumber || formatReceiptNumber(payment._id as mongoose.Types.ObjectId, payment.createdAt),
-    schoolName: (payment.school as any)?.name || 'Sahal Education Platform',
+    schoolName: school?.name || 'Sahal Education Platform',
+    logo,
     studentName: `${student?.profile?.firstName || ''} ${student?.profile?.lastName || ''}`.trim() || student?.studentId || 'Student',
     studentCode: student?.studentId || '',
     invoiceTitle: invoice?.title,

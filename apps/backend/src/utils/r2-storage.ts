@@ -100,3 +100,7 @@ export async function deleteFromR2(key: string): Promise<void> {
 export function websiteMediaProxyUrl(schoolId: string, key: string): string {
   return `/api/v1/website-management/public/media/${encodeURIComponent(schoolId)}?key=${encodeURIComponent(key)}`;
 }
+
+export function organizationLogoProxyUrl(schoolId: string, key: string): string {
+  return `/api/v1/schools/${encodeURIComponent(schoolId)}/branding/logo/public?key=${encodeURIComponent(key)}`;
+}

@@ -55,6 +55,7 @@ export function nameToSlugCandidate(name: string): string {
 
 export interface IBranding {
   logo?: string;
+  logoStorageKey?: string;
   themeColor?: string;
 }
 
@@ -134,6 +135,7 @@ export interface ISchool extends Document {
 const brandingSchema = new Schema<IBranding>(
   {
     logo: { type: String, default: '', trim: true, maxlength: 2048 },
+    logoStorageKey: { type: String, default: '', trim: true, maxlength: 1024 },
     themeColor: {
       type: String,
       default: '#0d9488', // emerald-600

@@ -10,6 +10,7 @@ import PDFDocument from 'pdfkit';
 export interface ReceiptData {
   receiptNumber: string;
   schoolName: string;
+  logo?: Buffer;
   studentName: string;
   studentCode: string;
   invoiceTitle?: string;
@@ -55,9 +56,24 @@ export function buildReceiptPdf(data: ReceiptData): Promise<Buffer> {
     };
 
     // ── Header ──
-    doc.fontSize(20).fillColor('#059669').text(data.schoolName, { align: 'center' });
-    doc.fontSize(11).fillColor('#64748b').text('Official Payment Receipt', { align: 'center' });
-    doc.moveDown(1.5);
+    const headerTop = doc.y;
+    let logoRendered = false;
+    if (data.logo?.length) {
+      try {
+        doc.image(data.logo, 50, headerTop, { fit: [54, 54], align: 'center', valign: 'center' });
+        logoRendered = true;
+      } catch {
+        // PDFKit supports PNG/JPEG. Unsupported image formats simply fall
+        // back to the organization name without breaking receipt download.
+      }
+    }
+    const headerTextX = logoRendered ? 118 : 50;
+    const headerTextWidth = logoRendered ? 427 : 495;
+    const headerAlign: 'left' | 'center' = logoRendered ? 'left' : 'center';
+    doc.fontSize(20).fillColor('#059669').text(data.schoolName, headerTextX, headerTop + 4, { width: headerTextWidth, align: headerAlign });
+    doc.fontSize(11).fillColor('#64748b').text('Official Payment Receipt', headerTextX, doc.y + 2, { width: headerTextWidth, align: headerAlign });
+    doc.y = Math.max(doc.y, headerTop + (logoRendered ? 62 : 42));
+    doc.moveDown(0.7);
 
     doc.strokeColor('#10b981').lineWidth(1.5).moveTo(50, doc.y).lineTo(545, doc.y).stroke();
     doc.moveDown(1);

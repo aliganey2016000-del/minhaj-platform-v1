@@ -14,6 +14,7 @@ import School from '../models/school.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { cloudinaryEnabled, getCloudinaryPrivateUrl, uploadToCloudinary } from '../utils/cloudinary-storage';
+import { deleteFromR2, getFromR2, organizationLogoProxyUrl, r2Enabled, uploadToR2 } from '../utils/r2-storage';
 
 const IMAGE_TYPES: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -75,28 +76,38 @@ export async function uploadLogo(req: Request, res: Response): Promise<Response>
 
   validateLogo(req.file);
 
+  const schoolId = String(school._id);
+  const previousR2Key = school.branding?.logoStorageKey || '';
+  const filename = `logo-${crypto.randomUUID()}${IMAGE_TYPES[req.file.mimetype]}`;
   let logoUrl: string;
-  if (cloudinaryEnabled) {
-    const uploaded = await uploadToCloudinary(req.file.buffer, `organization-branding/${String(school._id)}`, 'image');
+  let logoStorageKey = '';
+
+  if (r2Enabled) {
+    logoStorageKey = `organization-branding/${schoolId}/${filename}`;
+    await uploadToR2(logoStorageKey, req.file.buffer, req.file.mimetype);
+    logoUrl = organizationLogoProxyUrl(schoolId, logoStorageKey);
+  } else if (cloudinaryEnabled) {
+    const uploaded = await uploadToCloudinary(req.file.buffer, `organization-branding/${schoolId}`, 'image');
     if (!uploaded.publicId) throw new BadRequestError('Logo upload completed without a storage identifier.');
-    // Cloudinary stores these assets as authenticated. Generate the signed
-    // delivery URL before saving it because authenticated assets require a
-    // signature for browser delivery.
     logoUrl = getCloudinaryPrivateUrl(uploaded.publicId, 'image');
   } else {
-    const directory = path.join(process.cwd(), 'uploads', 'organization-branding', String(school._id));
+    const directory = path.join(process.cwd(), 'uploads', 'organization-branding', schoolId);
     fs.mkdirSync(directory, { recursive: true });
-    const filename = `logo-${crypto.randomUUID()}${IMAGE_TYPES[req.file.mimetype]}`;
     fs.writeFileSync(path.join(directory, filename), req.file.buffer);
     const baseUrl = String(process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-    logoUrl = `${baseUrl}/uploads/organization-branding/${school._id}/${filename}`;
+    logoUrl = `${baseUrl}/uploads/organization-branding/${schoolId}/${filename}`;
   }
 
   school.branding = {
     ...(school.branding || {}),
     logo: logoUrl,
+    logoStorageKey,
   };
   await school.save();
+
+  if (previousR2Key && previousR2Key !== logoStorageKey && r2Enabled) {
+    try { await deleteFromR2(previousR2Key); } catch { /* stale logo cleanup is best-effort */ }
+  }
 
   return ApiResponse.success(res, {
     branding: school.branding,
@@ -104,16 +115,41 @@ export async function uploadLogo(req: Request, res: Response): Promise<Response>
   }, 'Organization logo updated successfully.');
 }
 
+export async function getPublicLogo(req: Request, res: Response): Promise<void> {
+  const schoolId = String(req.params.id || '');
+  const key = typeof req.query.key === 'string' ? req.query.key : '';
+  if (!/^[a-f\d]{24}$/i.test(schoolId) || !key || !key.startsWith(`organization-branding/${schoolId}/`)) {
+    throw new BadRequestError('Invalid organization logo request.');
+  }
+
+  const school = await School.findById(schoolId).select('branding.logoStorageKey').lean();
+  if (!school) throw new NotFoundError('Organization');
+  if (!r2Enabled || !school.branding?.logoStorageKey || school.branding.logoStorageKey !== key) {
+    throw new NotFoundError('Organization logo');
+  }
+
+  const object = await getFromR2(key);
+  res.set('Content-Type', object.contentType || 'application/octet-stream');
+  res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+  res.send(object.body);
+}
+
 export async function removeLogo(req: Request, res: Response): Promise<Response> {
   const school = await School.findById(req.params.id);
   if (!school) throw new NotFoundError('Organization');
   assertCanManageSchool(req, String(school._id));
 
+  const previousR2Key = school.branding?.logoStorageKey || '';
   school.branding = {
     ...(school.branding || {}),
     logo: '',
+    logoStorageKey: '',
   };
   await school.save();
+
+  if (previousR2Key && r2Enabled) {
+    try { await deleteFromR2(previousR2Key); } catch { /* storage cleanup is best-effort */ }
+  }
 
   return ApiResponse.success(res, {
     branding: school.branding,

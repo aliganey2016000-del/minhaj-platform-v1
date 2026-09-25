@@ -136,7 +136,7 @@ export function OrganizationBrandingManage() {
 
   const removeLogo = async () => {
     if (!selectedSchool || !school?.branding?.logo) return;
-    if (!window.confirm('Remove this organization logo? The sidebar will return to the default icon.')) return;
+    if (!window.confirm('Remove this organization logo? All branded organization surfaces will return to their default logo/icon.')) return;
 
     setRemoving(true);
     setError('');
@@ -146,7 +146,7 @@ export function OrganizationBrandingManage() {
       setPreview('');
       setSchool((prev) => prev ? { ...prev, branding: { ...(prev.branding || {}), logo: '' } } : prev);
       window.dispatchEvent(new CustomEvent('organization-branding-updated', { detail: { organizationId: selectedSchool, logo: '' } }));
-      setMessage('Organization logo removed. The default sidebar icon will be used.');
+      setMessage('Organization logo removed. Branded surfaces will use their default logo/icon.');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to remove organization logo');
     } finally {
@@ -175,7 +175,7 @@ export function OrganizationBrandingManage() {
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">Organization Branding</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Upload your organization logo. It will appear in the Admin Portal sidebar.</p>
+          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Upload the organization logo once. The same logo is reused automatically across the portal, receipts, schedules, reports, exam documents and public website.</p>
         </div>
 
         {isSuperAdmin && (
@@ -206,7 +206,7 @@ export function OrganizationBrandingManage() {
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300"><Building2 className="h-5 w-5" /></div>
                 <div>
                   <h2 className="font-semibold text-[var(--color-text-primary)]">{school?.name || 'Organization'}</h2>
-                  <p className="text-xs text-[var(--color-text-tertiary)]">Admin Portal sidebar logo</p>
+                  <p className="text-xs text-[var(--color-text-tertiary)]">Shared organization logo · one upload for every branded surface</p>
                 </div>
               </div>
             </div>

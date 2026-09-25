@@ -404,6 +404,21 @@ export function ExamAttendanceManage() {
     try {
       const { data } = await api.get(`/exams/${exam._id}/attendance`);
       const entries: RosterEntry[] = data.data?.roster || [];
+      const schoolId = exam.course?.school?._id || filterSchool || String((user as any)?.organizationId || '');
+      let branding: { name?: string; branding?: { logo?: string } } = {};
+      if (schoolId) {
+        try {
+          const brandingResponse = await api.get(`/schools/${schoolId}/branding`);
+          branding = brandingResponse.data?.data?.school || {};
+        } catch {
+          // Keep the printable sheet available even when branding is unavailable.
+        }
+      }
+      const schoolName = branding.name || exam.course?.school?.name || (user as any)?.organizationName || 'Organization';
+      const logoUrl = branding.branding?.logo || '';
+      const logoHtml = logoUrl
+        ? `<img class="org-logo" src="${logoUrl}" alt="" />`
+        : `<div class="org-logo-fallback">${String(schoolName).slice(0, 2).toUpperCase()}</div>`;
       const rows = entries
         .map(
           (r, i) => `<tr><td>${i + 1}</td><td>${r.student.profile?.firstName || ''} ${r.student.profile?.lastName || ''}</td><td>${r.student.studentId}</td><td>${r.seat ? `${r.seat.room?.name || ''} · ${r.seat.deskNumber}` : ''}</td><td></td></tr>`
@@ -411,18 +426,23 @@ export function ExamAttendanceManage() {
         .join('');
       const html = `<!doctype html><html><head><title>${exam.title} — Attendance Sheet</title>
         <style>
-          body { font-family: sans-serif; padding: 24px; }
-          h1 { font-size: 18px; margin-bottom: 4px; }
+          body { font-family: sans-serif; padding: 24px; color: #0f172a; }
+          .org-header { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 14px; }
+          .org-logo, .org-logo-fallback { width: 54px; height: 54px; flex: 0 0 54px; border-radius: 10px; object-fit: contain; }
+          .org-logo-fallback { display: flex; align-items: center; justify-content: center; background: #f1f5f9; font-weight: 800; }
+          .org-name { font-size: 19px; font-weight: 800; margin: 0 0 2px; }
+          h1 { font-size: 17px; margin: 0 0 4px; }
           p { color: #555; margin-top: 0; }
           table { width: 100%; border-collapse: collapse; margin-top: 16px; }
           th, td { border: 1px solid #ccc; padding: 8px; text-align: left; font-size: 13px; }
           th { background: #f3f4f6; }
         </style>
       </head><body>
+        <div class="org-header">${logoHtml}<div><div class="org-name">${schoolName}</div><div>Exam Attendance Sheet</div></div></div>
         <h1>${exam.title} — ${exam.course?.title?.en || ''}</h1>
         <p>${exam.examDate ? new Date(exam.examDate).toLocaleDateString() : 'Self-Paced'} ${exam.startTime ? `· ${exam.startTime} – ${exam.endTime}` : ''}</p>
         <table><thead><tr><th>#</th><th>Student Name</th><th>Student ID</th><th>Seat</th><th>Signature</th></tr></thead><tbody>${rows}</tbody></table>
-        <script>window.onload = () => window.print();</script>
+        <script>window.onload = () => setTimeout(() => window.print(), 350);</script>
       </body></html>`;
       const win = window.open('', '_blank');
       if (win) {

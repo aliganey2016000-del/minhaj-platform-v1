@@ -21,7 +21,11 @@ const upload = multer({
 
 const router = Router();
 
-// All routes require authentication
+// Public delivery endpoint for the current organization logo. The R2 bucket
+// remains private; only the exact storage key saved on the organization can be read.
+router.get('/:id/branding/logo/public', asyncHandler(brandingCtrl.getPublicLogo));
+
+// All management/read routes below require authentication.
 router.use(authMiddleware);
 
 // ── Read (admin, org_admin, or teacher — results scoped to own org inside the controller for org_admin) ──
