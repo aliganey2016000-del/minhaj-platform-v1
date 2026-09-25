@@ -23,6 +23,7 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import { resolveInstitutionType, defaultAcademicConfig, validateAcademicConfig, INSTITUTION_TYPES, OWNERSHIP_TYPES } from '../utils/academic-config';
+import { syncSchoolDomains } from '../utils/cloudflare-dns';
 
 // ---------------------------------------------------------------------------
 // GET /schools — List all with pagination, search, and filters
@@ -153,6 +154,18 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const school = await School.create(payload);
 
+  // DNS provisioning is best-effort: organization creation must not fail just
+  // because Cloudflare is temporarily unavailable or the custom zone belongs
+  // to another DNS provider. Managed subdomains are provisioned automatically
+  // whenever Cloudflare credentials are configured.
+  let dnsAutomation: any = null;
+  try {
+    dnsAutomation = await syncSchoolDomains(null, school);
+  } catch (error: any) {
+    console.error(`[school.create] DNS auto-provision failed for "${school.slug}":`, error);
+    dnsAutomation = { configured: Boolean(process.env.CLOUDFLARE_API_TOKEN), error: error?.message || 'DNS provisioning failed' };
+  }
+
   // Establish the org's academic operating model in the same step — this is
   // the authoritative source academic-structure.controller.ts, class-related
   // middleware, and the department/faculty controllers all read from. Not
@@ -227,6 +240,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       academicStructure,
       portalUrl,
       slug: school.slug,
+      dnsAutomation,
     },
     orgAdminWarning || 'School registered successfully'
   );
@@ -332,6 +346,9 @@ export const completeOnboarding = async (req: Request, res: Response): Promise<R
 // ---------------------------------------------------------------------------
 
 export const update = async (req: Request, res: Response): Promise<Response> => {
+  const previousDomainState = await School.findById(req.params.id).select('slug subdomain customDomain').lean();
+  if (!previousDomainState) throw new NotFoundError('School not found');
+
   const updates = { ...req.body };
   const adminPassword = updates.adminPassword as string | undefined;
   delete updates.adminPassword;
@@ -439,6 +456,23 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   if (!school) {
     throw new NotFoundError('School not found');
+  }
+
+  const oldCustom = String(previousDomainState.customDomain || '').toLowerCase();
+  const newCustom = String((school as any).customDomain || '').toLowerCase();
+  const domainChanged =
+    previousDomainState.slug !== (school as any).slug ||
+    previousDomainState.subdomain !== (school as any).subdomain ||
+    oldCustom !== newCustom;
+
+  if (domainChanged) {
+    try {
+      await syncSchoolDomains(previousDomainState, school as any);
+    } catch (error) {
+      // Keep the organization edit successful even if Cloudflare is
+      // temporarily unavailable; Website Management -> Domain can repair it.
+      console.error(`[school.update] DNS sync failed for "${(school as any).slug}":`, error);
+    }
   }
 
   return ApiResponse.success(res, school, 'School updated successfully');
