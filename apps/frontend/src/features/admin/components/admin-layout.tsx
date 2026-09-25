@@ -15,7 +15,7 @@ export function AdminLayout() {
   const toggleCollapsed = () => setCollapsed((prev) => !prev);
 
   return (
-    <div className="min-h-screen bg-[var(--color-surface-secondary)]">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[var(--color-surface-secondary)]">
       {/*
         Tailwind's responsive display utility can be overridden by a global
         `.hidden` rule in some production builds. Keep a small, scoped desktop
@@ -34,7 +34,7 @@ export function AdminLayout() {
         <AdminSidebar collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
       </div>
 
-      <div className={`min-h-screen transition-[margin] duration-200 ${collapsed ? 'lg:ml-[76px]' : 'lg:ml-72'}`}>
+      <div className={`min-h-screen min-w-0 w-full max-w-full overflow-x-hidden transition-[margin] duration-200 ${collapsed ? 'lg:ml-[76px]' : 'lg:ml-72'}`}>
         <DashboardHeader showGreeting={isDashboardRoot} />
         <Outlet />
       </div>
