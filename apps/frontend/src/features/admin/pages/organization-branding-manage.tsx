@@ -9,7 +9,6 @@ interface SchoolBrief {
   branding?: { logo?: string; themeColor?: string };
 }
 
-const MAX_LOGO_SIZE = 2 * 1024 * 1024;
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 export function OrganizationBrandingManage() {
@@ -93,11 +92,6 @@ export function OrganizationBrandingManage() {
       setError('Please select a JPEG, PNG, GIF, or WebP image.');
       return;
     }
-    if (file.size > MAX_LOGO_SIZE) {
-      setError('Logo must be 2 MB or smaller.');
-      return;
-    }
-
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     const url = URL.createObjectURL(file);
     previewUrlRef.current = url;
@@ -225,7 +219,7 @@ export function OrganizationBrandingManage() {
               <div className="space-y-4">
                 <div>
                   <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Organization Logo</h3>
-                  <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">Use a clear square or transparent-background logo. JPEG, PNG, GIF, and WebP are supported up to 2 MB.</p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">Use a clear square or transparent-background logo. JPEG, PNG, GIF, and WebP are supported.</p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
