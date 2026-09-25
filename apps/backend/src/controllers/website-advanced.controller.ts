@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import dns from 'dns/promises';
-import https from 'https';
 import tls from 'tls';
 import mongoose from 'mongoose';
 import School from '../models/school.model';
@@ -11,6 +10,14 @@ import WebsiteAnalyticsDaily from '../models/website-analytics.model';
 import WebsiteVersion from '../models/website-version.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
+import {
+  cloudflareAutoProvisionEnabled,
+  cloudflareDnsConfigured,
+  expectedTargetForSchool,
+  findAccessibleCloudflareZone,
+  managedHostnameForSchool,
+  provisionSchoolDomains,
+} from '../utils/cloudflare-dns';
 import {
   buildDefaultSite,
   cleanText,
@@ -344,88 +351,63 @@ async function dnsCheck(hostname: string) {
 
 export async function getDomainStatus(req: Request, res: Response): Promise<Response> {
   const school = await getManagedSchool(req, req.query.schoolId);
-  const baseDomain = (process.env.BASE_DOMAIN || 'sahaledu.com').toLowerCase();
-  const managedHostname = `${school.subdomain || school.slug}.${baseDomain}`;
-  const hostname = (school.customDomain || managedHostname).toLowerCase();
+  const managedHostname = managedHostnameForSchool(school);
+  const customHostname = String(school.customDomain || '').trim().toLowerCase();
+  const hostname = customHostname || managedHostname;
+  const type = customHostname ? 'custom' : 'managed';
   const [dnsStatus, ssl] = await Promise.all([dnsCheck(hostname), tlsCheck(hostname)]);
+
+  const automationConfigured = cloudflareDnsConfigured();
+  let zoneAccess = null;
+  let automationError = '';
+  if (automationConfigured) {
+    try {
+      zoneAccess = await findAccessibleCloudflareZone(hostname);
+    } catch (error: any) {
+      automationError = error?.message || 'Cloudflare zone access check failed.';
+    }
+  }
 
   return ApiResponse.success(res, {
     hostname,
-    type: school.customDomain ? 'custom' : 'managed',
+    managedHostname,
+    customHostname: customHostname || null,
+    type,
     dns: dnsStatus,
     ssl,
-    connected: dnsStatus.resolved && ssl.active,
-    cloudflareAutomationConfigured: Boolean(
-      process.env.CLOUDFLARE_API_TOKEN &&
-      process.env.CLOUDFLARE_ZONE_ID &&
-      process.env.CLOUDFLARE_ORIGIN_HOST,
-    ),
-    expected: school.customDomain
-      ? { cnameTarget: process.env.CLOUDFLARE_CUSTOM_DOMAIN_TARGET || managedHostname }
-      : { cnameTarget: process.env.CLOUDFLARE_ORIGIN_HOST || baseDomain },
-  });
-}
-
-async function cloudflareRequest(method: string, requestPath: string, body?: any): Promise<any> {
-  const token = process.env.CLOUDFLARE_API_TOKEN;
-  if (!token) throw new BadRequestError('Cloudflare API token is not configured.');
-  const payload = body ? Buffer.from(JSON.stringify(body)) : Buffer.alloc(0);
-  return new Promise((resolve, reject) => {
-    const request = https.request({
-      hostname: 'api.cloudflare.com',
-      port: 443,
-      method,
-      path: requestPath,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...(payload.length ? { 'Content-Length': String(payload.length) } : {}),
-      },
-      timeout: 12000,
-    }, (response) => {
-      const chunks: Buffer[] = [];
-      response.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-      response.on('end', () => {
-        try {
-          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-          if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300 || parsed.success === false) {
-            reject(new Error(parsed.errors?.[0]?.message || `Cloudflare API error ${response.statusCode || 0}`));
-            return;
-          }
-          resolve(parsed);
-        } catch (error) { reject(error); }
-      });
-    });
-    request.on('timeout', () => request.destroy(new Error('Cloudflare API timed out')));
-    request.on('error', reject);
-    if (payload.length) request.write(payload);
-    request.end();
+    connected: dnsStatus.resolved && ssl.active && ssl.authorized,
+    cloudflareAutomationConfigured: automationConfigured,
+    cloudflareCanProvision: Boolean(zoneAccess),
+    cloudflareZone: zoneAccess?.name || null,
+    cloudflareAutoProvisionEnabled: cloudflareAutoProvisionEnabled(),
+    automationError: automationError || null,
+    expected: {
+      cnameTarget: expectedTargetForSchool(school, type),
+    },
   });
 }
 
 export async function provisionManagedDomain(req: Request, res: Response): Promise<Response> {
   const school = await getManagedSchool(req, req.body?.schoolId || req.query.schoolId);
-  if (school.customDomain) throw new BadRequestError('Custom domains must be configured at the domain owner DNS provider.');
 
-  const zoneId = process.env.CLOUDFLARE_ZONE_ID;
-  const origin = process.env.CLOUDFLARE_ORIGIN_HOST;
-  if (!zoneId || !origin || !process.env.CLOUDFLARE_API_TOKEN) {
+  if (!cloudflareDnsConfigured()) {
     throw new BadRequestError('Cloudflare DNS automation is not configured on the server.');
   }
 
-  const baseDomain = (process.env.BASE_DOMAIN || 'sahaledu.com').toLowerCase();
-  const hostname = `${school.subdomain || school.slug}.${baseDomain}`;
-  const encoded = encodeURIComponent(hostname);
-  const existing = await cloudflareRequest('GET', `/client/v4/zones/${zoneId}/dns_records?type=CNAME&name=${encoded}`);
-  const record = existing.result?.[0];
-  const payload = { type: 'CNAME', name: hostname, content: origin, ttl: 1, proxied: true };
+  const result = await provisionSchoolDomains(school, { ignoreAutoProvisionSetting: true });
+  const active = school.customDomain ? result.custom : result.managed;
 
-  if (record?.id) {
-    await cloudflareRequest('PUT', `/client/v4/zones/${zoneId}/dns_records/${record.id}`, payload);
-  } else {
-    await cloudflareRequest('POST', `/client/v4/zones/${zoneId}/dns_records`, payload);
+  if (!active?.provisioned) {
+    throw new BadRequestError(active?.message || 'Cloudflare could not provision this hostname.');
   }
-  return ApiResponse.success(res, { hostname, target: origin }, 'Managed domain provisioned in Cloudflare.');
+
+  return ApiResponse.success(
+    res,
+    result,
+    school.customDomain
+      ? 'Custom domain provisioned in Cloudflare.'
+      : 'Managed domain provisioned in Cloudflare.',
+  );
 }
 
 function requestHost(req: Request): string {
