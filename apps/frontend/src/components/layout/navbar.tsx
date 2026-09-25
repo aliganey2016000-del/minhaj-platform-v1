@@ -2,7 +2,7 @@
  * Navbar — "Emerald & Gold" landing navigation.
  *
  * Transparent over the emerald hero at the top, condensing into a solid
- * emerald glass bar once scrolled. Gold star brand mark, gold primary CTA.
+ * emerald glass bar once scrolled. Sahal book brand mark, gold primary CTA.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -58,10 +58,18 @@ export function Navbar() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isMobileOpen, handleKeyDown]);
 
-  const brandMark = (
+  const brandMark = isSuganhub ? (
     <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-gold-400 to-gold-500 text-emerald-950 shadow-lg shadow-gold-500/25">
       <StarGlyph className="h-5 w-5" />
     </div>
+  ) : (
+    <img
+      src="/icons/sahal-book-512.png"
+      alt="Sahal Education Platform"
+      width={56}
+      height={56}
+      className="h-14 w-14 shrink-0 rounded-xl object-contain"
+    />
   );
 
   return (

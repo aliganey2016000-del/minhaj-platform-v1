@@ -75,9 +75,9 @@ export const getCurrentBranding = async (req: Request, res: Response): Promise<R
 // ---------------------------------------------------------------------------
 
 const DEFAULT_ICONS = [
-  { src: '/icons/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-  { src: '/icons/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
-  { src: '/icons/pwa-180x180.png', sizes: '180x180', type: 'image/png', purpose: 'apple touch icon' },
+  { src: '/icons/sahal-book-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+  { src: '/icons/sahal-book-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+  { src: '/icons/sahal-book-180.png', sizes: '180x180', type: 'image/png', purpose: 'any' },
 ];
 
 /**
