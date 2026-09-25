@@ -60,11 +60,17 @@ interface AnalyticsData {
 }
 interface DomainStatus {
   hostname: string;
+  managedHostname: string;
+  customHostname?: string | null;
   type: 'custom' | 'managed';
   dns: { resolved: boolean; a: string[]; aaaa: string[]; cname: string[] };
   ssl: { active: boolean; authorized: boolean; expiresAt?: string };
   connected: boolean;
   cloudflareAutomationConfigured: boolean;
+  cloudflareCanProvision: boolean;
+  cloudflareZone?: string | null;
+  cloudflareAutoProvisionEnabled: boolean;
+  automationError?: string | null;
   expected: { cnameTarget: string };
 }
 
@@ -269,10 +275,11 @@ function VersionsPanel({ schoolId, onReplaceDraft, showNotice }: Pick<Props, 'sc
   return <div className={`${panelClass} p-5 sm:p-6`}><h2 className="text-lg font-bold">Version History & Rollback</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Every publish creates a recoverable snapshot.</p>{loading ? <div className="py-16"><Loader2 className="mx-auto h-6 w-6 animate-spin" /></div> : versions.length ? <div className="mt-5 space-y-2">{versions.map((item) => <div key={item.version} className="flex flex-col gap-3 rounded-xl border border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center"><div className="flex-1"><p className="text-sm font-bold">Version {item.version}</p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{new Date(item.createdAt).toLocaleString()} · {item.publishedBy?.email || 'Administrator'}{item.note ? ` · ${item.note}` : ''}</p></div><button onClick={() => rollback(item.version)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold hover:bg-[var(--color-surface-tertiary)]"><RotateCcw className="h-3.5 w-3.5" />Restore</button></div>)}</div> : <div className="mt-6 rounded-xl border border-dashed border-[var(--color-border-default)] py-14 text-center text-sm text-[var(--color-text-tertiary)]">Publish the website to create the first version.</div>}</div>;
 }
 
-function DomainPanel({ schoolId, organization, showNotice }: Pick<Props, 'schoolId' | 'organization' | 'showNotice'>) {
+function DomainPanel({ schoolId, showNotice }: Pick<Props, 'schoolId' | 'organization' | 'showNotice'>) {
   const [status, setStatus] = useState<DomainStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [provisioning, setProvisioning] = useState(false);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -280,28 +287,132 @@ function DomainPanel({ schoolId, organization, showNotice }: Pick<Props, 'school
       setStatus(data.data);
     } catch (err: any) {
       showNotice({ type: 'error', text: err.response?.data?.message || 'Could not verify domain.' });
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
+
   useEffect(() => { load(); }, [schoolId]);
 
   const provision = async () => {
     setProvisioning(true);
     try {
       await api.post('/website-management/domain/provision', { schoolId });
-      showNotice({ type: 'success', text: 'Cloudflare DNS record provisioned. DNS/SSL may need a short period to become active.' });
+      showNotice({
+        type: 'success',
+        text: 'Cloudflare DNS record provisioned. DNS and SSL may need a short period to become active.',
+      });
       await load();
-    } catch (err: any) { showNotice({ type: 'error', text: err.response?.data?.message || 'Could not provision domain.' }); }
-    finally { setProvisioning(false); }
+    } catch (err: any) {
+      showNotice({ type: 'error', text: err.response?.data?.message || 'Could not provision domain.' });
+    } finally {
+      setProvisioning(false);
+    }
   };
 
-  if (loading) return <div className={`${panelClass} py-20`}><Loader2 className="mx-auto h-7 w-7 animate-spin" /></div>;
+  if (loading) {
+    return <div className={`${panelClass} py-20`}><Loader2 className="mx-auto h-7 w-7 animate-spin" /></div>;
+  }
   if (!status) return null;
 
-  return <div className="grid gap-5 lg:grid-cols-[1fr_420px]"><div className={`${panelClass} p-5 sm:p-6`}><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-bold">Domain & SSL</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Live DNS and TLS verification for this organization website.</p></div><button onClick={load} className="rounded-xl border border-[var(--color-border-default)] p-2.5"><RefreshCcw className="h-4 w-4" /></button></div><div className="mt-6 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Hostname</p><div className="mt-1 flex items-center gap-2"><Globe2 className="h-4 w-4" /><p className="break-all font-bold">{status.hostname}</p><a href={`https://${status.hostname}`} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" /></a></div><p className="mt-1 text-[11px] uppercase text-[var(--color-text-tertiary)]">{status.type} domain</p></div><div className="mt-4 grid gap-3 sm:grid-cols-3">{[
-    ['DNS', status.dns.resolved, status.dns.resolved ? 'Resolved' : 'Pending'],
-    ['SSL', status.ssl.active && status.ssl.authorized, status.ssl.active ? (status.ssl.authorized ? 'Valid' : 'Certificate issue') : 'Pending'],
-    ['Overall', status.connected, status.connected ? 'Connected' : 'Needs attention'],
-  ].map(([label, ok, detail]) => <div key={String(label)} className="rounded-xl border border-[var(--color-border-subtle)] p-4"><div className="flex items-center gap-2">{ok ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Clock3 className="h-4 w-4 text-amber-500" />}<p className="text-xs font-bold">{label}</p></div><p className="mt-2 text-xs text-[var(--color-text-tertiary)]">{detail}</p></div>)}</div>{status.type === 'custom' ? <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300"><p className="font-bold">Custom-domain DNS instruction</p><p className="mt-2 text-xs leading-5">At your domain provider, point the custom hostname to <strong>{status.expected.cnameTarget}</strong>. Then return here and click refresh to verify DNS and SSL.</p></div> : status.cloudflareAutomationConfigured ? <button disabled={provisioning} onClick={provision} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{provisioning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}Provision / Repair Cloudflare DNS</button> : <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">Cloudflare automation credentials are not configured. Wildcard DNS may still make this managed subdomain work automatically.</div>}</div><div className={`${panelClass} p-5`}><h3 className="font-bold">Technical Details</h3><div className="mt-4 space-y-3 text-xs"><div><p className="text-[var(--color-text-tertiary)]">DNS A</p><p className="mt-1 break-all font-medium">{status.dns.a.join(', ') || '—'}</p></div><div><p className="text-[var(--color-text-tertiary)]">DNS CNAME</p><p className="mt-1 break-all font-medium">{status.dns.cname.join(', ') || '—'}</p></div><div><p className="text-[var(--color-text-tertiary)]">SSL expiry</p><p className="mt-1 font-medium">{status.ssl.expiresAt ? new Date(status.ssl.expiresAt).toLocaleDateString() : '—'}</p></div><div><p className="text-[var(--color-text-tertiary)]">SEO files</p><div className="mt-1 space-y-1"><a target="_blank" rel="noreferrer" href={`https://${status.hostname}/sitemap.xml`} className="flex items-center gap-1 font-semibold text-primary-600">sitemap.xml <ExternalLink className="h-3 w-3" /></a><a target="_blank" rel="noreferrer" href={`https://${status.hostname}/robots.txt`} className="flex items-center gap-1 font-semibold text-primary-600">robots.txt <ExternalLink className="h-3 w-3" /></a></div></div></div></div></div>;
+  const automationText = !status.cloudflareAutomationConfigured
+    ? 'Credentials missing'
+    : status.cloudflareCanProvision
+      ? (status.cloudflareAutoProvisionEnabled ? 'Automatic sync enabled' : 'Manual repair available')
+      : 'Manual DNS required';
+
+  return (
+    <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
+      <div className={`${panelClass} min-w-0 p-5 sm:p-6`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold">Domain & SSL</h2>
+            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Live DNS, Cloudflare automation and TLS verification for this organization website.</p>
+          </div>
+          <button onClick={load} className="shrink-0 rounded-xl border border-[var(--color-border-default)] p-2.5"><RefreshCcw className="h-4 w-4" /></button>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-4">
+          <p className="text-xs text-[var(--color-text-tertiary)]">Hostname</p>
+          <div className="mt-1 flex min-w-0 items-center gap-2">
+            <Globe2 className="h-4 w-4 shrink-0" />
+            <p className="min-w-0 break-all font-bold">{status.hostname}</p>
+            <a className="shrink-0" href={`https://${status.hostname}`} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" /></a>
+          </div>
+          <p className="mt-1 text-[11px] uppercase text-[var(--color-text-tertiary)]">{status.type} domain</p>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            ['DNS', status.dns.resolved, status.dns.resolved ? 'Resolved' : 'Pending'],
+            ['SSL', status.ssl.active && status.ssl.authorized, status.ssl.active ? (status.ssl.authorized ? 'Valid' : 'Certificate issue') : 'Pending'],
+            ['Overall', status.connected, status.connected ? 'Connected' : 'Needs attention'],
+            ['Automation', status.cloudflareCanProvision, automationText],
+          ].map(([label, ok, detail]) => (
+            <div key={String(label)} className="min-w-0 rounded-xl border border-[var(--color-border-subtle)] p-4">
+              <div className="flex items-center gap-2">
+                {ok ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" /> : <Clock3 className="h-4 w-4 shrink-0 text-amber-500" />}
+                <p className="text-xs font-bold">{label}</p>
+              </div>
+              <p className="mt-2 break-words text-xs text-[var(--color-text-tertiary)]">{detail}</p>
+            </div>
+          ))}
+        </div>
+
+        {status.cloudflareAutomationConfigured && status.cloudflareCanProvision ? (
+          <div className="mt-5 rounded-xl border border-green-200 bg-green-50 p-4 dark:border-green-900/50 dark:bg-green-950/20">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-green-800 dark:text-green-300">Cloudflare DNS automation ready</p>
+                <p className="mt-1 break-words text-xs leading-5 text-green-700 dark:text-green-400">
+                  {status.cloudflareZone ? `Zone: ${status.cloudflareZone}. ` : ''}
+                  {status.cloudflareAutoProvisionEnabled
+                    ? 'Organization create/edit automatically keeps DNS synchronized.'
+                    : 'Automatic sync is disabled, but you can repair this hostname manually.'}
+                </p>
+              </div>
+              <button disabled={provisioning} onClick={provision} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                {provisioning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
+                Provision / Repair DNS
+              </button>
+            </div>
+          </div>
+        ) : status.type === 'custom' ? (
+          <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300">
+            <p className="font-bold">Custom-domain DNS instruction</p>
+            <p className="mt-2 break-words text-xs leading-5">
+              This custom domain is not in a Cloudflare zone accessible to the configured token. At the domain provider, point <strong>{status.hostname}</strong> to <strong>{status.expected.cnameTarget}</strong>, then refresh to verify DNS and SSL.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
+            {status.cloudflareAutomationConfigured
+              ? 'Cloudflare credentials are present, but this zone is not accessible. Check Zone Read + DNS Edit permissions and CLOUDFLARE_ZONE_ID.'
+              : 'Cloudflare DNS automation credentials are not configured. Add the API token, origin hostname and zone access to enable automatic subdomain creation.'}
+          </div>
+        )}
+      </div>
+
+      <div className={`${panelClass} min-w-0 p-5`}>
+        <h3 className="font-bold">Technical Details</h3>
+        <div className="mt-4 space-y-3 text-xs">
+          <div><p className="text-[var(--color-text-tertiary)]">Managed hostname</p><p className="mt-1 break-all font-medium">{status.managedHostname}</p></div>
+          <div><p className="text-[var(--color-text-tertiary)]">Expected CNAME target</p><p className="mt-1 break-all font-medium">{status.expected.cnameTarget || '—'}</p></div>
+          <div><p className="text-[var(--color-text-tertiary)]">DNS A</p><p className="mt-1 break-all font-medium">{status.dns.a.join(', ') || '—'}</p></div>
+          <div><p className="text-[var(--color-text-tertiary)]">DNS CNAME</p><p className="mt-1 break-all font-medium">{status.dns.cname.join(', ') || '—'}</p></div>
+          <div><p className="text-[var(--color-text-tertiary)]">SSL expiry</p><p className="mt-1 font-medium">{status.ssl.expiresAt ? new Date(status.ssl.expiresAt).toLocaleDateString() : '—'}</p></div>
+          {status.automationError && <div><p className="text-[var(--color-text-tertiary)]">Automation check</p><p className="mt-1 break-words font-medium text-amber-600">{status.automationError}</p></div>}
+          <div>
+            <p className="text-[var(--color-text-tertiary)]">SEO files</p>
+            <div className="mt-1 space-y-1">
+              <a target="_blank" rel="noreferrer" href={`https://${status.hostname}/sitemap.xml`} className="flex items-center gap-1 font-semibold text-primary-600">sitemap.xml <ExternalLink className="h-3 w-3" /></a>
+              <a target="_blank" rel="noreferrer" href={`https://${status.hostname}/robots.txt`} className="flex items-center gap-1 font-semibold text-primary-600">robots.txt <ExternalLink className="h-3 w-3" /></a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SettingsPanel({ site, onUpdateSite }: Pick<Props, 'site' | 'onUpdateSite'>) {
