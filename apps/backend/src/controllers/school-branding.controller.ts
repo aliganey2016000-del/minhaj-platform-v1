@@ -22,16 +22,11 @@ const IMAGE_TYPES: Record<string, string> = {
   'image/gif': '.gif',
   'image/webp': '.webp',
 };
-const MAX_LOGO_SIZE = 2 * 1024 * 1024;
 
 function validateLogo(file: Express.Multer.File): void {
   if (!IMAGE_TYPES[file.mimetype]) {
     throw new BadRequestError('Only JPEG, PNG, GIF, and WebP logos are supported.');
   }
-  if (file.size > MAX_LOGO_SIZE) {
-    throw new BadRequestError('Logo must be 2 MB or smaller.');
-  }
-
   const header = file.buffer.subarray(0, 12);
   const valid = file.mimetype === 'image/jpeg'
     ? header[0] === 0xff && header[1] === 0xd8
