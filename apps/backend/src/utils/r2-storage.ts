@@ -8,7 +8,7 @@ export const r2Enabled = Boolean(
   process.env.R2_BUCKET_NAME,
 );
 
-const sha256 = (value: Buffer | string) => crypto.createHash('sha256').update(value).digest('hex');
+const sha256 = (value: Uint8Array | string) => crypto.createHash('sha256').update(value).digest('hex');
 const hmac = (key: Buffer | string, value: string) => crypto.createHmac('sha256', key).update(value).digest();
 const encodeKey = (key: string) => key.split('/').map((part) => encodeURIComponent(part).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase())).join('/');
 
@@ -21,7 +21,7 @@ function credentials() {
   return { accountId, accessKey, secretKey, bucket };
 }
 
-function signedHeaders(method: string, key: string, body: Buffer) {
+function signedHeaders(method: string, key: string, body: Uint8Array) {
   const { accountId, accessKey, secretKey, bucket } = credentials();
   const host = `${accountId}.r2.cloudflarestorage.com`;
   const now = new Date();
@@ -52,7 +52,7 @@ function signedHeaders(method: string, key: string, body: Buffer) {
   };
 }
 
-async function requestR2(method: 'PUT' | 'GET' | 'DELETE', key: string, body = Buffer.alloc(0), contentType?: string): Promise<{ body: Buffer; contentType?: string }> {
+async function requestR2(method: 'PUT' | 'GET' | 'DELETE', key: string, body: Uint8Array = new Uint8Array(0), contentType?: string): Promise<{ body: Buffer; contentType?: string }> {
   const signed = signedHeaders(method, key, body);
   return new Promise((resolve, reject) => {
     const req = https.request({
@@ -62,7 +62,7 @@ async function requestR2(method: 'PUT' | 'GET' | 'DELETE', key: string, body = B
       path: signed.path,
       headers: {
         ...signed.headers,
-        ...(body.length ? { 'Content-Length': String(body.length) } : {}),
+        ...(body.byteLength ? { 'Content-Length': String(body.byteLength) } : {}),
         ...(contentType ? { 'Content-Type': contentType } : {}),
       },
       timeout: 20000,
@@ -80,7 +80,7 @@ async function requestR2(method: 'PUT' | 'GET' | 'DELETE', key: string, body = B
     });
     req.on('timeout', () => req.destroy(new Error('R2 request timed out')));
     req.on('error', reject);
-    if (body.length) req.write(body);
+    if (body.byteLength) req.write(body);
     req.end();
   });
 }
@@ -90,11 +90,11 @@ export async function uploadToR2(key: string, buffer: Buffer, contentType: strin
 }
 
 export async function getFromR2(key: string): Promise<{ body: Buffer; contentType?: string }> {
-  return requestR2('GET', key);
+  return requestR2('GET', key, new Uint8Array(0));
 }
 
 export async function deleteFromR2(key: string): Promise<void> {
-  await requestR2('DELETE', key);
+  await requestR2('DELETE', key, new Uint8Array(0));
 }
 
 export function websiteMediaProxyUrl(schoolId: string, key: string): string {
