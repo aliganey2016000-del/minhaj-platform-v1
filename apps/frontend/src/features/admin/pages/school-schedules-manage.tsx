@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, Download, MoreVertical, Pencil, Plus, Search, Settings, Trash2, Upload, X } from 'lucide-react';
+import { CalendarDays, Check, Download, List, MoreVertical, Pencil, Plus, Printer, School, Search, Settings, Trash2, Upload, Users, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import BulkEntityImportModal from './components/bulk-entity-import-modal';
@@ -190,7 +190,13 @@ export function ScheduleModal({ schedule, organizationId, classes, teachers, onC
   </div>;
 }
 
-export function SchoolSchedulesManage() {
+export function SchoolSchedulesManage({
+  onOpenTimetable,
+  onPrint,
+}: {
+  onOpenTimetable?: (perspective: 'day' | 'class' | 'teacher') => void;
+  onPrint?: () => void;
+} = {}) {
   const { user } = useAuth();
   const organizationId = user?.organizationId || (user as any)?.schoolId || '';
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -330,7 +336,20 @@ export function SchoolSchedulesManage() {
   };
 
   return <div className="space-y-4 p-4 sm:p-6">
-    <div className="flex items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-xl font-bold"><CalendarDays className="h-5 w-5 text-emerald-600" />Class Schedules</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Build, validate and publish the weekly school timetable.</p></div><div className="relative"><button type="button" onClick={() => setMenuOpen(value => !value)} className="rounded-xl border border-[var(--color-border-default)] p-2.5 hover:bg-[var(--color-surface-tertiary)]" aria-label="Schedule page actions"><MoreVertical className="h-5 w-5" /></button>{menuOpen && <div className="absolute right-0 z-40 mt-2 w-64 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h1 className="flex items-center gap-2 text-xl font-bold"><CalendarDays className="h-5 w-5 text-emerald-600" />Class Schedules</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Build, validate and publish the weekly school timetable.</p></div><div className="relative self-end sm:self-auto"><button type="button" onClick={() => setMenuOpen(value => !value)} className="rounded-xl border border-[var(--color-border-default)] p-2.5 hover:bg-[var(--color-surface-tertiary)]" aria-label="Schedule page actions"><MoreVertical className="h-5 w-5" /></button>{menuOpen && <div className="absolute right-0 z-40 mt-2 w-[min(86vw,17rem)] rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl">
+      <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">View Mode</div>
+      <button type="button" onClick={() => setMenuOpen(false)} className="flex w-full items-center justify-between rounded-xl bg-primary-50 px-3 py-2.5 text-sm font-semibold text-primary-700 dark:bg-primary-950/20 dark:text-primary-300"><span className="flex items-center gap-2"><List className="h-4 w-4" />List</span><Check className="h-4 w-4" /></button>
+      <button type="button" onClick={() => { setMenuOpen(false); onOpenTimetable?.('day'); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><CalendarDays className="h-4 w-4" />Table</button>
+      <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+      <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">Filter By</div>
+      <button type="button" onClick={() => { setMenuOpen(false); onOpenTimetable?.('day'); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><CalendarDays className="h-4 w-4" />Day</button>
+      <button type="button" onClick={() => { setMenuOpen(false); onOpenTimetable?.('class'); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><School className="h-4 w-4" />Class</button>
+      <button type="button" onClick={() => { setMenuOpen(false); onOpenTimetable?.('teacher'); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Users className="h-4 w-4" />Teacher</button>
+      <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+      <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">Action</div>
+      <button type="button" onClick={() => { setMenuOpen(false); onPrint ? onPrint() : window.print(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)]"><Printer className="h-4 w-4" />Print</button>
+      <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+      <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">Manage</div>
       <button type="button" onClick={() => { setMenuOpen(false); setModal('new'); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-[var(--color-surface-tertiary)]"><Plus className="h-4 w-4" />Add Schedule</button>
       <button type="button" onClick={() => { setMenuOpen(false); setShowImport(true); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Upload className="h-4 w-4" />Import Schedules</button>
       <button type="button" onClick={() => void exportSchedules()} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-tertiary)]"><Download className="h-4 w-4" />Export Schedules</button>
@@ -345,7 +364,7 @@ export function SchoolSchedulesManage() {
 
     <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold text-[var(--color-text-primary)]">{schedules.filter(item => item.isActive).length}</div><div className="text-xs text-[var(--color-text-tertiary)]">Active lessons</div></div><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold text-[var(--color-text-primary)]">{new Set(schedules.map(item => item.class?._id).filter(Boolean)).size}</div><div className="text-xs text-[var(--color-text-tertiary)]">Classes scheduled</div></div><div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4"><div className="text-2xl font-bold text-amber-600 dark:text-amber-300">{schedules.filter(item => !item.teacher).length}</div><div className="text-xs text-[var(--color-text-tertiary)]">Unassigned teacher slots</div></div></div>
 
-    <div className="grid gap-2 sm:grid-cols-4"><div className="relative sm:col-span-2"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search class, subject, teacher, day, room..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent py-2.5 pl-9 pr-3 text-sm" /></div><select value={classFilter} onChange={event => setClassFilter(event.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm"><option value="">All classes</option>{classes.map(cls => <option key={cls._id} value={cls._id}>{className(cls)}</option>)}</select><select value={dayFilter} onChange={event => setDayFilter(event.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm"><option value="">All days</option>{DAYS.map((day, index) => <option key={day} value={index}>{day}</option>)}</select></div>
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-4"><div className="relative sm:col-span-2"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search class, subject, teacher, day, room..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent py-2.5 pl-9 pr-3 text-sm" /></div><select value={classFilter} onChange={event => setClassFilter(event.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm"><option value="">All classes</option>{classes.map(cls => <option key={cls._id} value={cls._id}>{className(cls)}</option>)}</select><select value={dayFilter} onChange={event => setDayFilter(event.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm"><option value="">All days</option>{DAYS.map((day, index) => <option key={day} value={index}>{day}</option>)}</select></div>
     <select value={teacherFilter} onChange={event => setTeacherFilter(event.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm sm:max-w-sm"><option value="">All teachers</option>{teachers.map(teacher => <option key={teacher._id} value={teacher._id}>{teacherName(teacher)}</option>)}</select>
 
     {selected.size > 0 && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary-200 bg-primary-50/70 px-3 py-2 text-xs font-semibold text-primary-800 dark:border-primary-900/50 dark:bg-primary-950/20 dark:text-primary-200"><span>{selected.size} schedule{selected.size === 1 ? '' : 's'} selected</span><button type="button" onClick={() => void deleteSelected()} disabled={bulkDeleting} className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" />Delete Selected</button></div>}
