@@ -163,7 +163,7 @@ async function generateAutomaticStudentId(school?: unknown): Promise<string> {
   // $inc reserves a unique number atomically for every concurrent creator.
   // Explicit/custom IDs may occupy a future number, so skip any collision.
   for (let attempt = 0; attempt < 10000; attempt += 1) {
-    const counter = await StudentSequence.findOneAndUpdate(
+    const counter: any = await StudentSequence.findOneAndUpdate(
       { key: sequenceKey },
       { $inc: { seq: 1 } },
       { new: true, upsert: true, setDefaultsOnInsert: true },
