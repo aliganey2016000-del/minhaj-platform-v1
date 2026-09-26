@@ -68,6 +68,38 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     (async () => {
       setError(null);
       setIsLoading(true);
+
+      // The platform root domain is always the Sahal marketing website.
+      // Resolve it locally instead of depending on /tenant/current, because
+      // reverse proxies may rewrite forwarded host headers before the API
+      // receives the request. Tenant subdomains/custom domains still use the
+      // authoritative backend resolver below.
+      const baseDomain = String(import.meta.env.VITE_BASE_DOMAIN || 'sahaledu.com')
+        .replace(/^https?:\/\//, '')
+        .replace(/:\d+$/, '')
+        .replace(/^www\./, '')
+        .toLowerCase();
+      const normalizedHost = hostname.replace(/^www\./, '');
+      const isLocalMainHost =
+        normalizedHost === baseDomain ||
+        normalizedHost === 'localhost' ||
+        /^\d+\.\d+\.\d+\.\d+$/.test(normalizedHost);
+
+      if (isLocalMainHost) {
+        if (!cancelled) {
+          setTenant({
+            isMainSite: true,
+            slug: '',
+            name: 'Sahal Education Platform',
+            institutionType: 'platform',
+            branding: DEFAULT_BRANDING,
+            portalUrl: baseDomain,
+          });
+          setIsLoading(false);
+        }
+        return;
+      }
+
       try {
         const { data } = await api.get('/tenant/current');
         if (cancelled) return;
