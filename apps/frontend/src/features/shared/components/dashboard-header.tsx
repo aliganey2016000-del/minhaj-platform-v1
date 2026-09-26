@@ -230,7 +230,7 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
   // the same row as search/notifications/theme, so every page keeps more
   // content above the fold.
   return (
-    <div className="relative w-full max-w-full overflow-x-clip bg-[var(--color-surface-primary)] border-b border-[var(--color-border-subtle)] shadow-sm">
+    <div className="relative w-full bg-[var(--color-surface-primary)] border-b border-[var(--color-border-subtle)] shadow-sm">
       <div className="relative mx-auto flex w-full max-w-6xl min-w-0 flex-col items-start justify-between gap-2.5 py-3 pl-16 pr-3 sm:gap-3 sm:pl-[68px] sm:pr-4 lg:flex-row lg:items-center lg:px-6">
         <div className="flex w-full min-w-0 items-center gap-2 sm:gap-3 lg:w-auto" title={dateStr}>
           <div className="flex-shrink-0 flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-primary-50 dark:bg-primary-950/40 border border-primary-100 dark:border-primary-900">
