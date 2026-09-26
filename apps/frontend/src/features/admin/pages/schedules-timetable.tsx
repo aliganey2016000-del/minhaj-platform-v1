@@ -680,13 +680,14 @@ export function SchedulesTimetable({
           }
 
           #schedule-timetable-print {
-            position: fixed !important;
-            inset: 0 !important;
+            position: absolute !important;
+            inset: 0 auto auto 0 !important;
             z-index: 2147483647 !important;
             display: flex !important;
             flex-direction: column !important;
             width: 100% !important;
-            max-width: none !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
             min-height: 100% !important;
             height: auto !important;
             margin: 0 !important;
@@ -697,14 +698,20 @@ export function SchedulesTimetable({
             box-shadow: none !important;
             background: #ffffff !important;
             color: #0f2348 !important;
+            box-sizing: border-box !important;
+          }
+
+          #schedule-timetable-print,
+          #schedule-timetable-print * {
+            box-sizing: border-box !important;
           }
 
           #schedule-timetable-print .schedule-print-header {
             display: grid !important;
-            grid-template-columns: minmax(240px, 1fr) minmax(320px, 1.25fr) minmax(225px, 0.9fr) !important;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 0.9fr) !important;
             align-items: start !important;
-            gap: 14px !important;
-            padding: 4mm 2mm 5mm !important;
+            gap: 8px !important;
+            padding: 2.5mm 1mm 3mm !important;
           }
 
           #schedule-timetable-print .schedule-print-brand {
@@ -796,12 +803,15 @@ export function SchedulesTimetable({
 
           #schedule-timetable-print .schedule-timetable-print-scroll {
             width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
             overflow: visible !important;
             flex: 1 1 auto !important;
           }
 
           #schedule-timetable-print table {
             width: 100% !important;
+            max-width: 100% !important;
             min-width: 0 !important;
             table-layout: fixed !important;
             border-collapse: separate !important;
@@ -809,8 +819,8 @@ export function SchedulesTimetable({
             border: 1px solid #b8cee6 !important;
             border-radius: 4px !important;
             overflow: hidden !important;
-            font-size: 7.3px !important;
-            line-height: 1.18 !important;
+            font-size: 6.6px !important;
+            line-height: 1.12 !important;
           }
 
           #schedule-timetable-print thead {
@@ -824,15 +834,21 @@ export function SchedulesTimetable({
 
           #schedule-timetable-print th,
           #schedule-timetable-print td {
-            padding: 5px 3px !important;
+            position: static !important;
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            padding: 3px 2px !important;
             border-right: 1px solid #c6d8ea !important;
             border-bottom: 1px solid #c6d8ea !important;
             border-top: 0 !important;
             border-left: 0 !important;
             vertical-align: middle !important;
             text-align: center !important;
+            overflow: hidden !important;
             overflow-wrap: anywhere !important;
-            word-break: normal !important;
+            word-break: break-word !important;
+            white-space: normal !important;
             color: #0e2448 !important;
           }
 
@@ -846,14 +862,24 @@ export function SchedulesTimetable({
 
           #schedule-timetable-print th {
             background: #edf6fd !important;
-            font-size: 7.4px !important;
+            font-size: 6.6px !important;
+            line-height: 1.08 !important;
             font-weight: 800 !important;
             color: #10274e !important;
           }
 
           #schedule-timetable-print th:first-child,
           #schedule-timetable-print td:first-child {
-            width: 62px !important;
+            width: 7% !important;
+            min-width: 0 !important;
+            max-width: 7% !important;
+          }
+
+          #schedule-timetable-print th:not(:first-child),
+          #schedule-timetable-print td:not(:first-child) {
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: none !important;
           }
 
           #schedule-timetable-print .schedule-period-cell {
@@ -862,28 +888,34 @@ export function SchedulesTimetable({
           }
 
           #schedule-timetable-print .schedule-period-cell > div:first-child {
-            font-size: 7.5px !important;
+            font-size: 6.4px !important;
+            line-height: 1.05 !important;
             font-weight: 800 !important;
           }
 
           #schedule-timetable-print .schedule-period-time {
-            margin-top: 3px !important;
-            font-size: 6.4px !important;
-            line-height: 1.25 !important;
+            margin-top: 2px !important;
+            font-size: 5.4px !important;
+            line-height: 1.12 !important;
             color: #375477 !important;
           }
 
           #schedule-timetable-print .schedule-print-subject {
-            min-height: 30px !important;
+            min-height: 25px !important;
+            width: 100% !important;
+            max-width: 100% !important;
             display: flex !important;
             flex-direction: column !important;
             align-items: center !important;
             justify-content: center !important;
-            padding: 4px 3px !important;
+            padding: 3px 2px !important;
             border-radius: 4px !important;
-            font-size: 7px !important;
-            line-height: 1.15 !important;
+            font-size: 6.1px !important;
+            line-height: 1.08 !important;
             font-weight: 800 !important;
+            overflow: hidden !important;
+            overflow-wrap: anywhere !important;
+            word-break: break-word !important;
             color: #10284d !important;
           }
 
