@@ -697,7 +697,7 @@ export function SchedulesTimetable({
             border-radius: 0 !important;
             box-shadow: none !important;
             background: #ffffff !important;
-            color: #0f2348 !important;
+            color: #000000 !important;
             box-sizing: border-box !important;
           }
 
@@ -738,7 +738,7 @@ export function SchedulesTimetable({
             border: 2px solid #0f766e !important;
             border-radius: 10px !important;
             background: #ecfdf5 !important;
-            color: #0f766e !important;
+            color: #000000 !important;
             font-size: 20px !important;
             font-weight: 900 !important;
           }
@@ -752,14 +752,15 @@ export function SchedulesTimetable({
             font-size: 13px !important;
             line-height: 1.15 !important;
             font-weight: 800 !important;
-            color: #0b2454 !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print .schedule-print-school-subtitle {
             margin-top: 4px !important;
             font-size: 9px !important;
             line-height: 1.2 !important;
-            color: #24558c !important;
+            font-weight: 700 !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print .schedule-print-title {
@@ -773,14 +774,15 @@ export function SchedulesTimetable({
             line-height: 1 !important;
             letter-spacing: -0.02em !important;
             font-weight: 900 !important;
-            color: #0a2456 !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print .schedule-print-title p {
             margin: 5px 0 0 !important;
             font-size: 12px !important;
             line-height: 1.15 !important;
-            color: #173765 !important;
+            font-weight: 700 !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print .schedule-print-meta {
@@ -788,7 +790,8 @@ export function SchedulesTimetable({
             min-width: 210px !important;
             font-size: 9px !important;
             line-height: 1.45 !important;
-            color: #12284f !important;
+            font-weight: 700 !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print .schedule-print-meta-row {
@@ -835,6 +838,7 @@ export function SchedulesTimetable({
           #schedule-timetable-print th,
           #schedule-timetable-print td {
             position: static !important;
+            font-weight: 700 !important;
             width: auto !important;
             min-width: 0 !important;
             max-width: none !important;
@@ -849,7 +853,7 @@ export function SchedulesTimetable({
             overflow-wrap: anywhere !important;
             word-break: break-word !important;
             white-space: normal !important;
-            color: #0e2448 !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print tr > :last-child {
@@ -865,7 +869,7 @@ export function SchedulesTimetable({
             font-size: 6.6px !important;
             line-height: 1.08 !important;
             font-weight: 800 !important;
-            color: #10274e !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print th:first-child,
@@ -884,7 +888,7 @@ export function SchedulesTimetable({
 
           #schedule-timetable-print .schedule-period-cell {
             background: #f6faff !important;
-            color: #0e274f !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print .schedule-period-cell > div:first-child {
@@ -897,7 +901,8 @@ export function SchedulesTimetable({
             margin-top: 2px !important;
             font-size: 5.4px !important;
             line-height: 1.12 !important;
-            color: #375477 !important;
+            font-weight: 700 !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print .schedule-print-subject {
@@ -916,7 +921,7 @@ export function SchedulesTimetable({
             overflow: hidden !important;
             overflow-wrap: anywhere !important;
             word-break: break-word !important;
-            color: #10284d !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print .schedule-print-subject-1 {
@@ -933,19 +938,20 @@ export function SchedulesTimetable({
 
           #schedule-timetable-print .schedule-break-row {
             background: #fff0f0 !important;
-            color: #8a1717 !important;
+            color: #000000 !important;
             font-size: 8px !important;
             font-weight: 900 !important;
             padding: 6px 4px !important;
           }
 
           #schedule-timetable-print .schedule-empty-cell {
-            color: #45627e !important;
+            color: #000000 !important;
             font-size: 8px !important;
           }
 
           #schedule-timetable-print .schedule-print-footer {
             display: flex !important;
+            font-weight: 700 !important;
             align-items: center !important;
             justify-content: space-between !important;
             gap: 12px !important;
@@ -954,7 +960,7 @@ export function SchedulesTimetable({
             border-top: 1px solid #a9bfd8 !important;
             font-size: 7.5px !important;
             line-height: 1.2 !important;
-            color: #17345c !important;
+            color: #000000 !important;
           }
 
           #schedule-timetable-print td > div {
