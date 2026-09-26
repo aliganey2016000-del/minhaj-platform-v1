@@ -158,60 +158,6 @@ export function SchedulesManageShell() {
     };
   }, [schoolMode, view, listRefreshKey]);
 
-  // Timetable has its own legacy header — icon, "Class Timetable" title +
-  // session/class count, and Refresh/Edit/Print buttons. The school shell
-  // now owns the title and toolbar (rendered just above), so hide that
-  // entire legacy row — not just its buttons — while keeping it in the DOM
-  // for the existing edit-mode behavior (its buttons are still clicked
-  // programmatically below).
-  useEffect(() => {
-    if (!schoolMode || view !== 'timetable') return;
-
-    let frame = 0;
-    let attempts = 0;
-    let actionArea: HTMLElement | null = null;
-    let timetableRoot: HTMLElement | null = null;
-    let previousDisplay = '';
-    let previousPaddingTop = '';
-
-    const normalizeTimetableHeader = () => {
-      const heading = Array.from(document.querySelectorAll<HTMLHeadingElement>('h1')).find((item) =>
-        item.textContent?.trim().toLowerCase() === 'class timetable'
-      );
-
-      if (!heading) {
-        attempts += 1;
-        if (attempts < 30) frame = window.requestAnimationFrame(normalizeTimetableHeader);
-        return;
-      }
-
-      const actionSibling = findActionSibling(heading);
-      const legacyHeaderRow = actionSibling?.parentElement as HTMLElement | null;
-      if (!legacyHeaderRow) {
-        attempts += 1;
-        if (attempts < 30) frame = window.requestAnimationFrame(normalizeTimetableHeader);
-        return;
-      }
-
-      actionArea = legacyHeaderRow;
-      previousDisplay = actionArea.style.display;
-      actionArea.style.display = 'none';
-
-      timetableRoot = heading.closest('.min-h-full') as HTMLElement | null;
-      if (timetableRoot) {
-        previousPaddingTop = timetableRoot.style.paddingTop;
-        timetableRoot.style.paddingTop = '1rem';
-      }
-    };
-
-    frame = window.requestAnimationFrame(normalizeTimetableHeader);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      if (actionArea) actionArea.style.display = previousDisplay;
-      if (timetableRoot) timetableRoot.style.paddingTop = previousPaddingTop;
-    };
-  }, [schoolMode, view]);
-
   if (resolvingMode) {
     return <div className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">Loading schedule workspace...</div>;
   }
@@ -373,7 +319,7 @@ export function SchedulesManageShell() {
   );
 
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 max-w-full overflow-x-hidden">
       {!schoolMode && (
         <div className="relative z-20 flex items-center justify-end px-4 pt-4 sm:px-6">
           {viewSwitcher}
@@ -390,7 +336,7 @@ export function SchedulesManageShell() {
                 <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Build, validate and publish the weekly school timetable.</p>
               </div>
             </div>
-            <div className="flex w-full flex-wrap items-center justify-center gap-2 lg:ml-auto lg:w-auto lg:justify-end">
+            <div className="flex min-w-0 w-full flex-wrap items-center justify-start gap-2 lg:ml-auto lg:w-auto lg:justify-end">
               {persistentActions}
               <div className="relative">
                 <button
@@ -422,18 +368,14 @@ export function SchedulesManageShell() {
 
       {schoolMode && (
         <div className="px-4 pt-3 print:hidden sm:px-6">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-            {view === 'timetable' ? (
-              <div className="min-w-0 flex-1">
-                {schedulePerspectiveTabs}
-              </div>
-            ) : (
-              <div className="hidden text-xs text-[var(--color-text-tertiary)] lg:block">
-                List view · switch to Table for By Day, By Class and By Teacher timetable views.
-              </div>
-            )}
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             {viewAndPrintToolbar}
           </div>
+          {view === 'timetable' && (
+            <div className="mt-2 min-w-0 max-w-full">
+              {schedulePerspectiveTabs}
+            </div>
+          )}
         </div>
       )}
 
