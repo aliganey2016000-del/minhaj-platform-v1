@@ -130,7 +130,7 @@ export function SchedulesManageShell() {
   }
 
   return (
-    <div className="min-w-0 max-w-full overflow-x-hidden">
+    <div className="min-w-0 w-full">
       {!schoolMode && (
         <div className="relative z-20 flex items-center justify-end gap-2 px-4 pt-4 sm:px-6">
           <button
