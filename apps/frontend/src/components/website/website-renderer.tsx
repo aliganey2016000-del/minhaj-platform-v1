@@ -293,20 +293,11 @@ function WebsiteSectionView({ section, site, organization, tr, pageSlug, preview
     );
   }
 
-  if (section.type === 'about' || section.type === 'custom') {
-    return (
-      <SectionShell section={section} primary={primary} secondary={secondary}>
-        <div className={`grid items-center gap-10 ${section.imageUrl ? 'lg:grid-cols-2' : ''}`}>
-          <SectionHeading section={section} dark={dark} tr={tr} />
-          {section.imageUrl && <img loading="lazy" src={section.imageUrl} alt={tr(`section.${section.id}.title`, section.title)} className="aspect-[4/3] w-full rounded-3xl object-cover shadow-lg" />}
-        </div>
-      </SectionShell>
-    );
-  }
-
+  const hospitalTitle = tr(`section.${section.id}.title`, section.title || '');
+  const hospitalCardCount = section.cards.filter((card) => /hospital/i.test(card.title || '')).length;
   const isTrainingHospitals =
-    (section.type === 'services' || section.type === 'programs') &&
-    /training hospitals?/i.test(section.title || '');
+    /training hospitals?|our training hospitals/i.test(hospitalTitle) ||
+    (section.cards.length >= 3 && hospitalCardCount >= Math.ceil(section.cards.length / 2));
 
   if (isTrainingHospitals) {
     const hospitalCards = section.cards.length > 1 ? [...section.cards, ...section.cards] : section.cards;
@@ -373,6 +364,17 @@ function WebsiteSectionView({ section, site, organization, tr, pageSlug, preview
               })}
             </div>
           </div>
+        </div>
+      </SectionShell>
+    );
+  }
+
+  if (section.type === 'about' || section.type === 'custom') {
+    return (
+      <SectionShell section={section} primary={primary} secondary={secondary}>
+        <div className={`grid items-center gap-10 ${section.imageUrl ? 'lg:grid-cols-2' : ''}`}>
+          <SectionHeading section={section} dark={dark} tr={tr} />
+          {section.imageUrl && <img loading="lazy" src={section.imageUrl} alt={tr(`section.${section.id}.title`, section.title)} className="aspect-[4/3] w-full rounded-3xl object-cover shadow-lg" />}
         </div>
       </SectionShell>
     );
