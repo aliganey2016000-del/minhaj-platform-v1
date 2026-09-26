@@ -5,6 +5,7 @@
  */
 
 import mongoose, { Schema, Document } from 'mongoose';
+import StudentSequence from './student-sequence.model';
 
 export interface IStudentEnrollmentHistory {
   academicYear: string;
@@ -131,22 +132,49 @@ async function generateAutomaticStudentId(school?: unknown): Promise<string> {
 
   const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`^${escapedPrefix}\\d+$`);
+  const sequenceKey = `${school ? String(school) : 'global'}:${prefix}`;
 
-  // Start from the number of existing IDs in this organization's namespace,
-  // then advance until a free value is found. This remains safe when rows
-  // have been deleted or older/custom IDs leave gaps.
-  let sequence = (await StudentModel.countDocuments({
-    ...schoolFilter,
-    studentId: { $regex: pattern },
-  })) + 1;
+  // Initialize from the HIGHEST existing suffix, not row count. This keeps
+  // gap-safe behavior: 001..017 plus 019 must allocate 020, never reuse 019.
+  const existingCounter = await StudentSequence.findOne({ key: sequenceKey }).lean();
+  if (!existingCounter) {
+    const existing = await StudentModel.find({
+      ...schoolFilter,
+      studentId: { $regex: pattern },
+    }).select('studentId').lean();
 
-  let candidate = `${prefix}${String(sequence).padStart(3, '0')}`;
-  while (await StudentModel.exists({ ...schoolFilter, studentId: candidate })) {
-    sequence += 1;
-    candidate = `${prefix}${String(sequence).padStart(3, '0')}`;
+    let highest = 0;
+    for (const row of existing as any[]) {
+      const rawId = String(row.studentId || '');
+      if (!pattern.test(rawId)) continue;
+      const value = Number(rawId.slice(prefix.length));
+      if (Number.isFinite(value)) highest = Math.max(highest, value);
+    }
+
+    try {
+      await StudentSequence.create({ key: sequenceKey, seq: highest });
+    } catch (error: any) {
+      // A concurrent create may initialize this namespace first. The unique
+      // key makes that race harmless; every caller continues via atomic $inc.
+      if (error?.code !== 11000) throw error;
+    }
   }
 
-  return candidate;
+  // $inc reserves a unique number atomically for every concurrent creator.
+  // Explicit/custom IDs may occupy a future number, so skip any collision.
+  for (let attempt = 0; attempt < 10000; attempt += 1) {
+    const counter = await StudentSequence.findOneAndUpdate(
+      { key: sequenceKey },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true, setDefaultsOnInsert: true },
+    ).lean();
+
+    const sequence = Number(counter?.seq || 0);
+    const candidate = `${prefix}${String(sequence).padStart(3, '0')}`;
+    if (!await StudentModel.exists({ ...schoolFilter, studentId: candidate })) return candidate;
+  }
+
+  throw new Error('Could not allocate a unique Student ID. Please retry.');
 }
 
 studentSchema.pre<IStudent>('validate', async function (next) {
