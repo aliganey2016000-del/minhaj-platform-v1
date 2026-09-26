@@ -348,7 +348,7 @@ export function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[var(--color-surface-secondary)] px-3 pb-28 pt-4 sm:px-6 sm:pt-6 lg:px-8 lg:pb-10 lg:pt-8">
+    <div className="min-h-screen w-full bg-[var(--color-surface-secondary)] px-3 pb-28 pt-4 sm:px-6 sm:pt-6 lg:px-8 lg:pb-10 lg:pt-8">
       <div className="mx-auto w-full max-w-6xl min-w-0 space-y-5 sm:space-y-6">
         <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
