@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Pencil, RefreshCw, RotateCcw, Save, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Download, List, MoreVertical, Pencil, Printer, RefreshCw, RotateCcw, Save, School, Settings, Upload, Users, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -145,7 +145,27 @@ function responseList(response: any): ScheduleItem[] {
 
 export type SchedulePerspective = 'day' | 'class' | 'teacher';
 
-export function SchedulesTimetable({ perspective = 'day' }: { perspective?: SchedulePerspective }) {
+type TimetableWorkspaceActions = {
+  perspective?: SchedulePerspective;
+  onPerspectiveChange?: (perspective: SchedulePerspective) => void;
+  onSwitchToList?: () => void;
+  onPrint?: () => void;
+  onAddSchedule?: () => void;
+  onImportSchedules?: () => void;
+  onExportSchedules?: () => void;
+  onPeriodSettings?: () => void;
+};
+
+export function SchedulesTimetable({
+  perspective = 'day',
+  onPerspectiveChange,
+  onSwitchToList,
+  onPrint,
+  onAddSchedule,
+  onImportSchedules,
+  onExportSchedules,
+  onPeriodSettings,
+}: TimetableWorkspaceActions) {
   const { user } = useAuth();
   const isOrgAdmin = user?.role === 'org_admin';
   const organizationId = String((user as any)?.organizationId || (user as any)?.schoolId || '');
@@ -172,6 +192,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
   const [coursesByClass, setCoursesByClass] = useState<Record<string, CourseItem[]>>({});
   const [loadingCourses, setLoadingCourses] = useState<Set<string>>(() => new Set());
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
 
   const effectiveSchoolId = schoolId || (isOrgAdmin ? organizationId : '');
   const draftStorageKey = `timetable-draft:${effectiveSchoolId || 'none'}`;
@@ -627,7 +648,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
       : `Teacher Schedule - ${selectedTeacher?.label || 'Teacher'}`;
 
   return (
-    <div className="min-h-full bg-[var(--color-surface-primary)] p-4 pt-20 sm:p-6 lg:pt-8">
+    <div className="min-h-full min-w-0 max-w-full overflow-x-hidden bg-[var(--color-surface-primary)] p-3 pt-20 sm:p-6 lg:pt-8">
       <style>{`
         .schedule-print-header,
         .schedule-print-footer {
@@ -927,13 +948,57 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30"><CalendarDays className="h-5 w-5" /></div>
             <div><h1 className="text-2xl font-bold">Class Timetable</h1><p className="text-xs text-[var(--color-text-tertiary)]">{visibleSessionCount} visible sessions · {perspectiveSummary}</p></div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {!isOrgAdmin && <select value={schoolId} onChange={e => setSchoolId(e.target.value)} className="rounded-lg border bg-[var(--color-surface-primary)] px-3 py-2 text-xs"><option value="">Select Organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>}
-            <button onClick={refreshAll} disabled={loading || saving} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
-            {!editMode ? <button onClick={beginEdit} disabled={!effectiveSchoolId} className="inline-flex items-center gap-1.5 rounded-lg border border-primary-600 bg-primary-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><Pencil className="h-3.5 w-3.5" />Edit Timetable</button> : <>
-              <button onClick={cancelEdit} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold"><X className="h-3.5 w-3.5" />Cancel</button>
-              <button onClick={() => void saveTimetable()} disabled={saving || Object.keys(draft).length === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"><Save className="h-3.5 w-3.5" />{saving ? 'Saving...' : `Save Timetable${Object.keys(draft).length ? ` (${Object.keys(draft).length})` : ''}`}</button>
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+            {!isOrgAdmin && <select value={schoolId} onChange={e => setSchoolId(e.target.value)} className="max-w-full rounded-lg border bg-[var(--color-surface-primary)] px-3 py-2 text-xs"><option value="">Select Organization...</option>{schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}</select>}
+            {!editMode ? <button onClick={beginEdit} disabled={!effectiveSchoolId} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-primary-600 bg-primary-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><Pencil className="h-3.5 w-3.5" />Edit Timetable</button> : <>
+              <button onClick={cancelEdit} disabled={saving} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold"><X className="h-3.5 w-3.5" />Cancel</button>
+              <button onClick={() => void saveTimetable()} disabled={saving || Object.keys(draft).length === 0} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"><Save className="h-3.5 w-3.5" />{saving ? 'Saving...' : `Save Timetable${Object.keys(draft).length ? ` (${Object.keys(draft).length})` : ''}`}</button>
             </>}
+            <button onClick={refreshAll} disabled={loading || saving} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /><span className="hidden sm:inline">Refresh</span></button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setWorkspaceMenuOpen(open => !open)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-border-default)] hover:bg-[var(--color-surface-secondary)]"
+                aria-label="Timetable view and print actions"
+                aria-expanded={workspaceMenuOpen}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </button>
+              {workspaceMenuOpen && (
+                <div className="absolute right-0 z-[80] mt-2 w-[min(86vw,17rem)] overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-2xl">
+                  <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">View Mode</div>
+                  <button type="button" onClick={() => { setWorkspaceMenuOpen(false); onSwitchToList?.(); }} className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><span className="flex items-center gap-2"><List className="h-4 w-4" />List</span></button>
+                  <button type="button" onClick={() => setWorkspaceMenuOpen(false)} className="flex w-full items-center justify-between rounded-xl bg-primary-50 px-3 py-2.5 text-left text-sm font-semibold text-primary-700 dark:bg-primary-950/20 dark:text-primary-300"><span className="flex items-center gap-2"><CalendarDays className="h-4 w-4" />Table</span><Check className="h-4 w-4" /></button>
+
+                  <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+                  <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">Filter By</div>
+                  {([
+                    ['day','Day',CalendarDays],
+                    ['class','Class',School],
+                    ['teacher','Teacher',Users],
+                  ] as const).map(([value,label,Icon]) => (
+                    <button key={value} type="button" onClick={() => { onPerspectiveChange?.(value); setWorkspaceMenuOpen(false); }} className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)] ${perspective === value ? 'font-semibold text-primary-600' : ''}`}>
+                      <span className="flex items-center gap-2"><Icon className="h-4 w-4" />{label}</span>
+                      {perspective === value && <Check className="h-4 w-4" />}
+                    </button>
+                  ))}
+
+                  <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+                  <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">Action</div>
+                  <button type="button" onClick={() => { setWorkspaceMenuOpen(false); if (onPrint) onPrint(); else window.print(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium hover:bg-[var(--color-surface-secondary)]"><Printer className="h-4 w-4" />Print</button>
+
+                  {(onAddSchedule || onImportSchedules || onExportSchedules || onPeriodSettings) && <>
+                    <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+                    <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">Manage</div>
+                    {onAddSchedule && <button type="button" onClick={() => { setWorkspaceMenuOpen(false); onAddSchedule(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Pencil className="h-4 w-4" />Add Schedule</button>}
+                    {onImportSchedules && <button type="button" onClick={() => { setWorkspaceMenuOpen(false); onImportSchedules(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Upload className="h-4 w-4" />Import Schedules</button>}
+                    {onExportSchedules && <button type="button" onClick={() => { setWorkspaceMenuOpen(false); onExportSchedules(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Download className="h-4 w-4" />Export Schedules</button>}
+                    {onPeriodSettings && <button type="button" onClick={() => { setWorkspaceMenuOpen(false); onPeriodSettings(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Settings className="h-4 w-4" />Period &amp; Break Settings</button>}
+                  </>}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -944,7 +1009,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
         <div className="flex flex-col gap-3 rounded-2xl border bg-[var(--color-surface-primary)] p-3">
           {perspective === 'day' ? (
             <>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <select
                   value={departmentFilter}
                   onChange={e => { setDepartmentFilter(e.target.value); setShiftFilter(ALL_SHIFTS); setDayClassFilters([ALL_CLASSES]); setDayClassPickerOpen(false); }}
@@ -1052,7 +1117,7 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
           ) : null}
         </div>
 
-        {perspective === 'day' && <div className="flex gap-1 overflow-x-auto rounded-xl border bg-[var(--color-surface-primary)] p-1.5">{DISPLAY_ORDER.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-20 flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${selectedDay === day ? 'bg-primary-600 text-white' : 'hover:bg-[var(--color-surface-secondary)]'}`}>{DAY_SHORT[day]}</button>)}</div>}
+        {perspective === 'day' && <div className="flex max-w-full gap-1 overflow-x-auto overscroll-x-contain rounded-xl border bg-[var(--color-surface-primary)] p-1.5 [scrollbar-width:thin]">{DISPLAY_ORDER.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`min-w-20 flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${selectedDay === day ? 'bg-primary-600 text-white' : 'hover:bg-[var(--color-surface-secondary)]'}`}>{DAY_SHORT[day]}</button>)}</div>}
 
         <div className="flex items-center justify-end px-1 text-[10px] font-medium text-[var(--color-text-tertiary)] sm:hidden">
           Swipe timetable horizontally →
