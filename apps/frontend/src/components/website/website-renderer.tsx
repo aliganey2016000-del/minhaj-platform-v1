@@ -304,6 +304,80 @@ function WebsiteSectionView({ section, site, organization, tr, pageSlug, preview
     );
   }
 
+  const isTrainingHospitals =
+    (section.type === 'services' || section.type === 'programs') &&
+    /training hospitals?/i.test(section.title || '');
+
+  if (isTrainingHospitals) {
+    const hospitalCards = section.cards.length > 1 ? [...section.cards, ...section.cards] : section.cards;
+    return (
+      <SectionShell section={section} primary={primary} secondary={secondary}>
+        <SectionHeading section={section} dark={dark} tr={tr} />
+        <div className="mt-10 overflow-hidden">
+          <style>{`
+            @keyframes website-hospital-marquee {
+              from { transform: translateX(0); }
+              to { transform: translateX(-50%); }
+            }
+            .website-hospital-track {
+              width: max-content;
+              animation: website-hospital-marquee 42s linear infinite;
+            }
+            .website-hospital-marquee:hover .website-hospital-track {
+              animation-play-state: paused;
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .website-hospital-track {
+                animation: none;
+              }
+            }
+          `}</style>
+          <div
+            className="website-hospital-marquee w-full overflow-hidden"
+            style={{
+              maskImage: 'linear-gradient(to right, transparent, black 3%, black 97%, transparent)',
+              WebkitMaskImage: 'linear-gradient(to right, transparent, black 3%, black 97%, transparent)',
+            }}
+          >
+            <div className="website-hospital-track flex items-stretch gap-4 py-1">
+              {hospitalCards.map((card, index) => {
+                const title = tr(`card.${card.id}.title`, card.title);
+                const body = tr(`card.${card.id}.text`, card.text);
+                return (
+                  <a
+                    key={`${card.id}-${index}`}
+                    onClick={() => card.link && onTrack?.('cta', pageSlug || '/')}
+                    href={card.link || undefined}
+                    aria-hidden={index >= section.cards.length ? true : undefined}
+                    tabIndex={index >= section.cards.length ? -1 : undefined}
+                    className={`${cardClass} block w-[150px] shrink-0 overflow-hidden rounded-2xl bg-white p-4 text-center text-slate-900 transition hover:-translate-y-0.5 hover:shadow-md sm:w-[170px] lg:w-[180px]`}
+                  >
+                    {card.imageUrl ? (
+                      <div className="flex h-24 items-center justify-center sm:h-28">
+                        <img
+                          loading="lazy"
+                          src={card.imageUrl}
+                          alt={title}
+                          className="max-h-20 max-w-full object-contain sm:max-h-24"
+                        />
+                      </div>
+                    ) : (
+                      <div style={{ color: primary }} className="mx-auto flex h-24 items-center justify-center sm:h-28">
+                        <Icon name={card.icon || section.icon} className="h-10 w-10" />
+                      </div>
+                    )}
+                    <h3 className="mt-3 min-h-[2.5rem] text-xs font-bold leading-5 sm:text-sm">{title}</h3>
+                    {body && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{body}</p>}
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </SectionShell>
+    );
+  }
+
   if (section.type === 'services' || section.type === 'programs' || section.type === 'testimonials') {
     return (
       <SectionShell section={section} primary={primary} secondary={secondary}>
