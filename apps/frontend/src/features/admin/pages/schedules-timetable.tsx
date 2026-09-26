@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Pencil, Printer, RefreshCw, RotateCcw, Save, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Pencil, RefreshCw, RotateCcw, Save, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -934,7 +934,6 @@ export function SchedulesTimetable({ perspective = 'day' }: { perspective?: Sche
               <button onClick={cancelEdit} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold"><X className="h-3.5 w-3.5" />Cancel</button>
               <button onClick={() => void saveTimetable()} disabled={saving || Object.keys(draft).length === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"><Save className="h-3.5 w-3.5" />{saving ? 'Saving...' : `Save Timetable${Object.keys(draft).length ? ` (${Object.keys(draft).length})` : ''}`}</button>
             </>}
-            <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"><Printer className="h-3.5 w-3.5" />Print</button>
           </div>
         </div>
 
