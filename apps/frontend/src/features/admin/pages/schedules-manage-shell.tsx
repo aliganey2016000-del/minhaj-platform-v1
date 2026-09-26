@@ -150,18 +150,6 @@ export function SchedulesManageShell() {
         </div>
       )}
 
-      {schoolMode && view === 'timetable' && (
-        <div className="px-3 pt-4 print:hidden sm:px-6">
-          <div className="flex min-w-0 items-start gap-2">
-            <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
-            <div className="min-w-0">
-              <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Class Schedules</h1>
-              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Build, validate and publish the weekly school timetable.</p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {view === 'table'
         ? schoolMode
           ? (
