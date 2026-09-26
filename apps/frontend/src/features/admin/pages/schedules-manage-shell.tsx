@@ -349,15 +349,27 @@ export function SchedulesManageShell() {
       >
         <Pencil className="h-3.5 w-3.5" /> Edit Timetable
       </button>
+    </>
+  );
+
+  // Keep the two actions administrators use to change presentation and print
+  // in a stable, first-class toolbar. They used to live inside the header
+  // action group/portal, which made them disappear when that legacy header
+  // was normalized or when the List view toolbar host was not mounted yet.
+  const viewAndPrintToolbar = (
+    <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
+      <div className="flex items-center gap-2">
+        <span className="hidden text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)] sm:inline">View</span>
+        {viewSwitcher}
+      </div>
       <button
         type="button"
-        onClick={() => view === 'timetable' ? setShowPrintOptions(true) : window.print()}
-        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-700"
+        onClick={() => setShowPrintOptions(true)}
+        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-primary-700"
       >
         <Printer className="h-3.5 w-3.5" /> Print
       </button>
-      {viewSwitcher}
-    </>
+    </div>
   );
 
   return (
@@ -408,9 +420,20 @@ export function SchedulesManageShell() {
         ? createPortal(persistentActions, listToolbarHost)
         : null}
 
-      {schoolMode && view === 'timetable' && (
+      {schoolMode && (
         <div className="px-4 pt-3 print:hidden sm:px-6">
-          {schedulePerspectiveTabs}
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            {view === 'timetable' ? (
+              <div className="min-w-0 flex-1">
+                {schedulePerspectiveTabs}
+              </div>
+            ) : (
+              <div className="hidden text-xs text-[var(--color-text-tertiary)] lg:block">
+                List view · switch to Table for By Day, By Class and By Teacher timetable views.
+              </div>
+            )}
+            {viewAndPrintToolbar}
+          </div>
         </div>
       )}
 
