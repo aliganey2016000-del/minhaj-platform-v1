@@ -10,10 +10,7 @@ import { useEffect, useState, useCallback, useRef, type FormEvent, type ChangeEv
 import { createPortal } from 'react-dom';
 import { Receipt, Pencil, Trash2, MoreVertical, CheckCircle2, XCircle, type LucideIcon } from 'lucide-react';
 import api from '../../../lib/axios';
-const ACADEMIC_YEAR_OPTIONS = Array.from({ length: 7 }, (_, index) => {
-  const startYear = new Date().getFullYear() - 3 + index;
-  return `${startYear}-${startYear + 1}`;
-});
+import { AcademicYearSelect } from '../../shared/components/academic-year-select';
 import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 
@@ -233,10 +230,7 @@ function FeeStructureModal({ structure, schools, onClose, onSaved }: {
 
           <div className="grid grid-cols-2 gap-3">
             <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Due Days Offset</label><input className={ic('dueDayOffset')} name="dueDayOffset" type="number" min={0} max={180} value={form.dueDayOffset} onChange={handleChange} /></div>
-            <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Academic Year</label><select className={ic('academicYear')} name="academicYear" value={form.academicYear} onChange={handleChange}>
-              <option value="">Select academic year...</option>
-              {Array.from(new Set([...ACADEMIC_YEAR_OPTIONS, form.academicYear].filter(Boolean))).sort().map(year => <option key={year} value={year}>{year}</option>)}
-            </select></div>
+            <div><label className="text-xs font-semibold text-[var(--color-text-primary)] mb-1 block">Academic Year</label><AcademicYearSelect name="academicYear" value={form.academicYear} onChange={(value) => setForm((current) => ({ ...current, academicYear: value }))} /></div>
           </div>
           {isEdit && (
             <label className="flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 cursor-pointer">
