@@ -4189,7 +4189,7 @@ export function ExamsManage() {
 
   if (!examDetailOpen) {
     return (
-      <div className="p-4 pt-20 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
+      <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
         <div className="mx-auto max-w-[1100px]">
           <main className="min-w-0 space-y-5">
             <div>
@@ -4401,7 +4401,7 @@ export function ExamsManage() {
   }
 
   return (
-    <div className="p-4 pt-20 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
+    <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
       <div className="mx-auto max-w-[1700px]">
         <div>
           <main className="min-w-0 space-y-5">
