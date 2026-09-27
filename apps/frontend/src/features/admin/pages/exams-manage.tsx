@@ -4,7 +4,7 @@
  */
 
 import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, Copy } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -213,12 +213,10 @@ function RowActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEd
 
 function AnnualExamActionsMenu({
   onEdit,
-  onDuplicate,
   onDelete,
   disabled = false,
 }: {
   onEdit: () => void;
-  onDuplicate: () => void;
   onDelete: () => void;
   disabled?: boolean;
 }) {
@@ -249,20 +247,17 @@ function AnnualExamActionsMenu({
           event.stopPropagation();
           setOpen((current) => !current);
         }}
-        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] shadow-sm transition-colors hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] shadow-sm transition-all hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:hover:bg-primary-950/20 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <MoreVertical className="h-5 w-5" />
       </button>
       {open && (
         <div className="absolute right-0 top-11 z-40 w-44 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-1 shadow-xl">
-          <button type="button" onClick={(event) => { event.stopPropagation(); run(onEdit); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
+          <button type="button" onClick={(event) => { event.stopPropagation(); run(onEdit); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
             <Pencil className="h-4 w-4" /> Edit
           </button>
-          <button type="button" onClick={(event) => { event.stopPropagation(); run(onDuplicate); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
-            <Copy className="h-4 w-4" /> Duplicate
-          </button>
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-          <button type="button" onClick={(event) => { event.stopPropagation(); run(onDelete); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">
+          <button type="button" onClick={(event) => { event.stopPropagation(); run(onDelete); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">
             <Trash2 className="h-4 w-4" /> Delete
           </button>
         </div>
@@ -2882,6 +2877,16 @@ export function ExamsManage() {
   const [examDetailOpen, setExamDetailOpen] = useState(false);
   const [selectedExamPeriodId, setSelectedExamPeriodId] = useState('');
   const [periodRowBusy, setPeriodRowBusy] = useState('');
+  const [annualEditPeriod, setAnnualEditPeriod] = useState<ExamPeriod | null>(null);
+  const [annualEditSaving, setAnnualEditSaving] = useState(false);
+  const [annualDeletePeriod, setAnnualDeletePeriod] = useState<ExamPeriod | null>(null);
+  const [annualEditForm, setAnnualEditForm] = useState({
+    name: '',
+    academicYear: '',
+    term: '',
+    startDate: '',
+    endDate: '',
+  });
   const [loading, setLoading] = useState(true);
   const examsLoadedRef = useRef(false);
   const [error, setError] = useState('');
@@ -3174,18 +3179,56 @@ export function ExamsManage() {
     setSearch('');
   };
 
-  const openAnnualPeriodAction = (period: ExamPeriod, action: 'edit-exam' | 'reuse-schedule') => {
-    openExamPeriod(period);
-    scheduleActionSequence.current += 1;
-    setScheduleActionRequest({ id: scheduleActionSequence.current, action });
+  const periodInputDate = (value?: string | null) =>
+    value ? new Date(value).toISOString().slice(0, 10) : '';
+
+  const openAnnualEdit = (period: ExamPeriod) => {
+    setAnnualEditForm({
+      name: period.name,
+      academicYear: period.academicYear,
+      term: period.term || '',
+      startDate: periodInputDate(period.startDate),
+      endDate: periodInputDate(period.endDate),
+    });
+    setAnnualEditPeriod(period);
+    setPeriodsError('');
   };
 
-  const deleteAnnualPeriod = async (period: ExamPeriod) => {
-    const paperCount = periodPaperCount(period._id);
-    const confirmed = window.confirm(
-      `Delete "${period.name}" (${period.academicYear})?\n\nThis will permanently delete the exam and its ${paperCount} scheduled paper${paperCount === 1 ? '' : 's'}.`
-    );
-    if (!confirmed) return;
+  const saveAnnualEdit = async () => {
+    if (!annualEditPeriod) return;
+    if (!annualEditForm.name.trim() || !annualEditForm.academicYear.trim()) {
+      setPeriodsError('Exam Name and Academic Year are required.');
+      return;
+    }
+
+    setAnnualEditSaving(true);
+    setPeriodRowBusy(annualEditPeriod._id);
+    setPeriodsError('');
+    try {
+      const response = await api.patch(`/exams/periods/${annualEditPeriod._id}`, {
+        school: pageSchoolId,
+        name: annualEditForm.name.trim(),
+        academicYear: annualEditForm.academicYear.trim(),
+        term: annualEditForm.term.trim(),
+        startDate: annualEditForm.startDate || null,
+        endDate: annualEditForm.endDate || null,
+      });
+      const data = response.data?.data || {};
+      const updated: ExamPeriod = data.period || data;
+      setExamPeriods((current) => current.map((item) => item._id === updated._id ? updated : item));
+      setExams((current) => current.map((exam) => examPeriodId(exam) === updated._id ? { ...exam, title: updated.name } : exam));
+      setAnnualEditPeriod(null);
+    } catch (err: any) {
+      setPeriodsError(err.response?.data?.message || 'Failed to update examination');
+    } finally {
+      setAnnualEditSaving(false);
+      setPeriodRowBusy('');
+    }
+  };
+
+  const deleteAnnualPeriod = async () => {
+    if (!annualDeletePeriod) return;
+    const period = annualDeletePeriod;
 
     setPeriodRowBusy(period._id);
     setPeriodsError('');
@@ -3193,6 +3236,7 @@ export function ExamsManage() {
       await api.delete(`/exams/periods/${period._id}`, { params: { school: pageSchoolId } });
       setExamPeriods((current) => current.filter((item) => item._id !== period._id));
       setExams((current) => current.filter((exam) => examPeriodId(exam) !== period._id));
+      setAnnualDeletePeriod(null);
       if (selectedExamPeriodId === period._id) returnToExamList();
     } catch (err: any) {
       setPeriodsError(err.response?.data?.message || 'Failed to delete examination');
@@ -3348,9 +3392,8 @@ export function ExamsManage() {
 
                       <AnnualExamActionsMenu
                         disabled={periodRowBusy === period._id}
-                        onEdit={() => openAnnualPeriodAction(period, 'edit-exam')}
-                        onDuplicate={() => openAnnualPeriodAction(period, 'reuse-schedule')}
-                        onDelete={() => void deleteAnnualPeriod(period)}
+                        onEdit={() => openAnnualEdit(period)}
+                        onDelete={() => setAnnualDeletePeriod(period)}
                       />
                     </div>
                   ))}
@@ -3359,6 +3402,79 @@ export function ExamsManage() {
             </section>
           </main>
         </div>
+
+        {annualEditPeriod && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm" onClick={() => !annualEditSaving && setAnnualEditPeriod(null)}>
+            <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-5 py-4">
+                <div>
+                  <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Edit Examination</h2>
+                  <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">Update the exam name, academic year, term and date window.</p>
+                </div>
+                <button type="button" onClick={() => setAnnualEditPeriod(null)} disabled={annualEditSaving} className="rounded-xl p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)] disabled:opacity-50">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4 p-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="sm:col-span-2">
+                    <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Exam Name</span>
+                    <input value={annualEditForm.name} onChange={(event) => setAnnualEditForm((current) => ({ ...current, name: event.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20" />
+                  </label>
+                  <label>
+                    <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Academic Year</span>
+                    <input value={annualEditForm.academicYear} onChange={(event) => setAnnualEditForm((current) => ({ ...current, academicYear: event.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20" />
+                  </label>
+                  <label>
+                    <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Term</span>
+                    <input value={annualEditForm.term} onChange={(event) => setAnnualEditForm((current) => ({ ...current, term: event.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20" />
+                  </label>
+                  <label>
+                    <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Start Date</span>
+                    <input type="date" value={annualEditForm.startDate} onChange={(event) => setAnnualEditForm((current) => ({ ...current, startDate: event.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20" />
+                  </label>
+                  <label>
+                    <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">End Date</span>
+                    <input type="date" min={annualEditForm.startDate || undefined} value={annualEditForm.endDate} onChange={(event) => setAnnualEditForm((current) => ({ ...current, endDate: event.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20" />
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-[var(--color-border-subtle)] px-5 py-4">
+                <button type="button" onClick={() => setAnnualEditPeriod(null)} disabled={annualEditSaving} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] disabled:opacity-50">Cancel</button>
+                <button type="button" onClick={() => void saveAnnualEdit()} disabled={annualEditSaving || !annualEditForm.name.trim() || !annualEditForm.academicYear.trim()} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm disabled:opacity-50">
+                  {annualEditSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {annualDeletePeriod && (
+          <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm" onClick={() => periodRowBusy !== annualDeletePeriod._id && setAnnualDeletePeriod(null)}>
+            <div className="w-full max-w-md rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+              <div className="flex items-start gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-950/30">
+                  <Trash2 className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Delete Examination?</h2>
+                  <p className="mt-1 text-sm leading-6 text-[var(--color-text-secondary)]">
+                    Are you sure you want to delete <strong>{annualDeletePeriod.name}</strong> ({annualDeletePeriod.academicYear})? This will also remove its {periodPaperCount(annualDeletePeriod._id)} scheduled paper{periodPaperCount(annualDeletePeriod._id) === 1 ? '' : 's'}.
+                  </p>
+                  <p className="mt-2 text-xs font-semibold text-red-600">This action cannot be undone.</p>
+                </div>
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={() => setAnnualDeletePeriod(null)} disabled={periodRowBusy === annualDeletePeriod._id} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] disabled:opacity-50">Cancel</button>
+                <button type="button" onClick={() => void deleteAnnualPeriod()} disabled={periodRowBusy === annualDeletePeriod._id} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-red-700 disabled:opacity-50">
+                  {periodRowBusy === annualDeletePeriod._id ? 'Deleting…' : 'Delete Exam'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {showImportModal && <ExamsImportModal onClose={() => setShowImportModal(false)} onImported={() => {
           void fetchData();
