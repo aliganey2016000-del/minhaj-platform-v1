@@ -181,7 +181,19 @@ export function ExamInvigilatorsManage() {
     }
   };
 
-  if(loading)return <div className="p-20 text-center">Loading...</div>;
+  if(loading)return <div className="p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
+    <div className="mx-auto max-w-screen-2xl space-y-5">
+      <BackButton fallback="/admin/exams"/>
+      <div><h1 className="text-3xl font-bold">Assign Invigilators</h1></div>
+      <ExamWorkspaceTabs />
+      <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-5 shadow-sm">
+        <div className="flex items-center gap-3 text-sm font-semibold text-[var(--color-text-secondary)]">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
+          Loading invigilators…
+        </div>
+      </div>
+    </div>
+  </div>;
 
   return <div className="p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
     <div className="mx-auto max-w-screen-2xl space-y-5">
