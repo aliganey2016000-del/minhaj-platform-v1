@@ -9,6 +9,13 @@ import ExamPaper from '../models/exam-paper.model';
 import ExamAttempt from '../models/exam-attempt.model';
 import ExamAppeal from '../models/exam-appeal.model';
 import ExamSeatingPlan from '../models/exam-seating-plan.model';
+import ExamAttendance from '../models/exam-attendance.model';
+import ExamAttendanceLog from '../models/exam-attendance-log.model';
+import SeatAllocation from '../models/seat-allocation.model';
+import ExamEligibility from '../models/exam-eligibility.model';
+import ExamIncident from '../models/exam-incident.model';
+import ExamInvigilatorAssignment from '../models/exam-invigilator-assignment.model';
+import Result from '../models/result.model';
 import { getAutoScheduleWindow } from '../utils/exam-eligibility';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
@@ -537,6 +544,45 @@ export const duplicateExamPeriod = async (req: Request, res: Response): Promise<
     }
     throw error;
   }
+};
+
+// DELETE /exams/periods/:periodId — remove one named annual examination and
+// all schedule records owned by it. The operation is organization-scoped.
+export const deleteExamPeriod = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const periodId = String(req.params.periodId || '');
+  if (!/^[a-f\d]{24}$/i.test(periodId)) throw new BadRequestError('A valid Exam is required');
+
+  const period = await ExamPeriod.findOne({ _id: periodId, school: schoolId }).lean() as any;
+  if (!period) throw new NotFoundError('Exam');
+
+  const examIds = await Exam.find({ period: periodId, school: schoolId }).distinct('_id');
+
+  if (examIds.length) {
+    await Promise.all([
+      ExamAttendanceLog.deleteMany({ exam: { $in: examIds } }),
+      ExamAttendance.deleteMany({ exam: { $in: examIds } }),
+      SeatAllocation.deleteMany({ exam: { $in: examIds } }),
+      ExamEligibility.deleteMany({ exam: { $in: examIds } }),
+      ExamIncident.deleteMany({ exam: { $in: examIds } }),
+      ExamPaper.deleteMany({ exam: { $in: examIds } }),
+      ExamAttempt.deleteMany({ exam: { $in: examIds } }),
+      ExamAppeal.deleteMany({ exam: { $in: examIds } }),
+      Result.deleteMany({ exam: { $in: examIds } }),
+    ]);
+  }
+
+  await Promise.all([
+    Exam.deleteMany({ period: periodId, school: schoolId }),
+    ExamInvigilatorAssignment.deleteMany({ period: periodId, school: schoolId }),
+  ]);
+  await ExamPeriod.deleteOne({ _id: periodId, school: schoolId });
+
+  return ApiResponse.success(
+    res,
+    { deletedPeriodId: periodId, deletedExams: examIds.length },
+    `${period.name} deleted successfully`
+  );
 };
 
 // POST /exams/periods/:periodId/auto-generate — build the whole school exam
