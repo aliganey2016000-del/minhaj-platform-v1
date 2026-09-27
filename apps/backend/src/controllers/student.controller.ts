@@ -437,8 +437,12 @@ async function syncGuardian(
   const fullName = fields.guardianFullName?.trim();
   if (!fullName) return;
 
-  const phone = fields.guardianPhone?.trim();
-  if (!phone) {
+  const alreadyLinked = Boolean(student.parent);
+  let parent = alreadyLinked ? await Parent.findById(student.parent).session(session ?? null) : null;
+
+  const suppliedPhone = fields.guardianPhone?.trim();
+  const phone = suppliedPhone || String((parent as any)?.phone || '').trim();
+  if (!phone && !alreadyLinked) {
     throw new BadRequestError('A guardian phone number is required to create or link a parent record.');
   }
 
@@ -447,9 +451,6 @@ async function syncGuardian(
   const relationship = relationshipMap[fields.guardianRelationship || 'Father'] || 'father';
   const [firstName, ...rest] = fullName.split(' ');
   const lastName = rest.join(' ') || firstName;
-
-  const alreadyLinked = Boolean(student.parent);
-  let parent = alreadyLinked ? await Parent.findById(student.parent).session(session ?? null) : null;
 
   // ── Condition A: a parent already exists for this tenant + phone —
   // reuse it, never create a duplicate Parent document. ──
@@ -496,14 +497,14 @@ async function syncGuardian(
 
   await Profile.findOneAndUpdate({ user: parent.user }, { firstName, lastName }, { session: session ?? undefined });
   parent.relationship = relationship as any;
-  (parent as any).phone = phone;
+  if (phone) (parent as any).phone = phone;
 
   // Editing an already-linked guardian's own login (email/phone/password)
   // is best-effort and non-fatal — it must not block linking the student.
   if (alreadyLinked && (fields.guardianPhone || fields.guardianPassword || email)) {
     const guardianUser = await User.findById(parent.user).select('+password +failedLoginAttempts +lockedUntil').session(session ?? null);
     if (guardianUser) {
-      guardianUser.phone = phone;
+      if (suppliedPhone) guardianUser.phone = suppliedPhone;
       if (fields.guardianPassword && fields.guardianPassword.length >= 8) {
         guardianUser.password = fields.guardianPassword; // pre-save hook hashes it
         guardianUser.failedLoginAttempts = 0;
@@ -763,10 +764,15 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   // a transaction here, so a failure is downgraded to a warning rather than
   // blocking the rest of the student update. ──
   if (guardianFullName !== undefined) {
-    try {
-      await syncGuardian(student, student.school, { guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship });
-    } catch (err: any) {
-      warning = `Student was saved, but the guardian info could not be synced (${err.message}).`;
+    const hasGuardianName = Boolean(String(guardianFullName || '').trim());
+    const canSyncGuardian = hasGuardianName && (Boolean(student.parent) || Boolean(String(guardianPhone || '').trim()));
+
+    if (canSyncGuardian) {
+      try {
+        await syncGuardian(student, student.school, { guardianFullName, guardianEmail, guardianPassword, guardianPhone, guardianRelationship });
+      } catch (err: any) {
+        warning = `Student was saved, but the guardian info could not be synced (${err.message}).`;
+      }
     }
   }
 
