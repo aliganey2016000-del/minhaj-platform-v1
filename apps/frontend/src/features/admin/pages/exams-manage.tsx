@@ -4,7 +4,7 @@
  */
 
 import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown, Printer, SlidersHorizontal } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown, Printer, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -72,6 +72,7 @@ interface Exam {
   room: string;
   instructions: string;
   status: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
+  schedulePlaced?: boolean;
   autoSchedule?: boolean;
   milestone?: 'mid' | 'final' | null;
   autoScheduleDelayDays?: number;
@@ -470,11 +471,9 @@ function AnnualExamActionsMenu({
   );
 }
 
-type DepartmentMoveGroup = {
-  subject: string;
-  fromDate: string;
-  fromShiftIndex: number;
-  examIds: string[];
+type DepartmentCellTarget = {
+  date: string;
+  shiftIndex: number;
 };
 
 function DepartmentalExamView({
@@ -492,11 +491,10 @@ function DepartmentalExamView({
   const [selectedDepartmentKey, setSelectedDepartmentKey] = useState('');
   const [printBranding, setPrintBranding] = useState<{ name?: string; branding?: { logo?: string } }>({});
   const [departmentEditMode, setDepartmentEditMode] = useState(false);
-  const [moveGroup, setMoveGroup] = useState<DepartmentMoveGroup | null>(null);
-  const [dragGroup, setDragGroup] = useState<DepartmentMoveGroup | null>(null);
-  const [moveDate, setMoveDate] = useState('');
-  const [moveShiftIndex, setMoveShiftIndex] = useState(0);
-  const [movingGroup, setMovingGroup] = useState(false);
+  const [cellTarget, setCellTarget] = useState<DepartmentCellTarget | null>(null);
+  const [savingCell, setSavingCell] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resettingSchedule, setResettingSchedule] = useState(false);
   const [moveError, setMoveError] = useState('');
   const [moveSuccess, setMoveSuccess] = useState('');
 
@@ -522,11 +520,16 @@ function DepartmentalExamView({
     return () => { cancelled = true; };
   }, [departmentSchoolId]);
 
-  const fixed = useMemo(
+  const allFixed = useMemo(
     () => exams
-      .filter((exam) => !exam.autoSchedule && exam.examDate && exam.status !== 'cancelled')
+      .filter((exam) => !exam.autoSchedule && exam.status !== 'cancelled')
       .sort((a, b) => examDateKey(a).localeCompare(examDateKey(b)) || compareExamTimes(a, b)),
     [exams],
+  );
+
+  const placedFixed = useMemo(
+    () => allFixed.filter((exam) => exam.schedulePlaced !== false && exam.examDate),
+    [allFixed],
   );
 
   const normalizeDepartmentKey = (id: unknown, name: unknown) => {
@@ -555,7 +558,7 @@ function DepartmentalExamView({
       if (!values.has(key)) values.set(key, { key, name: name || 'Department' });
     }
 
-    for (const exam of fixed) {
+    for (const exam of allFixed) {
       const department = departmentOfExam(exam);
       if (!values.has(department.key)) values.set(department.key, department);
     }
@@ -563,11 +566,13 @@ function DepartmentalExamView({
     return Array.from(values.values()).sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
     );
-  }, [classes, fixed]);
+  }, [classes, allFixed]);
 
+  // Keep the grid shape after Reset by deriving its days/shifts from all
+  // department exam records, including temporarily unplaced ones.
   const shifts = useMemo(() => {
     const map = new Map<string, { key: string; startTime: string; endTime: string }>();
-    fixed.forEach((exam) => {
+    allFixed.forEach((exam) => {
       if (!exam.startTime || !exam.endTime) return;
       const key = `${exam.startTime}::${exam.endTime}`;
       if (!map.has(key)) map.set(key, { key, startTime: exam.startTime, endTime: exam.endTime });
@@ -575,15 +580,16 @@ function DepartmentalExamView({
     return Array.from(map.values()).sort((a, b) =>
       a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime)
     );
-  }, [fixed]);
+  }, [allFixed]);
 
   const dates = useMemo(
-    () => Array.from(new Set(fixed.map(examDateKey).filter(Boolean))).sort(),
-    [fixed],
+    () => Array.from(new Set(allFixed.map(examDateKey).filter(Boolean))).sort(),
+    [allFixed],
   );
 
   const schedules = useMemo(() => departmentDefinitions.map((department) => {
-    const departmentExams = fixed.filter((exam) => departmentOfExam(exam).key === department.key);
+    const departmentExams = allFixed.filter((exam) => departmentOfExam(exam).key === department.key);
+    const placedExams = departmentExams.filter((exam) => exam.schedulePlaced !== false && exam.examDate);
 
     const classIds = new Set(
       classes
@@ -597,39 +603,32 @@ function DepartmentalExamView({
       if (classId) classIds.add(classId);
     });
 
-    const cells = new Map<string, Array<{ subject: string; classes: string[] }>>();
+    const subjectGroups = new Map<string, { subject: string; examIds: string[]; placed: boolean }>();
+    for (const exam of departmentExams) {
+      const subject = exam.course?.title?.en || exam.title || 'Exam';
+      const current = subjectGroups.get(subject) || { subject, examIds: [], placed: false };
+      current.examIds.push(exam._id);
+      if (exam.schedulePlaced !== false && exam.examDate) current.placed = true;
+      subjectGroups.set(subject, current);
+    }
 
+    const cells = new Map<string, Array<{ subject: string }>>();
     dates.forEach((date) => {
       shifts.forEach((shift) => {
-        const subjectMap = new Map<string, Set<string>>();
-        departmentExams
+        const subjects = new Set<string>();
+        placedExams
           .filter((exam) =>
-            examDateKey(exam) === date &&
-            exam.startTime === shift.startTime &&
-            exam.endTime === shift.endTime
+            examDateKey(exam) === date
+            && exam.startTime === shift.startTime
+            && exam.endTime === shift.endTime
           )
-          .forEach((exam) => {
-            const subject = exam.course?.title?.en || exam.title || 'Exam';
-            const cls = exam.course?.class;
-            const classLabel = cls?.title
-              ? (cls.section ? `${cls.title} - ${cls.section}` : cls.title)
-              : 'Class';
-            if (!subjectMap.has(subject)) subjectMap.set(subject, new Set());
-            subjectMap.get(subject)!.add(classLabel);
-          });
+          .forEach((exam) => subjects.add(exam.course?.title?.en || exam.title || 'Exam'));
 
         cells.set(
           `${date}::${shift.key}`,
-          Array.from(subjectMap.entries())
-            .map(([subject, classSet]) => ({
-              subject,
-              classes: Array.from(classSet).sort((a, b) =>
-                a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
-              ),
-            }))
-            .sort((a, b) =>
-              a.subject.localeCompare(b.subject, undefined, { numeric: true, sensitivity: 'base' })
-            ),
+          Array.from(subjects)
+            .map((subject) => ({ subject }))
+            .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { numeric: true, sensitivity: 'base' })),
         );
       });
     });
@@ -640,10 +639,14 @@ function DepartmentalExamView({
       title: `${department.name} Schedule`,
       subtitle: `All classes in ${department.name} combined into one exam schedule.`,
       exams: departmentExams,
+      placedExams,
+      subjects: Array.from(subjectGroups.values()).sort((a, b) =>
+        a.subject.localeCompare(b.subject, undefined, { numeric: true, sensitivity: 'base' })
+      ),
       classCount: classIds.size,
       cells,
     };
-  }), [classes, dates, departmentDefinitions, fixed, shifts]);
+  }), [classes, dates, departmentDefinitions, allFixed, shifts]);
 
   useEffect(() => {
     if (!schedules.length) {
@@ -659,61 +662,73 @@ function DepartmentalExamView({
     [schedules, selectedDepartmentKey],
   );
 
-  const buildMoveGroup = (subject: string, fromDate: string, fromShiftIndex: number): DepartmentMoveGroup => {
-    const shift = shifts[fromShiftIndex];
-    const examIds = !shift || !selectedSchedule
-      ? []
-      : selectedSchedule.exams
-          .filter((exam) =>
-            examDateKey(exam) === fromDate
-            && exam.startTime === shift.startTime
-            && exam.endTime === shift.endTime
-            && (exam.course?.title?.en || exam.title || 'Exam') === subject
-          )
-          .map((exam) => exam._id);
-
-    return { subject, fromDate, fromShiftIndex, examIds };
-  };
-
-  const openMoveDialog = (group: DepartmentMoveGroup) => {
-    if (!group.examIds.length) return;
+  const openCellPicker = (date: string, shiftIndex: number) => {
+    if (!departmentEditMode || savingCell || resettingSchedule) return;
     setMoveError('');
     setMoveSuccess('');
-    setMoveGroup(group);
-    setMoveDate(group.fromDate);
-    setMoveShiftIndex(group.fromShiftIndex);
+    setCellTarget({ date, shiftIndex });
   };
 
-  const moveDepartmentGroup = async (
-    group: DepartmentMoveGroup,
-    targetDate: string,
-    targetShiftIndex: number,
-  ) => {
-    if (!period?._id || !departmentSchoolId || !group.examIds.length) return;
-    if (group.fromDate === targetDate && group.fromShiftIndex === targetShiftIndex) {
-      setMoveGroup(null);
-      return;
-    }
+  const assignSubjectToCell = async (subject: string) => {
+    if (!period?._id || !departmentSchoolId || !selectedSchedule || !cellTarget) return;
+    const shift = shifts[cellTarget.shiftIndex];
+    const subjectGroup = selectedSchedule.subjects.find((item) => item.subject === subject);
+    if (!shift || !subjectGroup?.examIds.length) return;
 
-    setMovingGroup(true);
+    const displacedExamIds = selectedSchedule.placedExams
+      .filter((exam) =>
+        examDateKey(exam) === cellTarget.date
+        && exam.startTime === shift.startTime
+        && exam.endTime === shift.endTime
+      )
+      .map((exam) => exam._id);
+
+    setSavingCell(true);
     setMoveError('');
     setMoveSuccess('');
     try {
-      const response = await api.post(`/exams/periods/${period._id}/move-schedule-group`, {
+      const response = await api.post(`/exams/periods/${period._id}/assign-schedule-cell`, {
         school: departmentSchoolId,
-        examIds: group.examIds,
-        targetDate,
-        targetShiftIndex,
+        examIds: subjectGroup.examIds,
+        displacedExamIds,
+        targetDate: cellTarget.date,
+        targetShiftIndex: cellTarget.shiftIndex,
       });
-      const moved = Number(response.data?.data?.moved || group.examIds.length);
-      setMoveGroup(null);
-      setDragGroup(null);
-      setMoveSuccess(`${group.subject} moved for ${moved} class${moved === 1 ? '' : 'es'}.`);
+      const placed = Number(response.data?.data?.placed || subjectGroup.examIds.length);
+      const displaced = Number(response.data?.data?.displaced || 0);
+      setCellTarget(null);
+      setMoveSuccess(
+        displaced > 0
+          ? `${subject} placed here for ${placed} class${placed === 1 ? '' : 'es'}; the previous course is now unassigned.`
+          : `${subject} placed here for ${placed} class${placed === 1 ? '' : 'es'}.`
+      );
       await onChanged();
     } catch (err: any) {
-      setMoveError(err?.response?.data?.message || 'Could not move this subject group.');
+      setMoveError(err?.response?.data?.message || 'Could not update this timetable cell.');
     } finally {
-      setMovingGroup(false);
+      setSavingCell(false);
+    }
+  };
+
+  const resetDepartmentSchedule = async () => {
+    if (!period?._id || !departmentSchoolId || !selectedSchedule?.exams.length) return;
+    setResettingSchedule(true);
+    setMoveError('');
+    setMoveSuccess('');
+    try {
+      const response = await api.post(`/exams/periods/${period._id}/reset-department-schedule`, {
+        school: departmentSchoolId,
+        examIds: selectedSchedule.exams.map((exam) => exam._id),
+      });
+      const reset = Number(response.data?.data?.reset || selectedSchedule.exams.length);
+      setResetConfirmOpen(false);
+      setCellTarget(null);
+      setMoveSuccess(`${reset} paper${reset === 1 ? '' : 's'} cleared. All ${selectedSchedule.name} cells are blank and ready to assign.`);
+      await onChanged();
+    } catch (err: any) {
+      setMoveError(err?.response?.data?.message || 'Could not reset this department schedule.');
+    } finally {
+      setResettingSchedule(false);
     }
   };
 
@@ -725,7 +740,7 @@ function DepartmentalExamView({
   const departmentLogo = printBranding.branding?.logo || '';
   const generatedOn = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date());
 
-  if (!fixed.length) {
+  if (!allFixed.length) {
     return (
       <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center shadow-sm">
         <Building2 className="mx-auto h-9 w-9 text-[var(--color-text-tertiary)]" />
