@@ -644,6 +644,8 @@ function ExamsActionsMenu({
   onPeriodStatus,
   onByDay,
   onByClass,
+  onByDepartment,
+  departmentViewActive,
   scheduleContext,
   onRules,
   onImport,
@@ -661,6 +663,8 @@ function ExamsActionsMenu({
   onPeriodStatus: () => void;
   onByDay: () => void;
   onByClass: () => void;
+  onByDepartment: () => void;
+  departmentViewActive: boolean;
   scheduleContext: {
     hasSelectedPeriod: boolean;
     periodStatus?: ExamPeriod['status'];
@@ -728,11 +732,14 @@ function ExamsActionsMenu({
           </button>
 
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-          <button onClick={() => { setOpen(false); onByDay(); }} disabled={periodActionDisabled} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${scheduleContext.perspective === 'day' ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
+          <button onClick={() => { setOpen(false); onByDay(); }} disabled={periodActionDisabled} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${scheduleContext.perspective === 'day' && !departmentViewActive ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
             <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.75} /> By Day
           </button>
-          <button onClick={() => { setOpen(false); onByClass(); }} disabled={periodActionDisabled} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${scheduleContext.perspective === 'class' ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
+          <button onClick={() => { setOpen(false); onByClass(); }} disabled={periodActionDisabled} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${scheduleContext.perspective === 'class' && !departmentViewActive ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
             <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.75} /> By Class
+          </button>
+          <button onClick={() => { setOpen(false); onByDepartment(); }} disabled={periodActionDisabled} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${departmentViewActive ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
+            <Building2 className="h-3.5 w-3.5" strokeWidth={1.75} /> By Department
           </button>
 
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
@@ -3703,6 +3710,10 @@ export function ExamsManage() {
                     onPeriodStatus={() => requestScheduleAction('period-status')}
                     onByDay={() => requestScheduleAction('by-day')}
                     onByClass={() => requestScheduleAction('by-class')}
+                    onByDepartment={() => {
+                      if (selectedExamPeriodId) setViewMode('department');
+                    }}
+                    departmentViewActive={viewMode === 'department'}
                     scheduleContext={scheduleMenuContext}
                     onRules={() => setShowRulesModal(true)}
                     onImport={() => setShowImportModal(true)}
@@ -3921,6 +3932,10 @@ export function ExamsManage() {
                     onPeriodStatus={() => requestScheduleAction('period-status')}
                     onByDay={() => requestScheduleAction('by-day')}
                     onByClass={() => requestScheduleAction('by-class')}
+                    onByDepartment={() => {
+                      if (selectedExamPeriodId) setViewMode('department');
+                    }}
+                    departmentViewActive={viewMode === 'department'}
                     scheduleContext={scheduleMenuContext}
                     onRules={() => setShowRulesModal(true)}
                     onImport={() => setShowImportModal(true)}
@@ -4055,7 +4070,7 @@ export function ExamsManage() {
             <div
               role="tablist"
               aria-label="Exam schedule display"
-              className="grid grid-cols-3 gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1 sm:inline-grid sm:min-w-[460px]"
+              className="grid grid-cols-2 gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1 sm:inline-grid sm:min-w-[280px]"
             >
               <button
                 type="button"
@@ -4076,16 +4091,6 @@ export function ExamsManage() {
               >
                 <LayoutGrid className="h-4 w-4" />
                 Table Grid
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={viewMode === 'department'}
-                onClick={() => setViewMode('department')}
-                className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-bold transition-colors ${viewMode === 'department' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
-              >
-                <Building2 className="h-4 w-4" />
-                Departmental View
               </button>
             </div>
 
