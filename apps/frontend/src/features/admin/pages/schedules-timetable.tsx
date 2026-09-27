@@ -816,14 +816,15 @@ export function SchedulesTimetable({
             width: 100% !important;
             max-width: 100% !important;
             min-width: 0 !important;
+            height: 142mm !important;
             table-layout: fixed !important;
             border-collapse: separate !important;
             border-spacing: 0 !important;
             border: 1px solid #b8cee6 !important;
             border-radius: 4px !important;
             overflow: hidden !important;
-            font-size: 6.6px !important;
-            line-height: 1.12 !important;
+            font-size: 7.4px !important;
+            line-height: 1.16 !important;
           }
 
           #schedule-timetable-print thead {
@@ -866,10 +867,18 @@ export function SchedulesTimetable({
 
           #schedule-timetable-print th {
             background: #edf6fd !important;
-            font-size: 6.6px !important;
-            line-height: 1.08 !important;
+            font-size: 7.4px !important;
+            line-height: 1.12 !important;
             font-weight: 800 !important;
             color: #000000 !important;
+          }
+
+          #schedule-timetable-print .schedule-lesson-row {
+            height: auto !important;
+          }
+
+          #schedule-timetable-print .schedule-break-tr {
+            height: 8mm !important;
           }
 
           #schedule-timetable-print th:first-child,
@@ -892,36 +901,53 @@ export function SchedulesTimetable({
           }
 
           #schedule-timetable-print .schedule-period-cell > div:first-child {
-            font-size: 6.4px !important;
-            line-height: 1.05 !important;
-            font-weight: 800 !important;
+            font-size: 7.4px !important;
+            line-height: 1.08 !important;
+            font-weight: 900 !important;
           }
 
           #schedule-timetable-print .schedule-period-time {
-            margin-top: 2px !important;
-            font-size: 5.4px !important;
-            line-height: 1.12 !important;
+            margin-top: 3px !important;
+            font-size: 6.4px !important;
+            line-height: 1.16 !important;
             font-weight: 700 !important;
             color: #000000 !important;
           }
 
           #schedule-timetable-print .schedule-print-subject {
-            min-height: 25px !important;
+            min-height: 12mm !important;
             width: 100% !important;
             max-width: 100% !important;
             display: flex !important;
             flex-direction: column !important;
             align-items: center !important;
             justify-content: center !important;
-            padding: 3px 2px !important;
-            border-radius: 4px !important;
-            font-size: 6.1px !important;
-            line-height: 1.08 !important;
+            padding: 5px 3px !important;
+            border-radius: 5px !important;
+            font-size: 7.8px !important;
+            line-height: 1.16 !important;
             font-weight: 800 !important;
             overflow: hidden !important;
             overflow-wrap: anywhere !important;
             word-break: break-word !important;
             color: #000000 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-course-name {
+            font-size: 8.8px !important;
+            line-height: 1.16 !important;
+            font-weight: 900 !important;
+            letter-spacing: -0.01em !important;
+            color: #000000 !important;
+          }
+
+          #schedule-timetable-print .schedule-print-teacher-name {
+            margin-top: 4px !important;
+            font-size: 7.6px !important;
+            line-height: 1.2 !important;
+            font-weight: 650 !important;
+            color: #111827 !important;
+            opacity: 1 !important;
           }
 
           #schedule-timetable-print .schedule-print-subject-1 {
@@ -939,9 +965,10 @@ export function SchedulesTimetable({
           #schedule-timetable-print .schedule-break-row {
             background: #fff0f0 !important;
             color: #000000 !important;
-            font-size: 8px !important;
+            font-size: 8.4px !important;
+            line-height: 1.15 !important;
             font-weight: 900 !important;
-            padding: 6px 4px !important;
+            padding: 5px 4px !important;
           }
 
           #schedule-timetable-print .schedule-empty-cell {
@@ -1196,12 +1223,12 @@ export function SchedulesTimetable({
           ) : periods.length === 0 ? (
             <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No periods or schedule times are configured yet.</div>
           ) : perspective === 'day' ? (
-            <div className="schedule-timetable-print-scroll max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] touch-auto"><table className="w-max min-w-full table-fixed border-collapse text-xs sm:text-sm"><thead><tr><th className="sticky left-0 z-20 w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-[10px] shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs">Period</th>{dayColumns.map(cls => <th key={cls._id} className="w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-[10px] sm:w-40 sm:min-w-40 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs"><div className="break-words font-bold leading-4">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-0.5 font-normal text-[8px] text-[var(--color-text-tertiary)] sm:mt-1 sm:text-[10px]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, dayColumns.length + 1)} className="schedule-break-row border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} ({formatTime(period.startTime)} – {formatTime(period.endTime)})</td> : <><td className="schedule-period-cell sticky left-0 z-10 w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-center text-[10px] shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs"><div className="font-bold"><span className="sm:hidden">{period.isBreak ? (period.label || 'Break') : `P${period.lessonNumber || ''}`}</span><span className="hidden sm:inline">{period.label || `Period ${period.lessonNumber || ''}`}</span></div><div className="schedule-period-time mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:mt-1 sm:text-[10px]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div></td>{dayColumns.map(cls => {
+            <div className="schedule-timetable-print-scroll max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] touch-auto"><table className="w-max min-w-full table-fixed border-collapse text-xs sm:text-sm"><thead><tr><th className="sticky left-0 z-20 w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-[10px] shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs">Period</th>{dayColumns.map(cls => <th key={cls._id} className="w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-[10px] sm:w-40 sm:min-w-40 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs"><div className="break-words font-bold leading-4">{classLabel(cls)}</div>{cls.shiftMode && <div className="mt-0.5 font-normal text-[8px] text-[var(--color-text-tertiary)] sm:mt-1 sm:text-[10px]">{cls.shiftMode}</div>}</th>)}</tr></thead><tbody>{periods.map(period => <tr className={period.isBreak ? 'schedule-break-tr' : 'schedule-lesson-row'} key={period.key || `${period.startTime}-${period.endTime}`}>{period.isBreak ? <td colSpan={Math.max(1, dayColumns.length + 1)} className="schedule-break-row border bg-amber-50 px-3 py-3 text-center text-xs font-bold text-amber-800">{period.label || 'Break'} ({formatTime(period.startTime)} – {formatTime(period.endTime)})</td> : <><td className="schedule-period-cell sticky left-0 z-10 w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-center text-[10px] shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs"><div className="font-bold"><span className="sm:hidden">{period.isBreak ? (period.label || 'Break') : `P${period.lessonNumber || ''}`}</span><span className="hidden sm:inline">{period.label || `Period ${period.lessonNumber || ''}`}</span></div><div className="schedule-period-time mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:mt-1 sm:text-[10px]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div></td>{dayColumns.map(cls => {
                     const existing = cellSchedules(cls._id, period);
                     const selected = currentCourseId(cls._id, period);
                     const hasDraft = Object.prototype.hasOwnProperty.call(draft, draftKey(cls._id, period));
                     return <td key={`${cls._id}-${period.key}`} className={`w-[92px] min-w-[92px] max-w-[92px] border p-1.5 align-top sm:w-40 sm:min-w-40 sm:max-w-none sm:p-2 ${hasDraft ? 'bg-amber-50/70' : ''}`}>
-                      {editMode ? <select value={selected} onFocus={() => void loadClassCourses(cls._id)} onChange={e => setDraft(current => ({ ...current, [draftKey(cls._id, period)]: e.target.value }))} className="min-h-11 w-full rounded-lg border bg-[var(--color-surface-primary)] px-2 py-2 text-xs"><option value="">— No course —</option>{loadingCourses.has(cls._id) && <option disabled>Loading...</option>}{(coursesByClass[cls._id] || []).map(course => <option key={course._id} value={course._id}>{courseLabel(course)}{course.courseCode ? ` · ${course.courseCode}` : ''}</option>)}</select> : existing.length ? <div className="space-y-1.5">{existing.map(item => <div key={item._id} className={`schedule-print-subject schedule-print-subject-${((period.lessonNumber || 1) - 1) % 3 + 1} rounded-lg bg-primary-50 px-1.5 py-1.5 text-center text-[10px] text-primary-900 dark:bg-primary-950/30 dark:text-primary-100 sm:px-2 sm:py-2 sm:text-xs`}><div className="break-words font-bold leading-4">{courseLabel(item.course)}</div>{teacherIdOf(item.teacher) && <div className="mt-0.5 break-words text-[8px] font-medium leading-3 opacity-75 sm:mt-1 sm:text-[10px] sm:leading-4">{teacherLabel(item.teacher)}</div>}{item.room && <div className="schedule-screen-only mt-0.5 break-words text-[8px] leading-3 opacity-70 sm:mt-1 sm:text-[10px]">Room {item.room}</div>}</div>)}</div> : <div className="schedule-empty-cell py-3 text-center text-xs text-[var(--color-text-tertiary)]">—</div>}
+                      {editMode ? <select value={selected} onFocus={() => void loadClassCourses(cls._id)} onChange={e => setDraft(current => ({ ...current, [draftKey(cls._id, period)]: e.target.value }))} className="min-h-11 w-full rounded-lg border bg-[var(--color-surface-primary)] px-2 py-2 text-xs"><option value="">— No course —</option>{loadingCourses.has(cls._id) && <option disabled>Loading...</option>}{(coursesByClass[cls._id] || []).map(course => <option key={course._id} value={course._id}>{courseLabel(course)}{course.courseCode ? ` · ${course.courseCode}` : ''}</option>)}</select> : existing.length ? <div className="space-y-1.5">{existing.map(item => <div key={item._id} className={`schedule-print-subject schedule-print-subject-${((period.lessonNumber || 1) - 1) % 3 + 1} rounded-lg bg-primary-50 px-1.5 py-1.5 text-center text-[10px] text-primary-900 dark:bg-primary-950/30 dark:text-primary-100 sm:px-2 sm:py-2 sm:text-xs`}><div className="schedule-print-course-name break-words font-bold leading-4">{courseLabel(item.course)}</div>{teacherIdOf(item.teacher) && <div className="schedule-print-teacher-name mt-0.5 break-words text-[8px] font-medium leading-3 opacity-75 sm:mt-1 sm:text-[10px] sm:leading-4">{teacherLabel(item.teacher)}</div>}{item.room && <div className="schedule-screen-only mt-0.5 break-words text-[8px] leading-3 opacity-70 sm:mt-1 sm:text-[10px]">Room {item.room}</div>}</div>)}</div> : <div className="schedule-empty-cell py-3 text-center text-xs text-[var(--color-text-tertiary)]">—</div>}
                     </td>;
                   })}</>}</tr>)}</tbody></table></div>
           ) : (
@@ -1220,7 +1247,7 @@ export function SchedulesTimetable({
                 </thead>
                 <tbody>
                   {periods.map(period => (
-                    <tr key={period.key || `${period.startTime}-${period.endTime}`}>
+                    <tr className={period.isBreak ? 'schedule-break-tr' : 'schedule-lesson-row'} key={period.key || `${period.startTime}-${period.endTime}`}>
                       <td className="schedule-period-cell sticky left-0 z-10 w-[92px] min-w-[92px] max-w-[92px] border bg-[var(--color-surface-secondary)] px-1.5 py-2.5 text-center text-[10px] shadow-[2px_0_5px_rgba(0,0,0,0.08)] sm:w-28 sm:min-w-28 sm:max-w-none sm:px-2 sm:py-3 sm:text-xs">
                         <div className="font-bold"><span className="sm:hidden">{period.isBreak ? (period.label || 'Break') : `P${period.lessonNumber || ''}`}</span><span className="hidden sm:inline">{period.label || (period.isBreak ? 'Break' : `Period ${period.lessonNumber || ''}`)}</span></div>
                         <div className="schedule-period-time mt-0.5 text-[8px] leading-3 text-[var(--color-text-tertiary)] sm:mt-1 sm:text-[10px]">{formatTime(period.startTime)}<br />– {formatTime(period.endTime)}</div>
@@ -1240,11 +1267,11 @@ export function SchedulesTimetable({
                               <div className="space-y-1.5">
                                 {existing.map(item => (
                                   <div key={item._id} className={`schedule-print-subject schedule-print-subject-${((period.lessonNumber || 1) - 1) % 3 + 1} rounded-lg bg-primary-50 px-1.5 py-1.5 text-center text-[10px] text-primary-900 dark:bg-primary-950/30 dark:text-primary-100 sm:px-2 sm:py-2 sm:text-xs`}>
-                                    <div className="break-words font-bold">{courseLabel(item.course)}</div>
+                                    <div className="schedule-print-course-name break-words font-bold">{courseLabel(item.course)}</div>
                                     {perspective === 'class' ? (
-                                      teacherIdOf(item.teacher) && <div className="mt-0.5 text-[8px] font-medium leading-3 opacity-75 sm:mt-1 sm:text-[10px]">{teacherLabel(item.teacher)}</div>
+                                      teacherIdOf(item.teacher) && <div className="schedule-print-teacher-name mt-0.5 text-[8px] font-medium leading-3 opacity-75 sm:mt-1 sm:text-[10px]">{teacherLabel(item.teacher)}</div>
                                     ) : (
-                                      <div className="mt-0.5 text-[8px] font-medium leading-3 opacity-75 sm:mt-1 sm:text-[10px]">{classLabel(item.class)}</div>
+                                      <div className="schedule-print-teacher-name mt-0.5 text-[8px] font-medium leading-3 opacity-75 sm:mt-1 sm:text-[10px]">{classLabel(item.class)}</div>
                                     )}
                                     {item.room && <div className="schedule-screen-only mt-1 text-[10px] opacity-70">Room {item.room}</div>}
                                   </div>
