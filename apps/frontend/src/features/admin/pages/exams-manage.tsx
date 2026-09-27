@@ -2101,9 +2101,16 @@ function ExamTimetable({
       });
       const created: ExamPeriod = response.data?.data;
       await loadContext();
-      await onChanged();
       setSelectedPeriodId(created._id);
+      if (effectiveSchoolId) {
+        try {
+          window.localStorage.setItem(`examSchedule:selectedPeriod:${effectiveSchoolId}`, created._id);
+        } catch {
+          // Continue without browser persistence.
+        }
+      }
       setShowCreatePeriod(false);
+      await onChanged();
       setPeriodForm((current) => ({ ...current, name: '', term: '', startDate: '', endDate: '' }));
       setGridSuccess(`${created.name} created. You can now build its Grade × Shift schedule.`);
     } catch (err: any) {
