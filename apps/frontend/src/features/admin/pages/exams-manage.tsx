@@ -2100,7 +2100,7 @@ function ExamTimetable({
         endDate: periodForm.endDate || null,
       });
       const created: ExamPeriod = response.data?.data;
-      await loadContext();
+      setPeriods((current) => [created, ...current.filter((period) => period._id !== created._id)]);
       setSelectedPeriodId(created._id);
       if (effectiveSchoolId) {
         try {
@@ -2822,6 +2822,7 @@ export function ExamsManage() {
   const [examDetailOpen, setExamDetailOpen] = useState(false);
   const [selectedExamPeriodId, setSelectedExamPeriodId] = useState('');
   const [loading, setLoading] = useState(true);
+  const examsLoadedRef = useRef(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -2858,7 +2859,8 @@ export function ExamsManage() {
   const [exporting, setExporting] = useState(false);
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
+    const firstLoad = !examsLoadedRef.current;
+    if (firstLoad) setLoading(true);
     setError('');
     try {
       const params: any = { limit: 200 };
@@ -2869,7 +2871,8 @@ export function ExamsManage() {
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load exams');
     } finally {
-      setLoading(false);
+      examsLoadedRef.current = true;
+      if (firstLoad) setLoading(false);
     }
   }, [search]);
 
@@ -3063,8 +3066,18 @@ export function ExamsManage() {
   };
 
   const handleScheduleContextChange = useCallback((context: ExamScheduleMenuContext) => {
-    setScheduleMenuContext(context);
-    if (context.periodId) setSelectedExamPeriodId(context.periodId);
+    setScheduleMenuContext((current) => (
+      current.hasSelectedPeriod === context.hasSelectedPeriod &&
+      current.periodId === context.periodId &&
+      current.periodStatus === context.periodStatus &&
+      current.perspective === context.perspective &&
+      current.busy === context.busy
+        ? current
+        : context
+    ));
+    if (context.periodId) {
+      setSelectedExamPeriodId((current) => current === context.periodId ? current : context.periodId!);
+    }
   }, []);
 
   const openExamPeriod = (period: ExamPeriod) => {
