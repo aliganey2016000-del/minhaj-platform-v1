@@ -534,6 +534,7 @@ export const duplicateExamPeriod = async (req: Request, res: Response): Promise<
           room: exam.room || '',
           instructions: exam.instructions || '',
           status: 'scheduled',
+          schedulePlaced: true,
           autoSchedule: false,
           milestone: exam.milestone,
           createdBy: req.user!.userId,
@@ -1248,6 +1249,7 @@ export const saveScheduleGrid = async (req: Request, res: Response): Promise<Res
           startTime: shift.startTime,
           endTime: shift.endTime,
           duration,
+          schedulePlaced: true,
         }, { runValidators: true });
       } else {
         await Exam.create({
