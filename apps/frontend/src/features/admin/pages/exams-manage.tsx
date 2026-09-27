@@ -918,7 +918,6 @@ function DepartmentalExamView({
 
 function ExamsActionsMenu({
   onSchedule,
-  onEditExam,
   onEditSchedule,
   onReuseSchedule,
   onAutoGenerate,
@@ -936,7 +935,6 @@ function ExamsActionsMenu({
   selectedCount,
 }: {
   onSchedule: () => void;
-  onEditExam: () => void;
   onEditSchedule: () => void;
   onReuseSchedule: () => void;
   onAutoGenerate: () => void;
@@ -991,9 +989,6 @@ function ExamsActionsMenu({
         <div className="absolute right-0 z-30 mt-1 max-h-[min(78vh,38rem)] w-60 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-1 text-left shadow-xl">
           <button onClick={() => { setOpen(false); onSchedule(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} /> New Exam
-          </button>
-          <button onClick={() => { setOpen(false); onEditExam(); }} disabled={periodActionDisabled} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
-            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit Exam
           </button>
           <button onClick={() => { setOpen(false); onEditSchedule(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit Schedule
@@ -4207,7 +4202,6 @@ export function ExamsManage() {
                       setViewMode('table');
                       setCreateExamRequest((value) => value + 1);
                     }}
-                    onEditExam={() => requestScheduleAction('edit-exam')}
                     onEditSchedule={() => {
                       setExamDetailOpen(true);
                       setViewMode('table');
@@ -4427,7 +4421,6 @@ export function ExamsManage() {
                       setViewMode('table');
                       setCreateExamRequest((value) => value + 1);
                     }}
-                    onEditExam={() => requestScheduleAction('edit-exam')}
                     onEditSchedule={() => {
                       setViewMode('table');
                       setEditScheduleRequest((value) => value + 1);
