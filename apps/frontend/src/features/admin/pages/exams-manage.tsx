@@ -353,6 +353,248 @@ function AnnualExamActionsMenu({
   );
 }
 
+function DepartmentalExamView({
+  exams,
+  period,
+}: {
+  exams: Exam[];
+  period?: ExamPeriod;
+}) {
+  const fixed = useMemo(
+    () => exams
+      .filter((exam) => !exam.autoSchedule && exam.examDate && exam.status !== 'cancelled')
+      .sort((a, b) => examDateKey(a).localeCompare(examDateKey(b)) || compareExamTimes(a, b)),
+    [exams],
+  );
+
+  const gradeNumber = (exam: Exam): number | null => {
+    const cls = exam.course?.class;
+    const label = `${cls?.title || ''} ${cls?.section || ''}`;
+    const explicit = label.match(/\b(?:grade|class|form)\s*(\d{1,2})\b/i);
+    const fallback = label.match(/\b(\d{1,2})\b/);
+    const value = Number((explicit || fallback)?.[1] || 0);
+    return value >= 1 && value <= 12 ? value : null;
+  };
+
+  const bandOf = (exam: Exam): 'primary' | 'secondary' => {
+    const department = String(exam.course?.class?.department?.name || '').toLowerCase();
+    if (/secondary|secondry|high school|senior/.test(department)) return 'secondary';
+    if (/primary|middle|elementary|junior/.test(department)) return 'primary';
+    const grade = gradeNumber(exam);
+    return grade !== null && grade >= 9 ? 'secondary' : 'primary';
+  };
+
+  const shifts = useMemo(() => {
+    const map = new Map<string, { key: string; startTime: string; endTime: string }>();
+    fixed.forEach((exam) => {
+      if (!exam.startTime || !exam.endTime) return;
+      const key = `${exam.startTime}::${exam.endTime}`;
+      if (!map.has(key)) map.set(key, { key, startTime: exam.startTime, endTime: exam.endTime });
+    });
+    return Array.from(map.values()).sort((a, b) =>
+      a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime)
+    );
+  }, [fixed]);
+
+  const dates = useMemo(
+    () => Array.from(new Set(fixed.map(examDateKey).filter(Boolean))).sort(),
+    [fixed],
+  );
+
+  const schedules = useMemo(() => ([
+    {
+      key: 'primary' as const,
+      title: 'Primary Department Schedule',
+      subtitle: 'All Primary / Middle grades combined into one schedule.',
+    },
+    {
+      key: 'secondary' as const,
+      title: 'Secondary Department Schedule',
+      subtitle: 'All Secondary grades combined into one schedule.',
+    },
+  ]).map((band) => {
+    const bandExams = fixed.filter((exam) => bandOf(exam) === band.key);
+    const classIds = new Set(bandExams.map((exam) => exam.course?.class?._id).filter(Boolean));
+    const cells = new Map<string, Array<{ subject: string; classes: string[] }>>();
+
+    dates.forEach((date) => {
+      shifts.forEach((shift) => {
+        const subjectMap = new Map<string, Set<string>>();
+        bandExams
+          .filter((exam) =>
+            examDateKey(exam) === date &&
+            exam.startTime === shift.startTime &&
+            exam.endTime === shift.endTime
+          )
+          .forEach((exam) => {
+            const subject = exam.course?.title?.en || exam.title || 'Exam';
+            const cls = exam.course?.class;
+            const classLabel = cls?.title
+              ? (cls.section ? `${cls.title} - ${cls.section}` : cls.title)
+              : 'Class';
+            if (!subjectMap.has(subject)) subjectMap.set(subject, new Set());
+            subjectMap.get(subject)!.add(classLabel);
+          });
+
+        cells.set(
+          `${date}::${shift.key}`,
+          Array.from(subjectMap.entries())
+            .map(([subject, classSet]) => ({
+              subject,
+              classes: Array.from(classSet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+            }))
+            .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { numeric: true })),
+        );
+      });
+    });
+
+    return {
+      ...band,
+      exams: bandExams,
+      classCount: classIds.size,
+      cells,
+    };
+  }), [dates, fixed, shifts]);
+
+  const minWidth = Math.max(760, 170 + shifts.length * 260 + Math.max(0, shifts.length - 1) * 110);
+
+  if (!fixed.length) {
+    return (
+      <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center shadow-sm">
+        <Building2 className="mx-auto h-9 w-9 text-[var(--color-text-tertiary)]" />
+        <h2 className="mt-3 text-base font-bold text-[var(--color-text-primary)]">No departmental schedule yet</h2>
+        <p className="mx-auto mt-1 max-w-lg text-sm text-[var(--color-text-tertiary)]">
+          Build the exam schedule first. Departmental View automatically combines it into exactly two schedules: Primary and Secondary.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+        <div className="flex items-start gap-3">
+          <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700 dark:text-emerald-300" />
+          <div>
+            <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">Departmental schedules generated</p>
+            <p className="mt-0.5 text-xs text-emerald-700/80 dark:text-emerald-300/80">
+              {period?.name || 'Selected exam'} · {period?.academicYear || ''} — exactly two combined schedules: Primary and Secondary.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {schedules.map((schedule) => (
+        <section key={schedule.key} className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${
+                schedule.key === 'secondary'
+                  ? 'bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-300'
+                  : 'bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300'
+              }`}>
+                <Building2 className="h-4 w-4" />
+              </span>
+              <div>
+                <h2 className="font-bold text-[var(--color-text-primary)]">{schedule.title}</h2>
+                <p className="text-xs text-[var(--color-text-tertiary)]">{schedule.subtitle}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs font-semibold">
+              <span className="rounded-full bg-[var(--color-surface-secondary)] px-3 py-1.5">{schedule.classCount} classes</span>
+              <span className="rounded-full bg-[var(--color-surface-secondary)] px-3 py-1.5">{schedule.exams.length} papers</span>
+            </div>
+          </div>
+
+          {schedule.exams.length === 0 ? (
+            <div className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">
+              No exams were found for this department group.
+            </div>
+          ) : (
+            <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
+              <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth, tableLayout: 'fixed' }}>
+                <thead>
+                  <tr>
+                    <th className="w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                      Day / Date
+                    </th>
+                    {shifts.map((shift, index) => (
+                      <Fragment key={shift.key}>
+                        <th className="border-b border-r border-[var(--color-border-default)] bg-primary-50/50 px-3 py-3 text-center dark:bg-primary-950/10">
+                          <div className="font-extrabold text-primary-700 dark:text-primary-300">Shift {index + 1}</div>
+                          <div className="mt-0.5 text-[10px] font-semibold text-[var(--color-text-tertiary)]">{shift.startTime}–{shift.endTime}</div>
+                        </th>
+                        {index < shifts.length - 1 && (
+                          <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50/50 px-2 py-3 text-center dark:bg-amber-950/10">
+                            <div className="text-[10px] font-extrabold uppercase text-amber-700 dark:text-amber-300">Break</div>
+                            <div className="mt-0.5 text-[9px] font-semibold text-amber-600/80 dark:text-amber-400">
+                              {shift.endTime}–{shifts[index + 1].startTime}
+                            </div>
+                          </th>
+                        )}
+                      </Fragment>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dates.map((date, dayIndex) => {
+                    const parsed = new Date(`${date}T00:00:00`);
+                    return (
+                      <tr key={date} className="align-top">
+                        <td className="border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-4">
+                          <div className="text-[10px] font-extrabold uppercase tracking-wide text-primary-600">Day {dayIndex + 1}</div>
+                          <div className="mt-1 font-bold text-[var(--color-text-primary)]">
+                            {parsed.toLocaleDateString(undefined, { weekday: 'short' })}
+                          </div>
+                          <div className="text-[11px] text-[var(--color-text-tertiary)]">
+                            {parsed.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}
+                          </div>
+                        </td>
+                        {shifts.map((shift, index) => {
+                          const items = schedule.cells.get(`${date}::${shift.key}`) || [];
+                          return (
+                            <Fragment key={shift.key}>
+                              <td className="border-b border-r border-[var(--color-border-default)] p-2.5">
+                                {items.length === 0 ? (
+                                  <div className="flex min-h-16 items-center justify-center text-[var(--color-text-tertiary)]">—</div>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {items.map((item) => (
+                                      <div key={item.subject} className="rounded-xl border border-primary-100 bg-primary-50/40 p-2.5 dark:border-primary-900/30 dark:bg-primary-950/10">
+                                        <p className="font-bold text-[var(--color-text-primary)]">{item.subject}</p>
+                                        <div className="mt-1.5 flex flex-wrap gap-1">
+                                          {item.classes.map((className) => (
+                                            <span key={className} className="rounded-md bg-[var(--color-surface-primary)] px-1.5 py-1 text-[9px] font-semibold text-[var(--color-text-secondary)] shadow-sm">
+                                              {className}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                              {index < shifts.length - 1 && (
+                                <td className="border-b border-r border-[var(--color-border-default)] bg-amber-50/20 p-2 text-center align-middle dark:bg-amber-950/5">
+                                  <span className="text-[9px] font-bold uppercase tracking-wide text-amber-600">Break</span>
+                                </td>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page Header Actions — all page-level actions live behind one compact
 // three-dot trigger beside the Exam Schedule heading.
@@ -364,6 +606,7 @@ function ExamsActionsMenu({
   onEditSchedule,
   onReuseSchedule,
   onAutoGenerate,
+  onGenerateDepartments,
   onPeriodStatus,
   onByDay,
   onByClass,
@@ -380,6 +623,7 @@ function ExamsActionsMenu({
   onEditSchedule: () => void;
   onReuseSchedule: () => void;
   onAutoGenerate: () => void;
+  onGenerateDepartments: () => void;
   onPeriodStatus: () => void;
   onByDay: () => void;
   onByClass: () => void;
@@ -441,6 +685,9 @@ function ExamsActionsMenu({
           </button>
           <button onClick={() => { setOpen(false); onAutoGenerate(); }} disabled={periodActionDisabled || scheduleContext.periodStatus === 'closed'} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-primary-700 hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 dark:text-primary-300 transition-colors">
             <PlayCircle className="h-3.5 w-3.5" strokeWidth={1.75} /> Auto Generate
+          </button>
+          <button onClick={() => { setOpen(false); onGenerateDepartments(); }} disabled={periodActionDisabled} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
+            <Building2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Generate Department Exams
           </button>
           <button onClick={() => { setOpen(false); onPeriodStatus(); }} disabled={periodActionDisabled} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
             <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} /> {periodStatusLabel}
@@ -2983,9 +3230,10 @@ export function ExamsManage() {
   const [classFilters, setClassFilters] = useState<string[] | null>(null);
   const [departmentFilters, setDepartmentFilters] = useState<string[] | null>(null);
   const [dateFilter, setDateFilter] = useState('');
-  const [viewMode, setViewMode] = useState<'list' | 'table'>(() => {
+  const [viewMode, setViewMode] = useState<'list' | 'table' | 'department'>(() => {
     try {
-      return window.localStorage.getItem('examSchedule:viewMode') === 'table' ? 'table' : 'list';
+      const stored = window.localStorage.getItem('examSchedule:viewMode');
+      return stored === 'table' || stored === 'department' ? stored : 'list';
     } catch {
       return 'list';
     }
@@ -3257,6 +3505,7 @@ export function ExamsManage() {
     setExamDetailOpen(false);
     setSelectedExamPeriodId('');
     setScheduleActionRequest(null);
+    setScheduleMenuContext({ hasSelectedPeriod: false, perspective: 'day', busy: false });
     setSelected(new Set());
     setStatusFilters(null);
     setScheduleFilters(null);
@@ -3397,6 +3646,9 @@ export function ExamsManage() {
                     }}
                     onReuseSchedule={() => requestScheduleAction('reuse-schedule')}
                     onAutoGenerate={() => requestScheduleAction('auto-generate')}
+                    onGenerateDepartments={() => {
+                      if (selectedExamPeriodId) setViewMode('department');
+                    }}
                     onPeriodStatus={() => requestScheduleAction('period-status')}
                     onByDay={() => requestScheduleAction('by-day')}
                     onByClass={() => requestScheduleAction('by-class')}
@@ -3595,7 +3847,7 @@ export function ExamsManage() {
                 <div className="min-w-0">
                   <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">{selectedPeriodMeta?.name || 'Exam'} Schedule</h1>
                   <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
-                    {selectedPeriodMeta ? `${selectedPeriodMeta.academicYear}${selectedPeriodMeta.term ? ` · ${selectedPeriodMeta.term}` : ''} · ${formatPeriodRange(selectedPeriodMeta)}` : 'List and Table Grid for the selected examination.'}
+                    {selectedPeriodMeta ? `${selectedPeriodMeta.academicYear}${selectedPeriodMeta.term ? ` · ${selectedPeriodMeta.term}` : ''} · ${formatPeriodRange(selectedPeriodMeta)}` : 'List, Table Grid and Departmental View for the selected examination.'}
                   </p>
                 </div>
                 <div className="shrink-0">
@@ -3612,6 +3864,9 @@ export function ExamsManage() {
                     }}
                     onReuseSchedule={() => requestScheduleAction('reuse-schedule')}
                     onAutoGenerate={() => requestScheduleAction('auto-generate')}
+                    onGenerateDepartments={() => {
+                      if (selectedExamPeriodId) setViewMode('department');
+                    }}
                     onPeriodStatus={() => requestScheduleAction('period-status')}
                     onByDay={() => requestScheduleAction('by-day')}
                     onByClass={() => requestScheduleAction('by-class')}
@@ -3749,7 +4004,7 @@ export function ExamsManage() {
             <div
               role="tablist"
               aria-label="Exam schedule display"
-              className="grid grid-cols-2 gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1 sm:inline-grid sm:min-w-[280px]"
+              className="grid grid-cols-3 gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-1 sm:inline-grid sm:min-w-[460px]"
             >
               <button
                 type="button"
@@ -3771,7 +4026,24 @@ export function ExamsManage() {
                 <LayoutGrid className="h-4 w-4" />
                 Table Grid
               </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === 'department'}
+                onClick={() => setViewMode('department')}
+                className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-bold transition-colors ${viewMode === 'department' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
+              >
+                <Building2 className="h-4 w-4" />
+                Departmental View
+              </button>
             </div>
+
+            {viewMode === 'department' && (
+              <DepartmentalExamView
+                exams={scopedExams}
+                period={selectedPeriodMeta}
+              />
+            )}
 
             {viewMode === 'table' && (
               <ExamTimetable
