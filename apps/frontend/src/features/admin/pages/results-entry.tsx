@@ -40,6 +40,7 @@
  * visits without needing a per-course setting.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ClipboardEdit, Save, Loader2, AlertTriangle, CheckCircle2, UploadCloud, GraduationCap, Users, Clock, SlidersHorizontal } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
@@ -631,7 +632,16 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                 <p className="text-sm text-[var(--color-text-tertiary)] truncate">Record Mid Exam, Mid Activity, Final, and Final Activity scores for a course</p>
               </div>
             </div>
-            <ColumnVisibilityMenu hidden={hiddenColumns} onToggle={toggleColumn} />
+            <div className="flex shrink-0 items-center gap-2">
+              <Link
+                to="/admin/exams/grading-rules"
+                className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-secondary)]"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2} />
+                Grading Rules
+              </Link>
+              <ColumnVisibilityMenu hidden={hiddenColumns} onToggle={toggleColumn} />
+            </div>
           </div>
         </div>
 
