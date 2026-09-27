@@ -924,6 +924,114 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
   }, `Generated ${documents.length} exams from ${subjectSchedule.length} shared subject slot(s)`);
 };
 
+// POST /exams/periods/:periodId/move-schedule-group
+// Moves a grouped department subject to another day/shift in one operation.
+// The client sends the exact exam ids represented by the department card, so
+// every class in that grouped card moves together or nothing is changed.
+export const moveScheduleGroup = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const periodId = String(req.params.periodId || '');
+  if (!/^[a-f\d]{24}$/i.test(periodId)) throw new BadRequestError('A valid Exam is required');
+
+  const rawIds = Array.isArray(req.body?.examIds) ? req.body.examIds : [];
+  const examIds = Array.from(new Set(rawIds.map((value: unknown) => String(value || '')).filter(Boolean)));
+  if (!examIds.length) throw new BadRequestError('At least one exam is required');
+  if (examIds.length > 200) throw new BadRequestError('A maximum of 200 exams can be moved at once');
+  if (examIds.some((id) => !/^[a-f\d]{24}$/i.test(id))) throw new BadRequestError('One or more exam ids are invalid');
+
+  const targetDate = examDateKey(req.body?.targetDate);
+  const targetShiftIndex = Number(req.body?.targetShiftIndex);
+  if (!targetDate) throw new BadRequestError('A valid target date is required');
+
+  const period = await ExamPeriod.findOne({ _id: periodId, school: schoolId }).lean() as any;
+  if (!period) throw new NotFoundError('Exam');
+  if (period.status === 'closed') throw new ConflictError('This exam is closed and its schedule can no longer be edited');
+
+  const targetDay = new Date(`${targetDate}T00:00:00.000Z`);
+  if (period.startDate && targetDay < new Date(period.startDate)) {
+    throw new ConflictError('Target date is before this exam\'s Start Date');
+  }
+  if (period.endDate && targetDay > new Date(period.endDate)) {
+    throw new ConflictError('Target date is after this exam\'s End Date');
+  }
+
+  const rules = await getExamSchedulingRulesForSchool(schoolId);
+  if (!Number.isInteger(targetShiftIndex) || targetShiftIndex < 0 || targetShiftIndex >= rules.examShifts.length) {
+    throw new BadRequestError('A valid target shift is required');
+  }
+  const shift = rules.examShifts[targetShiftIndex];
+  const duration = timeToMinutes(shift.endTime) - timeToMinutes(shift.startTime);
+
+  const exams = await Exam.find({
+    _id: { $in: examIds },
+    school: schoolId,
+    period: periodId,
+    autoSchedule: { $ne: true },
+    status: { $ne: 'cancelled' },
+  }).lean() as any[];
+
+  if (exams.length !== examIds.length) {
+    throw new BadRequestError('One or more selected exams no longer belong to this examination');
+  }
+
+  const courseIds = exams.map((exam) => String(exam.course || '')).filter(Boolean);
+  const courses = await Course.find({ _id: { $in: courseIds }, school: schoolId })
+    .select('_id class')
+    .lean() as any[];
+  const classByCourse = new Map(courses.map((course) => [String(course._id), String(course.class || '')]));
+
+  const pending: PendingFixedExam[] = [];
+  for (const exam of exams) {
+    const classId = classByCourse.get(String(exam.course || '')) || '';
+    if (!classId) throw new BadRequestError('Could not resolve the class for one of the selected exams');
+
+    await validateFixedExamSchedule({
+      schoolId,
+      classId,
+      title: exam.title || period.name,
+      examDate: targetDate,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      duration,
+      room: exam.room || '',
+      autoSchedule: false,
+      excludeExamId: String(exam._id),
+      pending,
+    });
+
+    pending.push({
+      schoolId,
+      classId,
+      examDate: targetDate,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      room: exam.room || '',
+      title: exam.title || period.name,
+    });
+  }
+
+  await Exam.updateMany(
+    { _id: { $in: examIds }, school: schoolId, period: periodId },
+    {
+      $set: {
+        examDate: targetDay,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        duration,
+      },
+    },
+    { runValidators: true },
+  );
+
+  return ApiResponse.success(res, {
+    moved: exams.length,
+    targetDate,
+    shiftIndex: targetShiftIndex,
+    startTime: shift.startTime,
+    endTime: shift.endTime,
+  }, `${exams.length} exam(s) moved together`);
+};
+
 // POST /exams/schedule-grid — bulk-save editable cells from the rules-driven grid.
 // Each changed cell is applied independently so a single conflict does not discard
 // other valid changes. Course changes are allowed here only when the replacement
