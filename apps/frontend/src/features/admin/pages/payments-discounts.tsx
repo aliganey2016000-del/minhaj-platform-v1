@@ -15,6 +15,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { BadgePercent, Search, X, ShieldCheck, CheckCircle2, Plus, Repeat, Ban } from 'lucide-react';
 import api from '../../../lib/axios';
+import { AcademicYearSelect } from '../../shared/components/academic-year-select';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,10 +78,6 @@ const TYPE_BADGE: Record<string, string> = {
 };
 
 const DURATION_LABELS: Record<string, string> = { standing: 'Standing (until graduation)', academic_year: 'Academic Year', fixed_period: 'Fixed Period' };
-const ACADEMIC_YEAR_OPTIONS = Array.from({ length: 7 }, (_, index) => {
-  const startYear = new Date().getFullYear() - 2 + index;
-  return `${startYear}-${startYear + 1}`;
-});
 const CURRENT_ACADEMIC_YEAR = `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
 const EFFECTIVE_STATUS_BADGE: Record<string, string> = {
   active: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400',
@@ -425,10 +422,7 @@ function DiscountGrantsPanel() {
               {durationType === 'academic_year' && (
                 <div>
                   <label className="text-xs font-semibold mb-1.5 block text-[var(--color-text-secondary)]">Academic Year *</label>
-                    <select value={academicYear} onChange={e => setAcademicYear(e.target.value)} className={ic} required>
-                      <option value="">Select academic year...</option>
-                      {ACADEMIC_YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}</option>)}
-                    </select>
+                    <AcademicYearSelect value={academicYear} onChange={setAcademicYear} required />
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3">
