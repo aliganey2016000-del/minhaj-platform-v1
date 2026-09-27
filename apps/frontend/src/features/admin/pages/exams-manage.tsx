@@ -216,9 +216,37 @@ function RowActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEd
 // three-dot trigger beside the Exam Schedule heading.
 // ---------------------------------------------------------------------------
 
-function ExamsActionsMenu({ onSchedule, onEditSchedule, onRules, onImport, onExport, exporting, onBulkDelete, selectedCount }: {
+function ExamsActionsMenu({
+  onSchedule,
+  onEditExam,
+  onEditSchedule,
+  onReuseSchedule,
+  onAutoGenerate,
+  onPeriodStatus,
+  onByDay,
+  onByClass,
+  scheduleContext,
+  onRules,
+  onImport,
+  onExport,
+  exporting,
+  onBulkDelete,
+  selectedCount,
+}: {
   onSchedule: () => void;
+  onEditExam: () => void;
   onEditSchedule: () => void;
+  onReuseSchedule: () => void;
+  onAutoGenerate: () => void;
+  onPeriodStatus: () => void;
+  onByDay: () => void;
+  onByClass: () => void;
+  scheduleContext: {
+    hasSelectedPeriod: boolean;
+    periodStatus?: ExamPeriod['status'];
+    perspective: 'day' | 'class';
+    busy: boolean;
+  };
   onRules: () => void;
   onImport: () => void;
   onExport: () => void;
@@ -236,6 +264,15 @@ function ExamsActionsMenu({ onSchedule, onEditSchedule, onRules, onImport, onExp
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  const periodActionDisabled = !scheduleContext.hasSelectedPeriod || scheduleContext.busy;
+  const periodStatusLabel = scheduleContext.periodStatus === 'draft'
+    ? 'Publish Exam'
+    : scheduleContext.periodStatus === 'published'
+      ? 'Close Exam'
+      : scheduleContext.periodStatus === 'closed'
+        ? 'Reopen as Draft'
+        : 'Update Exam Status';
+
   return (
     <div className="relative inline-block" ref={ref}>
       <button
@@ -247,17 +284,38 @@ function ExamsActionsMenu({ onSchedule, onEditSchedule, onRules, onImport, onExp
         <MoreVertical className="h-5 w-5" strokeWidth={1.75} />
       </button>
       {open && (
-        <div className="absolute right-0 z-20 mt-1 w-52 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-lg py-1 text-left">
+        <div className="absolute right-0 z-30 mt-1 max-h-[min(78vh,38rem)] w-60 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-1 text-left shadow-xl">
           <button onClick={() => { setOpen(false); onSchedule(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
-            <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} /> Create Exam
+            <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} /> New Exam
+          </button>
+          <button onClick={() => { setOpen(false); onEditExam(); }} disabled={periodActionDisabled} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
+            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit Exam
           </button>
           <button onClick={() => { setOpen(false); onEditSchedule(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
-            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit Schedule
+            <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.75} /> Edit Schedule
           </button>
+          <button onClick={() => { setOpen(false); onReuseSchedule(); }} disabled={periodActionDisabled} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
+            <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.75} /> Reuse Schedule
+          </button>
+          <button onClick={() => { setOpen(false); onAutoGenerate(); }} disabled={periodActionDisabled || scheduleContext.periodStatus === 'closed'} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-primary-700 hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 dark:text-primary-300 transition-colors">
+            <PlayCircle className="h-3.5 w-3.5" strokeWidth={1.75} /> Auto Generate
+          </button>
+          <button onClick={() => { setOpen(false); onPeriodStatus(); }} disabled={periodActionDisabled} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
+            <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} /> {periodStatusLabel}
+          </button>
+
+          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+          <button onClick={() => { setOpen(false); onByDay(); }} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors ${scheduleContext.perspective === 'day' ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
+            <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.75} /> By Day
+          </button>
+          <button onClick={() => { setOpen(false); onByClass(); }} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors ${scheduleContext.perspective === 'class' ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
+            <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.75} /> By Class
+          </button>
+
+          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button onClick={() => { setOpen(false); onRules(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} /> Scheduling Rules
           </button>
-          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button onClick={() => { setOpen(false); onImport(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <Upload className="h-3.5 w-3.5" strokeWidth={1.75} /> Import Exams
           </button>
@@ -1375,6 +1433,19 @@ function ExamsImportModal({ onClose, onImported }: { onClose: () => void; onImpo
 // ---------------------------------------------------------------------------
 
 type ExamTimetablePerspective = 'day' | 'class';
+type ExamScheduleMenuAction = 'edit-exam' | 'reuse-schedule' | 'auto-generate' | 'period-status' | 'by-day' | 'by-class';
+
+interface ExamScheduleActionRequest {
+  id: number;
+  action: ExamScheduleMenuAction;
+}
+
+interface ExamScheduleMenuContext {
+  hasSelectedPeriod: boolean;
+  periodStatus?: ExamPeriod['status'];
+  perspective: ExamTimetablePerspective;
+  busy: boolean;
+}
 
 const examDateKey = (exam: Exam): string =>
   exam.examDate && !exam.autoSchedule ? new Date(exam.examDate).toISOString().slice(0, 10) : '';
@@ -1538,18 +1609,24 @@ function ExamTimetable({
   onChanged,
   editRequest,
   createRequest,
+  scheduleActionRequest,
   refreshKey,
   onEditRequestHandled,
   onCreateRequestHandled,
+  onScheduleActionRequestHandled,
+  onScheduleContextChange,
 }: {
   exams: Exam[];
   onOpen: (exam: Exam) => void;
   onChanged: () => Promise<void> | void;
   editRequest: number;
   createRequest: number;
+  scheduleActionRequest: ExamScheduleActionRequest | null;
   refreshKey: number;
   onEditRequestHandled: () => void;
   onCreateRequestHandled: () => void;
+  onScheduleActionRequestHandled: (id: number) => void;
+  onScheduleContextChange: (context: ExamScheduleMenuContext) => void;
 }) {
   const { user } = useAuth();
   const ownOrgId = String((user as any)?.organizationId?._id || (user as any)?.organizationId || '');
@@ -1567,7 +1644,7 @@ function ExamTimetable({
   const [gridClasses, setGridClasses] = useState<ClassBrief[]>([]);
   const [periods, setPeriods] = useState<ExamPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');
-  const [rulesLoading, setRulesLoading] = useState(false);
+  const [rulesLoading, setRulesLoading] = useState(Boolean(effectiveSchoolId));
   const [perspective, setPerspective] = useState<ExamTimetablePerspective>('day');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
@@ -1608,6 +1685,7 @@ function ExamTimetable({
   });
   const lastEditRequest = useRef(0);
   const lastCreateRequest = useRef(0);
+  const lastScheduleActionRequest = useRef(0);
 
   const periodIdOf = (exam: Exam): string =>
     typeof exam.period === 'string' ? exam.period : exam.period?._id || '';
@@ -1909,11 +1987,11 @@ function ExamTimetable({
   }, [effectiveSchoolId, loadClassCourses, periodClasses, selectedPeriod]);
 
   useEffect(() => {
-    if (editRequest <= lastEditRequest.current) return;
+    if (editRequest <= lastEditRequest.current || rulesLoading) return;
     lastEditRequest.current = editRequest;
     beginEdit();
     onEditRequestHandled();
-  }, [beginEdit, editRequest, onEditRequestHandled]);
+  }, [beginEdit, editRequest, onEditRequestHandled, rulesLoading]);
 
   useEffect(() => {
     if (createRequest <= lastCreateRequest.current) return;
@@ -2189,6 +2267,50 @@ function ExamTimetable({
     }
   };
 
+  useEffect(() => {
+    onScheduleContextChange({
+      hasSelectedPeriod: Boolean(selectedPeriod),
+      periodStatus: selectedPeriod?.status,
+      perspective,
+      busy: periodActionBusy || autoGenerating,
+    });
+  }, [autoGenerating, onScheduleContextChange, periodActionBusy, perspective, selectedPeriod]);
+
+  useEffect(() => {
+    if (!scheduleActionRequest || scheduleActionRequest.id <= lastScheduleActionRequest.current || rulesLoading) return;
+
+    lastScheduleActionRequest.current = scheduleActionRequest.id;
+    const { action } = scheduleActionRequest;
+
+    if (action === 'by-day') {
+      setPerspective('day');
+    } else if (action === 'by-class') {
+      setPerspective('class');
+    } else if (!selectedPeriod) {
+      setGridError('Create or select an Exam first.');
+    } else if (action === 'edit-exam') {
+      openEditPeriod();
+    } else if (action === 'reuse-schedule') {
+      openReusePeriod();
+    } else if (action === 'auto-generate') {
+      void autoGenerateSchedule();
+    } else if (action === 'period-status') {
+      const nextStatus: ExamPeriod['status'] = selectedPeriod.status === 'draft'
+        ? 'published'
+        : selectedPeriod.status === 'published'
+          ? 'closed'
+          : 'draft';
+      void updatePeriodStatus(nextStatus);
+    }
+
+    onScheduleActionRequestHandled(scheduleActionRequest.id);
+  }, [
+    onScheduleActionRequestHandled,
+    rulesLoading,
+    scheduleActionRequest,
+    selectedPeriod,
+  ]);
+
   const changeDate = (value: string) => {
     if (!selectedPeriod) return;
     if (value !== selectedDate && editMode && Object.keys(draft).length > 0) {
@@ -2278,7 +2400,7 @@ function ExamTimetable({
               </p>
             </div>
 
-            {editMode ? (
+            {editMode && (
               <div className="flex gap-2">
                 <button type="button" onClick={cancelEdit} disabled={saving} className="rounded-xl border border-[var(--color-border-default)] px-4 py-2 text-xs font-bold text-[var(--color-text-secondary)] disabled:opacity-50">
                   Cancel
@@ -2288,73 +2410,16 @@ function ExamTimetable({
                   {saving ? 'Saving…' : `Save Schedule${Object.keys(draft).length ? ` (${Object.keys(draft).length})` : ''}`}
                 </button>
               </div>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {selectedPeriod && (
-                  <>
-                    <button type="button" onClick={openEditPeriod} className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit Exam
-                    </button>
-                    <button type="button" onClick={openReusePeriod} className="rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-bold text-primary-700 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-300">
-                      Reuse Schedule
-                    </button>
-                    {selectedPeriod.status !== 'closed' && (
-                      <button
-                        type="button"
-                        onClick={() => void autoGenerateSchedule()}
-                        disabled={autoGenerating || periodActionBusy}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-primary-700 disabled:opacity-50"
-                        title="Build the whole timetable by matching subject names across Primary/Middle and Secondary grades"
-                      >
-                        <PlayCircle className="h-3.5 w-3.5" />
-                        {autoGenerating ? 'Generating…' : 'Auto Generate'}
-                      </button>
-                    )}
-                  </>
-                )}
-                {selectedPeriod?.status === 'draft' && (
-                  <button type="button" onClick={() => updatePeriodStatus('published')} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
-                    Publish
-                  </button>
-                )}
-                {selectedPeriod?.status === 'published' && (
-                  <button type="button" onClick={() => updatePeriodStatus('closed')} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)]">
-                    Close Exam
-                  </button>
-                )}
-                {selectedPeriod?.status === 'closed' && (
-                  <button type="button" onClick={() => updatePeriodStatus('draft')} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)]">
-                    Reopen as Draft
-                  </button>
-                )}
-                <div className="inline-flex rounded-xl bg-[var(--color-surface-secondary)] p-1">
-                  <button
-                    type="button"
-                    onClick={() => setPerspective('day')}
-                    className={`rounded-lg px-4 py-2 text-xs font-bold transition ${perspective === 'day' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
-                  >
-                    By Day
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPerspective('class')}
-                    className={`rounded-lg px-4 py-2 text-xs font-bold transition ${perspective === 'class' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}
-                  >
-                    By Class
-                  </button>
-                </div>
-              </div>
             )}
           </div>
 
-          <div className="mt-3 grid gap-2 md:grid-cols-[minmax(220px,1fr)_auto_auto] md:items-center">
-            <div className="flex gap-2">
+          <div className="mt-3 grid gap-2 md:grid-cols-[minmax(220px,1fr)_auto] md:items-center">
+            <div>
               <select
                 value={selectedPeriodId}
                 onChange={(e) => changePeriod(e.target.value)}
                 disabled={editMode}
-                className="min-w-0 flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold disabled:opacity-60"
+                className="w-full min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold disabled:opacity-60"
               >
                 <option value="">Select Exam...</option>
                 {periods.map((period) => (
@@ -2363,11 +2428,6 @@ function ExamTimetable({
                   </option>
                 ))}
               </select>
-              {!editMode && (
-                <button type="button" onClick={() => setShowCreatePeriod(true)} className="shrink-0 rounded-xl bg-primary-600 px-4 py-2.5 text-xs font-bold text-white">
-                  + New Exam
-                </button>
-              )}
             </div>
 
             {selectedPeriod && (perspective === 'day' || editMode) && selectedDate && (
@@ -2746,6 +2806,13 @@ export function ExamsManage() {
   });
   const [editScheduleRequest, setEditScheduleRequest] = useState(0);
   const [createExamRequest, setCreateExamRequest] = useState(0);
+  const [scheduleActionRequest, setScheduleActionRequest] = useState<ExamScheduleActionRequest | null>(null);
+  const scheduleActionSequence = useRef(0);
+  const [scheduleMenuContext, setScheduleMenuContext] = useState<ExamScheduleMenuContext>({
+    hasSelectedPeriod: false,
+    perspective: 'day',
+    busy: false,
+  });
   const [scheduleContextRefreshKey, setScheduleContextRefreshKey] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | undefined>(undefined);
@@ -2904,6 +2971,12 @@ export function ExamsManage() {
     setDateFilter('');
   };
 
+  const requestScheduleAction = (action: ExamScheduleMenuAction) => {
+    scheduleActionSequence.current += 1;
+    setViewMode('table');
+    setScheduleActionRequest({ id: scheduleActionSequence.current, action });
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -2937,10 +3010,17 @@ export function ExamsManage() {
                       setViewMode('table');
                       setCreateExamRequest((value) => value + 1);
                     }}
+                    onEditExam={() => requestScheduleAction('edit-exam')}
                     onEditSchedule={() => {
                       setViewMode('table');
                       setEditScheduleRequest((value) => value + 1);
                     }}
+                    onReuseSchedule={() => requestScheduleAction('reuse-schedule')}
+                    onAutoGenerate={() => requestScheduleAction('auto-generate')}
+                    onPeriodStatus={() => requestScheduleAction('period-status')}
+                    onByDay={() => requestScheduleAction('by-day')}
+                    onByClass={() => requestScheduleAction('by-class')}
+                    scheduleContext={scheduleMenuContext}
                     onRules={() => setShowRulesModal(true)}
                     onImport={() => setShowImportModal(true)}
                     onExport={handleExport}
@@ -3065,9 +3145,14 @@ export function ExamsManage() {
                 onChanged={fetchData}
                 editRequest={editScheduleRequest}
                 createRequest={createExamRequest}
+                scheduleActionRequest={scheduleActionRequest}
                 refreshKey={scheduleContextRefreshKey}
                 onEditRequestHandled={() => setEditScheduleRequest(0)}
                 onCreateRequestHandled={() => setCreateExamRequest(0)}
+                onScheduleActionRequestHandled={(id) => {
+                  setScheduleActionRequest((current) => current?.id === id ? null : current);
+                }}
+                onScheduleContextChange={setScheduleMenuContext}
               />
             )}
 
