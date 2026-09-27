@@ -2384,7 +2384,7 @@ function ExamTimetableCell({
   }
 
   if (!exams.length) {
-    return <div className="py-5 text-center text-xs text-[var(--color-text-tertiary)]">—</div>;
+    return <div className="exam-timetable-empty py-5 text-center text-xs text-[var(--color-text-tertiary)]">—</div>;
   }
 
   return (
@@ -2394,7 +2394,7 @@ function ExamTimetableCell({
           key={exam._id}
           type="button"
           onClick={() => onOpen(exam)}
-          className="w-full rounded-xl border border-primary-100 bg-primary-50/80 p-2.5 text-left transition hover:border-primary-300 hover:bg-primary-50 dark:border-primary-900/40 dark:bg-primary-950/20"
+          className="exam-timetable-card w-full rounded-xl border border-primary-100 bg-primary-50/80 p-2.5 text-left transition hover:border-primary-300 hover:bg-primary-50 dark:border-primary-900/40 dark:bg-primary-950/20"
         >
           <div className="break-words text-xs font-extrabold leading-4 text-primary-950 dark:text-primary-100 sm:text-sm">
             {exam.course?.title?.en || 'Course missing'}
@@ -2411,7 +2411,7 @@ function ExamTimetableCell({
 function ExamBreakCell({ startTime, endTime }: { startTime?: string; endTime?: string }) {
   const hasWindow = !!startTime && !!endTime && minutesOf(endTime) > minutesOf(startTime);
   return (
-    <div className="flex min-h-[76px] flex-col items-center justify-center rounded-xl bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">
+    <div className="exam-break-card flex min-h-[76px] flex-col items-center justify-center rounded-xl bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">
       <span className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">Break</span>
       <span className="mt-1 text-[9px] font-semibold text-amber-700/70 dark:text-amber-300/70 sm:text-[10px]">
         {hasWindow ? `${startTime} – ${endTime}` : '—'}
@@ -3229,6 +3229,84 @@ function ExamTimetable({
     <>
       <style>{`
         .exam-class-print-only { display: none; }
+
+        @media (max-width: 639px) {
+          .exam-responsive-table-wrap { overflow-x: hidden !important; }
+          .exam-responsive-table {
+            width: 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            table-layout: fixed !important;
+          }
+          .exam-responsive-table .exam-fixed-col {
+            width: 27% !important;
+            max-width: 27% !important;
+            padding: 7px 6px !important;
+            font-size: 9px !important;
+            line-height: 1.15 !important;
+          }
+          .exam-responsive-table .exam-shift-head {
+            padding: 7px 4px !important;
+            font-size: 9px !important;
+            line-height: 1.15 !important;
+          }
+          .exam-responsive-table .exam-shift-head > div:first-child {
+            font-size: 10px !important;
+            line-height: 1.15 !important;
+          }
+          .exam-responsive-table .exam-shift-head > div:last-child {
+            font-size: 8px !important;
+            line-height: 1.1 !important;
+            white-space: nowrap !important;
+          }
+          .exam-responsive-table .exam-break-col {
+            width: 13% !important;
+            max-width: 13% !important;
+            padding: 4px 2px !important;
+          }
+          .exam-responsive-table .exam-break-col > div:first-child,
+          .exam-responsive-table .exam-break-card > span:first-child {
+            font-size: 8px !important;
+            letter-spacing: .08em !important;
+          }
+          .exam-responsive-table .exam-break-col > div:last-child,
+          .exam-responsive-table .exam-break-card > span:last-child {
+            font-size: 7px !important;
+            line-height: 1.1 !important;
+            white-space: normal !important;
+          }
+          .exam-responsive-table .exam-shift-cell { padding: 4px !important; }
+          .exam-responsive-table .exam-row-label {
+            padding: 8px 6px !important;
+            font-size: 10px !important;
+            line-height: 1.2 !important;
+            overflow-wrap: anywhere !important;
+          }
+          .exam-responsive-table .exam-timetable-card {
+            border-radius: 9px !important;
+            padding: 6px !important;
+          }
+          .exam-responsive-table .exam-timetable-card > div:first-child {
+            font-size: 10px !important;
+            line-height: 1.2 !important;
+          }
+          .exam-responsive-table .exam-timetable-card > div:last-child {
+            margin-top: 3px !important;
+            font-size: 8px !important;
+            line-height: 1.2 !important;
+          }
+          .exam-responsive-table .exam-timetable-empty {
+            padding-top: 12px !important;
+            padding-bottom: 12px !important;
+            font-size: 10px !important;
+          }
+          .exam-responsive-table .exam-break-card {
+            min-height: 58px !important;
+            border-radius: 9px !important;
+            padding: 6px 2px !important;
+          }
+        }
+
         @media print {
           @page { size: A4 landscape; margin: 7mm; }
           html, body {
@@ -3549,21 +3627,21 @@ function ExamTimetable({
             No active grades/classes match {selectedPeriod.academicYear}.
           </div>
         ) : perspective === 'day' || editMode ? (
-          <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
-            <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
+          <div className="exam-responsive-table-wrap max-w-full overflow-x-hidden overscroll-x-contain sm:overflow-x-auto [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+            <table className="exam-responsive-table w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
               <thead>
                 <tr>
-                  <th scope="col" className="sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                  <th scope="col" className="exam-fixed-col sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
                     Grade / Class
                   </th>
                   {rules.examShifts.map((shift, index) => (
                     <Fragment key={`head-wrap-${index}`}>
-                      <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
+                      <th className="exam-shift-head border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
                         <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
                         <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
                       </th>
                       {index < rules.examShifts.length - 1 && (
-                        <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">
+                        <th className="exam-break-col w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">
                           <div className="font-extrabold text-amber-700 dark:text-amber-300">Break</div>
                           <div className="mt-0.5 text-[9px] font-semibold text-amber-700/70 dark:text-amber-300/70">{shift.endTime} – {rules.examShifts[index + 1].startTime}</div>
                         </th>
@@ -3575,7 +3653,7 @@ function ExamTimetable({
               <tbody>
                 {dayRows.map((row) => (
                   <tr key={row.id}>
-                    <th scope="row" className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                    <th scope="row" className="exam-fixed-col exam-row-label sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                       <div className="font-extrabold text-[var(--color-text-primary)]">{row.label}</div>
                     </th>
                     {row.slots.map((slotExams, index) => {
@@ -3583,7 +3661,7 @@ function ExamTimetable({
                       const current = currentCourseId(row.id, index);
                       return (
                         <Fragment key={`row-${row.id}-${index}`}>
-                          <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
+                          <td className="exam-shift-cell border-b border-r border-[var(--color-border-default)] p-2 align-top">
                             <ExamTimetableCell
                               exams={slotExams}
                               onOpen={onOpen}
@@ -3597,7 +3675,7 @@ function ExamTimetable({
                             />
                           </td>
                           {index < rules.examShifts.length - 1 && (
-                            <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
+                            <td className="exam-break-col border-b border-r border-[var(--color-border-default)] p-2 align-middle">
                               <ExamBreakCell startTime={rules.examShifts[index].endTime} endTime={rules.examShifts[index + 1].startTime} />
                             </td>
                           )}
@@ -3633,21 +3711,21 @@ function ExamTimetable({
                 <div className="exam-print-meta-row"><span className="exam-print-meta-label">Generated</span><span>{classPrintGeneratedOn}</span></div>
               </div>
             </div>
-            <div className="exam-class-scroll max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
-              <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
+            <div className="exam-class-scroll exam-responsive-table-wrap max-w-full overflow-x-hidden overscroll-x-contain sm:overflow-x-auto [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+              <table className="exam-responsive-table w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
               <thead>
                 <tr>
-                  <th className="sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                  <th className="exam-fixed-col sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
                     Exam Date
                   </th>
                   {rules.examShifts.map((shift, index) => (
                     <Fragment key={`class-head-${index}`}>
-                      <th className="border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
+                      <th className="exam-shift-head border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
                         <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
                         <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
                       </th>
                       {index < rules.examShifts.length - 1 && (
-                        <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">Break</th>
+                        <th className="exam-break-col w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">Break</th>
                       )}
                     </Fragment>
                   ))}
@@ -3660,7 +3738,7 @@ function ExamTimetable({
                   </tr>
                 ) : classRows.map((row) => (
                   <tr key={row.date}>
-                    <th scope="row" className="sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                    <th scope="row" className="exam-fixed-col exam-row-label sticky left-0 z-10 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-4 text-left shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                       <div className="font-extrabold text-[var(--color-text-primary)]">
                         {new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                       </div>
@@ -3670,11 +3748,11 @@ function ExamTimetable({
                     </th>
                     {row.slots.map((slotExams, index) => (
                       <Fragment key={`class-row-${row.date}-${index}`}>
-                        <td className="border-b border-r border-[var(--color-border-default)] p-2 align-top">
+                        <td className="exam-shift-cell border-b border-r border-[var(--color-border-default)] p-2 align-top">
                           <ExamTimetableCell exams={slotExams} onOpen={onOpen} />
                         </td>
                         {index < rules.examShifts.length - 1 && (
-                          <td className="border-b border-r border-[var(--color-border-default)] p-2 align-middle">
+                          <td className="exam-break-col border-b border-r border-[var(--color-border-default)] p-2 align-middle">
                             <ExamBreakCell startTime={rules.examShifts[index].endTime} endTime={rules.examShifts[index + 1].startTime} />
                           </td>
                         )}
