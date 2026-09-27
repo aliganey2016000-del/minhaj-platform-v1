@@ -19,6 +19,9 @@ export interface IExam extends Document {
   room?: string;
   instructions?: string;
   status: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
+  // Whether this fixed exam is currently placed on the shared timetable.
+  // False keeps the exam/course record available for reassignment while its cell is blank.
+  schedulePlaced: boolean;
   resultsPublished: boolean;
   // Per-student, progress-driven scheduling instead of a fixed calendar
   // window: each student gets their own personal exam window, computed from
@@ -54,6 +57,7 @@ const examSchema = new Schema<IExam>(
     room: { type: String, default: '' },
     instructions: { type: String, default: '' },
     status: { type: String, enum: ['scheduled', 'ongoing', 'completed', 'cancelled'], default: 'scheduled', index: true },
+    schedulePlaced: { type: Boolean, default: true, index: true },
     resultsPublished: { type: Boolean, default: false },
     autoSchedule: { type: Boolean, default: false },
     milestone: { type: String, enum: ['mid', 'final', null], default: null },
