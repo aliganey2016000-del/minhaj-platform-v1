@@ -917,13 +917,13 @@ function DepartmentalExamView({
         }
       `}</style>
 
-      <div className="flex flex-col gap-3 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex items-end gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm sm:gap-3 sm:p-4">
         <label className="min-w-0 flex-1">
           <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Department</span>
           <select
             value={selectedSchedule?.key || ''}
             onChange={(e) => setSelectedDepartmentKey(e.target.value)}
-            className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold sm:max-w-md"
+            className="w-full min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold"
           >
             {schedules.map((schedule) => (
               <option key={schedule.key} value={schedule.key}>{schedule.name}</option>
@@ -934,23 +934,12 @@ function DepartmentalExamView({
           type="button"
           onClick={() => window.print()}
           disabled={!selectedSchedule || selectedSchedule.exams.length === 0}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-3 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40 sm:px-4"
         >
           <Printer className="h-4 w-4" />
-          Print Department
+          <span className="sm:hidden">Print</span>
+          <span className="hidden sm:inline">Print Department</span>
         </button>
-      </div>
-
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-        <div className="flex items-start gap-3">
-          <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700 dark:text-emerald-300" />
-          <div>
-            <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">Departmental schedule</p>
-            <p className="mt-0.5 text-xs text-emerald-700/80 dark:text-emerald-300/80">
-              {period?.name || 'Selected exam'} · {period?.academicYear || ''} — showing {selectedSchedule?.name || 'department'} only.
-            </p>
-          </div>
-        </div>
       </div>
 
       {!selectedSchedule ? (
