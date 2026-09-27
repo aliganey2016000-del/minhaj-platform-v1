@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../../store/auth-context';
 import api from '../../../lib/axios';
+import { AcademicYearSelect } from '../../shared/components/academic-year-select';
 
 interface Setting { _id: string; key: string; value: string; description: string; updatedAt: string; }
 
@@ -76,11 +77,19 @@ export function SettingsManage() {
                   <label className="text-sm font-semibold text-[var(--color-text-primary)]">{s.key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())}</label>
                   <p className="text-xs text-[var(--color-text-tertiary)]">{s.description}</p>
                 </div>
-                <input
-                  className="w-full sm:w-64 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-                  value={s.value}
-                  onChange={e => updateValue(s.key, e.target.value)}
-                />
+                {s.key === 'academicYear' ? (
+                  <AcademicYearSelect
+                    value={s.value}
+                    onChange={(value) => updateValue(s.key, value)}
+                    className="sm:w-64"
+                  />
+                ) : (
+                  <input
+                    className="w-full sm:w-64 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                    value={s.value}
+                    onChange={e => updateValue(s.key, e.target.value)}
+                  />
+                )}
               </div>
             ))}
           </div>
