@@ -37,7 +37,13 @@ interface CourseBrief {
 
 interface SchoolBrief { _id: string; name: string; status?: string; }
 interface DepartmentBrief { _id: string; name: string; }
-interface ClassBrief { _id: string; title: string; section: string; academicYear?: string; }
+interface ClassBrief {
+  _id: string;
+  title: string;
+  section: string;
+  academicYear?: string;
+  department?: { _id?: string; name?: string } | null;
+}
 
 interface ExamPeriod {
   _id: string;
@@ -3205,6 +3211,7 @@ export function ExamsManage() {
   const { user } = useAuth();
   const [exams, setExams] = useState<Exam[]>([]);
   const [examPeriods, setExamPeriods] = useState<ExamPeriod[]>([]);
+  const [filterClasses, setFilterClasses] = useState<ClassBrief[]>([]);
   const [periodsLoading, setPeriodsLoading] = useState(false);
   const [periodsError, setPeriodsError] = useState('');
   const [overviewYear, setOverviewYear] = useState('');
@@ -3293,14 +3300,19 @@ export function ExamsManage() {
   const fetchExamPeriods = useCallback(async () => {
     if (!pageSchoolId) {
       setExamPeriods([]);
+      setFilterClasses([]);
       setPeriodsError('');
       return;
     }
     setPeriodsLoading(true);
     setPeriodsError('');
     try {
-      const { data } = await api.get('/exams/periods', { params: { school: pageSchoolId } });
-      setExamPeriods(data.data || []);
+      const [periodsResponse, classesResponse] = await Promise.all([
+        api.get('/exams/periods', { params: { school: pageSchoolId } }),
+        api.get('/classes', { params: { schoolId: pageSchoolId, status: 'active', limit: 300 } }),
+      ]);
+      setExamPeriods(periodsResponse.data?.data || []);
+      setFilterClasses(classesResponse.data?.data || []);
     } catch (err: any) {
       setPeriodsError(err.response?.data?.message || 'Failed to load annual examinations');
     } finally {
@@ -3369,13 +3381,24 @@ export function ExamsManage() {
 
   const classOptions = useMemo(() => {
     const values = new Map<string, string>();
-    for (const exam of scopedExams) {
-      const cls = exam.course?.class;
+
+    for (const cls of filterClasses) {
       if (!cls?._id || !cls.title) continue;
       values.set(cls._id, cls.section ? cls.title + ' - ' + cls.section : cls.title);
     }
-    return Array.from(values.entries()).map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [scopedExams]);
+
+    for (const exam of scopedExams) {
+      const cls = exam.course?.class;
+      if (!cls?._id || !cls.title) continue;
+      if (!values.has(cls._id)) {
+        values.set(cls._id, cls.section ? cls.title + ' - ' + cls.section : cls.title);
+      }
+    }
+
+    return Array.from(values.entries())
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [filterClasses, scopedExams]);
 
   const departmentOptions = useMemo(() => {
     const values = new Map<string, string>();
