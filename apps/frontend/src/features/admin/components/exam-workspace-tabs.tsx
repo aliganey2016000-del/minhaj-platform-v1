@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Building2, CalendarDays, ClipboardCheck, UserCheck } from 'lucide-react';
 
@@ -8,7 +9,24 @@ const tabs = [
   { to: '/admin/exams/attendance', label: 'Attendance', icon: ClipboardCheck },
 ] as const;
 
+const preloaders: Record<(typeof tabs)[number]['to'], () => Promise<unknown>> = {
+  '/admin/exams/schedule': () => import('../pages/exams-manage'),
+  '/admin/exams/rooms': () => import('../pages/exam-rooms-manage'),
+  '/admin/exams/invigilators': () => import('../pages/exam-invigilators-manage'),
+  '/admin/exams/attendance': () => import('../pages/exam-attendance-manage'),
+};
+
+const preloadTab = (to: (typeof tabs)[number]['to']) => {
+  void preloaders[to]().catch(() => undefined);
+};
+
 export function ExamWorkspaceTabs() {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      tabs.forEach((tab) => preloadTab(tab.to));
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, []);
   return (
     <nav
       aria-label="Exam management sections"
@@ -22,6 +40,9 @@ export function ExamWorkspaceTabs() {
               key={tab.to}
               to={tab.to}
               end
+              onPointerEnter={() => preloadTab(tab.to)}
+              onFocus={() => preloadTab(tab.to)}
+              onTouchStart={() => preloadTab(tab.to)}
               className={({ isActive }) =>
                 'flex min-w-max flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 py-2.5 text-sm font-bold transition-all sm:min-w-0 sm:shrink ' +
                 (isActive
