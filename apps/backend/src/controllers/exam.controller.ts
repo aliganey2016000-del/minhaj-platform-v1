@@ -940,121 +940,11 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
 };
 
 // POST /exams/periods/:periodId/move-schedule-group
-// Moves a grouped department subject to another day/shift in one operation.
-// The client sends the exact exam ids represented by the department card, so
-// every class in that grouped card moves together or nothing is changed.
+// Places one grouped department subject into a Day + Shift cell. If that
+// target cell already contains another subject group, the displaced exams are
+// kept as exam records but marked schedulePlaced=false so their old cell is
+// blank and they remain available in the course picker.
 export const moveScheduleGroup = async (req: Request, res: Response): Promise<Response> => {
-  const schoolId = scheduleRulesSchoolId(req);
-  const periodId = String(req.params.periodId || '');
-  if (!/^[a-f\d]{24}$/i.test(periodId)) throw new BadRequestError('A valid Exam is required');
-
-  const rawIds: unknown[] = Array.isArray(req.body?.examIds) ? req.body.examIds : [];
-  const examIds: string[] = Array.from(
-    new Set<string>(rawIds.map((value) => String(value || '')).filter((value) => Boolean(value))),
-  );
-  if (!examIds.length) throw new BadRequestError('At least one exam is required');
-  if (examIds.length > 200) throw new BadRequestError('A maximum of 200 exams can be moved at once');
-  if (examIds.some((id) => !/^[a-f\d]{24}$/i.test(id))) throw new BadRequestError('One or more exam ids are invalid');
-
-  const targetDate = examDateKey(req.body?.targetDate);
-  const targetShiftIndex = Number(req.body?.targetShiftIndex);
-  if (!targetDate) throw new BadRequestError('A valid target date is required');
-
-  const period = await ExamPeriod.findOne({ _id: periodId, school: schoolId }).lean() as any;
-  if (!period) throw new NotFoundError('Exam');
-  if (period.status === 'closed') throw new ConflictError('This exam is closed and its schedule can no longer be edited');
-
-  const targetDay = new Date(`${targetDate}T00:00:00.000Z`);
-  if (period.startDate && targetDay < new Date(period.startDate)) {
-    throw new ConflictError('Target date is before this exam\'s Start Date');
-  }
-  if (period.endDate && targetDay > new Date(period.endDate)) {
-    throw new ConflictError('Target date is after this exam\'s End Date');
-  }
-
-  const rules = await getExamSchedulingRulesForSchool(schoolId);
-  if (!Number.isInteger(targetShiftIndex) || targetShiftIndex < 0 || targetShiftIndex >= rules.examShifts.length) {
-    throw new BadRequestError('A valid target shift is required');
-  }
-  const shift = rules.examShifts[targetShiftIndex];
-  const duration = timeToMinutes(shift.endTime) - timeToMinutes(shift.startTime);
-
-  const exams = await Exam.find({
-    _id: { $in: examIds },
-    school: schoolId,
-    period: periodId,
-    autoSchedule: { $ne: true },
-    status: { $ne: 'cancelled' },
-  }).lean() as any[];
-
-  if (exams.length !== examIds.length) {
-    throw new BadRequestError('One or more selected exams no longer belong to this examination');
-  }
-
-  const courseIds = exams.map((exam) => String(exam.course || '')).filter(Boolean);
-  const courses = await Course.find({ _id: { $in: courseIds }, school: schoolId })
-    .select('_id class')
-    .lean() as any[];
-  const classByCourse = new Map(courses.map((course) => [String(course._id), String(course.class || '')]));
-
-  const pending: PendingFixedExam[] = [];
-  for (const exam of exams) {
-    const classId = classByCourse.get(String(exam.course || '')) || '';
-    if (!classId) throw new BadRequestError('Could not resolve the class for one of the selected exams');
-
-    await validateFixedExamSchedule({
-      schoolId,
-      classId,
-      title: exam.title || period.name,
-      examDate: targetDate,
-      startTime: shift.startTime,
-      endTime: shift.endTime,
-      duration,
-      room: exam.room || '',
-      autoSchedule: false,
-      excludeExamId: String(exam._id),
-      pending,
-    });
-
-    pending.push({
-      schoolId,
-      classId,
-      examDate: targetDate,
-      startTime: shift.startTime,
-      endTime: shift.endTime,
-      room: exam.room || '',
-      title: exam.title || period.name,
-    });
-  }
-
-  await Exam.updateMany(
-    { _id: { $in: examIds }, school: schoolId, period: periodId },
-    {
-      $set: {
-        examDate: targetDay,
-        startTime: shift.startTime,
-        endTime: shift.endTime,
-        duration,
-        schedulePlaced: true,
-      },
-    },
-    { runValidators: true },
-  );
-
-  return ApiResponse.success(res, {
-    moved: exams.length,
-    targetDate,
-    shiftIndex: targetShiftIndex,
-    startTime: shift.startTime,
-    endTime: shift.endTime,
-  }, `${exams.length} exam(s) moved together`);
-};
-
-// POST /exams/periods/:periodId/assign-schedule-cell
-// Places one department subject group into a Day + Shift cell. Any subject
-// currently occupying that cell is unplaced (kept available for later use),
-// while the selected subject is removed from its old slot and placed here.
-export const assignScheduleCell = async (req: Request, res: Response): Promise<Response> => {
   const schoolId = scheduleRulesSchoolId(req);
   const periodId = String(req.params.periodId || '');
   if (!/^[a-f\d]{24}$/i.test(periodId)) throw new BadRequestError('A valid Exam is required');
@@ -1062,15 +952,17 @@ export const assignScheduleCell = async (req: Request, res: Response): Promise<R
   const normalizeIds = (value: unknown): string[] => {
     const raw: unknown[] = Array.isArray(value) ? value : [];
     return Array.from(new Set<string>(
-      raw.map((item) => String(item || '')).filter((item) => Boolean(item)),
+      raw.map((item) => String(item || '')).filter((item) => Boolean(item))
     ));
   };
 
   const examIds = normalizeIds(req.body?.examIds);
-  const displacedExamIds = normalizeIds(req.body?.displacedExamIds);
-  if (!examIds.length) throw new BadRequestError('Select a course before saving this cell');
+  const displacedExamIds = normalizeIds(req.body?.displacedExamIds)
+    .filter((id) => !examIds.includes(id));
+
+  if (!examIds.length) throw new BadRequestError('At least one exam is required');
   if (examIds.length > 200 || displacedExamIds.length > 200) {
-    throw new BadRequestError('Too many exams were selected for one timetable cell');
+    throw new BadRequestError('A maximum of 200 exams can be changed at once');
   }
   if ([...examIds, ...displacedExamIds].some((id) => !/^[a-f\d]{24}$/i.test(id))) {
     throw new BadRequestError('One or more exam ids are invalid');
@@ -1098,9 +990,9 @@ export const assignScheduleCell = async (req: Request, res: Response): Promise<R
   if (!Number.isInteger(targetShiftIndex) || targetShiftIndex < 0 || targetShiftIndex >= rules.examShifts.length) {
     throw new BadRequestError('A valid target shift is required');
   }
-
   const shift = rules.examShifts[targetShiftIndex];
   const duration = timeToMinutes(shift.endTime) - timeToMinutes(shift.startTime);
+
   const selectedExams = await Exam.find({
     _id: { $in: examIds },
     school: schoolId,
@@ -1113,17 +1005,16 @@ export const assignScheduleCell = async (req: Request, res: Response): Promise<R
     throw new BadRequestError('One or more selected exams no longer belong to this examination');
   }
 
-  const displacedOnlyIds = displacedExamIds.filter((id) => !examIds.includes(id));
-  if (displacedOnlyIds.length) {
+  if (displacedExamIds.length) {
     const displacedCount = await Exam.countDocuments({
-      _id: { $in: displacedOnlyIds },
+      _id: { $in: displacedExamIds },
       school: schoolId,
       period: periodId,
       autoSchedule: { $ne: true },
       status: { $ne: 'cancelled' },
     });
-    if (displacedCount !== displacedOnlyIds.length) {
-      throw new BadRequestError('The current cell changed. Refresh and try again.');
+    if (displacedCount !== displacedExamIds.length) {
+      throw new BadRequestError('One or more displaced exams no longer belong to this examination');
     }
   }
 
@@ -1132,8 +1023,8 @@ export const assignScheduleCell = async (req: Request, res: Response): Promise<R
     .select('_id class')
     .lean() as any[];
   const classByCourse = new Map(courses.map((course) => [String(course._id), String(course.class || '')]));
+  const excludedIds = [...examIds, ...displacedExamIds];
 
-  const excludedIds = Array.from(new Set([...examIds, ...displacedOnlyIds]));
   const pending: PendingFixedExam[] = [];
   for (const exam of selectedExams) {
     const classId = classByCourse.get(String(exam.course || '')) || '';
@@ -1164,10 +1055,11 @@ export const assignScheduleCell = async (req: Request, res: Response): Promise<R
     });
   }
 
-  if (displacedOnlyIds.length) {
+  if (displacedExamIds.length) {
     await Exam.updateMany(
-      { _id: { $in: displacedOnlyIds }, school: schoolId, period: periodId },
+      { _id: { $in: displacedExamIds }, school: schoolId, period: periodId },
       { $set: { schedulePlaced: false } },
+      { runValidators: true },
     );
   }
 
@@ -1175,40 +1067,40 @@ export const assignScheduleCell = async (req: Request, res: Response): Promise<R
     { _id: { $in: examIds }, school: schoolId, period: periodId },
     {
       $set: {
+        schedulePlaced: true,
         examDate: targetDay,
         startTime: shift.startTime,
         endTime: shift.endTime,
         duration,
-        schedulePlaced: true,
       },
     },
     { runValidators: true },
   );
 
   return ApiResponse.success(res, {
-    placed: examIds.length,
-    displaced: displacedOnlyIds.length,
+    moved: selectedExams.length,
+    displaced: displacedExamIds.length,
     targetDate,
     shiftIndex: targetShiftIndex,
     startTime: shift.startTime,
     endTime: shift.endTime,
-  }, 'Timetable cell updated successfully');
+  }, `${selectedExams.length} exam(s) placed successfully`);
 };
 
-// POST /exams/periods/:periodId/reset-department-schedule
-// Clears every provided department paper from the timetable without deleting
-// the exam/course records, so each subject can be assigned again from Edit.
-export const resetDepartmentSchedule = async (req: Request, res: Response): Promise<Response> => {
+// POST /exams/periods/:periodId/reset-schedule-groups
+// Clears the selected department timetable without deleting any exams/courses.
+export const resetScheduleGroups = async (req: Request, res: Response): Promise<Response> => {
   const schoolId = scheduleRulesSchoolId(req);
   const periodId = String(req.params.periodId || '');
   if (!/^[a-f\d]{24}$/i.test(periodId)) throw new BadRequestError('A valid Exam is required');
 
   const rawIds: unknown[] = Array.isArray(req.body?.examIds) ? req.body.examIds : [];
-  const examIds: string[] = Array.from(new Set<string>(
-    rawIds.map((value) => String(value || '')).filter((value) => Boolean(value)),
+  const examIds = Array.from(new Set<string>(
+    rawIds.map((item) => String(item || '')).filter((item) => Boolean(item))
   ));
-  if (!examIds.length) throw new BadRequestError('No department exams were found to reset');
-  if (examIds.length > 1000) throw new BadRequestError('Too many exams were selected for reset');
+
+  if (!examIds.length) throw new BadRequestError('No department exams were provided');
+  if (examIds.length > 500) throw new BadRequestError('A maximum of 500 exams can be reset at once');
   if (examIds.some((id) => !/^[a-f\d]{24}$/i.test(id))) {
     throw new BadRequestError('One or more exam ids are invalid');
   }
@@ -1219,23 +1111,24 @@ export const resetDepartmentSchedule = async (req: Request, res: Response): Prom
     throw new ConflictError('This exam is closed and its schedule can no longer be edited');
   }
 
-  const matchingCount = await Exam.countDocuments({
+  const matched = await Exam.countDocuments({
     _id: { $in: examIds },
     school: schoolId,
     period: periodId,
     autoSchedule: { $ne: true },
     status: { $ne: 'cancelled' },
   });
-  if (matchingCount !== examIds.length) {
-    throw new BadRequestError('The department schedule changed. Refresh and try again.');
+  if (matched !== examIds.length) {
+    throw new BadRequestError('One or more selected exams no longer belong to this examination');
   }
 
   await Exam.updateMany(
     { _id: { $in: examIds }, school: schoolId, period: periodId },
     { $set: { schedulePlaced: false } },
+    { runValidators: true },
   );
 
-  return ApiResponse.success(res, { reset: examIds.length }, `${examIds.length} exam(s) cleared from the department timetable`);
+  return ApiResponse.success(res, { reset: examIds.length }, `${examIds.length} exam(s) cleared from the timetable`);
 };
 
 // POST /exams/schedule-grid — bulk-save editable cells from the rules-driven grid.
