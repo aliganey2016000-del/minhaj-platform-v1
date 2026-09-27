@@ -3325,6 +3325,8 @@ export function ExamsManage() {
               </div>
             </div>
 
+            <ExamWorkspaceTabs />
+
             <section className="overflow-hidden rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
               <div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
                 <div>
@@ -3614,8 +3616,6 @@ export function ExamsManage() {
                 )}
               </div>
             </div>
-
-            <ExamWorkspaceTabs />
 
             <div
               role="tablist"
