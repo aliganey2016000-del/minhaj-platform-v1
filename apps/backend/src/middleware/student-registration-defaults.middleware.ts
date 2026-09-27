@@ -104,10 +104,13 @@ export async function prepareStudentUpdateDefaults(req: Request, _res: Response,
   const guardianName = String(body.guardianFullName || '').trim();
   const guardianPhone = String(body.guardianPhone || '').trim();
   if (guardianName) {
-    if (!guardianPhone) throw new BadRequestError('Guardian phone is required');
     const student = await Student.findById(req.params.id).select('parent').lean();
     if (!student) throw new NotFoundError('Student');
-    if (!student.parent) {
+
+    // Guardian fields are optional on Edit. Existing guardians keep their
+    // current login/contact details when a field is left blank. A brand-new
+    // guardian is provisioned only once enough information is supplied.
+    if (!student.parent && guardianPhone) {
       if (!body.guardianEmail) body.guardianEmail = await uniqueSystemEmail(`${guardianName}.${guardianPhone.slice(-4)}`, 'guardian');
       if (!String(body.guardianPassword || '').trim()) body.guardianPassword = generatedPassword();
     }
