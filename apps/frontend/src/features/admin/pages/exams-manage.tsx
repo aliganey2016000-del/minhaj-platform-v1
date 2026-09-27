@@ -680,65 +680,74 @@ function DepartmentalExamView({
           .exam-department-day-col {
             width: 23% !important;
             max-width: 23% !important;
-            padding: 8px 6px !important;
+            padding: 6px 5px !important;
           }
           .exam-department-shift-head {
-            padding: 8px 4px !important;
+            padding: 7px 3px !important;
           }
           .exam-department-shift-head > div:first-child {
-            font-size: 10px !important;
+            font-size: 12px !important;
             line-height: 1.15 !important;
           }
           .exam-department-shift-head > div:last-child {
             margin-top: 2px !important;
-            font-size: 8px !important;
-            line-height: 1.1 !important;
+            font-size: 9px !important;
+            line-height: 1.15 !important;
             white-space: nowrap !important;
           }
           .exam-department-break-col {
             width: 12% !important;
             max-width: 12% !important;
-            padding: 5px 2px !important;
+            padding: 4px 2px !important;
           }
           .exam-department-break-col > div:first-child,
           .exam-department-break-label {
-            font-size: 7.5px !important;
-            line-height: 1.05 !important;
-            letter-spacing: .04em !important;
+            font-size: 9px !important;
+            line-height: 1.1 !important;
+            letter-spacing: .02em !important;
           }
           .exam-department-break-col > div:last-child {
-            font-size: 7px !important;
-            line-height: 1.05 !important;
+            font-size: 8px !important;
+            line-height: 1.1 !important;
             white-space: normal !important;
           }
+          .exam-department-table tbody tr {
+            height: auto !important;
+          }
           .exam-department-shift-cell {
-            padding: 5px !important;
+            height: auto !important;
+            padding: 3px !important;
+            vertical-align: middle !important;
+          }
+          .exam-department-shift-cell > div {
+            margin: 0 !important;
           }
           .exam-department-subject {
-            min-height: 46px !important;
+            min-height: 36px !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
             border-radius: 10px !important;
-            padding: 7px 5px !important;
+            padding: 5px 4px !important;
             text-align: center !important;
           }
           .exam-department-subject p {
-            font-size: 10px !important;
-            line-height: 1.2 !important;
+            font-size: clamp(11px, 3.1vw, 13px) !important;
+            line-height: 1.22 !important;
+            font-weight: 800 !important;
             overflow-wrap: anywhere !important;
             word-break: normal !important;
           }
           .exam-department-day-col > div:first-child {
-            font-size: 8px !important;
+            font-size: 9px !important;
           }
           .exam-department-day-col > div:nth-child(2) {
             margin-top: 2px !important;
-            font-size: 11px !important;
-            line-height: 1.1 !important;
+            font-size: 12px !important;
+            line-height: 1.15 !important;
           }
           .exam-department-day-col > div:last-child {
-            font-size: 9px !important;
+            font-size: 10px !important;
           }
         }
 
@@ -1035,7 +1044,7 @@ function DepartmentalExamView({
                           const items = selectedSchedule.cells.get(`${date}::${shift.key}`) || [];
                           return (
                             <Fragment key={shift.key}>
-                              <td className="exam-department-shift-cell border-b border-r border-[var(--color-border-default)] p-2.5">
+                              <td className="exam-department-shift-cell border-b border-r border-[var(--color-border-default)] p-2.5 align-middle">
                                 {items.length === 0 ? (
                                   <div className="flex min-h-16 items-center justify-center text-[var(--color-text-tertiary)]">—</div>
                                 ) : (
