@@ -9,6 +9,7 @@ import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
 import { BackButton } from '../../shared/components/back-button';
+import { AcademicYearSelect } from '../../shared/components/academic-year-select';
 import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
 
 // ---------------------------------------------------------------------------
@@ -3608,11 +3609,11 @@ function ExamTimetable({
               <div className="grid gap-3 sm:grid-cols-2">
                 <label>
                   <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Academic Year *</span>
-                  <input
+                  <AcademicYearSelect
+                    format="short-slash"
                     value={periodForm.academicYear}
-                    onChange={(e) => setPeriodForm((current) => ({ ...current, academicYear: e.target.value }))}
-                    placeholder="2026/27"
-                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm"
+                    onChange={(value) => setPeriodForm((current) => ({ ...current, academicYear: value }))}
+                    required
                   />
                 </label>
                 <label>
@@ -3664,7 +3665,12 @@ function ExamTimetable({
               <div className="grid gap-3 sm:grid-cols-2">
                 <label>
                   <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Academic Year *</span>
-                  <input value={editPeriodForm.academicYear} onChange={(e) => setEditPeriodForm((current) => ({ ...current, academicYear: e.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                  <AcademicYearSelect
+                    format="short-slash"
+                    value={editPeriodForm.academicYear}
+                    onChange={(value) => setEditPeriodForm((current) => ({ ...current, academicYear: value }))}
+                    required
+                  />
                 </label>
                 <label>
                   <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Term / Semester</span>
@@ -3710,7 +3716,12 @@ function ExamTimetable({
               <div className="grid gap-3 sm:grid-cols-2">
                 <label>
                   <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">New Academic Year *</span>
-                  <input value={reusePeriodForm.academicYear} onChange={(e) => setReusePeriodForm((current) => ({ ...current, academicYear: e.target.value }))} placeholder="2027/28" className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm" />
+                  <AcademicYearSelect
+                    format="short-slash"
+                    value={reusePeriodForm.academicYear}
+                    onChange={(value) => setReusePeriodForm((current) => ({ ...current, academicYear: value }))}
+                    required
+                  />
                 </label>
                 <label>
                   <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Term / Semester</span>
@@ -4329,7 +4340,12 @@ export function ExamsManage() {
                   </label>
                   <label>
                     <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Academic Year</span>
-                    <input value={annualEditForm.academicYear} onChange={(event) => setAnnualEditForm((current) => ({ ...current, academicYear: event.target.value }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20" />
+                    <AcademicYearSelect
+                      format="short-slash"
+                      value={annualEditForm.academicYear}
+                      onChange={(value) => setAnnualEditForm((current) => ({ ...current, academicYear: value }))}
+                      required
+                    />
                   </label>
                   <label>
                     <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Term</span>
