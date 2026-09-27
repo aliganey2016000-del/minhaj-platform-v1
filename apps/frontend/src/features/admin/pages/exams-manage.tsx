@@ -4,7 +4,7 @@
  */
 
 import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3 } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -305,10 +305,10 @@ function ExamsActionsMenu({
           </button>
 
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-          <button onClick={() => { setOpen(false); onByDay(); }} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors ${scheduleContext.perspective === 'day' ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
+          <button onClick={() => { setOpen(false); onByDay(); }} disabled={periodActionDisabled} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${scheduleContext.perspective === 'day' ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
             <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.75} /> By Day
           </button>
-          <button onClick={() => { setOpen(false); onByClass(); }} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors ${scheduleContext.perspective === 'class' ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
+          <button onClick={() => { setOpen(false); onByClass(); }} disabled={periodActionDisabled} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${scheduleContext.perspective === 'class' ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
             <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.75} /> By Class
           </button>
 
@@ -1442,6 +1442,7 @@ interface ExamScheduleActionRequest {
 
 interface ExamScheduleMenuContext {
   hasSelectedPeriod: boolean;
+  periodId?: string;
   periodStatus?: ExamPeriod['status'];
   perspective: ExamTimetablePerspective;
   busy: boolean;
@@ -1477,6 +1478,9 @@ const compareExamTimes = (a: Exam, b: Exam) =>
 
 const examSchoolId = (exam: Exam): string =>
   typeof exam.school === 'string' ? exam.school : exam.school?._id || '';
+
+const examPeriodId = (exam: Exam): string =>
+  typeof exam.period === 'string' ? exam.period : exam.period?._id || '';
 
 const minutesOf = (value?: string): number => {
   const match = String(value || '').match(/^([01]\d|2[0-3]):([0-5]\d)$/);
@@ -1610,6 +1614,7 @@ function ExamTimetable({
   editRequest,
   createRequest,
   scheduleActionRequest,
+  focusedPeriodId,
   refreshKey,
   onEditRequestHandled,
   onCreateRequestHandled,
@@ -1622,6 +1627,7 @@ function ExamTimetable({
   editRequest: number;
   createRequest: number;
   scheduleActionRequest: ExamScheduleActionRequest | null;
+  focusedPeriodId?: string;
   refreshKey: number;
   onEditRequestHandled: () => void;
   onCreateRequestHandled: () => void;
@@ -1810,6 +1816,16 @@ function ExamTimetable({
       // Storage can be unavailable in restricted/private browser contexts.
     }
   }, [effectiveSchoolId, selectedPeriodId]);
+
+  useEffect(() => {
+    if (!focusedPeriodId || rulesLoading || !periods.some((period) => period._id === focusedPeriodId)) return;
+    if (focusedPeriodId === selectedPeriodId) return;
+    setDraft({});
+    setEditMode(false);
+    setSelectedPeriodId(focusedPeriodId);
+    setGridError('');
+    setGridSuccess('');
+  }, [focusedPeriodId, periods, rulesLoading, selectedPeriodId]);
 
   const availableDates = useMemo(
     () => Array.from(new Set(periodExams.map(examDateKey).filter((date) => date && isAllowedExamDate(date, rules.allowedExamDays)))).sort(),
@@ -2085,6 +2101,7 @@ function ExamTimetable({
       });
       const created: ExamPeriod = response.data?.data;
       await loadContext();
+      await onChanged();
       setSelectedPeriodId(created._id);
       setShowCreatePeriod(false);
       setPeriodForm((current) => ({ ...current, name: '', term: '', startDate: '', endDate: '' }));
@@ -2270,6 +2287,7 @@ function ExamTimetable({
   useEffect(() => {
     onScheduleContextChange({
       hasSelectedPeriod: Boolean(selectedPeriod),
+      periodId: selectedPeriod?._id,
       periodStatus: selectedPeriod?.status,
       perspective,
       busy: periodActionBusy || autoGenerating,
@@ -2788,7 +2806,14 @@ function ExamTimetable({
 // ---------------------------------------------------------------------------
 
 export function ExamsManage() {
+  const { user } = useAuth();
   const [exams, setExams] = useState<Exam[]>([]);
+  const [examPeriods, setExamPeriods] = useState<ExamPeriod[]>([]);
+  const [periodsLoading, setPeriodsLoading] = useState(false);
+  const [periodsError, setPeriodsError] = useState('');
+  const [overviewYear, setOverviewYear] = useState('');
+  const [examDetailOpen, setExamDetailOpen] = useState(false);
+  const [selectedExamPeriodId, setSelectedExamPeriodId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -2843,6 +2868,52 @@ export function ExamsManage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const ownOrgId = String((user as any)?.organizationId?._id || (user as any)?.organizationId || '');
+  const pageExamSchoolIds = useMemo(
+    () => Array.from(new Set(exams.map(examSchoolId).filter(Boolean))),
+    [exams],
+  );
+  const pageSchoolId = user?.role === 'org_admin'
+    ? ownOrgId
+    : pageExamSchoolIds.length === 1
+      ? pageExamSchoolIds[0]
+      : '';
+
+  const fetchExamPeriods = useCallback(async () => {
+    if (!pageSchoolId) {
+      setExamPeriods([]);
+      setPeriodsError('');
+      return;
+    }
+    setPeriodsLoading(true);
+    setPeriodsError('');
+    try {
+      const { data } = await api.get('/exams/periods', { params: { school: pageSchoolId } });
+      setExamPeriods(data.data || []);
+    } catch (err: any) {
+      setPeriodsError(err.response?.data?.message || 'Failed to load annual examinations');
+    } finally {
+      setPeriodsLoading(false);
+    }
+  }, [pageSchoolId]);
+
+  useEffect(() => {
+    void fetchExamPeriods();
+  }, [fetchExamPeriods]);
+
+  const academicYears = useMemo(
+    () => Array.from(new Set(examPeriods.map((period) => period.academicYear).filter(Boolean))),
+    [examPeriods],
+  );
+
+  useEffect(() => {
+    if (!academicYears.length) {
+      setOverviewYear('');
+      return;
+    }
+    if (!overviewYear || !academicYears.includes(overviewYear)) setOverviewYear(academicYears[0]);
+  }, [academicYears, overviewYear]);
+
   useEffect(() => {
     try {
       window.localStorage.setItem('examSchedule:viewMode', viewMode);
@@ -2871,34 +2942,41 @@ export function ExamsManage() {
     }
   };
 
-  const scheduledCount = exams.filter((e) => getEffectiveStatus(e) === 'scheduled').length;
-  const ongoingCount = exams.filter((e) => getEffectiveStatus(e) === 'ongoing').length;
-  const completedCount = exams.filter((e) => getEffectiveStatus(e) === 'completed').length;
-  const cancelledCount = exams.filter((e) => getEffectiveStatus(e) === 'cancelled').length;
-  const manualCount = exams.filter((e) => !e.autoSchedule).length;
-  const autoCount = exams.filter((e) => e.autoSchedule).length;
+  const scopedExams = useMemo(
+    () => selectedExamPeriodId
+      ? exams.filter((exam) => examPeriodId(exam) === selectedExamPeriodId)
+      : exams,
+    [exams, selectedExamPeriodId],
+  );
+
+  const scheduledCount = scopedExams.filter((e) => getEffectiveStatus(e) === 'scheduled').length;
+  const ongoingCount = scopedExams.filter((e) => getEffectiveStatus(e) === 'ongoing').length;
+  const completedCount = scopedExams.filter((e) => getEffectiveStatus(e) === 'completed').length;
+  const cancelledCount = scopedExams.filter((e) => getEffectiveStatus(e) === 'cancelled').length;
+  const manualCount = scopedExams.filter((e) => !e.autoSchedule).length;
+  const autoCount = scopedExams.filter((e) => e.autoSchedule).length;
 
   const classOptions = useMemo(() => {
     const values = new Map<string, string>();
-    for (const exam of exams) {
+    for (const exam of scopedExams) {
       const cls = exam.course?.class;
       if (!cls?._id || !cls.title) continue;
       values.set(cls._id, cls.section ? cls.title + ' - ' + cls.section : cls.title);
     }
     return Array.from(values.entries()).map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [exams]);
+  }, [scopedExams]);
 
   const departmentOptions = useMemo(() => {
     const values = new Map<string, string>();
-    for (const exam of exams) {
+    for (const exam of scopedExams) {
       const dept = exam.course?.class?.department;
       if (!dept?._id || !dept.name) continue;
       values.set(dept._id, dept.name);
     }
     return Array.from(values.entries()).map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [exams]);
+  }, [scopedExams]);
 
-  const visibleExams = exams.filter((exam) => {
+  const visibleExams = scopedExams.filter((exam) => {
     const cls = exam.course?.class;
     const dept = cls?.department;
     if (scheduleFilter === 'manual' && exam.autoSchedule) return false;
@@ -2977,6 +3055,66 @@ export function ExamsManage() {
     setScheduleActionRequest({ id: scheduleActionSequence.current, action });
   };
 
+  const handleScheduleContextChange = useCallback((context: ExamScheduleMenuContext) => {
+    setScheduleMenuContext(context);
+    if (context.periodId) setSelectedExamPeriodId(context.periodId);
+  }, []);
+
+  const openExamPeriod = (period: ExamPeriod) => {
+    setSelectedExamPeriodId(period._id);
+    setExamDetailOpen(true);
+    setViewMode('table');
+    setStatusFilter('');
+    setScheduleFilter('all');
+    setClassFilter('');
+    setDepartmentFilter('');
+    setDateFilter('');
+    setSearch('');
+    if (pageSchoolId) {
+      try {
+        window.localStorage.setItem(`examSchedule:selectedPeriod:${pageSchoolId}`, period._id);
+      } catch {
+        // Continue without browser persistence.
+      }
+    }
+    setScheduleContextRefreshKey((value) => value + 1);
+  };
+
+  const returnToExamList = () => {
+    setExamDetailOpen(false);
+    setSelectedExamPeriodId('');
+    setScheduleActionRequest(null);
+    setSelected(new Set());
+    setStatusFilter('');
+    setScheduleFilter('all');
+    setClassFilter('');
+    setDepartmentFilter('');
+    setDateFilter('');
+    setSearch('');
+  };
+
+  const selectedPeriodMeta = examPeriods.find((period) => period._id === selectedExamPeriodId);
+  const overviewPeriods = examPeriods.filter((period) => !overviewYear || period.academicYear === overviewYear);
+
+  const periodPaperCount = (periodId: string) =>
+    exams.filter((exam) => examPeriodId(exam) === periodId && exam.status !== 'cancelled').length;
+
+  const formatPeriodRange = (period: ExamPeriod) => {
+    const format = (value?: string | null) => value
+      ? new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      : '';
+    const start = format(period.startDate);
+    const end = format(period.endDate);
+    if (start && end) return `${start} – ${end}`;
+    return start || end || 'Dates not set';
+  };
+
+  const periodStatusClasses: Record<ExamPeriod['status'], string> = {
+    draft: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
+    published: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
+    closed: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -2986,11 +3124,135 @@ export function ExamsManage() {
   }
 
   const statCards = [
-    { key: '', label: 'Total Exams', count: exams.length, icon: LayoutGrid, tone: 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300' },
+    { key: '', label: 'Total Exams', count: scopedExams.length, icon: LayoutGrid, tone: 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300' },
     { key: 'scheduled', label: 'Scheduled', count: scheduledCount, icon: CalendarClock, tone: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300' },
     { key: 'ongoing', label: 'Ongoing', count: ongoingCount, icon: PlayCircle, tone: 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300' },
     { key: 'completed', label: 'Completed', count: completedCount, icon: CheckCircle2, tone: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300' },
   ] as const;
+
+  if (!examDetailOpen) {
+    return (
+      <div className="p-4 pt-20 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
+        <div className="mx-auto max-w-[1100px]">
+          <main className="min-w-0 space-y-5">
+            <div>
+              <BackButton fallback="/admin/exams" />
+              <div className="mt-1 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Schedule</h1>
+                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose the annual examination first, then open its List or Table Grid.</p>
+                </div>
+                <div className="shrink-0">
+                  <ExamsActionsMenu
+                    onSchedule={() => {
+                      setSelectedExamPeriodId('');
+                      setExamDetailOpen(true);
+                      setViewMode('table');
+                      setCreateExamRequest((value) => value + 1);
+                    }}
+                    onEditExam={() => requestScheduleAction('edit-exam')}
+                    onEditSchedule={() => {
+                      setExamDetailOpen(true);
+                      setViewMode('table');
+                      setEditScheduleRequest((value) => value + 1);
+                    }}
+                    onReuseSchedule={() => requestScheduleAction('reuse-schedule')}
+                    onAutoGenerate={() => requestScheduleAction('auto-generate')}
+                    onPeriodStatus={() => requestScheduleAction('period-status')}
+                    onByDay={() => requestScheduleAction('by-day')}
+                    onByClass={() => requestScheduleAction('by-class')}
+                    scheduleContext={scheduleMenuContext}
+                    onRules={() => setShowRulesModal(true)}
+                    onImport={() => setShowImportModal(true)}
+                    onExport={handleExport}
+                    exporting={exporting}
+                    onBulkDelete={() => setShowBulkDeleteModal(true)}
+                    selectedCount={selected.size}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <section className="overflow-hidden rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                <div>
+                  <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Annual Examinations</h2>
+                  <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Mid Exam, Final Exam and any other examination created for the selected academic year.</p>
+                </div>
+                <select
+                  value={overviewYear}
+                  onChange={(event) => setOverviewYear(event.target.value)}
+                  disabled={!academicYears.length}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm font-semibold outline-none sm:w-auto"
+                >
+                  {academicYears.length === 0 && <option value="">Academic Year</option>}
+                  {academicYears.map((year) => <option key={year} value={year}>{year}</option>)}
+                </select>
+              </div>
+
+              {periodsLoading ? (
+                <div className="flex min-h-[220px] items-center justify-center">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
+                </div>
+              ) : periodsError ? (
+                <div className="p-8 text-center">
+                  <p className="text-sm font-semibold text-red-600">{periodsError}</p>
+                  <button type="button" onClick={() => void fetchExamPeriods()} className="mt-3 rounded-xl bg-primary-600 px-4 py-2 text-xs font-bold text-white">Retry</button>
+                </div>
+              ) : overviewPeriods.length === 0 ? (
+                <div className="p-10 text-center">
+                  <CalendarDays className="mx-auto h-9 w-9 text-[var(--color-text-tertiary)]" />
+                  <h3 className="mt-3 font-bold text-[var(--color-text-primary)]">No examinations yet</h3>
+                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Use the three-dot menu and choose New Exam to create Mid Exam, Final Exam or another exam.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-[var(--color-border-subtle)]">
+                  {overviewPeriods.map((period) => (
+                    <button
+                      key={period._id}
+                      type="button"
+                      onClick={() => openExamPeriod(period)}
+                      className="group flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-[var(--color-surface-secondary)] sm:gap-4 sm:p-5"
+                    >
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
+                        <CalendarClock className="h-6 w-6" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-base font-bold text-[var(--color-text-primary)]">{period.name}</span>
+                          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold capitalize ${periodStatusClasses[period.status]}`}>{period.status}</span>
+                        </span>
+                        <span className="mt-1 block text-xs text-[var(--color-text-tertiary)]">
+                          {period.academicYear}{period.term ? ` · ${period.term}` : ''} · {formatPeriodRange(period)}
+                        </span>
+                        <span className="mt-1 block text-xs font-semibold text-[var(--color-text-secondary)]">
+                          {periodPaperCount(period._id)} scheduled paper{periodPaperCount(period._id) === 1 ? '' : 's'}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-primary-700 dark:text-primary-300">
+                        <span className="hidden sm:inline">Open</span>
+                        <ChevronRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          </main>
+        </div>
+
+        {showImportModal && <ExamsImportModal onClose={() => setShowImportModal(false)} onImported={() => {
+          void fetchData();
+          void fetchExamPeriods();
+          setScheduleContextRefreshKey((value) => value + 1);
+        }} />}
+        {showRulesModal && <ExamScheduleRulesModal onClose={() => {
+          setShowRulesModal(false);
+          setScheduleContextRefreshKey((value) => value + 1);
+        }} />}
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 pt-20 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
@@ -2998,15 +3260,24 @@ export function ExamsManage() {
         <div>
           <main className="min-w-0 space-y-5">
             <div>
-              <BackButton fallback="/admin/exams" />
+              <button
+                type="button"
+                onClick={returnToExamList}
+                className="inline-flex items-center gap-1.5 rounded-lg px-1 py-1 text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+              >
+                <ArrowLeft className="h-4 w-4" /> All Exams
+              </button>
               <div className="mt-1 flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Schedule</h1>
-                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Plan, manage and track all school examinations from one workspace.</p>
+                  <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">{selectedPeriodMeta?.name || 'Exam'} Schedule</h1>
+                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+                    {selectedPeriodMeta ? `${selectedPeriodMeta.academicYear}${selectedPeriodMeta.term ? ` · ${selectedPeriodMeta.term}` : ''} · ${formatPeriodRange(selectedPeriodMeta)}` : 'List and Table Grid for the selected examination.'}
+                  </p>
                 </div>
                 <div className="shrink-0">
                   <ExamsActionsMenu
                     onSchedule={() => {
+                      setExamDetailOpen(true);
                       setViewMode('table');
                       setCreateExamRequest((value) => value + 1);
                     }}
@@ -3094,7 +3365,7 @@ export function ExamsManage() {
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="inline-flex rounded-xl bg-[var(--color-surface-secondary)] p-1">
                   {([
-                    { key: 'all', label: 'All', count: exams.length },
+                    { key: 'all', label: 'All', count: scopedExams.length },
                     { key: 'manual', label: 'Manual', count: manualCount },
                     { key: 'auto', label: 'Automatic', count: autoCount },
                   ] as const).map((tab) => (
@@ -3142,17 +3413,21 @@ export function ExamsManage() {
               <ExamTimetable
                 exams={exams}
                 onOpen={(exam) => setViewingExam(exam)}
-                onChanged={fetchData}
+                onChanged={async () => {
+                  await fetchData();
+                  await fetchExamPeriods();
+                }}
                 editRequest={editScheduleRequest}
                 createRequest={createExamRequest}
                 scheduleActionRequest={scheduleActionRequest}
+                focusedPeriodId={selectedExamPeriodId || undefined}
                 refreshKey={scheduleContextRefreshKey}
                 onEditRequestHandled={() => setEditScheduleRequest(0)}
                 onCreateRequestHandled={() => setCreateExamRequest(0)}
                 onScheduleActionRequestHandled={(id) => {
                   setScheduleActionRequest((current) => current?.id === id ? null : current);
                 }}
-                onScheduleContextChange={setScheduleMenuContext}
+                onScheduleContextChange={handleScheduleContextChange}
               />
             )}
 
@@ -3246,6 +3521,7 @@ export function ExamsManage() {
       {viewingExam && <ViewModal exam={viewingExam} onClose={() => setViewingExam(undefined)} />}
       {showImportModal && <ExamsImportModal onClose={() => setShowImportModal(false)} onImported={() => {
         void fetchData();
+        void fetchExamPeriods();
         setScheduleContextRefreshKey((value) => value + 1);
       }} />}
       {showRulesModal && <ExamScheduleRulesModal onClose={() => {
