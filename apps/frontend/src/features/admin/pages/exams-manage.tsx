@@ -640,7 +640,6 @@ function ExamsActionsMenu({
   onEditSchedule,
   onReuseSchedule,
   onAutoGenerate,
-  onGenerateDepartments,
   onPeriodStatus,
   onByDay,
   onByClass,
@@ -659,7 +658,6 @@ function ExamsActionsMenu({
   onEditSchedule: () => void;
   onReuseSchedule: () => void;
   onAutoGenerate: () => void;
-  onGenerateDepartments: () => void;
   onPeriodStatus: () => void;
   onByDay: () => void;
   onByClass: () => void;
@@ -723,9 +721,6 @@ function ExamsActionsMenu({
           </button>
           <button onClick={() => { setOpen(false); onAutoGenerate(); }} disabled={periodActionDisabled || scheduleContext.periodStatus === 'closed'} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-primary-700 hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 dark:text-primary-300 transition-colors">
             <PlayCircle className="h-3.5 w-3.5" strokeWidth={1.75} /> Auto Generate
-          </button>
-          <button onClick={() => { setOpen(false); onGenerateDepartments(); }} disabled={periodActionDisabled} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
-            <Building2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Generate Department Exams
           </button>
           <button onClick={() => { setOpen(false); onPeriodStatus(); }} disabled={periodActionDisabled} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40 transition-colors">
             <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} /> {periodStatusLabel}
@@ -3704,9 +3699,6 @@ export function ExamsManage() {
                     }}
                     onReuseSchedule={() => requestScheduleAction('reuse-schedule')}
                     onAutoGenerate={() => requestScheduleAction('auto-generate')}
-                    onGenerateDepartments={() => {
-                      if (selectedExamPeriodId) setViewMode('department');
-                    }}
                     onPeriodStatus={() => requestScheduleAction('period-status')}
                     onByDay={() => requestScheduleAction('by-day')}
                     onByClass={() => requestScheduleAction('by-class')}
@@ -3926,9 +3918,6 @@ export function ExamsManage() {
                     }}
                     onReuseSchedule={() => requestScheduleAction('reuse-schedule')}
                     onAutoGenerate={() => requestScheduleAction('auto-generate')}
-                    onGenerateDepartments={() => {
-                      if (selectedExamPeriodId) setViewMode('department');
-                    }}
                     onPeriodStatus={() => requestScheduleAction('period-status')}
                     onByDay={() => requestScheduleAction('by-day')}
                     onByClass={() => requestScheduleAction('by-class')}
