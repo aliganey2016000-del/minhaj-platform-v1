@@ -2808,6 +2808,8 @@ function ExamTimetable({
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
   const [editMode, setEditMode] = useState(false);
+  const [classResetConfirmOpen, setClassResetConfirmOpen] = useState(false);
+  const [classResetting, setClassResetting] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [coursesByClass, setCoursesByClass] = useState<Record<string, CourseBrief[]>>({});
   const [loadingCourses, setLoadingCourses] = useState<Set<string>>(new Set());
@@ -3089,6 +3091,35 @@ function ExamTimetable({
     () => periodClasses.find((cls) => cls._id === selectedClassId),
     [periodClasses, selectedClassId],
   );
+
+  const selectedClassExamIds = useMemo(
+    () => periodExams
+      .filter((exam) => exam.course?.class?._id === selectedClassId)
+      .map((exam) => exam._id),
+    [periodExams, selectedClassId],
+  );
+
+  const resetSelectedClassSchedule = async () => {
+    if (!selectedPeriod?._id || !effectiveSchoolId || !selectedClassExamIds.length) return;
+    setClassResetting(true);
+    setGridError('');
+    setGridSuccess('');
+    try {
+      const response = await api.post(`/exams/periods/${selectedPeriod._id}/reset-department-schedule`, {
+        school: effectiveSchoolId,
+        examIds: selectedClassExamIds,
+      });
+      const reset = Number(response.data?.data?.reset || selectedClassExamIds.length);
+      setClassResetConfirmOpen(false);
+      setGridSuccess(`${reset} paper${reset === 1 ? '' : 's'} cleared from ${selectedClass ? classBriefLabel(selectedClass) : 'this class'}. The class timetable is now blank and can be edited again.`);
+      await onChanged();
+      await loadContext();
+    } catch (err: any) {
+      setGridError(err?.response?.data?.message || 'Could not reset this class schedule.');
+    } finally {
+      setClassResetting(false);
+    }
+  };
 
   const loadClassCourses = useCallback(async (classId: string) => {
     if (!effectiveSchoolId || coursesByClass[classId]) return;
@@ -3818,6 +3849,61 @@ function ExamTimetable({
           }
         }
       `}</style>
+
+      {selectedPeriod && perspective === 'class' && !editMode && (
+        <div className="mb-4 flex items-end gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm sm:gap-3 sm:p-4">
+          <label className="min-w-0 flex-1">
+            <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Class</span>
+            <select
+              value={selectedClassId}
+              onChange={(event) => {
+                setSelectedClassId(event.target.value);
+                setClassResetConfirmOpen(false);
+                setGridError('');
+                setGridSuccess('');
+              }}
+              className="w-full min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold"
+            >
+              {periodClasses.length === 0 && <option value="">No classes available</option>}
+              {periodClasses.map((cls) => (
+                <option key={cls._id} value={cls._id}>{classBriefLabel(cls)}</option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={beginEdit}
+            disabled={!selectedClassId || classResetting}
+            className="inline-flex h-[40px] shrink-0 items-center justify-center gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 text-xs font-bold text-[var(--color-text-secondary)] shadow-sm transition-colors hover:bg-[var(--color-surface-secondary)] disabled:cursor-not-allowed disabled:opacity-40 sm:h-[42px] sm:gap-2 sm:px-4 sm:text-sm"
+          >
+            <Pencil className="h-4 w-4" />
+            <span>Edit</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setClassResetConfirmOpen(true)}
+            disabled={!selectedClassId || selectedClassExamIds.length === 0 || classResetting}
+            className="inline-flex h-[40px] shrink-0 items-center justify-center gap-1 rounded-xl border border-red-200 bg-red-50 px-2 text-xs font-bold text-red-700 shadow-sm transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300 sm:h-[42px] sm:gap-2 sm:px-4 sm:text-sm"
+          >
+            <RotateCcw className="h-4 w-4" />
+            <span>Reset</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => window.print()}
+            disabled={!selectedClassId || classRows.length === 0 || classResetting}
+            className="inline-flex h-[40px] shrink-0 items-center justify-center gap-1 rounded-xl bg-primary-600 px-2 text-xs font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40 sm:h-[42px] sm:gap-2 sm:px-4 sm:text-sm"
+          >
+            <Printer className="h-4 w-4" />
+            <span className="sm:hidden">Print</span>
+            <span className="hidden sm:inline">Print Class</span>
+          </button>
+        </div>
+      )}
+
       <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
         <div className="border-b border-[var(--color-border-subtle)] p-3 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -3890,27 +3976,6 @@ function ExamTimetable({
               </div>
             )}
 
-            {selectedPeriod && perspective === 'class' && !editMode && (
-              <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={selectedClassId}
-                  onChange={(e) => setSelectedClassId(e.target.value)}
-                  className="min-w-[210px] flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm sm:flex-none"
-                >
-                  {periodClasses.length === 0 && <option value="">No classes available</option>}
-                  {periodClasses.map((cls) => <option key={cls._id} value={cls._id}>{classBriefLabel(cls)}</option>)}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  disabled={!selectedClassId || classRows.length === 0}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Printer className="h-4 w-4" />
-                  Print Class
-                </button>
-              </div>
-            )}
           </div>
 
           {selectedPeriod && (perspective === 'day' || editMode) && examDayTabs.length > 0 && (
@@ -4113,6 +4178,42 @@ function ExamTimetable({
           </div>
         )}
       </section>
+
+      {classResetConfirmOpen && selectedClass && (
+        <div className="fixed inset-0 z-[125] flex items-end justify-center bg-black/45 p-3 sm:items-center" onMouseDown={() => !classResetting && setClassResetConfirmOpen(false)}>
+          <div
+            className="w-full max-w-sm rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-2xl sm:p-5"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300">
+              <RotateCcw className="h-5 w-5" />
+            </div>
+            <h3 className="mt-3 text-base font-bold text-[var(--color-text-primary)]">Reset {classBriefLabel(selectedClass)} Schedule?</h3>
+            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+              All exam cells for this class will become blank. Courses are not deleted and can be scheduled again through Edit.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setClassResetConfirmOpen(false)}
+                disabled={classResetting}
+                className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-bold text-[var(--color-text-secondary)] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void resetSelectedClassSchedule()}
+                disabled={classResetting}
+                className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:opacity-50"
+              >
+                <RotateCcw className="h-4 w-4" />
+                {classResetting ? 'Resetting…' : 'Reset Class'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCreatePeriod && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm" onClick={() => !creatingPeriod && setShowCreatePeriod(false)}>
