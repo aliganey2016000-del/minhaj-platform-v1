@@ -4460,12 +4460,17 @@ export function ExamsManage() {
     [exams, selectedExamPeriodId],
   );
 
-  const scheduledCount = scopedExams.filter((e) => getEffectiveStatus(e) === 'scheduled').length;
-  const ongoingCount = scopedExams.filter((e) => getEffectiveStatus(e) === 'ongoing').length;
-  const completedCount = scopedExams.filter((e) => getEffectiveStatus(e) === 'completed').length;
-  const cancelledCount = scopedExams.filter((e) => getEffectiveStatus(e) === 'cancelled').length;
-  const manualCount = scopedExams.filter((e) => !e.autoSchedule).length;
-  const autoCount = scopedExams.filter((e) => e.autoSchedule).length;
+  const placedScopedExams = useMemo(
+    () => scopedExams.filter((exam) => exam.autoSchedule || exam.schedulePlaced !== false),
+    [scopedExams],
+  );
+
+  const scheduledCount = placedScopedExams.filter((e) => getEffectiveStatus(e) === 'scheduled').length;
+  const ongoingCount = placedScopedExams.filter((e) => getEffectiveStatus(e) === 'ongoing').length;
+  const completedCount = placedScopedExams.filter((e) => getEffectiveStatus(e) === 'completed').length;
+  const cancelledCount = placedScopedExams.filter((e) => getEffectiveStatus(e) === 'cancelled').length;
+  const manualCount = placedScopedExams.filter((e) => !e.autoSchedule).length;
+  const autoCount = placedScopedExams.filter((e) => e.autoSchedule).length;
 
   const classOptions = useMemo(() => {
     const values = new Map<string, string>();
@@ -4511,7 +4516,7 @@ export function ExamsManage() {
       .map((cls) => cls._id);
   }, [classFilters, departmentFilters, filterClasses]);
 
-  const visibleExams = scopedExams.filter((exam) => {
+  const visibleExams = placedScopedExams.filter((exam) => {
     const cls = exam.course?.class;
     const dept = cls?.department;
     const scheduleType = exam.autoSchedule ? 'auto' : 'manual';
@@ -5048,12 +5053,12 @@ export function ExamsManage() {
                   classOptions={classOptions.map((item) => ({
                     value: item.id,
                     label: item.label,
-                    count: scopedExams.filter((exam) => exam.course?.class?._id === item.id).length,
+                    count: placedScopedExams.filter((exam) => exam.course?.class?._id === item.id).length,
                   }))}
                   departmentOptions={departmentOptions.map((item) => ({
                     value: item.id,
                     label: item.label,
-                    count: scopedExams.filter((exam) => exam.course?.class?.department?._id === item.id).length,
+                    count: placedScopedExams.filter((exam) => exam.course?.class?.department?._id === item.id).length,
                   }))}
                   scheduleOptions={[
                     { value: 'manual', label: 'Manual', count: manualCount },
