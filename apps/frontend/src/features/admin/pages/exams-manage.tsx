@@ -362,9 +362,11 @@ function AnnualExamActionsMenu({
 function DepartmentalExamView({
   exams,
   period,
+  classes,
 }: {
   exams: Exam[];
   period?: ExamPeriod;
+  classes: ClassBrief[];
 }) {
   const fixed = useMemo(
     () => exams
@@ -373,22 +375,41 @@ function DepartmentalExamView({
     [exams],
   );
 
-  const gradeNumber = (exam: Exam): number | null => {
-    const cls = exam.course?.class;
-    const label = `${cls?.title || ''} ${cls?.section || ''}`;
-    const explicit = label.match(/\b(?:grade|class|form)\s*(\d{1,2})\b/i);
-    const fallback = label.match(/\b(\d{1,2})\b/);
-    const value = Number((explicit || fallback)?.[1] || 0);
-    return value >= 1 && value <= 12 ? value : null;
+  const normalizeDepartmentKey = (id: unknown, name: unknown) => {
+    const normalizedId = String(id || '').trim();
+    if (normalizedId) return normalizedId;
+    const normalizedName = String(name || '').trim().toLowerCase();
+    return normalizedName.replace(/[^a-z0-9]+/g, '-') || 'unassigned';
   };
 
-  const bandOf = (exam: Exam): 'primary' | 'secondary' => {
-    const department = String(exam.course?.class?.department?.name || '').toLowerCase();
-    if (/secondary|secondry|high school|senior/.test(department)) return 'secondary';
-    if (/primary|middle|elementary|junior/.test(department)) return 'primary';
-    const grade = gradeNumber(exam);
-    return grade !== null && grade >= 9 ? 'secondary' : 'primary';
+  const departmentOfExam = (exam: Exam) => {
+    const department = exam.course?.class?.department;
+    const name = String(department?.name || '').trim();
+    return {
+      key: normalizeDepartmentKey(department?._id, name),
+      name: name || 'Unassigned Department',
+    };
   };
+
+  const departmentDefinitions = useMemo(() => {
+    const values = new Map<string, { key: string; name: string }>();
+
+    for (const cls of classes) {
+      const name = String(cls.department?.name || '').trim();
+      const key = normalizeDepartmentKey(cls.department?._id, name);
+      if (key === 'unassigned') continue;
+      if (!values.has(key)) values.set(key, { key, name: name || 'Department' });
+    }
+
+    for (const exam of fixed) {
+      const department = departmentOfExam(exam);
+      if (!values.has(department.key)) values.set(department.key, department);
+    }
+
+    return Array.from(values.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    );
+  }, [classes, fixed]);
 
   const shifts = useMemo(() => {
     const map = new Map<string, { key: string; startTime: string; endTime: string }>();
@@ -407,26 +428,27 @@ function DepartmentalExamView({
     [fixed],
   );
 
-  const schedules = useMemo(() => ([
-    {
-      key: 'primary' as const,
-      title: 'Primary Department Schedule',
-      subtitle: 'All Primary / Middle grades combined into one schedule.',
-    },
-    {
-      key: 'secondary' as const,
-      title: 'Secondary Department Schedule',
-      subtitle: 'All Secondary grades combined into one schedule.',
-    },
-  ]).map((band) => {
-    const bandExams = fixed.filter((exam) => bandOf(exam) === band.key);
-    const classIds = new Set(bandExams.map((exam) => exam.course?.class?._id).filter(Boolean));
+  const schedules = useMemo(() => departmentDefinitions.map((department) => {
+    const departmentExams = fixed.filter((exam) => departmentOfExam(exam).key === department.key);
+
+    const classIds = new Set(
+      classes
+        .filter((cls) => normalizeDepartmentKey(cls.department?._id, cls.department?.name) === department.key)
+        .map((cls) => cls._id)
+        .filter(Boolean),
+    );
+
+    departmentExams.forEach((exam) => {
+      const classId = exam.course?.class?._id;
+      if (classId) classIds.add(classId);
+    });
+
     const cells = new Map<string, Array<{ subject: string; classes: string[] }>>();
 
     dates.forEach((date) => {
       shifts.forEach((shift) => {
         const subjectMap = new Map<string, Set<string>>();
-        bandExams
+        departmentExams
           .filter((exam) =>
             examDateKey(exam) === date &&
             exam.startTime === shift.startTime &&
@@ -447,20 +469,26 @@ function DepartmentalExamView({
           Array.from(subjectMap.entries())
             .map(([subject, classSet]) => ({
               subject,
-              classes: Array.from(classSet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+              classes: Array.from(classSet).sort((a, b) =>
+                a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+              ),
             }))
-            .sort((a, b) => a.subject.localeCompare(b.subject, undefined, { numeric: true })),
+            .sort((a, b) =>
+              a.subject.localeCompare(b.subject, undefined, { numeric: true, sensitivity: 'base' })
+            ),
         );
       });
     });
 
     return {
-      ...band,
-      exams: bandExams,
+      key: department.key,
+      title: `${department.name} Schedule`,
+      subtitle: `All classes in ${department.name} combined into one exam schedule.`,
+      exams: departmentExams,
       classCount: classIds.size,
       cells,
     };
-  }), [dates, fixed, shifts]);
+  }), [classes, dates, departmentDefinitions, fixed, shifts]);
 
   const minWidth = Math.max(760, 170 + shifts.length * 260 + Math.max(0, shifts.length - 1) * 110);
 
@@ -470,7 +498,7 @@ function DepartmentalExamView({
         <Building2 className="mx-auto h-9 w-9 text-[var(--color-text-tertiary)]" />
         <h2 className="mt-3 text-base font-bold text-[var(--color-text-primary)]">No departmental schedule yet</h2>
         <p className="mx-auto mt-1 max-w-lg text-sm text-[var(--color-text-tertiary)]">
-          Build the exam schedule first. Departmental View automatically combines it into exactly two schedules: Primary and Secondary.
+          Build the exam schedule first. Departmental View automatically creates one combined schedule for every department.
         </p>
       </section>
     );
@@ -484,21 +512,21 @@ function DepartmentalExamView({
           <div>
             <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">Departmental schedules generated</p>
             <p className="mt-0.5 text-xs text-emerald-700/80 dark:text-emerald-300/80">
-              {period?.name || 'Selected exam'} · {period?.academicYear || ''} — exactly two combined schedules: Primary and Secondary.
+              {period?.name || 'Selected exam'} · {period?.academicYear || ''} — {schedules.length} department schedule{schedules.length === 1 ? '' : 's'}, one schedule per department.
             </p>
           </div>
         </div>
       </div>
 
-      {schedules.map((schedule) => (
+      {schedules.length === 0 ? (
+        <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center text-sm text-[var(--color-text-tertiary)]">
+          No departments were found for the active classes in this examination.
+        </section>
+      ) : schedules.map((schedule) => (
         <section key={schedule.key} className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
           <div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${
-                schedule.key === 'secondary'
-                  ? 'bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-300'
-                  : 'bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300'
-              }`}>
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
                 <Building2 className="h-4 w-4" />
               </span>
               <div>
@@ -514,7 +542,7 @@ function DepartmentalExamView({
 
           {schedule.exams.length === 0 ? (
             <div className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">
-              No exams were found for this department group.
+              This department has active classes, but no exam papers are scheduled yet.
             </div>
           ) : (
             <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
@@ -4065,6 +4093,7 @@ export function ExamsManage() {
               <DepartmentalExamView
                 exams={scopedExams}
                 period={selectedPeriodMeta}
+                classes={filterClasses}
               />
             )}
 
