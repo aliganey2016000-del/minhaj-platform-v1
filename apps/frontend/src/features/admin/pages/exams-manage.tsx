@@ -3494,7 +3494,7 @@ function ExamTimetable({
 
           {selectedPeriod && (perspective === 'day' || editMode) && examDayTabs.length > 0 && (
             <div className="mt-3 w-full">
-              <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(96px,1fr))] gap-2 sm:grid-cols-[repeat(auto-fit,minmax(110px,1fr))]">
+              <div className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {examDayTabs.map((date, index) => {
                   const active = date === selectedDate;
                   const isToday = date === localTodayKey();
@@ -3505,17 +3505,17 @@ function ExamTimetable({
                       type="button"
                       onClick={() => changeDate(date)}
                       aria-pressed={active}
-                      className={`min-w-0 rounded-xl border px-3 py-2.5 text-center transition-all ${active
+                      className={`min-w-[104px] flex-1 snap-start rounded-xl border px-3 py-2.5 text-center transition-all sm:min-w-[118px] ${active
                         ? 'border-primary-600 bg-primary-600 text-white shadow-sm ring-2 ring-primary-500/15'
                         : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:border-primary-300 hover:bg-[var(--color-surface-secondary)]'}`}
                     >
-                      <div className={`truncate text-[9px] font-extrabold uppercase tracking-wide sm:text-[10px] ${active ? 'text-white/80' : 'text-[var(--color-text-tertiary)]'}`}>
+                      <div className={`whitespace-nowrap text-[9px] font-extrabold uppercase tracking-wide sm:text-[10px] ${active ? 'text-white/80' : 'text-[var(--color-text-tertiary)]'}`}>
                         Day {index + 1}{isToday ? ' · Today' : ''}
                       </div>
-                      <div className="mt-0.5 truncate text-xs font-extrabold sm:text-sm">
+                      <div className="mt-0.5 whitespace-nowrap text-xs font-extrabold sm:text-sm">
                         {parsed.toLocaleDateString(undefined, { weekday: 'short' })}
                       </div>
-                      <div className={`truncate text-[10px] font-semibold sm:text-[11px] ${active ? 'text-white/90' : 'text-[var(--color-text-tertiary)]'}`}>
+                      <div className={`whitespace-nowrap text-[10px] font-semibold sm:text-[11px] ${active ? 'text-white/90' : 'text-[var(--color-text-tertiary)]'}`}>
                         {parsed.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}
                       </div>
                     </button>
