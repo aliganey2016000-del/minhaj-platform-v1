@@ -368,7 +368,31 @@ function DepartmentalExamView({
   period?: ExamPeriod;
   classes: ClassBrief[];
 }) {
+  const { user } = useAuth();
   const [selectedDepartmentKey, setSelectedDepartmentKey] = useState('');
+  const [printBranding, setPrintBranding] = useState<{ name?: string; branding?: { logo?: string } }>({});
+
+  const departmentSchoolId = useMemo(() => {
+    if (typeof period?.school === 'string') return period.school;
+    if (period?.school?._id) return period.school._id;
+    return String((user as any)?.organizationId?._id || (user as any)?.organizationId || '');
+  }, [period?.school, user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!departmentSchoolId) {
+      setPrintBranding({});
+      return;
+    }
+    void api.get(`/schools/${departmentSchoolId}/branding`)
+      .then((response) => {
+        if (!cancelled) setPrintBranding(response.data?.data?.school || {});
+      })
+      .catch(() => {
+        if (!cancelled) setPrintBranding({});
+      });
+    return () => { cancelled = true; };
+  }, [departmentSchoolId]);
 
   const fixed = useMemo(
     () => exams
@@ -508,6 +532,12 @@ function DepartmentalExamView({
   );
 
   const minWidth = Math.max(760, 170 + shifts.length * 260 + Math.max(0, shifts.length - 1) * 110);
+  const departmentSchoolName = printBranding.name
+    || (typeof period?.school === 'object' ? period.school?.name : '')
+    || (user as any)?.organizationName
+    || 'Organization';
+  const departmentLogo = printBranding.branding?.logo || '';
+  const generatedOn = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date());
 
   if (!fixed.length) {
     return (
@@ -526,7 +556,14 @@ function DepartmentalExamView({
       <style>{`
         .exam-department-print-only { display: none; }
         @media print {
-          @page { size: A4 landscape; margin: 8mm; }
+          @page { size: A4 landscape; margin: 7mm; }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           body * { visibility: hidden !important; }
           #exam-department-print,
           #exam-department-print * { visibility: visible !important; }
@@ -535,15 +572,101 @@ function DepartmentalExamView({
             inset: 0 auto auto 0 !important;
             width: 100% !important;
             max-width: 100% !important;
+            min-width: 0 !important;
+            margin: 0 !important;
             overflow: visible !important;
             border: 0 !important;
             border-radius: 0 !important;
             box-shadow: none !important;
             background: #fff !important;
-            color: #000 !important;
+            color: #111827 !important;
           }
           #exam-department-print .exam-department-print-only {
             display: block !important;
+          }
+          #exam-department-print .exam-print-header {
+            display: grid !important;
+            grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.35fr) minmax(180px, .8fr) !important;
+            align-items: center !important;
+            gap: 10px !important;
+            padding: 2mm 1mm 3.5mm !important;
+            border-bottom: 2px solid #0f766e !important;
+          }
+          #exam-department-print .exam-print-brand {
+            display: flex !important;
+            align-items: center !important;
+            gap: 9px !important;
+            min-width: 0 !important;
+          }
+          #exam-department-print .exam-print-logo,
+          #exam-department-print .exam-print-logo-fallback {
+            width: 44px !important;
+            height: 44px !important;
+            flex: 0 0 44px !important;
+          }
+          #exam-department-print .exam-print-logo {
+            object-fit: contain !important;
+          }
+          #exam-department-print .exam-print-logo-fallback {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border: 2px solid #0f766e !important;
+            border-radius: 10px !important;
+            background: #ecfdf5 !important;
+            font-size: 19px !important;
+            font-weight: 900 !important;
+          }
+          #exam-department-print .exam-print-school-name {
+            font-size: 13px !important;
+            line-height: 1.15 !important;
+            font-weight: 900 !important;
+          }
+          #exam-department-print .exam-print-kicker {
+            margin-top: 3px !important;
+            font-size: 7.5px !important;
+            line-height: 1.15 !important;
+            font-weight: 800 !important;
+            letter-spacing: .08em !important;
+            text-transform: uppercase !important;
+            color: #475569 !important;
+          }
+          #exam-department-print .exam-print-title {
+            text-align: center !important;
+          }
+          #exam-department-print .exam-print-title h1 {
+            margin: 0 !important;
+            font-size: 20px !important;
+            line-height: 1.05 !important;
+            font-weight: 900 !important;
+            letter-spacing: -.02em !important;
+          }
+          #exam-department-print .exam-print-title p {
+            margin: 5px 0 0 !important;
+            font-size: 10px !important;
+            line-height: 1.15 !important;
+            font-weight: 800 !important;
+            color: #334155 !important;
+          }
+          #exam-department-print .exam-print-meta {
+            display: grid !important;
+            gap: 3px !important;
+            justify-self: end !important;
+            min-width: 180px !important;
+            font-size: 8px !important;
+            line-height: 1.2 !important;
+          }
+          #exam-department-print .exam-print-meta-row {
+            display: grid !important;
+            grid-template-columns: auto 1fr !important;
+            gap: 5px !important;
+          }
+          #exam-department-print .exam-print-meta-label {
+            font-weight: 900 !important;
+            color: #475569 !important;
+          }
+          #exam-department-print > div:not(.exam-department-print-only) {
+            border-color: #cbd5e1 !important;
           }
           #exam-department-print .exam-department-scroll {
             overflow: visible !important;
@@ -551,14 +674,65 @@ function DepartmentalExamView({
           #exam-department-print table {
             min-width: 0 !important;
             width: 100% !important;
+            max-width: 100% !important;
             table-layout: fixed !important;
+            border-collapse: collapse !important;
+            font-size: 9.4px !important;
+            color: #111827 !important;
+          }
+          #exam-department-print thead {
+            display: table-header-group !important;
+          }
+          #exam-department-print tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          #exam-department-print th {
+            background: #eaf4fb !important;
             font-size: 9px !important;
-            color: #000 !important;
+            line-height: 1.15 !important;
+            font-weight: 900 !important;
           }
           #exam-department-print th,
           #exam-department-print td {
-            color: #000 !important;
-            padding: 5px !important;
+            color: #111827 !important;
+            padding: 6px 5px !important;
+            border: 1px solid #cbd5e1 !important;
+            vertical-align: middle !important;
+            overflow-wrap: anywhere !important;
+            word-break: break-word !important;
+          }
+          #exam-department-print .exam-print-subject-card {
+            border: 1px solid #b9d8d1 !important;
+            border-radius: 5px !important;
+            background: #f0fdfa !important;
+            padding: 6px !important;
+            break-inside: avoid !important;
+          }
+          #exam-department-print .exam-print-subject-card p {
+            font-size: 10.5px !important;
+            line-height: 1.16 !important;
+            font-weight: 900 !important;
+            color: #0f172a !important;
+          }
+          #exam-department-print .exam-print-subject-card span {
+            font-size: 8.4px !important;
+            line-height: 1.1 !important;
+            font-weight: 800 !important;
+            background: #fff !important;
+            color: #334155 !important;
+          }
+          #exam-department-print .exam-print-footer {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            gap: 10px !important;
+            margin-top: 3mm !important;
+            padding: 2.5mm 1mm 0 !important;
+            border-top: 1px solid #94a3b8 !important;
+            font-size: 7.5px !important;
+            font-weight: 700 !important;
+            color: #475569 !important;
           }
         }
       `}</style>
@@ -605,11 +779,27 @@ function DepartmentalExamView({
         </section>
       ) : (
         <section id="exam-department-print" className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
-          <div className="exam-department-print-only border-b border-slate-300 p-4 text-center">
-            <h1 className="text-xl font-black">{selectedSchedule.name} Exam Schedule</h1>
-            <p className="mt-1 text-sm font-semibold">
-              {period?.name || 'Exam'} · {period?.academicYear || ''}{period?.term ? ` · ${period.term}` : ''}
-            </p>
+          <div className="exam-department-print-only exam-print-header">
+            <div className="exam-print-brand">
+              {departmentLogo ? (
+                <img className="exam-print-logo" src={departmentLogo} alt="" />
+              ) : (
+                <div className="exam-print-logo-fallback">{departmentSchoolName.charAt(0).toUpperCase()}</div>
+              )}
+              <div>
+                <div className="exam-print-school-name">{departmentSchoolName}</div>
+                <div className="exam-print-kicker">Official Examination Schedule</div>
+              </div>
+            </div>
+            <div className="exam-print-title">
+              <h1>{selectedSchedule.name} Exam Schedule</h1>
+              <p>{period?.name || 'Examination'}</p>
+            </div>
+            <div className="exam-print-meta">
+              <div className="exam-print-meta-row"><span className="exam-print-meta-label">Academic Year</span><span>{period?.academicYear || '—'}</span></div>
+              <div className="exam-print-meta-row"><span className="exam-print-meta-label">Term</span><span>{period?.term || '—'}</span></div>
+              <div className="exam-print-meta-row"><span className="exam-print-meta-label">Generated</span><span>{generatedOn}</span></div>
+            </div>
           </div>
 
           <div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -682,7 +872,7 @@ function DepartmentalExamView({
                                 ) : (
                                   <div className="space-y-2">
                                     {items.map((item) => (
-                                      <div key={item.subject} className="rounded-xl border border-primary-100 bg-primary-50/40 p-2.5 dark:border-primary-900/30 dark:bg-primary-950/10">
+                                      <div key={item.subject} className="exam-print-subject-card rounded-xl border border-primary-100 bg-primary-50/40 p-2.5 dark:border-primary-900/30 dark:bg-primary-950/10">
                                         <p className="font-bold text-[var(--color-text-primary)]">{item.subject}</p>
                                         <div className="mt-1.5 flex flex-wrap gap-1">
                                           {item.classes.map((className) => (
@@ -711,6 +901,10 @@ function DepartmentalExamView({
               </table>
             </div>
           )}
+          <div className="exam-department-print-only exam-print-footer">
+            <span>{departmentSchoolName} · {selectedSchedule.name}</span>
+            <span>{period?.name || 'Exam'} · {period?.academicYear || ''}</span>
+          </div>
         </section>
       )}
     </div>
@@ -2160,6 +2354,7 @@ function ExamTimetable({
       : '';
 
   const [rules, setRules] = useState<ExamScheduleRules>(DEFAULT_EXAM_SCHEDULE_RULES);
+  const [printBranding, setPrintBranding] = useState<{ name?: string; branding?: { logo?: string } }>({});
   const [gridClasses, setGridClasses] = useState<ClassBrief[]>([]);
   const [periods, setPeriods] = useState<ExamPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');
@@ -2195,6 +2390,22 @@ function ExamTimetable({
     startDate: '',
     endDate: '',
   });
+  useEffect(() => {
+    let cancelled = false;
+    if (!effectiveSchoolId) {
+      setPrintBranding({});
+      return;
+    }
+    void api.get(`/schools/${effectiveSchoolId}/branding`)
+      .then((response) => {
+        if (!cancelled) setPrintBranding(response.data?.data?.school || {});
+      })
+      .catch(() => {
+        if (!cancelled) setPrintBranding({});
+      });
+    return () => { cancelled = true; };
+  }, [effectiveSchoolId]);
+
   const [reusePeriodForm, setReusePeriodForm] = useState({
     name: '',
     academicYear: '',
@@ -2891,6 +3102,9 @@ function ExamTimetable({
 
   const dynamicColumnCount = Math.max(1, rules.examShifts.length * 2 - 1);
   const tableMinWidth = Math.max(720, 190 + rules.examShifts.length * 230 + Math.max(0, rules.examShifts.length - 1) * 105);
+  const classPrintSchoolName = printBranding.name || (user as any)?.organizationName || 'Organization';
+  const classPrintLogo = printBranding.branding?.logo || '';
+  const classPrintGeneratedOn = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date());
   const allowedDayLabels = EXAM_DAY_OPTIONS
     .filter((item) => rules.allowedExamDays.includes(item.value))
     .map((item) => item.label)
@@ -2910,7 +3124,14 @@ function ExamTimetable({
       <style>{`
         .exam-class-print-only { display: none; }
         @media print {
-          @page { size: A4 landscape; margin: 8mm; }
+          @page { size: A4 landscape; margin: 7mm; }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           body * { visibility: hidden !important; }
           #exam-class-print,
           #exam-class-print * { visibility: visible !important; }
@@ -2919,23 +3140,154 @@ function ExamTimetable({
             inset: 0 auto auto 0 !important;
             width: 100% !important;
             max-width: 100% !important;
+            min-width: 0 !important;
+            margin: 0 !important;
             overflow: visible !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
             background: #fff !important;
-            color: #000 !important;
+            color: #111827 !important;
           }
-          #exam-class-print .exam-class-print-only { display: block !important; }
-          #exam-class-print .exam-class-scroll { overflow: visible !important; }
+          #exam-class-print .exam-class-print-only {
+            display: block !important;
+          }
+          #exam-class-print .exam-print-header {
+            display: grid !important;
+            grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.35fr) minmax(180px, .8fr) !important;
+            align-items: center !important;
+            gap: 10px !important;
+            padding: 2mm 1mm 3.5mm !important;
+            border-bottom: 2px solid #0f766e !important;
+          }
+          #exam-class-print .exam-print-brand {
+            display: flex !important;
+            align-items: center !important;
+            gap: 9px !important;
+            min-width: 0 !important;
+          }
+          #exam-class-print .exam-print-logo,
+          #exam-class-print .exam-print-logo-fallback {
+            width: 44px !important;
+            height: 44px !important;
+            flex: 0 0 44px !important;
+          }
+          #exam-class-print .exam-print-logo {
+            object-fit: contain !important;
+          }
+          #exam-class-print .exam-print-logo-fallback {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border: 2px solid #0f766e !important;
+            border-radius: 10px !important;
+            background: #ecfdf5 !important;
+            font-size: 19px !important;
+            font-weight: 900 !important;
+          }
+          #exam-class-print .exam-print-school-name {
+            font-size: 13px !important;
+            line-height: 1.15 !important;
+            font-weight: 900 !important;
+          }
+          #exam-class-print .exam-print-kicker {
+            margin-top: 3px !important;
+            font-size: 7.5px !important;
+            line-height: 1.15 !important;
+            font-weight: 800 !important;
+            letter-spacing: .08em !important;
+            text-transform: uppercase !important;
+            color: #475569 !important;
+          }
+          #exam-class-print .exam-print-title {
+            text-align: center !important;
+          }
+          #exam-class-print .exam-print-title h1 {
+            margin: 0 !important;
+            font-size: 20px !important;
+            line-height: 1.05 !important;
+            font-weight: 900 !important;
+            letter-spacing: -.02em !important;
+          }
+          #exam-class-print .exam-print-title p {
+            margin: 5px 0 0 !important;
+            font-size: 10px !important;
+            line-height: 1.15 !important;
+            font-weight: 800 !important;
+            color: #334155 !important;
+          }
+          #exam-class-print .exam-print-meta {
+            display: grid !important;
+            gap: 3px !important;
+            justify-self: end !important;
+            min-width: 180px !important;
+            font-size: 8px !important;
+            line-height: 1.2 !important;
+          }
+          #exam-class-print .exam-print-meta-row {
+            display: grid !important;
+            grid-template-columns: auto 1fr !important;
+            gap: 5px !important;
+          }
+          #exam-class-print .exam-print-meta-label {
+            font-weight: 900 !important;
+            color: #475569 !important;
+          }
+          #exam-class-print .exam-class-scroll {
+            overflow: visible !important;
+          }
           #exam-class-print table {
             min-width: 0 !important;
             width: 100% !important;
+            max-width: 100% !important;
             table-layout: fixed !important;
+            border-collapse: collapse !important;
+            font-size: 9.6px !important;
+            color: #111827 !important;
+          }
+          #exam-class-print thead {
+            display: table-header-group !important;
+          }
+          #exam-class-print tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          #exam-class-print th {
+            background: #eaf4fb !important;
             font-size: 9px !important;
-            color: #000 !important;
+            line-height: 1.15 !important;
+            font-weight: 900 !important;
           }
           #exam-class-print th,
           #exam-class-print td {
-            color: #000 !important;
-            padding: 5px !important;
+            color: #111827 !important;
+            padding: 7px 6px !important;
+            border: 1px solid #cbd5e1 !important;
+            vertical-align: middle !important;
+            overflow-wrap: anywhere !important;
+            word-break: break-word !important;
+          }
+          #exam-class-print td > div {
+            min-height: 42px !important;
+          }
+          #exam-class-print td p,
+          #exam-class-print td .font-bold,
+          #exam-class-print td .font-extrabold {
+            font-size: 10.5px !important;
+            line-height: 1.16 !important;
+            font-weight: 900 !important;
+          }
+          #exam-class-print .exam-print-footer {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            gap: 10px !important;
+            margin-top: 3mm !important;
+            padding: 2.5mm 1mm 0 !important;
+            border-top: 1px solid #94a3b8 !important;
+            font-size: 7.5px !important;
+            font-weight: 700 !important;
+            color: #475569 !important;
           }
         }
       `}</style>
@@ -3153,11 +3505,27 @@ function ExamTimetable({
           </div>
         ) : (
           <div id="exam-class-print">
-            <div className="exam-class-print-only border-b border-slate-300 p-4 text-center">
-              <h1 className="text-xl font-black">{selectedClass ? classBriefLabel(selectedClass) : 'Class'} Exam Schedule</h1>
-              <p className="mt-1 text-sm font-semibold">
-                {selectedPeriod.name} · {selectedPeriod.academicYear}{selectedPeriod.term ? ` · ${selectedPeriod.term}` : ''}
-              </p>
+            <div className="exam-class-print-only exam-print-header">
+              <div className="exam-print-brand">
+                {classPrintLogo ? (
+                  <img className="exam-print-logo" src={classPrintLogo} alt="" />
+                ) : (
+                  <div className="exam-print-logo-fallback">{classPrintSchoolName.charAt(0).toUpperCase()}</div>
+                )}
+                <div>
+                  <div className="exam-print-school-name">{classPrintSchoolName}</div>
+                  <div className="exam-print-kicker">Official Examination Schedule</div>
+                </div>
+              </div>
+              <div className="exam-print-title">
+                <h1>{selectedClass ? classBriefLabel(selectedClass) : 'Class'} Exam Schedule</h1>
+                <p>{selectedPeriod.name}</p>
+              </div>
+              <div className="exam-print-meta">
+                <div className="exam-print-meta-row"><span className="exam-print-meta-label">Academic Year</span><span>{selectedPeriod.academicYear || '—'}</span></div>
+                <div className="exam-print-meta-row"><span className="exam-print-meta-label">Term</span><span>{selectedPeriod.term || '—'}</span></div>
+                <div className="exam-print-meta-row"><span className="exam-print-meta-label">Generated</span><span>{classPrintGeneratedOn}</span></div>
+              </div>
             </div>
             <div className="exam-class-scroll max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
               <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
@@ -3210,6 +3578,10 @@ function ExamTimetable({
                 ))}
               </tbody>
             </table>
+            </div>
+            <div className="exam-class-print-only exam-print-footer">
+              <span>{classPrintSchoolName} · {selectedClass ? classBriefLabel(selectedClass) : 'Class'}</span>
+              <span>{selectedPeriod.name} · {selectedPeriod.academicYear}</span>
             </div>
           </div>
         )}
