@@ -4,7 +4,7 @@
  */
 
 import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, Copy } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -204,6 +204,66 @@ function RowActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEd
           </button>
           <button onClick={() => { setOpen(false); onDelete(); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
             <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnnualExamActionsMenu({
+  onEdit,
+  onDuplicate,
+  onDelete,
+  disabled = false,
+}: {
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const run = (action: () => void) => {
+    setOpen(false);
+    action();
+  };
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label="Exam actions"
+        disabled={disabled}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((current) => !current);
+        }}
+        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] shadow-sm transition-colors hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <MoreVertical className="h-5 w-5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-11 z-40 w-44 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-1 shadow-xl">
+          <button type="button" onClick={(event) => { event.stopPropagation(); run(onEdit); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
+            <Pencil className="h-4 w-4" /> Edit
+          </button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); run(onDuplicate); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
+            <Copy className="h-4 w-4" /> Duplicate
+          </button>
+          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+          <button type="button" onClick={(event) => { event.stopPropagation(); run(onDelete); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">
+            <Trash2 className="h-4 w-4" /> Delete
           </button>
         </div>
       )}
@@ -2821,6 +2881,7 @@ export function ExamsManage() {
   const [overviewYear, setOverviewYear] = useState('');
   const [examDetailOpen, setExamDetailOpen] = useState(false);
   const [selectedExamPeriodId, setSelectedExamPeriodId] = useState('');
+  const [periodRowBusy, setPeriodRowBusy] = useState('');
   const [loading, setLoading] = useState(true);
   const examsLoadedRef = useRef(false);
   const [error, setError] = useState('');
@@ -3113,6 +3174,33 @@ export function ExamsManage() {
     setSearch('');
   };
 
+  const openAnnualPeriodAction = (period: ExamPeriod, action: 'edit-exam' | 'reuse-schedule') => {
+    openExamPeriod(period);
+    scheduleActionSequence.current += 1;
+    setScheduleActionRequest({ id: scheduleActionSequence.current, action });
+  };
+
+  const deleteAnnualPeriod = async (period: ExamPeriod) => {
+    const paperCount = periodPaperCount(period._id);
+    const confirmed = window.confirm(
+      `Delete "${period.name}" (${period.academicYear})?\n\nThis will permanently delete the exam and its ${paperCount} scheduled paper${paperCount === 1 ? '' : 's'}.`
+    );
+    if (!confirmed) return;
+
+    setPeriodRowBusy(period._id);
+    setPeriodsError('');
+    try {
+      await api.delete(`/exams/periods/${period._id}`, { params: { school: pageSchoolId } });
+      setExamPeriods((current) => current.filter((item) => item._id !== period._id));
+      setExams((current) => current.filter((exam) => examPeriodId(exam) !== period._id));
+      if (selectedExamPeriodId === period._id) returnToExamList();
+    } catch (err: any) {
+      setPeriodsError(err.response?.data?.message || 'Failed to delete examination');
+    } finally {
+      setPeriodRowBusy('');
+    }
+  };
+
   const selectedPeriodMeta = examPeriods.find((period) => period._id === selectedExamPeriodId);
   const overviewPeriods = examPeriods.filter((period) => !overviewYear || period.academicYear === overviewYear);
 
@@ -3228,32 +3316,43 @@ export function ExamsManage() {
               ) : (
                 <div className="divide-y divide-[var(--color-border-subtle)]">
                   {overviewPeriods.map((period) => (
-                    <button
+                    <div
                       key={period._id}
-                      type="button"
-                      onClick={() => openExamPeriod(period)}
-                      className="group flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-[var(--color-surface-secondary)] sm:gap-4 sm:p-5"
+                      className="group flex w-full items-center gap-2 p-3 transition-colors hover:bg-[var(--color-surface-secondary)] sm:gap-3 sm:p-4"
                     >
-                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
-                        <CalendarClock className="h-6 w-6" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-base font-bold text-[var(--color-text-primary)]">{period.name}</span>
-                          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold capitalize ${periodStatusClasses[period.status]}`}>{period.status}</span>
+                      <button
+                        type="button"
+                        onClick={() => openExamPeriod(period)}
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl p-1 text-left sm:gap-4"
+                      >
+                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
+                          <CalendarClock className="h-6 w-6" />
                         </span>
-                        <span className="mt-1 block text-xs text-[var(--color-text-tertiary)]">
-                          {period.academicYear}{period.term ? ` · ${period.term}` : ''} · {formatPeriodRange(period)}
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-base font-bold text-[var(--color-text-primary)]">{period.name}</span>
+                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold capitalize ${periodStatusClasses[period.status]}`}>{period.status}</span>
+                          </span>
+                          <span className="mt-1 block text-xs text-[var(--color-text-tertiary)]">
+                            {period.academicYear}{period.term ? ` · ${period.term}` : ''} · {formatPeriodRange(period)}
+                          </span>
+                          <span className="mt-1 block text-xs font-semibold text-[var(--color-text-secondary)]">
+                            {periodPaperCount(period._id)} scheduled paper{periodPaperCount(period._id) === 1 ? '' : 's'}
+                          </span>
                         </span>
-                        <span className="mt-1 block text-xs font-semibold text-[var(--color-text-secondary)]">
-                          {periodPaperCount(period._id)} scheduled paper{periodPaperCount(period._id) === 1 ? '' : 's'}
+                        <span className="hidden shrink-0 items-center gap-1 text-xs font-bold text-primary-700 sm:flex dark:text-primary-300">
+                          Open
+                          <ChevronRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
                         </span>
-                      </span>
-                      <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-primary-700 dark:text-primary-300">
-                        <span className="hidden sm:inline">Open</span>
-                        <ChevronRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
-                      </span>
-                    </button>
+                      </button>
+
+                      <AnnualExamActionsMenu
+                        disabled={periodRowBusy === period._id}
+                        onEdit={() => openAnnualPeriodAction(period, 'edit-exam')}
+                        onDuplicate={() => openAnnualPeriodAction(period, 'reuse-schedule')}
+                        onDelete={() => void deleteAnnualPeriod(period)}
+                      />
+                    </div>
                   ))}
                 </div>
               )}
