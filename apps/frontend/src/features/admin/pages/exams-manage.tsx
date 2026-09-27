@@ -527,11 +527,6 @@ function DepartmentalExamView({
     [exams],
   );
 
-  const placedFixed = useMemo(
-    () => allFixed.filter((exam) => exam.schedulePlaced !== false && exam.examDate),
-    [allFixed],
-  );
-
   const normalizeDepartmentKey = (id: unknown, name: unknown) => {
     const normalizedId = String(id || '').trim();
     if (normalizedId) return normalizedId;
@@ -1051,7 +1046,7 @@ function DepartmentalExamView({
             setMoveSuccess('');
           }}
           disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || savingCell || resettingSchedule}
-          className={`inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-bold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:px-4 ${
+          className={`inline-flex h-[40px] shrink-0 items-center justify-center gap-1 rounded-xl border px-2 text-xs font-bold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:h-[42px] sm:gap-2 sm:px-4 sm:text-sm ${
             departmentEditMode
               ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300'
               : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
@@ -1065,7 +1060,7 @@ function DepartmentalExamView({
           type="button"
           onClick={() => setResetConfirmOpen(true)}
           disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || savingCell || resettingSchedule}
-          className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-bold text-red-700 shadow-sm transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300 sm:px-4"
+          className="inline-flex h-[40px] shrink-0 items-center justify-center gap-1 rounded-xl border border-red-200 bg-red-50 px-2 text-xs font-bold text-red-700 shadow-sm transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300 sm:h-[42px] sm:gap-2 sm:px-4 sm:text-sm"
         >
           <RotateCcw className="h-4 w-4" />
           <span>Reset</span>
@@ -1075,7 +1070,7 @@ function DepartmentalExamView({
           type="button"
           onClick={() => window.print()}
           disabled={!selectedSchedule || selectedSchedule.placedExams.length === 0 || departmentEditMode || savingCell || resettingSchedule}
-          className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-3 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40 sm:px-4"
+          className="inline-flex h-[40px] shrink-0 items-center justify-center gap-1 rounded-xl bg-primary-600 px-2 text-xs font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40 sm:h-[42px] sm:gap-2 sm:px-4 sm:text-sm"
         >
           <Printer className="h-4 w-4" />
           <span className="sm:hidden">Print</span>
@@ -4714,7 +4709,11 @@ export function ExamsManage() {
   const overviewPeriods = examPeriods.filter((period) => !overviewYear || period.academicYear === overviewYear);
 
   const periodPaperCount = (periodId: string) =>
-    exams.filter((exam) => examPeriodId(exam) === periodId && exam.status !== 'cancelled').length;
+    exams.filter((exam) =>
+      examPeriodId(exam) === periodId
+      && exam.status !== 'cancelled'
+      && (exam.autoSchedule || exam.schedulePlaced !== false)
+    ).length;
 
   const formatPeriodRange = (period: ExamPeriod) => {
     const format = (value?: string | null) => value
