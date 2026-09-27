@@ -933,8 +933,10 @@ export const moveScheduleGroup = async (req: Request, res: Response): Promise<Re
   const periodId = String(req.params.periodId || '');
   if (!/^[a-f\d]{24}$/i.test(periodId)) throw new BadRequestError('A valid Exam is required');
 
-  const rawIds = Array.isArray(req.body?.examIds) ? req.body.examIds : [];
-  const examIds = Array.from(new Set(rawIds.map((value: unknown) => String(value || '')).filter(Boolean)));
+  const rawIds: unknown[] = Array.isArray(req.body?.examIds) ? req.body.examIds : [];
+  const examIds: string[] = Array.from(
+    new Set<string>(rawIds.map((value) => String(value || '')).filter((value) => Boolean(value))),
+  );
   if (!examIds.length) throw new BadRequestError('At least one exam is required');
   if (examIds.length > 200) throw new BadRequestError('A maximum of 200 exams can be moved at once');
   if (examIds.some((id) => !/^[a-f\d]{24}$/i.test(id))) throw new BadRequestError('One or more exam ids are invalid');
