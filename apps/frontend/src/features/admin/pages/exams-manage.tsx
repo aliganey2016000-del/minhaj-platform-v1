@@ -2433,6 +2433,7 @@ function ExamTimetable({
   onCreateRequestHandled,
   onScheduleActionRequestHandled,
   onScheduleContextChange,
+  visibleClassIds,
 }: {
   exams: Exam[];
   onOpen: (exam: Exam) => void;
@@ -2446,6 +2447,7 @@ function ExamTimetable({
   onCreateRequestHandled: () => void;
   onScheduleActionRequestHandled: (id: number) => void;
   onScheduleContextChange: (context: ExamScheduleMenuContext) => void;
+  visibleClassIds?: string[] | null;
 }) {
   const { user } = useAuth();
   const ownOrgId = String((user as any)?.organizationId?._id || (user as any)?.organizationId || '');
@@ -2588,10 +2590,14 @@ function ExamTimetable({
     [fallbackClasses, gridClasses],
   );
 
-  // Classes are persistent Grade containers reused every year. The admin
-  // timetable therefore always shows all active classes; academic-year
-  // matching is enforced only in the student view after promotion.
-  const periodClasses = classes;
+  // Classes are persistent Grade containers reused every year. When the
+  // outer schedule filters select specific classes/departments, keep the
+  // timetable rows in sync with those selections.
+  const periodClasses = useMemo(() => {
+    if (visibleClassIds === null || visibleClassIds === undefined) return classes;
+    const allowed = new Set(visibleClassIds);
+    return classes.filter((cls) => allowed.has(cls._id));
+  }, [classes, visibleClassIds]);
 
   const loadContext = useCallback(async () => {
     if (!effectiveSchoolId) {
@@ -4150,6 +4156,19 @@ export function ExamsManage() {
     return Array.from(values.entries()).map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
   }, [scopedExams]);
 
+  const visibleTimetableClassIds = useMemo(() => {
+    if (classFilters === null && departmentFilters === null) return null;
+
+    return filterClasses
+      .filter((cls) => {
+        if (classFilters !== null && !classFilters.includes(cls._id)) return false;
+        const departmentId = String(cls.department?._id || '');
+        if (departmentFilters !== null && !departmentFilters.includes(departmentId)) return false;
+        return true;
+      })
+      .map((cls) => cls._id);
+  }, [classFilters, departmentFilters, filterClasses]);
+
   const visibleExams = scopedExams.filter((exam) => {
     const cls = exam.course?.class;
     const dept = cls?.department;
@@ -4740,7 +4759,8 @@ export function ExamsManage() {
 
             {viewMode === 'table' && (
               <ExamTimetable
-                exams={exams}
+                exams={visibleExams}
+                visibleClassIds={visibleTimetableClassIds}
                 onOpen={(exam) => setViewingExam(exam)}
                 onChanged={async () => {
                   await fetchData();
