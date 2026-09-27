@@ -4247,15 +4247,15 @@ export function ExamsManage() {
                   <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Annual Examinations</h2>
                   <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Mid Exam, Final Exam and any other examination created for the selected academic year.</p>
                 </div>
-                <select
+                <AcademicYearSelect
+                  format="short-slash"
                   value={overviewYear}
-                  onChange={(event) => setOverviewYear(event.target.value)}
+                  onChange={setOverviewYear}
+                  options={academicYears}
+                  placeholder="Academic Year"
                   disabled={!academicYears.length}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm font-semibold outline-none sm:w-auto"
-                >
-                  {academicYears.length === 0 && <option value="">Academic Year</option>}
-                  {academicYears.map((year) => <option key={year} value={year}>{year}</option>)}
-                </select>
+                  className="sm:w-auto sm:min-w-[180px]"
+                />
               </div>
 
               {periodsLoading ? (
