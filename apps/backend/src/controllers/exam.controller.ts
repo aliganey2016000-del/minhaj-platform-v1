@@ -160,13 +160,19 @@ async function validateFixedExamSchedule(input: {
   // that rule off, only then does an overlapping exam using the same room
   // become a hard scheduling conflict.
   if (!rules.allowSharedRooms && newRoom) {
+    const excludedIds = Array.from(new Set([
+      ...(input.excludeExamIds || []),
+      ...(input.excludeExamId ? [input.excludeExamId] : []),
+    ].filter(Boolean)));
+
     const roomPersisted = await Exam.find({
       school: input.schoolId || null,
       autoSchedule: { $ne: true },
+      schedulePlaced: { $ne: false },
       status: { $ne: 'cancelled' },
       examDate: { $gte: dayStart, $lt: dayEnd },
       room: newRoom,
-      ...(input.excludeExamId ? { _id: { $ne: input.excludeExamId } } : {}),
+      ...(excludedIds.length ? { _id: { $nin: excludedIds } } : {}),
     }).select('title startTime endTime').lean() as any[];
 
     const roomPending = pending.filter(
