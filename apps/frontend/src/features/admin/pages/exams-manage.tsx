@@ -4,7 +4,7 @@
  */
 
 import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown, Printer } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown, Printer, SlidersHorizontal } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -299,6 +299,116 @@ function CheckboxMultiFilter({
             );
           })}
           {options.length === 0 && <p className="px-2.5 py-3 text-xs text-[var(--color-text-tertiary)]">No options available.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExamFiltersMenu({
+  statusFilters,
+  setStatusFilters,
+  classFilters,
+  setClassFilters,
+  departmentFilters,
+  setDepartmentFilters,
+  scheduleFilters,
+  setScheduleFilters,
+  dateFilter,
+  setDateFilter,
+  statusOptions,
+  classOptions,
+  departmentOptions,
+  scheduleOptions,
+  onClear,
+}: {
+  statusFilters: string[] | null;
+  setStatusFilters: (value: string[] | null) => void;
+  classFilters: string[] | null;
+  setClassFilters: (value: string[] | null) => void;
+  departmentFilters: string[] | null;
+  setDepartmentFilters: (value: string[] | null) => void;
+  scheduleFilters: string[] | null;
+  setScheduleFilters: (value: string[] | null) => void;
+  dateFilter: string;
+  setDateFilter: (value: string) => void;
+  statusOptions: Array<{ value: string; label: string; count?: number }>;
+  classOptions: Array<{ value: string; label: string; count?: number }>;
+  departmentOptions: Array<{ value: string; label: string; count?: number }>;
+  scheduleOptions: Array<{ value: string; label: string; count?: number }>;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const activeCount = [
+    statusFilters !== null,
+    classFilters !== null,
+    departmentFilters !== null,
+    scheduleFilters !== null,
+    Boolean(dateFilter),
+  ].filter(Boolean).length;
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className={`inline-flex h-[42px] items-center justify-center gap-2 rounded-xl border px-3.5 text-sm font-bold transition-colors ${
+          activeCount
+            ? 'border-primary-300 bg-primary-50 text-primary-700 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-300'
+            : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] hover:border-primary-300'
+        }`}
+        aria-expanded={open}
+        aria-label="Exam filters"
+      >
+        <SlidersHorizontal className="h-4 w-4" />
+        <span className="hidden sm:inline">Filters</span>
+        {activeCount > 0 && (
+          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-600 px-1.5 text-[10px] font-black text-white">
+            {activeCount}
+          </span>
+        )}
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-[100] mt-2 w-[min(88vw,360px)] rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-2xl">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-[var(--color-text-primary)]">Filters</p>
+              <p className="text-[11px] text-[var(--color-text-tertiary)]">Narrow the selected examination.</p>
+            </div>
+            {activeCount > 0 && (
+              <button type="button" onClick={onClear} className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">
+                Clear
+              </button>
+            )}
+          </div>
+
+          <div className="grid gap-2">
+            <CheckboxMultiFilter label="All Status" selected={statusFilters} onChange={setStatusFilters} options={statusOptions} />
+            <CheckboxMultiFilter label="All Classes" selected={classFilters} onChange={setClassFilters} options={classOptions} />
+            <CheckboxMultiFilter label="All Departments" selected={departmentFilters} onChange={setDepartmentFilters} options={departmentOptions} />
+            <CheckboxMultiFilter label="All Types" selected={scheduleFilters} onChange={setScheduleFilters} options={scheduleOptions} />
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Exam Date</span>
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={(event) => setDateFilter(event.target.value)}
+                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20"
+              />
+            </label>
+          </div>
         </div>
       )}
     </div>
@@ -4186,13 +4296,6 @@ export function ExamsManage() {
     );
   }
 
-  const statCards = [
-    { key: '', label: 'Total Exams', count: scopedExams.length, icon: LayoutGrid, tone: 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300' },
-    { key: 'scheduled', label: 'Scheduled', count: scheduledCount, icon: CalendarClock, tone: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-300' },
-    { key: 'ongoing', label: 'Ongoing', count: ongoingCount, icon: PlayCircle, tone: 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300' },
-    { key: 'completed', label: 'Completed', count: completedCount, icon: CheckCircle2, tone: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300' },
-  ] as const;
-
   if (!examDetailOpen) {
     return (
       <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
@@ -4462,62 +4565,9 @@ export function ExamsManage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-              {statCards.map((card) => {
-                const active = card.key
-                  ? statusFilters !== null && statusFilters.includes(card.key)
-                  : statusFilters === null;
-                return (
-                  <button
-                    key={card.label}
-                    type="button"
-                    onClick={() => {
-                      if (!card.key) {
-                        setStatusFilters(null);
-                        return;
-                      }
-                      const current = statusFilters === null
-                        ? ['scheduled', 'ongoing', 'completed', 'cancelled']
-                        : statusFilters;
-                      const next = current.includes(card.key)
-                        ? current.filter((item) => item !== card.key)
-                        : [...current, card.key];
-                      setStatusFilters(next.length === 4 ? null : next);
-                    }}
-                    className={'group rounded-2xl border bg-[var(--color-surface-primary)] p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ' + (active ? 'border-primary-400 ring-2 ring-primary-500/10' : 'border-[var(--color-border-default)]')}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <span className={'flex h-10 w-10 items-center justify-center rounded-2xl ' + card.tone}><card.icon className="h-5 w-5" /></span>
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">{active ? 'Active' : 'View'}</span>
-                    </div>
-                    <p className="mt-4 text-2xl font-bold text-[var(--color-text-primary)]">{card.count}</p>
-                    <p className="mt-0.5 text-xs font-semibold text-[var(--color-text-tertiary)]">{card.label}</p>
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => {
-                  const current = scheduleFilters === null ? ['manual', 'auto'] : scheduleFilters;
-                  const next = current.includes('auto')
-                    ? current.filter((item) => item !== 'auto')
-                    : [...current, 'auto'];
-                  setScheduleFilters(next.length === 2 ? null : next);
-                }}
-                className={'group rounded-2xl border bg-[var(--color-surface-primary)] p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ' + (scheduleFilters !== null && scheduleFilters.includes('auto') ? 'border-violet-400 ring-2 ring-violet-500/10' : 'border-[var(--color-border-default)]')}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-300"><CalendarDays className="h-5 w-5" /></span>
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">Auto</span>
-                </div>
-                <p className="mt-4 text-2xl font-bold text-[var(--color-text-primary)]">{autoCount}</p>
-                <p className="mt-0.5 text-xs font-semibold text-[var(--color-text-tertiary)]">Auto Scheduled</p>
-              </button>
-            </div>
-
             <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm">
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,1.35fr)_repeat(5,minmax(125px,.72fr))]">
-                <div className="relative">
+              <div className="flex items-center gap-2">
+                <div className="relative min-w-0 flex-1">
                   <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
                   <input
                     value={search}
@@ -4527,58 +4577,40 @@ export function ExamsManage() {
                   />
                 </div>
 
-                <CheckboxMultiFilter
-                  label="All Status"
-                  selected={statusFilters}
-                  onChange={setStatusFilters}
-                  options={[
+                <ExamFiltersMenu
+                  statusFilters={statusFilters}
+                  setStatusFilters={setStatusFilters}
+                  classFilters={classFilters}
+                  setClassFilters={setClassFilters}
+                  departmentFilters={departmentFilters}
+                  setDepartmentFilters={setDepartmentFilters}
+                  scheduleFilters={scheduleFilters}
+                  setScheduleFilters={setScheduleFilters}
+                  dateFilter={dateFilter}
+                  setDateFilter={setCalendarDate}
+                  statusOptions={[
                     { value: 'scheduled', label: 'Scheduled', count: scheduledCount },
                     { value: 'ongoing', label: 'Ongoing', count: ongoingCount },
                     { value: 'completed', label: 'Completed', count: completedCount },
                     { value: 'cancelled', label: 'Cancelled', count: cancelledCount },
                   ]}
-                />
-
-                <CheckboxMultiFilter
-                  label="All Classes"
-                  selected={classFilters}
-                  onChange={setClassFilters}
-                  options={classOptions.map((item) => ({
+                  classOptions={classOptions.map((item) => ({
                     value: item.id,
                     label: item.label,
                     count: scopedExams.filter((exam) => exam.course?.class?._id === item.id).length,
                   }))}
-                />
-
-                <CheckboxMultiFilter
-                  label="All Departments"
-                  selected={departmentFilters}
-                  onChange={setDepartmentFilters}
-                  options={departmentOptions.map((item) => ({
+                  departmentOptions={departmentOptions.map((item) => ({
                     value: item.id,
                     label: item.label,
                     count: scopedExams.filter((exam) => exam.course?.class?.department?._id === item.id).length,
                   }))}
-                />
-
-                <CheckboxMultiFilter
-                  label="All Types"
-                  selected={scheduleFilters}
-                  onChange={setScheduleFilters}
-                  options={[
+                  scheduleOptions={[
                     { value: 'manual', label: 'Manual', count: manualCount },
                     { value: 'auto', label: 'Automatic', count: autoCount },
                   ]}
+                  onClear={clearFilters}
                 />
-
-                <input type="date" value={dateFilter} onChange={(e) => setCalendarDate(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20" />
               </div>
-
-              {(statusFilters !== null || scheduleFilters !== null || classFilters !== null || departmentFilters !== null || dateFilter) && (
-                <div className="mt-3 flex justify-end">
-                  <button type="button" onClick={clearFilters} className="rounded-lg px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">Clear filters</button>
-                </div>
-              )}
             </div>
 
             <div
