@@ -252,7 +252,7 @@ function AnnualExamActionsMenu({
         <MoreVertical className="h-5 w-5" />
       </button>
       {open && (
-        <div className="absolute right-0 top-11 z-40 w-44 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-1 shadow-xl">
+        <div className="absolute right-0 top-11 z-[80] w-44 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-1 shadow-2xl">
           <button type="button" onClick={(event) => { event.stopPropagation(); run(onEdit); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
             <Pencil className="h-4 w-4" /> Edit
           </button>
@@ -3327,7 +3327,7 @@ export function ExamsManage() {
 
             <ExamWorkspaceTabs />
 
-            <section className="overflow-hidden rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+            <section className="overflow-visible rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
               <div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
                 <div>
                   <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Annual Examinations</h2>
