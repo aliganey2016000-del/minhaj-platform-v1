@@ -666,6 +666,82 @@ function DepartmentalExamView({
     <div className="space-y-4">
       <style>{`
         .exam-department-print-only { display: none; }
+
+        @media (max-width: 639px) {
+          .exam-department-scroll {
+            overflow-x: hidden !important;
+          }
+          .exam-department-table {
+            width: 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            table-layout: fixed !important;
+          }
+          .exam-department-day-col {
+            width: 23% !important;
+            max-width: 23% !important;
+            padding: 8px 6px !important;
+          }
+          .exam-department-shift-head {
+            padding: 8px 4px !important;
+          }
+          .exam-department-shift-head > div:first-child {
+            font-size: 10px !important;
+            line-height: 1.15 !important;
+          }
+          .exam-department-shift-head > div:last-child {
+            margin-top: 2px !important;
+            font-size: 8px !important;
+            line-height: 1.1 !important;
+            white-space: nowrap !important;
+          }
+          .exam-department-break-col {
+            width: 12% !important;
+            max-width: 12% !important;
+            padding: 5px 2px !important;
+          }
+          .exam-department-break-col > div:first-child,
+          .exam-department-break-label {
+            font-size: 7.5px !important;
+            line-height: 1.05 !important;
+            letter-spacing: .04em !important;
+          }
+          .exam-department-break-col > div:last-child {
+            font-size: 7px !important;
+            line-height: 1.05 !important;
+            white-space: normal !important;
+          }
+          .exam-department-shift-cell {
+            padding: 5px !important;
+          }
+          .exam-department-subject {
+            min-height: 46px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border-radius: 10px !important;
+            padding: 7px 5px !important;
+            text-align: center !important;
+          }
+          .exam-department-subject p {
+            font-size: 10px !important;
+            line-height: 1.2 !important;
+            overflow-wrap: anywhere !important;
+            word-break: normal !important;
+          }
+          .exam-department-day-col > div:first-child {
+            font-size: 8px !important;
+          }
+          .exam-department-day-col > div:nth-child(2) {
+            margin-top: 2px !important;
+            font-size: 11px !important;
+            line-height: 1.1 !important;
+          }
+          .exam-department-day-col > div:last-child {
+            font-size: 9px !important;
+          }
+        }
+
         @media print {
           @page { size: A4 landscape; margin: 7mm; }
           html, body {
@@ -826,13 +902,6 @@ function DepartmentalExamView({
             font-weight: 900 !important;
             color: #0f172a !important;
           }
-          #exam-department-print .exam-print-subject-card span {
-            font-size: 8.4px !important;
-            line-height: 1.1 !important;
-            font-weight: 800 !important;
-            background: #fff !important;
-            color: #334155 !important;
-          }
           #exam-department-print .exam-print-footer {
             display: flex !important;
             align-items: center !important;
@@ -934,21 +1003,21 @@ function DepartmentalExamView({
               This department has active classes, but no exam papers are scheduled yet.
             </div>
           ) : (
-            <div className="exam-department-scroll max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
-              <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth, tableLayout: 'fixed' }}>
+            <div className="exam-department-scroll max-w-full overflow-x-hidden overscroll-x-contain sm:overflow-x-auto [scrollbar-width:thin]">
+              <table className="exam-department-table w-full border-collapse text-xs sm:text-sm" style={{ minWidth, tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
-                    <th className="w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                    <th className="exam-department-day-col w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
                       Day / Date
                     </th>
                     {shifts.map((shift, index) => (
                       <Fragment key={shift.key}>
-                        <th className="border-b border-r border-[var(--color-border-default)] bg-primary-50/50 px-3 py-3 text-center dark:bg-primary-950/10">
+                        <th className="exam-department-shift-head border-b border-r border-[var(--color-border-default)] bg-primary-50/50 px-3 py-3 text-center dark:bg-primary-950/10">
                           <div className="font-extrabold text-primary-700 dark:text-primary-300">Shift {index + 1}</div>
                           <div className="mt-0.5 text-[10px] font-semibold text-[var(--color-text-tertiary)]">{shift.startTime}–{shift.endTime}</div>
                         </th>
                         {index < shifts.length - 1 && (
-                          <th className="w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50/50 px-2 py-3 text-center dark:bg-amber-950/10">
+                          <th className="exam-department-break-col w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50/50 px-2 py-3 text-center dark:bg-amber-950/10">
                             <div className="text-[10px] font-extrabold uppercase text-amber-700 dark:text-amber-300">Break</div>
                             <div className="mt-0.5 text-[9px] font-semibold text-amber-600/80 dark:text-amber-400">
                               {shift.endTime}–{shifts[index + 1].startTime}
@@ -964,7 +1033,7 @@ function DepartmentalExamView({
                     const parsed = new Date(`${date}T00:00:00`);
                     return (
                       <tr key={date} className="align-top">
-                        <td className="border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-4">
+                        <td className="exam-department-day-col border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-4">
                           <div className="text-[10px] font-extrabold uppercase tracking-wide text-primary-600">Day {dayIndex + 1}</div>
                           <div className="mt-1 font-bold text-[var(--color-text-primary)]">
                             {parsed.toLocaleDateString(undefined, { weekday: 'short' })}
@@ -977,29 +1046,22 @@ function DepartmentalExamView({
                           const items = selectedSchedule.cells.get(`${date}::${shift.key}`) || [];
                           return (
                             <Fragment key={shift.key}>
-                              <td className="border-b border-r border-[var(--color-border-default)] p-2.5">
+                              <td className="exam-department-shift-cell border-b border-r border-[var(--color-border-default)] p-2.5">
                                 {items.length === 0 ? (
                                   <div className="flex min-h-16 items-center justify-center text-[var(--color-text-tertiary)]">—</div>
                                 ) : (
                                   <div className="space-y-2">
                                     {items.map((item) => (
-                                      <div key={item.subject} className="exam-print-subject-card rounded-xl border border-primary-100 bg-primary-50/40 p-2.5 dark:border-primary-900/30 dark:bg-primary-950/10">
+                                      <div key={item.subject} className="exam-department-subject exam-print-subject-card rounded-xl border border-primary-100 bg-primary-50/40 p-2.5 dark:border-primary-900/30 dark:bg-primary-950/10">
                                         <p className="font-bold text-[var(--color-text-primary)]">{item.subject}</p>
-                                        <div className="mt-1.5 flex flex-wrap gap-1">
-                                          {item.classes.map((className) => (
-                                            <span key={className} className="rounded-md bg-[var(--color-surface-primary)] px-1.5 py-1 text-[9px] font-semibold text-[var(--color-text-secondary)] shadow-sm">
-                                              {className}
-                                            </span>
-                                          ))}
-                                        </div>
                                       </div>
                                     ))}
                                   </div>
                                 )}
                               </td>
                               {index < shifts.length - 1 && (
-                                <td className="border-b border-r border-[var(--color-border-default)] bg-amber-50/20 p-2 text-center align-middle dark:bg-amber-950/5">
-                                  <span className="text-[9px] font-bold uppercase tracking-wide text-amber-600">Break</span>
+                                <td className="exam-department-break-col border-b border-r border-[var(--color-border-default)] bg-amber-50/20 p-2 text-center align-middle dark:bg-amber-950/5">
+                                  <span className="exam-department-break-label text-[9px] font-bold uppercase tracking-wide text-amber-600">Break</span>
                                 </td>
                               )}
                             </Fragment>
