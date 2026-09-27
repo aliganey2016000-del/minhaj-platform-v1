@@ -1005,13 +1005,13 @@ function ExamsActionsMenu({
 
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button onClick={() => { setOpen(false); onByDay(); }} disabled={periodActionDisabled} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${scheduleContext.perspective === 'day' && !departmentViewActive ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
-            <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.75} /> By Day
+            <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.75} /> View By Date
           </button>
           <button onClick={() => { setOpen(false); onByClass(); }} disabled={periodActionDisabled} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${scheduleContext.perspective === 'class' && !departmentViewActive ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
-            <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.75} /> By Class
+            <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.75} /> View By Class
           </button>
           <button onClick={() => { setOpen(false); onByDepartment(); }} disabled={periodActionDisabled} className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${departmentViewActive ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/20 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
-            <Building2 className="h-3.5 w-3.5" strokeWidth={1.75} /> By Department
+            <Building2 className="h-3.5 w-3.5" strokeWidth={1.75} /> View By Department
           </button>
 
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
