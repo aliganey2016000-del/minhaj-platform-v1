@@ -1131,6 +1131,10 @@ export const resetScheduleGroups = async (req: Request, res: Response): Promise<
   return ApiResponse.success(res, { reset: examIds.length }, `${examIds.length} exam(s) cleared from the timetable`);
 };
 
+// Backward-compatible route names used by the department cell editor.
+export const assignScheduleCell = moveScheduleGroup;
+export const resetDepartmentSchedule = resetScheduleGroups;
+
 // POST /exams/schedule-grid — bulk-save editable cells from the rules-driven grid.
 // Each changed cell is applied independently so a single conflict does not discard
 // other valid changes. Course changes are allowed here only when the replacement
