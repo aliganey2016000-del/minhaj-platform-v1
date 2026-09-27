@@ -470,18 +470,35 @@ function AnnualExamActionsMenu({
   );
 }
 
+type DepartmentMoveGroup = {
+  subject: string;
+  fromDate: string;
+  fromShiftIndex: number;
+  examIds: string[];
+};
+
 function DepartmentalExamView({
   exams,
   period,
   classes,
+  onChanged,
 }: {
   exams: Exam[];
   period?: ExamPeriod;
   classes: ClassBrief[];
+  onChanged: () => Promise<void> | void;
 }) {
   const { user } = useAuth();
   const [selectedDepartmentKey, setSelectedDepartmentKey] = useState('');
   const [printBranding, setPrintBranding] = useState<{ name?: string; branding?: { logo?: string } }>({});
+  const [departmentEditMode, setDepartmentEditMode] = useState(false);
+  const [moveGroup, setMoveGroup] = useState<DepartmentMoveGroup | null>(null);
+  const [dragGroup, setDragGroup] = useState<DepartmentMoveGroup | null>(null);
+  const [moveDate, setMoveDate] = useState('');
+  const [moveShiftIndex, setMoveShiftIndex] = useState(0);
+  const [movingGroup, setMovingGroup] = useState(false);
+  const [moveError, setMoveError] = useState('');
+  const [moveSuccess, setMoveSuccess] = useState('');
 
   const departmentSchoolId = useMemo(() => {
     if (typeof period?.school === 'string') return period.school;
@@ -641,6 +658,64 @@ function DepartmentalExamView({
     () => schedules.find((schedule) => schedule.key === selectedDepartmentKey) || schedules[0],
     [schedules, selectedDepartmentKey],
   );
+
+  const buildMoveGroup = (subject: string, fromDate: string, fromShiftIndex: number): DepartmentMoveGroup => {
+    const shift = shifts[fromShiftIndex];
+    const examIds = !shift || !selectedSchedule
+      ? []
+      : selectedSchedule.exams
+          .filter((exam) =>
+            examDateKey(exam) === fromDate
+            && exam.startTime === shift.startTime
+            && exam.endTime === shift.endTime
+            && (exam.course?.title?.en || exam.title || 'Exam') === subject
+          )
+          .map((exam) => exam._id);
+
+    return { subject, fromDate, fromShiftIndex, examIds };
+  };
+
+  const openMoveDialog = (group: DepartmentMoveGroup) => {
+    if (!group.examIds.length) return;
+    setMoveError('');
+    setMoveSuccess('');
+    setMoveGroup(group);
+    setMoveDate(group.fromDate);
+    setMoveShiftIndex(group.fromShiftIndex);
+  };
+
+  const moveDepartmentGroup = async (
+    group: DepartmentMoveGroup,
+    targetDate: string,
+    targetShiftIndex: number,
+  ) => {
+    if (!period?._id || !departmentSchoolId || !group.examIds.length) return;
+    if (group.fromDate === targetDate && group.fromShiftIndex === targetShiftIndex) {
+      setMoveGroup(null);
+      return;
+    }
+
+    setMovingGroup(true);
+    setMoveError('');
+    setMoveSuccess('');
+    try {
+      const response = await api.post(`/exams/periods/${period._id}/move-schedule-group`, {
+        school: departmentSchoolId,
+        examIds: group.examIds,
+        targetDate,
+        targetShiftIndex,
+      });
+      const moved = Number(response.data?.data?.moved || group.examIds.length);
+      setMoveGroup(null);
+      setDragGroup(null);
+      setMoveSuccess(`${group.subject} moved for ${moved} class${moved === 1 ? '' : 'es'}.`);
+      await onChanged();
+    } catch (err: any) {
+      setMoveError(err?.response?.data?.message || 'Could not move this subject group.');
+    } finally {
+      setMovingGroup(false);
+    }
+  };
 
   const minWidth = Math.max(760, 170 + shifts.length * 260 + Math.max(0, shifts.length - 1) * 110);
   const departmentSchoolName = printBranding.name
@@ -931,7 +1006,12 @@ function DepartmentalExamView({
           <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Department</span>
           <select
             value={selectedSchedule?.key || ''}
-            onChange={(e) => setSelectedDepartmentKey(e.target.value)}
+            onChange={(e) => {
+              setSelectedDepartmentKey(e.target.value);
+              setMoveGroup(null);
+              setMoveError('');
+              setMoveSuccess('');
+            }}
             className="w-full min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold"
           >
             {schedules.map((schedule) => (
@@ -939,10 +1019,30 @@ function DepartmentalExamView({
             ))}
           </select>
         </label>
+
+        <button
+          type="button"
+          onClick={() => {
+            setDepartmentEditMode((current) => !current);
+            setMoveGroup(null);
+            setMoveError('');
+            setMoveSuccess('');
+          }}
+          disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || movingGroup}
+          className={`inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-bold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:px-4 ${
+            departmentEditMode
+              ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300'
+              : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'
+          }`}
+        >
+          <Pencil className="h-4 w-4" />
+          <span>{departmentEditMode ? 'Done' : 'Edit'}</span>
+        </button>
+
         <button
           type="button"
           onClick={() => window.print()}
-          disabled={!selectedSchedule || selectedSchedule.exams.length === 0}
+          disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || departmentEditMode}
           className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-3 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40 sm:px-4"
         >
           <Printer className="h-4 w-4" />
@@ -950,6 +1050,22 @@ function DepartmentalExamView({
           <span className="hidden sm:inline">Print Department</span>
         </button>
       </div>
+
+      {departmentEditMode && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+          Tap a subject to move it for all classes together. On desktop you can also drag the subject directly to another Day + Shift cell.
+        </div>
+      )}
+      {moveError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
+          {moveError}
+        </div>
+      )}
+      {moveSuccess && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
+          {moveSuccess}
+        </div>
+      )}
 
       {!selectedSchedule ? (
         <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center text-sm text-[var(--color-text-tertiary)]">
@@ -1044,15 +1160,52 @@ function DepartmentalExamView({
                           const items = selectedSchedule.cells.get(`${date}::${shift.key}`) || [];
                           return (
                             <Fragment key={shift.key}>
-                              <td className="exam-department-shift-cell border-b border-r border-[var(--color-border-default)] p-2.5 align-middle">
+                              <td
+                                className={`exam-department-shift-cell border-b border-r border-[var(--color-border-default)] p-2.5 align-middle ${departmentEditMode ? 'bg-primary-50/20 dark:bg-primary-950/5' : ''}`}
+                                onDragOver={(event) => {
+                                  if (!departmentEditMode || !dragGroup || movingGroup) return;
+                                  event.preventDefault();
+                                  event.dataTransfer.dropEffect = 'move';
+                                }}
+                                onDrop={(event) => {
+                                  if (!departmentEditMode || !dragGroup || movingGroup) return;
+                                  event.preventDefault();
+                                  const group = dragGroup;
+                                  setDragGroup(null);
+                                  void moveDepartmentGroup(group, date, index);
+                                }}
+                              >
                                 {items.length === 0 ? (
                                   <div className="flex min-h-16 items-center justify-center text-[var(--color-text-tertiary)]">—</div>
                                 ) : (
                                   <div className="space-y-2">
                                     {items.map((item) => (
-                                      <div key={item.subject} className="exam-department-subject exam-print-subject-card rounded-xl border border-primary-100 bg-primary-50/40 p-2.5 dark:border-primary-900/30 dark:bg-primary-950/10">
+                                      <button
+                                        key={item.subject}
+                                        type="button"
+                                        disabled={!departmentEditMode || movingGroup}
+                                        draggable={departmentEditMode && !movingGroup}
+                                        onClick={() => {
+                                          if (!departmentEditMode || movingGroup) return;
+                                          openMoveDialog(buildMoveGroup(item.subject, date, index));
+                                        }}
+                                        onDragStart={(event) => {
+                                          if (!departmentEditMode || movingGroup) return;
+                                          const group = buildMoveGroup(item.subject, date, index);
+                                          if (!group.examIds.length) {
+                                            event.preventDefault();
+                                            return;
+                                          }
+                                          setDragGroup(group);
+                                          event.dataTransfer.effectAllowed = 'move';
+                                          event.dataTransfer.setData('text/plain', item.subject);
+                                        }}
+                                        onDragEnd={() => setDragGroup(null)}
+                                        title={departmentEditMode ? 'Tap to move all classes, or drag on desktop' : undefined}
+                                        className={`exam-department-subject exam-print-subject-card w-full rounded-xl border border-primary-100 bg-primary-50/40 p-2.5 dark:border-primary-900/30 dark:bg-primary-950/10 ${departmentEditMode ? 'cursor-grab ring-1 ring-amber-300/70 hover:border-amber-400 active:cursor-grabbing' : 'cursor-default'}`}
+                                      >
                                         <p className="font-bold text-[var(--color-text-primary)]">{item.subject}</p>
-                                      </div>
+                                      </button>
                                     ))}
                                   </div>
                                 )}
@@ -1077,6 +1230,89 @@ function DepartmentalExamView({
             <span>{period?.name || 'Exam'} · {period?.academicYear || ''}</span>
           </div>
         </section>
+      )}
+
+      {moveGroup && (
+        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 p-3 sm:items-center" onMouseDown={() => !movingGroup && setMoveGroup(null)}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-2xl sm:p-5"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-[var(--color-text-primary)]">Move {moveGroup.subject}</h3>
+                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
+                  This moves all {moveGroup.examIds.length} class exam{moveGroup.examIds.length === 1 ? '' : 's'} together.
+                </p>
+              </div>
+              <button type="button" onClick={() => !movingGroup && setMoveGroup(null)} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)]">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label>
+                <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Day / Date</span>
+                <select
+                  value={moveDate}
+                  onChange={(event) => setMoveDate(event.target.value)}
+                  disabled={movingGroup}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm font-semibold"
+                >
+                  {dates.map((date, dayIndex) => {
+                    const parsed = new Date(`${date}T00:00:00`);
+                    return (
+                      <option key={date} value={date}>
+                        Day {dayIndex + 1} · {parsed.toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short' })}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+
+              <label>
+                <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Shift</span>
+                <select
+                  value={moveShiftIndex}
+                  onChange={(event) => setMoveShiftIndex(Number(event.target.value))}
+                  disabled={movingGroup}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm font-semibold"
+                >
+                  {shifts.map((shift, shiftIndex) => (
+                    <option key={shift.key} value={shiftIndex}>
+                      Shift {shiftIndex + 1} · {shift.startTime}–{shift.endTime}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {moveError && (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
+                {moveError}
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMoveGroup(null)}
+                disabled={movingGroup}
+                className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-bold text-[var(--color-text-secondary)] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void moveDepartmentGroup(moveGroup, moveDate, moveShiftIndex)}
+                disabled={movingGroup || !moveDate}
+                className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:opacity-50"
+              >
+                {movingGroup ? 'Moving…' : 'Move All Classes'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -4814,6 +5050,10 @@ export function ExamsManage() {
                 exams={scopedExams}
                 period={selectedPeriodMeta}
                 classes={filterClasses}
+                onChanged={async () => {
+                  await fetchData();
+                  await fetchExamPeriods();
+                }}
               />
             )}
 
