@@ -4,7 +4,7 @@
  */
 
 import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -205,6 +205,93 @@ function RowActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEd
           <button onClick={() => { setOpen(false); onDelete(); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
             <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Delete
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CheckboxMultiFilter({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: Array<{ value: string; label: string; count?: number }>;
+  selected: string[] | null;
+  onChange: (value: string[] | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const allSelected = selected === null || selected.length === options.length;
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  const toggleOption = (value: string) => {
+    const current = selected === null ? options.map((option) => option.value) : selected;
+    const next = current.includes(value)
+      ? current.filter((item) => item !== value)
+      : [...current, value];
+
+    onChange(next.length === options.length ? null : next);
+  };
+
+  const summary = selected === null
+    ? label
+    : selected.length === 0
+      ? 'None selected'
+      : selected.length === 1
+        ? options.find((option) => option.value === selected[0])?.label || label
+        : `${selected.length} selected`;
+
+  return (
+    <div ref={ref} className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center justify-between gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-left text-sm outline-none transition hover:border-primary-300 focus:ring-2 focus:ring-primary-500/20"
+      >
+        <span className="truncate">{summary}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-[var(--color-text-tertiary)] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 z-[90] mt-1 max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-2 shadow-2xl">
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-semibold hover:bg-[var(--color-surface-secondary)]">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={() => onChange(allSelected ? [] : null)}
+              className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30"
+            />
+            <span className="flex-1">All</span>
+            <span className="text-xs text-[var(--color-text-tertiary)]">{options.length}</span>
+          </label>
+          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+          {options.map((option) => {
+            const checked = selected === null || selected.includes(option.value);
+            return (
+              <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-[var(--color-surface-secondary)]">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleOption(option.value)}
+                  className="h-4 w-4 rounded border-[var(--color-border-default)] text-primary-600 focus:ring-primary-500/30"
+                />
+                <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                {option.count !== undefined && <span className="text-xs text-[var(--color-text-tertiary)]">{option.count}</span>}
+              </label>
+            );
+          })}
+          {options.length === 0 && <p className="px-2.5 py-3 text-xs text-[var(--color-text-tertiary)]">No options available.</p>}
         </div>
       )}
     </div>
@@ -2891,10 +2978,10 @@ export function ExamsManage() {
   const examsLoadedRef = useRef(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [scheduleFilter, setScheduleFilter] = useState<'all' | 'manual' | 'auto'>('all');
-  const [classFilter, setClassFilter] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [statusFilters, setStatusFilters] = useState<string[] | null>(null);
+  const [scheduleFilters, setScheduleFilters] = useState<string[] | null>(null);
+  const [classFilters, setClassFilters] = useState<string[] | null>(null);
+  const [departmentFilters, setDepartmentFilters] = useState<string[] | null>(null);
   const [dateFilter, setDateFilter] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'table'>(() => {
     try {
@@ -3055,11 +3142,11 @@ export function ExamsManage() {
   const visibleExams = scopedExams.filter((exam) => {
     const cls = exam.course?.class;
     const dept = cls?.department;
-    if (scheduleFilter === 'manual' && exam.autoSchedule) return false;
-    if (scheduleFilter === 'auto' && !exam.autoSchedule) return false;
-    if (statusFilter && getEffectiveStatus(exam) !== statusFilter) return false;
-    if (classFilter && cls?._id !== classFilter) return false;
-    if (departmentFilter && dept?._id !== departmentFilter) return false;
+    const scheduleType = exam.autoSchedule ? 'auto' : 'manual';
+    if (scheduleFilters !== null && !scheduleFilters.includes(scheduleType)) return false;
+    if (statusFilters !== null && !statusFilters.includes(getEffectiveStatus(exam))) return false;
+    if (classFilters !== null && !classFilters.includes(cls?._id || '')) return false;
+    if (departmentFilters !== null && !departmentFilters.includes(dept?._id || '')) return false;
     if (dateFilter) {
       if (!exam.examDate || exam.autoSchedule) return false;
       const key = new Date(exam.examDate).toISOString().slice(0, 10);
@@ -3118,10 +3205,10 @@ export function ExamsManage() {
   };
 
   const clearFilters = () => {
-    setStatusFilter('');
-    setScheduleFilter('all');
-    setClassFilter('');
-    setDepartmentFilter('');
+    setStatusFilters(null);
+    setScheduleFilters(null);
+    setClassFilters(null);
+    setDepartmentFilters(null);
     setDateFilter('');
   };
 
@@ -3150,10 +3237,10 @@ export function ExamsManage() {
     setSelectedExamPeriodId(period._id);
     setExamDetailOpen(true);
     setViewMode('table');
-    setStatusFilter('');
-    setScheduleFilter('all');
-    setClassFilter('');
-    setDepartmentFilter('');
+    setStatusFilters(null);
+    setScheduleFilters(null);
+    setClassFilters(null);
+    setDepartmentFilters(null);
     setDateFilter('');
     setSearch('');
     if (pageSchoolId) {
@@ -3171,10 +3258,10 @@ export function ExamsManage() {
     setSelectedExamPeriodId('');
     setScheduleActionRequest(null);
     setSelected(new Set());
-    setStatusFilter('');
-    setScheduleFilter('all');
-    setClassFilter('');
-    setDepartmentFilter('');
+    setStatusFilters(null);
+    setScheduleFilters(null);
+    setClassFilters(null);
+    setDepartmentFilters(null);
     setDateFilter('');
     setSearch('');
   };
@@ -3541,25 +3628,48 @@ export function ExamsManage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-              {statCards.map((card) => (
-                <button
-                  key={card.label}
-                  type="button"
-                  onClick={() => setStatusFilter(card.key)}
-                  className={'group rounded-2xl border bg-[var(--color-surface-primary)] p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ' + (statusFilter === card.key ? 'border-primary-400 ring-2 ring-primary-500/10' : 'border-[var(--color-border-default)]')}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <span className={'flex h-10 w-10 items-center justify-center rounded-2xl ' + card.tone}><card.icon className="h-5 w-5" /></span>
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">{statusFilter === card.key ? 'Active' : 'View'}</span>
-                  </div>
-                  <p className="mt-4 text-2xl font-bold text-[var(--color-text-primary)]">{card.count}</p>
-                  <p className="mt-0.5 text-xs font-semibold text-[var(--color-text-tertiary)]">{card.label}</p>
-                </button>
-              ))}
+              {statCards.map((card) => {
+                const active = card.key
+                  ? statusFilters !== null && statusFilters.includes(card.key)
+                  : statusFilters === null;
+                return (
+                  <button
+                    key={card.label}
+                    type="button"
+                    onClick={() => {
+                      if (!card.key) {
+                        setStatusFilters(null);
+                        return;
+                      }
+                      const current = statusFilters === null
+                        ? ['scheduled', 'ongoing', 'completed', 'cancelled']
+                        : statusFilters;
+                      const next = current.includes(card.key)
+                        ? current.filter((item) => item !== card.key)
+                        : [...current, card.key];
+                      setStatusFilters(next.length === 4 ? null : next);
+                    }}
+                    className={'group rounded-2xl border bg-[var(--color-surface-primary)] p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ' + (active ? 'border-primary-400 ring-2 ring-primary-500/10' : 'border-[var(--color-border-default)]')}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <span className={'flex h-10 w-10 items-center justify-center rounded-2xl ' + card.tone}><card.icon className="h-5 w-5" /></span>
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">{active ? 'Active' : 'View'}</span>
+                    </div>
+                    <p className="mt-4 text-2xl font-bold text-[var(--color-text-primary)]">{card.count}</p>
+                    <p className="mt-0.5 text-xs font-semibold text-[var(--color-text-tertiary)]">{card.label}</p>
+                  </button>
+                );
+              })}
               <button
                 type="button"
-                onClick={() => { setScheduleFilter('auto'); setStatusFilter(''); }}
-                className={'group rounded-2xl border bg-[var(--color-surface-primary)] p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ' + (scheduleFilter === 'auto' ? 'border-violet-400 ring-2 ring-violet-500/10' : 'border-[var(--color-border-default)]')}
+                onClick={() => {
+                  const current = scheduleFilters === null ? ['manual', 'auto'] : scheduleFilters;
+                  const next = current.includes('auto')
+                    ? current.filter((item) => item !== 'auto')
+                    : [...current, 'auto'];
+                  setScheduleFilters(next.length === 2 ? null : next);
+                }}
+                className={'group rounded-2xl border bg-[var(--color-surface-primary)] p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ' + (scheduleFilters !== null && scheduleFilters.includes('auto') ? 'border-violet-400 ring-2 ring-violet-500/10' : 'border-[var(--color-border-default)]')}
               >
                 <div className="flex items-start justify-between gap-3">
                   <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-300"><CalendarDays className="h-5 w-5" /></span>
@@ -3571,7 +3681,7 @@ export function ExamsManage() {
             </div>
 
             <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm">
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,1.4fr)_repeat(4,minmax(130px,.7fr))]">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,1.35fr)_repeat(5,minmax(125px,.72fr))]">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
                   <input
@@ -3581,40 +3691,59 @@ export function ExamsManage() {
                     className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] py-2.5 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary-500/20"
                   />
                 </div>
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20">
-                  <option value="">All Status</option>
-                  <option value="scheduled">Scheduled</option>
-                  <option value="ongoing">Ongoing</option>
-                  <option value="completed">Completed</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-                <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20">
-                  <option value="">All Classes</option>
-                  {classOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-                <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20">
-                  <option value="">All Departments</option>
-                  {departmentOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
+
+                <CheckboxMultiFilter
+                  label="All Status"
+                  selected={statusFilters}
+                  onChange={setStatusFilters}
+                  options={[
+                    { value: 'scheduled', label: 'Scheduled', count: scheduledCount },
+                    { value: 'ongoing', label: 'Ongoing', count: ongoingCount },
+                    { value: 'completed', label: 'Completed', count: completedCount },
+                    { value: 'cancelled', label: 'Cancelled', count: cancelledCount },
+                  ]}
+                />
+
+                <CheckboxMultiFilter
+                  label="All Classes"
+                  selected={classFilters}
+                  onChange={setClassFilters}
+                  options={classOptions.map((item) => ({
+                    value: item.id,
+                    label: item.label,
+                    count: scopedExams.filter((exam) => exam.course?.class?._id === item.id).length,
+                  }))}
+                />
+
+                <CheckboxMultiFilter
+                  label="All Departments"
+                  selected={departmentFilters}
+                  onChange={setDepartmentFilters}
+                  options={departmentOptions.map((item) => ({
+                    value: item.id,
+                    label: item.label,
+                    count: scopedExams.filter((exam) => exam.course?.class?.department?._id === item.id).length,
+                  }))}
+                />
+
+                <CheckboxMultiFilter
+                  label="All Types"
+                  selected={scheduleFilters}
+                  onChange={setScheduleFilters}
+                  options={[
+                    { value: 'manual', label: 'Manual', count: manualCount },
+                    { value: 'auto', label: 'Automatic', count: autoCount },
+                  ]}
+                />
+
                 <input type="date" value={dateFilter} onChange={(e) => setCalendarDate(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20" />
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="inline-flex rounded-xl bg-[var(--color-surface-secondary)] p-1">
-                  {([
-                    { key: 'all', label: 'All', count: scopedExams.length },
-                    { key: 'manual', label: 'Manual', count: manualCount },
-                    { key: 'auto', label: 'Automatic', count: autoCount },
-                  ] as const).map((tab) => (
-                    <button key={tab.key} type="button" onClick={() => setScheduleFilter(tab.key)} className={'rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ' + (scheduleFilter === tab.key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]')}>
-                      {tab.label} <span className="ml-1 opacity-75">{tab.count}</span>
-                    </button>
-                  ))}
-                </div>
-                {(statusFilter || scheduleFilter !== 'all' || classFilter || departmentFilter || dateFilter) && (
+              {(statusFilters !== null || scheduleFilters !== null || classFilters !== null || departmentFilters !== null || dateFilter) && (
+                <div className="mt-3 flex justify-end">
                   <button type="button" onClick={clearFilters} className="rounded-lg px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">Clear filters</button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             <div
