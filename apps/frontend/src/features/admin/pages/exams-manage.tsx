@@ -732,6 +732,12 @@ function DepartmentalExamView({
     }
   };
 
+  const cellTargetShift = cellTarget ? shifts[cellTarget.shiftIndex] : undefined;
+  const cellTargetItems = cellTarget && cellTargetShift && selectedSchedule
+    ? selectedSchedule.cells.get(`${cellTarget.date}::${cellTargetShift.key}`) || []
+    : [];
+  const cellTargetSubjects = new Set(cellTargetItems.map((item) => item.subject));
+
   const minWidth = Math.max(760, 170 + shifts.length * 260 + Math.max(0, shifts.length - 1) * 110);
   const departmentSchoolName = printBranding.name
     || (typeof period?.school === 'object' ? period.school?.name : '')
@@ -1023,7 +1029,8 @@ function DepartmentalExamView({
             value={selectedSchedule?.key || ''}
             onChange={(e) => {
               setSelectedDepartmentKey(e.target.value);
-              setMoveGroup(null);
+              setCellTarget(null);
+              setResetConfirmOpen(false);
               setMoveError('');
               setMoveSuccess('');
             }}
@@ -1039,11 +1046,11 @@ function DepartmentalExamView({
           type="button"
           onClick={() => {
             setDepartmentEditMode((current) => !current);
-            setMoveGroup(null);
+            setCellTarget(null);
             setMoveError('');
             setMoveSuccess('');
           }}
-          disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || movingGroup}
+          disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || savingCell || resettingSchedule}
           className={`inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-bold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:px-4 ${
             departmentEditMode
               ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300'
@@ -1056,8 +1063,18 @@ function DepartmentalExamView({
 
         <button
           type="button"
+          onClick={() => setResetConfirmOpen(true)}
+          disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || savingCell || resettingSchedule}
+          className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-bold text-red-700 shadow-sm transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300 sm:px-4"
+        >
+          <RotateCcw className="h-4 w-4" />
+          <span>Reset</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => window.print()}
-          disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || departmentEditMode}
+          disabled={!selectedSchedule || selectedSchedule.placedExams.length === 0 || departmentEditMode || savingCell || resettingSchedule}
           className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-3 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40 sm:px-4"
         >
           <Printer className="h-4 w-4" />
@@ -1068,7 +1085,7 @@ function DepartmentalExamView({
 
       {departmentEditMode && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
-          Tap a subject to move it for all classes together. On desktop you can also drag the subject directly to another Day + Shift cell.
+          Tap any Shift cell — filled or blank — then choose a course. A checked course already has a timetable position; an unchecked course is currently unassigned.
         </div>
       )}
       {moveError && (
@@ -1176,51 +1193,39 @@ function DepartmentalExamView({
                           return (
                             <Fragment key={shift.key}>
                               <td
-                                className={`exam-department-shift-cell border-b border-r border-[var(--color-border-default)] p-2.5 align-middle ${departmentEditMode ? 'bg-primary-50/20 dark:bg-primary-950/5' : ''}`}
-                                onDragOver={(event) => {
-                                  if (!departmentEditMode || !dragGroup || movingGroup) return;
-                                  event.preventDefault();
-                                  event.dataTransfer.dropEffect = 'move';
-                                }}
-                                onDrop={(event) => {
-                                  if (!departmentEditMode || !dragGroup || movingGroup) return;
-                                  event.preventDefault();
-                                  const group = dragGroup;
-                                  setDragGroup(null);
-                                  void moveDepartmentGroup(group, date, index);
+                                className={`exam-department-shift-cell border-b border-r border-[var(--color-border-default)] p-2.5 align-middle transition-colors ${
+                                  departmentEditMode
+                                    ? 'cursor-pointer bg-primary-50/20 hover:bg-amber-50/70 dark:bg-primary-950/5 dark:hover:bg-amber-950/15'
+                                    : ''
+                                }`}
+                                onClick={() => openCellPicker(date, index)}
+                                role={departmentEditMode ? 'button' : undefined}
+                                tabIndex={departmentEditMode ? 0 : undefined}
+                                onKeyDown={(event) => {
+                                  if (!departmentEditMode) return;
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    openCellPicker(date, index);
+                                  }
                                 }}
                               >
                                 {items.length === 0 ? (
-                                  <div className="flex min-h-16 items-center justify-center text-[var(--color-text-tertiary)]">—</div>
+                                  <div className={`flex min-h-16 items-center justify-center font-semibold ${
+                                    departmentEditMode ? 'text-primary-600' : 'text-[var(--color-text-tertiary)]'
+                                  }`}>
+                                    {departmentEditMode ? 'Choose' : '—'}
+                                  </div>
                                 ) : (
                                   <div className="space-y-2">
                                     {items.map((item) => (
-                                      <button
+                                      <div
                                         key={item.subject}
-                                        type="button"
-                                        disabled={!departmentEditMode || movingGroup}
-                                        draggable={departmentEditMode && !movingGroup}
-                                        onClick={() => {
-                                          if (!departmentEditMode || movingGroup) return;
-                                          openMoveDialog(buildMoveGroup(item.subject, date, index));
-                                        }}
-                                        onDragStart={(event) => {
-                                          if (!departmentEditMode || movingGroup) return;
-                                          const group = buildMoveGroup(item.subject, date, index);
-                                          if (!group.examIds.length) {
-                                            event.preventDefault();
-                                            return;
-                                          }
-                                          setDragGroup(group);
-                                          event.dataTransfer.effectAllowed = 'move';
-                                          event.dataTransfer.setData('text/plain', item.subject);
-                                        }}
-                                        onDragEnd={() => setDragGroup(null)}
-                                        title={departmentEditMode ? 'Tap to move all classes, or drag on desktop' : undefined}
-                                        className={`exam-department-subject exam-print-subject-card w-full rounded-xl border border-primary-100 bg-primary-50/40 p-2.5 dark:border-primary-900/30 dark:bg-primary-950/10 ${departmentEditMode ? 'cursor-grab ring-1 ring-amber-300/70 hover:border-amber-400 active:cursor-grabbing' : 'cursor-default'}`}
+                                        className={`exam-department-subject exam-print-subject-card w-full rounded-xl border border-primary-100 bg-primary-50/40 p-2.5 dark:border-primary-900/30 dark:bg-primary-950/10 ${
+                                          departmentEditMode ? 'ring-1 ring-amber-300/70' : ''
+                                        }`}
                                       >
                                         <p className="font-bold text-[var(--color-text-primary)]">{item.subject}</p>
-                                      </button>
+                                      </div>
                                     ))}
                                   </div>
                                 )}
@@ -1247,83 +1252,109 @@ function DepartmentalExamView({
         </section>
       )}
 
-      {moveGroup && (
-        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 p-3 sm:items-center" onMouseDown={() => !movingGroup && setMoveGroup(null)}>
+      {cellTarget && selectedSchedule && cellTargetShift && (
+        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 p-3 sm:items-center" onMouseDown={() => !savingCell && setCellTarget(null)}>
           <div
-            className="w-full max-w-md rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-2xl sm:p-5"
+            className="w-full max-w-md rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:p-5">
               <div>
-                <h3 className="text-base font-bold text-[var(--color-text-primary)]">Move {moveGroup.subject}</h3>
+                <h3 className="text-base font-bold text-[var(--color-text-primary)]">Choose Course</h3>
                 <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
-                  This moves all {moveGroup.examIds.length} class exam{moveGroup.examIds.length === 1 ? '' : 's'} together.
+                  {new Date(`${cellTarget.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short' })}
+                  {' · '}Shift {cellTarget.shiftIndex + 1} · {cellTargetShift.startTime}–{cellTargetShift.endTime}
                 </p>
               </div>
-              <button type="button" onClick={() => !movingGroup && setMoveGroup(null)} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)]">
+              <button type="button" onClick={() => !savingCell && setCellTarget(null)} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)]">
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label>
-                <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Day / Date</span>
-                <select
-                  value={moveDate}
-                  onChange={(event) => setMoveDate(event.target.value)}
-                  disabled={movingGroup}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm font-semibold"
-                >
-                  {dates.map((date, dayIndex) => {
-                    const parsed = new Date(`${date}T00:00:00`);
-                    return (
-                      <option key={date} value={date}>
-                        Day {dayIndex + 1} · {parsed.toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short' })}
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
+            {cellTargetItems.length > 0 && (
+              <div className="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200 sm:mx-5">
+                Current: {cellTargetItems.map((item) => item.subject).join(', ')}. Choosing another course removes the current course from this cell and marks it unassigned.
+              </div>
+            )}
 
-              <label>
-                <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Shift</span>
-                <select
-                  value={moveShiftIndex}
-                  onChange={(event) => setMoveShiftIndex(Number(event.target.value))}
-                  disabled={movingGroup}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm font-semibold"
-                >
-                  {shifts.map((shift, shiftIndex) => (
-                    <option key={shift.key} value={shiftIndex}>
-                      Shift {shiftIndex + 1} · {shift.startTime}–{shift.endTime}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="max-h-[58vh] overflow-y-auto p-3 sm:p-4">
+              <div className="space-y-2">
+                {selectedSchedule.subjects.map((group) => {
+                  const currentHere = cellTargetSubjects.has(group.subject);
+                  return (
+                    <button
+                      key={group.subject}
+                      type="button"
+                      onClick={() => void assignSubjectToCell(group.subject)}
+                      disabled={savingCell}
+                      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition disabled:cursor-wait disabled:opacity-60 ${
+                        currentHere
+                          ? 'border-primary-300 bg-primary-50 dark:border-primary-800 dark:bg-primary-950/20'
+                          : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] hover:border-primary-300 hover:bg-[var(--color-surface-secondary)]'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={group.placed}
+                        readOnly
+                        tabIndex={-1}
+                        className="h-5 w-5 shrink-0 rounded border-[var(--color-border-default)] accent-primary-600"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold text-[var(--color-text-primary)]">{group.subject}</span>
+                        <span className="mt-0.5 block text-[11px] font-semibold text-[var(--color-text-tertiary)]">
+                          {currentHere ? 'Current cell' : group.placed ? 'Already scheduled — tap to move here' : 'Unassigned — tap to place here'}
+                        </span>
+                      </span>
+                      <span className="shrink-0 rounded-full bg-[var(--color-surface-secondary)] px-2 py-1 text-[10px] font-bold text-[var(--color-text-tertiary)]">
+                        {group.examIds.length} classes
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {moveError && (
-              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
+              <div className="mx-4 mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300 sm:mx-5">
                 {moveError}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {resetConfirmOpen && selectedSchedule && (
+        <div className="fixed inset-0 z-[125] flex items-end justify-center bg-black/45 p-3 sm:items-center" onMouseDown={() => !resettingSchedule && setResetConfirmOpen(false)}>
+          <div
+            className="w-full max-w-sm rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-2xl sm:p-5"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300">
+              <RotateCcw className="h-5 w-5" />
+            </div>
+            <h3 className="mt-3 text-base font-bold text-[var(--color-text-primary)]">Reset {selectedSchedule.name} Schedule?</h3>
+            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+              All timetable cells for this department will become blank. Courses are not deleted; they remain available in Edit so you can assign them again.
+            </p>
 
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setMoveGroup(null)}
-                disabled={movingGroup}
+                onClick={() => setResetConfirmOpen(false)}
+                disabled={resettingSchedule}
                 className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-bold text-[var(--color-text-secondary)] disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={() => void moveDepartmentGroup(moveGroup, moveDate, moveShiftIndex)}
-                disabled={movingGroup || !moveDate}
-                className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:opacity-50"
+                onClick={() => void resetDepartmentSchedule()}
+                disabled={resettingSchedule}
+                className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:opacity-50"
               >
-                {movingGroup ? 'Moving…' : 'Move All Classes'}
+                <RotateCcw className="h-4 w-4" />
+                {resettingSchedule ? 'Resetting…' : 'Reset All Cells'}
               </button>
             </div>
           </div>
