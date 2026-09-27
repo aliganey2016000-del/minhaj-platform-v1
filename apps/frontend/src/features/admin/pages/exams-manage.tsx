@@ -4368,8 +4368,20 @@ export function ExamsManage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" />
+      <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
+        <div className="mx-auto max-w-[1100px] space-y-5">
+          <div>
+            <BackButton fallback="/admin/exams" />
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Schedule</h1>
+          </div>
+          <ExamWorkspaceTabs />
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-5 shadow-sm">
+            <div className="flex items-center gap-3 text-sm font-semibold text-[var(--color-text-secondary)]">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
+              Loading schedule…
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
