@@ -1,12 +1,11 @@
 import { NavLink } from 'react-router-dom';
-import { Building2, CalendarDays, ClipboardCheck, ClipboardEdit, UserCheck } from 'lucide-react';
+import { Building2, CalendarDays, ClipboardCheck, UserCheck } from 'lucide-react';
 
 const tabs = [
   { to: '/admin/exams/schedule', label: 'Schedule', icon: CalendarDays },
   { to: '/admin/exams/rooms', label: 'Rooms', icon: Building2 },
   { to: '/admin/exams/invigilators', label: 'Invigilator', icon: UserCheck },
   { to: '/admin/exams/attendance', label: 'Attendance', icon: ClipboardCheck },
-  { to: '/admin/results/enter', label: 'Enter Results', icon: ClipboardEdit },
 ] as const;
 
 export function ExamWorkspaceTabs() {
