@@ -110,6 +110,7 @@ async function sessionExams(assignment: any) {
     school: assignment.school,
     period: assignment.period,
     autoSchedule: { $ne: true },
+    schedulePlaced: { $ne: false },
     status: { $ne: 'cancelled' },
     examDate: { $gte: start, $lt: end },
     startTime: assignment.startTime,
@@ -198,6 +199,7 @@ export const context = async (req: Request, res: Response): Promise<Response> =>
     school: period.school,
     period: period._id,
     autoSchedule: { $ne: true },
+    schedulePlaced: { $ne: false },
     status: { $ne: 'cancelled' },
     ...(period.startDate ? { examDate: { $gte: start, $lt: period.endDate ? new Date(new Date(period.endDate).getTime() + 86400000) : new Date('2999-12-31T00:00:00.000Z') } } : {}),
   })
@@ -345,6 +347,7 @@ export const assign = async (req: Request, res: Response): Promise<Response> => 
       endTime,
       status: { $ne: 'cancelled' },
       autoSchedule: { $ne: true },
+      schedulePlaced: { $ne: false },
     }),
   ]);
 
