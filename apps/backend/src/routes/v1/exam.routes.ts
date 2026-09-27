@@ -45,6 +45,8 @@ router.delete('/periods/:periodId', adminOnly, asyncHandler(examController.delet
 router.post('/periods/:periodId/duplicate', adminOnly, asyncHandler(examController.duplicateExamPeriod));
 router.post('/periods/:periodId/auto-generate', adminOnly, asyncHandler(examController.autoGeneratePeriodSchedule));
 router.post('/periods/:periodId/move-schedule-group', adminOnly, asyncHandler(examController.moveScheduleGroup));
+router.post('/periods/:periodId/assign-schedule-cell', adminOnly, asyncHandler(examController.assignScheduleCell));
+router.post('/periods/:periodId/reset-department-schedule', adminOnly, asyncHandler(examController.resetDepartmentSchedule));
 router.post('/schedule-grid', adminOnly, asyncHandler(examController.saveScheduleGrid));
 
 // Master seating: one room + seat for every student across all subjects in an exam period.
