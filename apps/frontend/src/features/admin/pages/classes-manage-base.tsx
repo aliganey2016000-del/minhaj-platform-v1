@@ -5,6 +5,7 @@ import api from '../../../lib/axios';
 import BulkEntityImportModal from './components/bulk-entity-import-modal';
 import { useAuth } from '../../../store/auth-context';
 import { resolveInstitutionType, isHigherEdInstitutionType } from '../../../lib/institution-type';
+import { AcademicYearSelect } from '../../shared/components/academic-year-select';
 
 type Status = 'active' | 'inactive' | 'completed';
 type Shift = 'Morning' | 'Afternoon' | 'Evening' | 'Virtual';
@@ -96,7 +97,6 @@ interface RowActionsProps {
 }
 
 const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-slate-500 dark:focus:ring-slate-800';
-const years = Array.from({ length: 8 }, (_, i) => { const y = new Date().getFullYear() - 3 + i; return `${y}-${y + 1}`; });
 const dataOf = <T,>(r: any): T => r?.data?.data ?? r?.data ?? r;
 const errOf = (e: any) => e?.response?.data?.message || e?.message || 'Something went wrong. Please try again.';
 const fid = (d: Department) => typeof d.facultyId === 'string' ? d.facultyId : d.facultyId?._id || '';
@@ -264,7 +264,7 @@ function ClassModal({ cls, organization, structure, faculties, departments, prog
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Program / Cohort Name" required className="sm:col-span-2"><input className={inputClass} value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. BSc Computer Science - Cohort 2026"/></Field>
             <Field label="Program" required><select className={inputClass} value={form.program} onChange={e => set('program', e.target.value)}><option value="">Select program</option>{availablePrograms.map(p => <option key={p._id} value={p._id}>{p.name}{p.code ? ` (${p.code})` : ''}</option>)}</select></Field>
-            <Field label="Academic Year" required><select className={inputClass} value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>{years.map(y => <option key={y}>{y}</option>)}</select></Field>
+            <Field label="Academic Year" required><AcademicYearSelect value={form.academicYear} onChange={(value) => set('academicYear', value)} required /></Field>
             {semesterMode ? <>
               <Field label="Semester Number" required><select className={inputClass} value={form.semesterNumber} onChange={e => set('semesterNumber', e.target.value)}><option value="">Select Semester</option>{Array.from({ length: 12 }, (_, i) => i + 1).map(s => <option key={s} value={s}>Semester {s}</option>)}</select></Field>
               <Field label="Study Year"><input className={`${inputClass} bg-slate-100 dark:bg-slate-800`} readOnly value={derivedStudyYear || ''}/></Field>
@@ -279,7 +279,7 @@ function ClassModal({ cls, organization, structure, faculties, departments, prog
           <Field label="Program / Course Name" required className="sm:col-span-2"><input className={inputClass} value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Web Development Bootcamp"/></Field>
           <Field label="Program (optional)"><select className={inputClass} value={form.program} onChange={e => set('program', e.target.value)}><option value="">No program</option>{availablePrograms.map(p => <option key={p._id} value={p._id}>{p.name}{p.code ? ` (${p.code})` : ''}</option>)}</select></Field>
           <Field label="Batch / Cohort" required><input className={inputClass} value={form.batch} onChange={e => set('batch', e.target.value)} placeholder="e.g. B12"/></Field>
-          <Field label="Academic Year / Term" required><select className={inputClass} value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>{years.map(y => <option key={y}>{y}</option>)}</select></Field>
+          <Field label="Academic Year / Term" required><AcademicYearSelect value={form.academicYear} onChange={(value) => set('academicYear', value)} required /></Field>
           <Field label="Department (optional)"><select className={inputClass} value={form.department} onChange={e => set('department', e.target.value)}><option value="">No department</option>{departments.map(d => <option key={d._id} value={d._id}>{d.name}{d.code ? ` (${d.code})` : ''}</option>)}</select></Field>
           <Field label="Section"><input className={inputClass} value={form.section} onChange={e => set('section', e.target.value)} placeholder="e.g. A"/></Field>
           <Field label="Room" required><input className={inputClass} value={form.room} onChange={e => set('room', e.target.value)} placeholder="e.g. Lab 1"/></Field>
@@ -287,7 +287,7 @@ function ClassModal({ cls, organization, structure, faculties, departments, prog
           <Field label="Shift / Delivery Mode"><select className={inputClass} value={form.shiftMode} onChange={e => set('shiftMode', e.target.value as Shift)}>{['Morning','Afternoon','Evening','Virtual'].map(x => <option key={x}>{x}</option>)}</select></Field>
         </div> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Batch Number" required><input className={inputClass} value={form.batch} onChange={e => set('batch', e.target.value)} placeholder="e.g. SCH26"/></Field>
-          <Field label="Academic Year" required><select className={inputClass} value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>{years.map(y => <option key={y}>{y}</option>)}</select></Field>
+          <Field label="Academic Year" required><AcademicYearSelect value={form.academicYear} onChange={(value) => set('academicYear', value)} required /></Field>
           <Field label="Grade Level" required><input type="number" min="0" max="30" className={inputClass} value={form.gradeLevel} onChange={e => set('gradeLevel', e.target.value)} placeholder="e.g. 8"/></Field>
           <Field label="Department" required><select className={inputClass} value={form.department} onChange={e => { set('department', e.target.value); if (e.target.value !== '__new_department__') setNewDepartmentName(''); }}><option value="">Select Department</option>{departments.map(d => <option key={d._id} value={d._id}>{d.name}{d.code ? ` (${d.code})` : ''}</option>)}<option value="__new_department__">+ Create new department</option></select>{form.department === '__new_department__' && <input autoFocus className={`${inputClass} mt-2`} value={newDepartmentName} onChange={e => setNewDepartmentName(e.target.value)} placeholder="New department name" />}</Field>
           <Field label="Class Name" required className="sm:col-span-2"><input className={inputClass} value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Grade 8"/></Field>
@@ -367,7 +367,7 @@ function UndoPromotionModal({ onClose, onCompleted }: { onClose: () => void; onC
           <p className="text-sm text-slate-600 dark:text-slate-300">Enter the academic year the promotion moved students <b>into</b> (the target year shown on the "Confirm &amp; Promote" screen), for example <code>2027-2028</code>. Every student and class the promotion touched will be reverted to where they were before it ran.</p>
           {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
           <div className="flex gap-2">
-            <input value={targetAcademicYear} onChange={(e) => { setTargetAcademicYear(e.target.value); setAffectedStudentCount(null); }} placeholder="2027-2028" className="flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm dark:border-slate-700 dark:bg-slate-900"/>
+            <AcademicYearSelect value={targetAcademicYear} onChange={(value) => { setTargetAcademicYear(value); setAffectedStudentCount(null); }} className="flex-1" />
             <button type="button" disabled={!yearFormatOk || checking} onClick={() => void checkPreview()} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold disabled:opacity-50 dark:border-slate-700">{checking ? 'Checking...' : 'Check'}</button>
           </div>
           {affectedStudentCount !== null && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">{affectedStudentCount} student(s) will be moved back to {sourceAcademicYear || 'the previous academic year'}.</div>}
