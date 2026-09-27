@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
+import { AcademicYearSelect } from '../../shared/components/academic-year-select';
 import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
 
 type Org = { _id: string; name: string };
@@ -134,7 +135,6 @@ const readonly = `${input} bg-[var(--color-surface-secondary)] text-[var(--color
 const nameOf = (s?: Student) => [s?.profile?.firstName, s?.profile?.lastName].filter(Boolean).join(' ') || '';
 const academicYearLabel = (y: number) => `${y}-${y + 1}`;
 const currentAcademicYear = academicYearLabel(new Date().getFullYear());
-const academicYears = Array.from({ length: 7 }, (_, i) => academicYearLabel(new Date().getFullYear() - 3 + i));
 const emptyFields: Fields = {
   organization:'',
   department:'',
@@ -169,13 +169,6 @@ function escapeHtml(value: unknown) {
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;')
     .replace(/'/g,'&#039;');
-}
-
-function AcademicYearSelect({ value, onChange, required = false }: { value: string; onChange: (value: string) => void; required?: boolean }) {
-  return <select className={input} value={value} onChange={e=>onChange(e.target.value)} required={required}>
-    <option value="">Select academic year...</option>
-    {academicYears.map(y=><option key={y} value={y}>{y}</option>)}
-  </select>;
 }
 
 function Modal({ title, close, children, wide = false }: { title:string; close:()=>void; children:ReactNode; wide?:boolean }) {
