@@ -4,7 +4,7 @@
  */
 
 import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown, Printer } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -368,6 +368,8 @@ function DepartmentalExamView({
   period?: ExamPeriod;
   classes: ClassBrief[];
 }) {
+  const [selectedDepartmentKey, setSelectedDepartmentKey] = useState('');
+
   const fixed = useMemo(
     () => exams
       .filter((exam) => !exam.autoSchedule && exam.examDate && exam.status !== 'cancelled')
@@ -482,6 +484,7 @@ function DepartmentalExamView({
 
     return {
       key: department.key,
+      name: department.name,
       title: `${department.name} Schedule`,
       subtitle: `All classes in ${department.name} combined into one exam schedule.`,
       exams: departmentExams,
@@ -489,6 +492,20 @@ function DepartmentalExamView({
       cells,
     };
   }), [classes, dates, departmentDefinitions, fixed, shifts]);
+
+  useEffect(() => {
+    if (!schedules.length) {
+      if (selectedDepartmentKey) setSelectedDepartmentKey('');
+      return;
+    }
+    if (selectedDepartmentKey && schedules.some((schedule) => schedule.key === selectedDepartmentKey)) return;
+    setSelectedDepartmentKey(schedules[0].key);
+  }, [schedules, selectedDepartmentKey]);
+
+  const selectedSchedule = useMemo(
+    () => schedules.find((schedule) => schedule.key === selectedDepartmentKey) || schedules[0],
+    [schedules, selectedDepartmentKey],
+  );
 
   const minWidth = Math.max(760, 170 + shifts.length * 260 + Math.max(0, shifts.length - 1) * 110);
 
@@ -505,47 +522,118 @@ function DepartmentalExamView({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      <style>{`
+        .exam-department-print-only { display: none; }
+        @media print {
+          @page { size: A4 landscape; margin: 8mm; }
+          body * { visibility: hidden !important; }
+          #exam-department-print,
+          #exam-department-print * { visibility: visible !important; }
+          #exam-department-print {
+            position: absolute !important;
+            inset: 0 auto auto 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: visible !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            background: #fff !important;
+            color: #000 !important;
+          }
+          #exam-department-print .exam-department-print-only {
+            display: block !important;
+          }
+          #exam-department-print .exam-department-scroll {
+            overflow: visible !important;
+          }
+          #exam-department-print table {
+            min-width: 0 !important;
+            width: 100% !important;
+            table-layout: fixed !important;
+            font-size: 9px !important;
+            color: #000 !important;
+          }
+          #exam-department-print th,
+          #exam-department-print td {
+            color: #000 !important;
+            padding: 5px !important;
+          }
+        }
+      `}</style>
+
+      <div className="flex flex-col gap-3 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm sm:flex-row sm:items-end sm:justify-between">
+        <label className="min-w-0 flex-1">
+          <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Department</span>
+          <select
+            value={selectedSchedule?.key || ''}
+            onChange={(e) => setSelectedDepartmentKey(e.target.value)}
+            className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold sm:max-w-md"
+          >
+            {schedules.map((schedule) => (
+              <option key={schedule.key} value={schedule.key}>{schedule.name}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          disabled={!selectedSchedule || selectedSchedule.exams.length === 0}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Printer className="h-4 w-4" />
+          Print Department
+        </button>
+      </div>
+
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
         <div className="flex items-start gap-3">
           <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700 dark:text-emerald-300" />
           <div>
-            <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">Departmental schedules generated</p>
+            <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">Departmental schedule</p>
             <p className="mt-0.5 text-xs text-emerald-700/80 dark:text-emerald-300/80">
-              {period?.name || 'Selected exam'} · {period?.academicYear || ''} — {schedules.length} department schedule{schedules.length === 1 ? '' : 's'}, one schedule per department.
+              {period?.name || 'Selected exam'} · {period?.academicYear || ''} — showing {selectedSchedule?.name || 'department'} only.
             </p>
           </div>
         </div>
       </div>
 
-      {schedules.length === 0 ? (
+      {!selectedSchedule ? (
         <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center text-sm text-[var(--color-text-tertiary)]">
           No departments were found for the active classes in this examination.
         </section>
-      ) : schedules.map((schedule) => (
-        <section key={schedule.key} className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+      ) : (
+        <section id="exam-department-print" className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+          <div className="exam-department-print-only border-b border-slate-300 p-4 text-center">
+            <h1 className="text-xl font-black">{selectedSchedule.name} Exam Schedule</h1>
+            <p className="mt-1 text-sm font-semibold">
+              {period?.name || 'Exam'} · {period?.academicYear || ''}{period?.term ? ` · ${period.term}` : ''}
+            </p>
+          </div>
+
           <div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
                 <Building2 className="h-4 w-4" />
               </span>
               <div>
-                <h2 className="font-bold text-[var(--color-text-primary)]">{schedule.title}</h2>
-                <p className="text-xs text-[var(--color-text-tertiary)]">{schedule.subtitle}</p>
+                <h2 className="font-bold text-[var(--color-text-primary)]">{selectedSchedule.title}</h2>
+                <p className="text-xs text-[var(--color-text-tertiary)]">{selectedSchedule.subtitle}</p>
               </div>
             </div>
             <div className="flex flex-wrap gap-2 text-xs font-semibold">
-              <span className="rounded-full bg-[var(--color-surface-secondary)] px-3 py-1.5">{schedule.classCount} classes</span>
-              <span className="rounded-full bg-[var(--color-surface-secondary)] px-3 py-1.5">{schedule.exams.length} papers</span>
+              <span className="rounded-full bg-[var(--color-surface-secondary)] px-3 py-1.5">{selectedSchedule.classCount} classes</span>
+              <span className="rounded-full bg-[var(--color-surface-secondary)] px-3 py-1.5">{selectedSchedule.exams.length} papers</span>
             </div>
           </div>
 
-          {schedule.exams.length === 0 ? (
+          {selectedSchedule.exams.length === 0 ? (
             <div className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">
               This department has active classes, but no exam papers are scheduled yet.
             </div>
           ) : (
-            <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
+            <div className="exam-department-scroll max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
               <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth, tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
@@ -585,7 +673,7 @@ function DepartmentalExamView({
                           </div>
                         </td>
                         {shifts.map((shift, index) => {
-                          const items = schedule.cells.get(`${date}::${shift.key}`) || [];
+                          const items = selectedSchedule.cells.get(`${date}::${shift.key}`) || [];
                           return (
                             <Fragment key={shift.key}>
                               <td className="border-b border-r border-[var(--color-border-default)] p-2.5">
@@ -624,7 +712,7 @@ function DepartmentalExamView({
             </div>
           )}
         </section>
-      ))}
+      )}
     </div>
   );
 }
@@ -2337,6 +2425,11 @@ function ExamTimetable({
     }));
   }, [cellExams, periodExams, rules.examShifts, selectedClassId]);
 
+  const selectedClass = useMemo(
+    () => periodClasses.find((cls) => cls._id === selectedClassId),
+    [periodClasses, selectedClassId],
+  );
+
   const loadClassCourses = useCallback(async (classId: string) => {
     if (!effectiveSchoolId || coursesByClass[classId]) return;
     setLoadingCourses((current) => new Set(current).add(classId));
@@ -2814,6 +2907,38 @@ function ExamTimetable({
 
   return (
     <>
+      <style>{`
+        .exam-class-print-only { display: none; }
+        @media print {
+          @page { size: A4 landscape; margin: 8mm; }
+          body * { visibility: hidden !important; }
+          #exam-class-print,
+          #exam-class-print * { visibility: visible !important; }
+          #exam-class-print {
+            position: absolute !important;
+            inset: 0 auto auto 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: visible !important;
+            background: #fff !important;
+            color: #000 !important;
+          }
+          #exam-class-print .exam-class-print-only { display: block !important; }
+          #exam-class-print .exam-class-scroll { overflow: visible !important; }
+          #exam-class-print table {
+            min-width: 0 !important;
+            width: 100% !important;
+            table-layout: fixed !important;
+            font-size: 9px !important;
+            color: #000 !important;
+          }
+          #exam-class-print th,
+          #exam-class-print td {
+            color: #000 !important;
+            padding: 5px !important;
+          }
+        }
+      `}</style>
       <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
         <div className="border-b border-[var(--color-border-subtle)] p-3 sm:p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -2887,14 +3012,25 @@ function ExamTimetable({
             )}
 
             {selectedPeriod && perspective === 'class' && !editMode && (
-              <select
-                value={selectedClassId}
-                onChange={(e) => setSelectedClassId(e.target.value)}
-                className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"
-              >
-                {periodClasses.length === 0 && <option value="">No classes available</option>}
-                {periodClasses.map((cls) => <option key={cls._id} value={cls._id}>{classBriefLabel(cls)}</option>)}
-              </select>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={selectedClassId}
+                  onChange={(e) => setSelectedClassId(e.target.value)}
+                  className="min-w-[210px] flex-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm sm:flex-none"
+                >
+                  {periodClasses.length === 0 && <option value="">No classes available</option>}
+                  {periodClasses.map((cls) => <option key={cls._id} value={cls._id}>{classBriefLabel(cls)}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  disabled={!selectedClassId || classRows.length === 0}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Printer className="h-4 w-4" />
+                  Print Class
+                </button>
+              </div>
             )}
           </div>
 
@@ -3016,8 +3152,15 @@ function ExamTimetable({
             </table>
           </div>
         ) : (
-          <div className="max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
-            <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
+          <div id="exam-class-print">
+            <div className="exam-class-print-only border-b border-slate-300 p-4 text-center">
+              <h1 className="text-xl font-black">{selectedClass ? classBriefLabel(selectedClass) : 'Class'} Exam Schedule</h1>
+              <p className="mt-1 text-sm font-semibold">
+                {selectedPeriod.name} · {selectedPeriod.academicYear}{selectedPeriod.term ? ` · ${selectedPeriod.term}` : ''}
+              </p>
+            </div>
+            <div className="exam-class-scroll max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
+              <table className="w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
               <thead>
                 <tr>
                   <th className="sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
@@ -3067,6 +3210,7 @@ function ExamTimetable({
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </section>
