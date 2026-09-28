@@ -5,6 +5,7 @@ import ExamPeriod from '../models/exam-period.model';
 import ExamRoom from '../models/exam-room.model';
 import ExamSeatingPlan from '../models/exam-seating-plan.model';
 import ExamInvigilatorAssignment from '../models/exam-invigilator-assignment.model';
+import ExamInvigilatorTeacherAttendance from '../models/exam-invigilator-teacher-attendance.model';
 import ExamAttendance from '../models/exam-attendance.model';
 import ExamAttendanceLog from '../models/exam-attendance-log.model';
 import Teacher from '../models/teacher.model';
@@ -527,4 +528,136 @@ export const markAttendance = async (req: Request, res: Response): Promise<Respo
     { saved: records.length },
     `Attendance saved for ${records.length} student(s) in this room`
   );
+};
+
+
+export const getTeacherAttendance = async (req: Request, res: Response): Promise<Response> => {
+  const periodId = clean(req.query.periodId);
+  const date = clean(req.query.date);
+  if (!periodId || !date) throw new BadRequestError('Exam and date are required');
+
+  const period = await loadPeriod(req, periodId);
+  const { start, end } = dayBounds(date);
+
+  const teachers = await Teacher.find({
+    school: period.school,
+    status: 'active',
+  })
+    .select('_id teacherId profile user status')
+    .populate('profile', 'firstName lastName')
+    .populate('user', 'email')
+    .sort({ createdAt: 1 })
+    .limit(500)
+    .lean() as any[];
+
+  const records = await ExamInvigilatorTeacherAttendance.find({
+    school: period.school,
+    period: period._id,
+    examDate: { $gte: start, $lt: end },
+  }).lean() as any[];
+
+  const byTeacher = new Map(records.map(row => [String(row.teacher), row]));
+  const rows = teachers.map(teacher => ({
+    teacher: {
+      _id: teacher._id,
+      teacherId: teacher.teacherId,
+      name: teacherName(teacher),
+      email: teacher?.user?.email || '',
+    },
+    attendance: byTeacher.get(String(teacher._id)) || null,
+  }));
+
+  const present = rows.filter(row => row.attendance?.status === 'present').length;
+  const absent = rows.filter(row => row.attendance?.status === 'absent').length;
+
+  return ApiResponse.success(res, {
+    date: start.toISOString().slice(0, 10),
+    rows,
+    summary: {
+      total: rows.length,
+      present,
+      absent,
+      unmarked: Math.max(rows.length - present - absent, 0),
+    },
+  });
+};
+
+export const markTeacherAttendance = async (req: Request, res: Response): Promise<Response> => {
+  const periodId = clean(req.body?.periodId);
+  const date = clean(req.body?.date);
+  const teacherId = clean(req.body?.teacherId);
+  const status = clean(req.body?.status);
+
+  if (!periodId || !date || !mongoose.isValidObjectId(teacherId)) {
+    throw new BadRequestError('Exam, date and teacher are required');
+  }
+  if (!['present', 'absent'].includes(status)) {
+    throw new BadRequestError('Status must be present or absent');
+  }
+
+  const period = await loadPeriod(req, periodId);
+  const { start } = dayBounds(date);
+
+  const teacher = await Teacher.findOne({
+    _id: teacherId,
+    school: period.school,
+    status: 'active',
+  }).select('_id').lean();
+
+  if (!teacher) throw new NotFoundError('Active teacher');
+
+  const record = await ExamInvigilatorTeacherAttendance.findOneAndUpdate(
+    {
+      school: period.school,
+      period: period._id,
+      examDate: start,
+      teacher: teacher._id,
+    },
+    {
+      $set: {
+        status,
+        markedBy: new mongoose.Types.ObjectId(req.user!.userId),
+        markedAt: new Date(),
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  ).lean();
+
+  return ApiResponse.success(res, record, 'Teacher attendance saved');
+};
+
+export const markAllTeacherAttendance = async (req: Request, res: Response): Promise<Response> => {
+  const periodId = clean(req.body?.periodId);
+  const date = clean(req.body?.date);
+  const status = clean(req.body?.status);
+
+  if (!periodId || !date) throw new BadRequestError('Exam and date are required');
+  if (!['present', 'absent'].includes(status)) {
+    throw new BadRequestError('Status must be present or absent');
+  }
+
+  const period = await loadPeriod(req, periodId);
+  const { start } = dayBounds(date);
+  const teachers = await Teacher.find({ school: period.school, status: 'active' }).select('_id').lean();
+  const now = new Date();
+  const markedBy = new mongoose.Types.ObjectId(req.user!.userId);
+
+  if (teachers.length) {
+    await ExamInvigilatorTeacherAttendance.bulkWrite(
+      teachers.map(teacher => ({
+        updateOne: {
+          filter: {
+            school: period.school,
+            period: period._id,
+            examDate: start,
+            teacher: teacher._id,
+          },
+          update: { $set: { status, markedBy, markedAt: now } },
+          upsert: true,
+        },
+      }))
+    );
+  }
+
+  return ApiResponse.success(res, { saved: teachers.length }, `Marked ${teachers.length} teacher(s) as ${status}`);
 };
