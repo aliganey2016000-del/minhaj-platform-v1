@@ -1177,7 +1177,7 @@ export function ExamSeatingCenterV3() {
           {!hasExamContext&&<div className={`${card} p-5`}>
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Academic Year" editable><AcademicYearSelect value={year} onChange={setYear} required/></Field>
-              <Field label="Exam Type" editable><select className={input} value={type} onChange={e=>setType(e.target.value)}><option value="">Select exam type...</option><option value="mid">Mid Exam</option><option value="final">Final</option></select></Field>
+              <Field label="Exam Type" editable><select className={input} value={type} onChange={e=>setType(e.target.value as ''|'mid'|'final')}><option value="">Select exam type...</option><option value="mid">Mid Exam</option><option value="final">Final</option></select></Field>
             </div>
             <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">One room allocation applies to all subjects in the selected Academic Year + Exam Type.</p>
           </div>}
