@@ -26,6 +26,7 @@ import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 import { AcademicYearSelect } from '../../shared/components/academic-year-select';
 import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
+import { PlanRoomsPanel, type AutoDefaults, type PlanRoomRow } from '../components/plan-rooms-panel';
 
 type Org = { _id: string; name: string };
 type ClassItem = {
@@ -512,6 +513,11 @@ function AutoGenerateModal({
   classes,
   rooms,
   selectedOrg,
+  initialYear,
+  initialType,
+  initialClassIds,
+  initialRoomIds,
+  initialRoomPlan,
   close,
   onGenerated,
 }:{
@@ -519,14 +525,19 @@ function AutoGenerateModal({
   classes:ClassItem[];
   rooms:Room[];
   selectedOrg:string;
+  initialYear?:string;
+  initialType?:string;
+  initialClassIds?:string[];
+  initialRoomIds?:string[];
+  initialRoomPlan?:AutoDefaults['roomPlan'];
   close:()=>void;
   onGenerated:(info:{message:string;academicYear:string;examType:'mid'|'final'})=>void;
 }) {
-  const [year,setYear]=useState(currentAcademicYear);
-  const [type,setType]=useState('');
+  const [year,setYear]=useState(initialYear||currentAcademicYear);
+  const [type,setType]=useState(initialType||'');
   const [org,setOrg]=useState(selectedOrg);
-  const [classIds,setClassIds]=useState<string[]>([]);
-  const [roomIds,setRoomIds]=useState<string[]>([]);
+  const [classIds,setClassIds]=useState<string[]>(()=>initialClassIds||[]);
+  const [roomIds,setRoomIds]=useState<string[]>(()=>initialRoomIds||[]);
   const [overwrite,setOverwrite]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
@@ -559,6 +570,7 @@ function AutoGenerateModal({
     organization:org,
     classIds,
     roomIds,
+    roomPlan:initialRoomPlan||[],
     overwrite,
     preview:previewOnly,
     seed,
@@ -813,22 +825,31 @@ export function ExamSeatingCenterV3() {
   const [editing,setEditing]=useState<Allocation|undefined>();
   const [editingRoom,setEditingRoom]=useState<Room|undefined>();
   const [viewRoom,setViewRoom]=useState<Room|undefined>();
-  const [tab,setTab]=useState<'seating'|'rooms'>('seating');
+  const [tab,setTab]=useState<'rooms'|'plan'|'seating'>('seating');
+  const [classStudentCounts,setClassStudentCounts]=useState<Record<string,number>>({});
+  const [planRows,setPlanRows]=useState<PlanRoomRow[]>([]);
+  const [autoDefaults,setAutoDefaults]=useState<AutoDefaults|null>(null);
   const [selectedIds,setSelectedIds]=useState<string[]>([]);
   const [bulkBusy,setBulkBusy]=useState(false);
   const [draggedId,setDraggedId]=useState('');
 
   const loadBase=async()=>{
     setLoading(true);setError('');
-    const [o,c,r]=await Promise.allSettled([
+    const [o,c,r,s]=await Promise.allSettled([
       api.get('/schools?limit=100'),
       api.get('/classes?limit=500'),
       api.get('/exam-rooms'),
+      api.get('/students/stats',{params:{status:'active'}}),
     ]);
     const failed:string[]=[];
     if(o.status==='fulfilled')setOrgs((o.value.data.data||[]).map((x:any)=>({_id:x._id,name:x.name})));else failed.push(`Organizations (${o.reason?.response?.data?.message||o.reason?.message||'failed'})`);
     if(c.status==='fulfilled')setClasses(c.value.data.data||[]);else failed.push(`Classes (${c.reason?.response?.data?.message||c.reason?.message||'failed'})`);
     if(r.status==='fulfilled')setRooms(r.value.data.data||[]);else failed.push(`Rooms (${r.reason?.response?.data?.message||r.reason?.message||'failed'})`);
+    if(s.status==='fulfilled'){
+      const counts:Record<string,number>={};
+      (s.value.data.data?.byClass||[]).forEach((item:any)=>{if(item.classId)counts[item.classId]=Number(item.count)||0});
+      setClassStudentCounts(counts);
+    }else failed.push(`Student counts (${s.reason?.response?.data?.message||s.reason?.message||'failed'})`);
     if(failed.length)setError(`Some room configuration didn't load: ${failed.join('; ')}. Retry below.`);
     setLoading(false);
   };
@@ -847,6 +868,13 @@ export function ExamSeatingCenterV3() {
 
   useEffect(()=>{void loadBase()},[]);
   useEffect(()=>{void loadSeating()},[year,type]);
+  useEffect(()=>{
+    const validRoomIds=new Set(rooms.map(r=>r._id));
+    setPlanRows(prev=>classes.filter(c=>c.status==='active').map(cls=>({
+      classId:cls._id,
+      roomIds:(prev.find(row=>row.classId===cls._id)?.roomIds||[]).filter(id=>validRoomIds.has(id)),
+    })));
+  },[classes,rooms]);
 
   const filtered=useMemo(()=>allocations.filter(a=>{
     const text=[a.student?.organization,a.student?.department,a.student?.className,a.student?.shift,a.student?.studentId,nameOf(a.student),a.room?.name].join(' ').toLowerCase();
@@ -1051,7 +1079,7 @@ export function ExamSeatingCenterV3() {
           <h1 className="text-3xl font-bold">Exam Room Allocation</h1>
           <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Smart mixed-grade room allocation with preview, locking, drag-and-drop moves and capacity protection.</p>
         </div>
-        <Actions add={()=>setModal('add')} imp={()=>setModal('import')} exp={exportCsv} auto={()=>setModal('auto')}/>
+        <Actions add={()=>setModal('add')} imp={()=>setModal('import')} exp={exportCsv} auto={()=>{setAutoDefaults(null);setModal('auto')}}/>
       </div>
 
       <ExamWorkspaceTabs />
@@ -1061,9 +1089,12 @@ export function ExamSeatingCenterV3() {
       </div>}
       {message&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">{message}</div>}
 
-      <div className="flex w-fit gap-2 rounded-xl bg-[var(--color-surface-secondary)] p-1">
-        <button onClick={()=>setTab('seating')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${tab==='seating'?'bg-[var(--color-surface-primary)] shadow-sm':''}`}>Room Allocation</button>
-        <button onClick={()=>setTab('rooms')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${tab==='rooms'?'bg-[var(--color-surface-primary)] shadow-sm':''}`}><Building2 size={15} className="mr-1 inline"/>Rooms</button>
+      <div className="w-full overflow-x-auto">
+        <div className="flex w-max min-w-full gap-2 rounded-xl bg-[var(--color-surface-secondary)] p-1 sm:min-w-0">
+          <button onClick={()=>setTab('rooms')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${tab==='rooms'?'bg-[var(--color-surface-primary)] shadow-sm':''}`}><Building2 size={15} className="mr-1 inline"/>Rooms</button>
+          <button onClick={()=>setTab('plan')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${tab==='plan'?'bg-[var(--color-surface-primary)] shadow-sm':''}`}><CheckSquare size={15} className="mr-1 inline"/>Plan Rooms</button>
+          <button onClick={()=>setTab('seating')} className={`rounded-lg px-4 py-2 text-sm font-semibold ${tab==='seating'?'bg-[var(--color-surface-primary)] shadow-sm':''}`}><Users size={15} className="mr-1 inline"/>Room Allocation</button>
+        </div>
       </div>
 
       {tab==='rooms'
@@ -1081,7 +1112,20 @@ export function ExamSeatingCenterV3() {
             </div>
           </div>
         </div>
-        :<>
+        :tab==='plan'
+          ?<PlanRoomsPanel
+            classes={classes}
+            rooms={rooms}
+            studentCounts={classStudentCounts}
+            year={year}
+            type={type}
+            planRows={planRows}
+            setYear={setYear}
+            setType={setType}
+            setPlanRows={setPlanRows}
+            onGenerate={defaults=>{setAutoDefaults(defaults);setModal('auto')}}
+          />
+          :<>
           <div className={`${card} p-5`}>
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Academic Year" editable><AcademicYearSelect value={year} onChange={setYear} required/></Field>
@@ -1206,7 +1250,19 @@ export function ExamSeatingCenterV3() {
       {modal==='add'&&<AddModal rooms={rooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment added successfully.');void loadSeating()}}/>}
       {modal==='edit'&&editing&&<EditModal allocation={editing} rooms={rooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment updated successfully.');void loadSeating()}}/>}
       {modal==='import'&&<ImportModal close={()=>setModal(null)} onImported={(info)=>{setYear(info.academicYear);setType(info.examType);setMessage(`Imported ${info.count} room assignments successfully.`);void loadSeating(info.academicYear,info.examType)}}/>}
-      {modal==='auto'&&<AutoGenerateModal orgs={orgs} classes={classes} rooms={rooms} selectedOrg={orgForAuto} close={()=>setModal(null)} onGenerated={info=>{setYear(info.academicYear);setType(info.examType);setMessage(info.message);void loadSeating(info.academicYear,info.examType)}}/>}
+      {modal==='auto'&&<AutoGenerateModal
+        orgs={orgs}
+        classes={classes}
+        rooms={rooms}
+        selectedOrg={orgForAuto}
+        initialYear={autoDefaults?.academicYear}
+        initialType={autoDefaults?.examType}
+        initialClassIds={autoDefaults?.classIds}
+        initialRoomIds={autoDefaults?.roomIds}
+        initialRoomPlan={autoDefaults?.roomPlan}
+        close={()=>{setModal(null);setAutoDefaults(null)}}
+        onGenerated={info=>{setYear(info.academicYear);setType(info.examType);setTab('seating');setMessage(info.message);setAutoDefaults(null);void loadSeating(info.academicYear,info.examType)}}
+      />}
       {modal==='room'&&<RoomModal room={editingRoom} close={()=>setModal(null)} onSaved={()=>{setMessage('Room saved successfully.');void loadBase()}}/>}
       {modal==='room-import'&&<RoomImportModal close={()=>setModal(null)} onImported={m=>{setMessage(m);void loadBase()}}/>}
       {modal==='room-students'&&viewRoom&&<RoomStudentsModal
