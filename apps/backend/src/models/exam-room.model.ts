@@ -21,7 +21,7 @@ export interface IExamRoom extends Document {
 const examRoomSchema = new Schema<IExamRoom>(
   {
     name: { type: String, required: [true, 'Room name is required'], trim: true, maxlength: 100 },
-    building: { type: String, required: true, default: 'Main Campus', trim: true, maxlength: 100 },
+    building: { type: String, required: true, default: 'Main', trim: true, maxlength: 100 },
     capacity: { type: Number, required: [true, 'Capacity is required'], min: [1, 'Capacity must be at least 1'] },
     // Rooms are explicit organization-owned records. "auto" remains only for
     // legacy class-sync rows so they can be excluded from the current registry.
