@@ -271,6 +271,7 @@ export const generate = async (req: Request, res: Response) => {
     selectedRooms = await ExamRoom.find({
       school: targetSchoolId,
       _id: { $in: normalizedRoomIds },
+      capacityMode: { $ne: 'auto' },
       capacity: { $gt: 0 },
     }).sort({ building: 1, name: 1 }).lean();
 
@@ -280,6 +281,7 @@ export const generate = async (req: Request, res: Response) => {
   } else {
     selectedRooms = await ExamRoom.find({
       school: targetSchoolId,
+      capacityMode: { $ne: 'auto' },
       capacity: { $gt: 0 },
     }).sort({ building: 1, name: 1 }).lean();
   }
