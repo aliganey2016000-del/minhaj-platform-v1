@@ -6,8 +6,6 @@
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import ExamRoom from '../models/exam-room.model';
-import ClassModel from '../models/class.model';
-import Student from '../models/student.model';
 import SeatAllocation from '../models/seat-allocation.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
@@ -15,117 +13,8 @@ import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherReco
 import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 
 const DEFAULT_BUILDING = 'Main Campus';
-const FALLBACK_CAPACITY = 30;
 
 const clean = (value: unknown) => String(value ?? '').trim();
-
-/**
- * Reconcile the Exam Room registry with Manage Classes.
- *
- * The class record stores the room by name, so existing class assignments
- * must be materialized into ExamRoom even when the assignment predates the
- * Exam Seating Center feature. Room + Building is the identity; therefore a
- * missing class room is created in Main Campus and an existing room is reused.
- */
-async function syncRoomsFromClasses(roomFilter: Record<string, unknown> = {}) {
-  const school = (roomFilter as any).school;
-  const classFilter: Record<string, unknown> = { room: { $nin: ['', null] } };
-  if (school) classFilter.school = school;
-
-  const classes = await ClassModel.find(classFilter).select('school room').lean();
-  if (!classes.length) return;
-
-  const unique = new Map<string, { school: any; name: string; building: string }>();
-  for (const cls of classes as any[]) {
-    const name = clean(cls.room);
-    if (!name) continue;
-    const key = `${cls.school ? String(cls.school) : 'null'}::${name.toLowerCase()}::${DEFAULT_BUILDING.toLowerCase()}`;
-    if (!unique.has(key)) unique.set(key, { school: cls.school || null, name, building: DEFAULT_BUILDING });
-  }
-
-  if (!unique.size) return;
-
-  const existing = await ExamRoom.find({
-    $or: Array.from(unique.values()).map((room) => ({
-      school: room.school,
-      name: room.name,
-      building: room.building,
-    })),
-  }).select('school name building').lean();
-
-  const existingKeys = new Set(existing.map((room: any) =>
-    `${room.school ? String(room.school) : 'null'}::${clean(room.name).toLowerCase()}::${clean(room.building || DEFAULT_BUILDING).toLowerCase()}`
-  ));
-
-  const missing = Array.from(unique.values()).filter((room) =>
-    !existingKeys.has(`${room.school ? String(room.school) : 'null'}::${room.name.toLowerCase()}::${room.building.toLowerCase()}`)
-  );
-
-  if (!missing.length) return;
-
-  await ExamRoom.bulkWrite(missing.map((room) => ({
-    updateOne: {
-      filter: { school: room.school, name: room.name, building: room.building },
-      update: {
-        $setOnInsert: {
-          name: room.name,
-          building: room.building,
-          capacity: FALLBACK_CAPACITY,
-          capacityMode: 'auto',
-          school: room.school,
-        },
-      },
-      upsert: true,
-    },
-  })));
-}
-
-/**
- * Auto capacity is the maximum active-student count across the classes/shifts
- * using the same room. Manual capacity edits/imports are never overwritten.
- */
-async function syncAutoCapacities(roomFilter: Record<string, unknown> = {}) {
-  const rooms = await ExamRoom.find({ ...roomFilter, capacityMode: 'auto' }).select('_id name school capacity').lean();
-  if (!rooms.length) return;
-
-  const schoolIds = [...new Set(rooms.map((r: any) => r.school ? String(r.school) : 'null'))];
-  const classFilter: Record<string, unknown> = { status: 'active', room: { $nin: ['', null] } };
-  const studentFilter: Record<string, unknown> = { status: 'active', approvalStatus: 'approved', class: { $ne: null } };
-  if (schoolIds.length === 1 && schoolIds[0] !== 'null') {
-    classFilter.school = rooms[0].school;
-    studentFilter.school = rooms[0].school;
-  } else if (schoolIds.length > 0 && !schoolIds.includes('null')) {
-    classFilter.school = { $in: rooms.map((r: any) => r.school).filter(Boolean) };
-    studentFilter.school = { $in: rooms.map((r: any) => r.school).filter(Boolean) };
-  }
-
-  const [classes, studentCounts] = await Promise.all([
-    ClassModel.find(classFilter).select('_id school room').lean(),
-    Student.aggregate([
-      { $match: studentFilter },
-      { $group: { _id: '$class', count: { $sum: 1 } } },
-    ]),
-  ]);
-
-  const countByClass = new Map(studentCounts.map((x: any) => [String(x._id), Number(x.count)]));
-  const maxByRoom = new Map<string, number>();
-  for (const cls of classes as any[]) {
-    const key = `${cls.school ? String(cls.school) : 'null'}::${clean(cls.room).toLowerCase()}`;
-    const count = countByClass.get(String(cls._id)) || 0;
-    maxByRoom.set(key, Math.max(maxByRoom.get(key) || 0, count));
-  }
-
-  const ops = (rooms as any[])
-    .map((room) => {
-      const key = `${room.school ? String(room.school) : 'null'}::${clean(room.name).toLowerCase()}`;
-      const computed = maxByRoom.get(key) || FALLBACK_CAPACITY;
-      if (computed === room.capacity) return null;
-      return { updateOne: { filter: { _id: room._id }, update: { $set: { capacity: computed } } } };
-    })
-    .filter(Boolean) as any[];
-
-  if (ops.length) await ExamRoom.bulkWrite(ops);
-}
 
 // GET /exam-rooms
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
@@ -133,13 +22,14 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   if (req.user?.role === 'teacher') {
     const teacher = await getOwnTeacherRecord(req);
-    (scopedFilter as any).school = teacher?.school || null;
+    (scopedFilter as any).school = teacher?.school || '__NO_TENANT__';
   }
 
-  // Important: do this on every Rooms load so rooms already assigned in
-  // Manage Classes appear immediately; admins do not need to re-save classes.
-  await syncRoomsFromClasses(scopedFilter as Record<string, unknown>);
-  await syncAutoCapacities(scopedFilter as Record<string, unknown>);
+  // Rooms is the organization's explicit exam-room registry.
+  // Never synthesize rooms from Class.room values: stale class labels such as
+  // "1" or "12" are not physical rooms and must not leak into this screen.
+  // Legacy auto-created class-sync rows are hidden as well.
+  (scopedFilter as any).capacityMode = { $ne: 'auto' };
 
   const rooms = await ExamRoom.find(scopedFilter).sort({ building: 1, name: 1 }).lean();
   const normalized = rooms.map((room: any) => ({
@@ -229,8 +119,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
 // GET /exam-rooms/export
 export const exportRooms = async (req: Request, res: Response): Promise<void> => {
   const filter = applyOrgFilter(req, {}, 'school');
-  await syncRoomsFromClasses(filter as Record<string, unknown>);
-  await syncAutoCapacities(filter as Record<string, unknown>);
+  (filter as any).capacityMode = { $ne: 'auto' };
   const rooms = await ExamRoom.find(filter).sort({ building: 1, name: 1 }).lean();
 
   const rows = rooms.map((r: any) => ({
