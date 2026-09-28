@@ -228,18 +228,41 @@ export const generate = async (req: Request, res: Response) => {
   const normalizedRoomIds = Array.isArray(roomIds)
     ? roomIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)
     : [];
-  const normalizedRoomPlan: Array<{ classId: string; roomIds: string[] }> = Array.isArray(roomPlan)
+  const normalizedRoomPlan: Array<{
+    classId: string;
+    roomIds: string[];
+    quotas: Array<{ roomId: string; count: number }>;
+  }> = Array.isArray(roomPlan)
     ? roomPlan
-        .map((item: any) => ({
-          classId: mongoose.isValidObjectId(String(item?.classId || '')) ? String(item.classId) : '',
-          roomIds: Array.isArray(item?.roomIds)
-            ? Array.from(new Set<string>(
-                item.roomIds
-                  .filter((id: unknown) => mongoose.isValidObjectId(String(id)))
-                  .map((id: unknown) => String(id))
-              ))
-            : [],
-        }))
+        .map((item: any) => {
+          const quotas = Array.isArray(item?.quotas)
+            ? item.quotas
+                .map((quota: any) => ({
+                  roomId: mongoose.isValidObjectId(String(quota?.roomId || '')) ? String(quota.roomId) : '',
+                  count: Number(quota?.count),
+                }))
+                .filter((quota: { roomId: string; count: number }) =>
+                  quota.roomId && Number.isInteger(quota.count) && quota.count > 0
+                )
+            : [];
+
+          const explicitRoomIds = Array.isArray(item?.roomIds)
+            ? item.roomIds
+                .filter((id: unknown) => mongoose.isValidObjectId(String(id)))
+                .map((id: unknown) => String(id))
+            : [];
+
+          const roomIds = Array.from(new Set<string>([
+            ...explicitRoomIds,
+            ...quotas.map((quota: { roomId: string; count: number }) => quota.roomId),
+          ]));
+
+          return {
+            classId: mongoose.isValidObjectId(String(item?.classId || '')) ? String(item.classId) : '',
+            roomIds,
+            quotas,
+          };
+        })
         .filter((item: { classId: string; roomIds: string[] }) => item.classId && item.roomIds.length > 0)
     : [];
 
