@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Trash2,
   Users,
+  X,
   Zap,
 } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -167,6 +168,7 @@ export function PlanRoomsPanel({
   const [localError, setLocalError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<RoomPlanSettings>(DEFAULT_SETTINGS);
+  const [savedSettings, setSavedSettings] = useState<RoomPlanSettings>(DEFAULT_SETTINGS);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
@@ -205,16 +207,19 @@ export function PlanRoomsPanel({
       setSettingsLoading(true);
       setSettingsMessage('');
       try {
-        const response = await api.get('/exams/room-plan-settings', {
+        const response = await api.get('/exam-rooms/plan-settings', {
           params: resolvedSchoolId ? { school: resolvedSchoolId } : undefined,
         });
         if (!cancelled) {
-          setSettings({ ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || {}) });
+          const loadedSettings = { ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || {}) };
+          setSettings(loadedSettings);
+          setSavedSettings(loadedSettings);
           setSettingsDirty(false);
         }
       } catch (err: any) {
         if (!cancelled) {
           setSettings(DEFAULT_SETTINGS);
+          setSavedSettings(DEFAULT_SETTINGS);
           setSettingsMessage(err.response?.data?.message || 'Using recommended Room Plan defaults.');
         }
       } finally {
@@ -257,6 +262,14 @@ export function PlanRoomsPanel({
     return room && row.allocations.some(a => Number(a.quota) > 0) ? sum + effectiveCapacity(room) : sum;
   }, 0);
 
+  const closeSettingsModal = () => {
+    if (settingsSaving) return;
+    setSettings(savedSettings);
+    setSettingsDirty(false);
+    setLocalError('');
+    setSettingsOpen(false);
+  };
+
   const updateSettings = <K extends keyof RoomPlanSettings>(key: K, value: RoomPlanSettings[K]) => {
     setSettings(prev => {
       const next = { ...prev, [key]: value } as RoomPlanSettings;
@@ -283,10 +296,13 @@ export function PlanRoomsPanel({
     try {
       const body: any = { settings };
       if (resolvedSchoolId) body.school = resolvedSchoolId;
-      const response = await api.patch('/exams/room-plan-settings', body);
-      setSettings({ ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || settings) });
+      const response = await api.patch('/exam-rooms/plan-settings', body);
+      const saved = { ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || settings) };
+      setSettings(saved);
+      setSavedSettings(saved);
       setSettingsDirty(false);
-      setSettingsMessage('Room Plan settings saved.');
+      setSettingsOpen(false);
+      setSettingsMessage('Room Plan Settings saved successfully.');
     } catch (err: any) {
       setLocalError(err.response?.data?.message || 'Could not save Room Plan settings.');
     } finally {
@@ -847,29 +863,35 @@ export function PlanRoomsPanel({
       )}
 
       {settingsMessage && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
-          {settingsMessage}
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
+          <CheckCircle2 size={17}/>
+          <span>{settingsMessage}</span>
         </div>
       )}
 
       {settingsOpen && (
-        <div className={card + ' overflow-hidden'}>
-          <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-            <div>
-              <div className="flex items-center gap-2"><Settings2 size={18}/><h2 className="text-lg font-bold">Room Plan Settings</h2></div>
-              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Organization-level rules used every time Smart Mixed Plan is generated.</p>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-5" onMouseDown={e=>{if(e.target===e.currentTarget)closeSettingsModal()}}>
+          <div role="dialog" aria-modal="true" aria-labelledby="room-plan-settings-title" className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl">
+            <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+              <div>
+                <div className="flex items-center gap-2"><Settings2 size={18}/><h2 id="room-plan-settings-title" className="text-lg font-bold">Room Plan Settings</h2></div>
+                <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Organization-level rules used every time Smart Mixed Plan is generated.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={()=>{setSettings(DEFAULT_SETTINGS);setSettingsDirty(true);setSettingsMessage('')}} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold">
+                  <RotateCcw size={15}/>Reset Defaults
+                </button>
+                <button type="button" disabled={settingsSaving} onClick={()=>void saveSettings()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                  <Save size={15}/>{settingsSaving?'Saving...':'Save Settings'}
+                </button>
+                <button type="button" disabled={settingsSaving} onClick={closeSettingsModal} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)] disabled:opacity-50" aria-label="Close Room Plan Settings">
+                  <X size={17}/>
+                </button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={()=>{setSettings(DEFAULT_SETTINGS);setSettingsDirty(true);setSettingsMessage('Recommended defaults loaded. Save to apply them to this organization.')}} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold">
-                <RotateCcw size={15}/>Reset Defaults
-              </button>
-              <button type="button" disabled={settingsSaving} onClick={()=>void saveSettings()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                <Save size={15}/>{settingsSaving?'Saving...':'Save Settings'}
-              </button>
-            </div>
-          </div>
 
-          <div className="space-y-6 p-4 sm:p-5">
+            <div className="overflow-y-auto">
+              <div className="space-y-6 p-4 sm:p-5">
             <div>
               <h3 className="font-bold">Basic Smart Rules</h3>
               <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -918,8 +940,10 @@ export function PlanRoomsPanel({
                   </select>
                 </label>
               </div>
+              </div>
             </div>
           </div>
+        </div>
         </div>
       )}
 
@@ -936,7 +960,7 @@ export function PlanRoomsPanel({
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={()=>setSettingsOpen(value=>!value)} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold">
+            <button type="button" onClick={()=>{setSettings(savedSettings);setSettingsDirty(false);setSettingsMessage('');setSettingsOpen(true)}} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold">
               <Settings2 size={16}/>{settingsLoading?'Loading Settings...':'Room Plan Settings'}
             </button>
             <button type="button" onClick={generateSmartPlan} disabled={settingsLoading||settingsDirty} title={settingsDirty?'Save Room Plan Settings first':''} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
