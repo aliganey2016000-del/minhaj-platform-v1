@@ -195,6 +195,7 @@ export const generate = async (req: Request, res: Response) => {
     departmentIds = [],
     classIds = [],
     roomIds = [],
+    roomPlan = [],
     shift = '',
   } = req.body as any;
 
@@ -226,6 +227,16 @@ export const generate = async (req: Request, res: Response) => {
     : [];
   const normalizedRoomIds = Array.isArray(roomIds)
     ? roomIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)
+    : [];
+  const normalizedRoomPlan = Array.isArray(roomPlan)
+    ? roomPlan
+        .map((item: any) => ({
+          classId: mongoose.isValidObjectId(String(item?.classId || '')) ? String(item.classId) : '',
+          roomIds: Array.isArray(item?.roomIds)
+            ? Array.from(new Set(item.roomIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)))
+            : [],
+        }))
+        .filter((item: any) => item.classId && item.roomIds.length > 0)
     : [];
 
   const classFilter: any = { status: 'active', school: targetSchoolId };
@@ -289,6 +300,30 @@ export const generate = async (req: Request, res: Response) => {
   selectedRooms.forEach(r => assertOwnOrg(req, r, 'school'));
   if (!selectedRooms.length) throw new BadRequestError('Select at least one Room with a valid capacity');
 
+  const targetClassIdSet = new Set(targetClasses.map(c => String(c._id)));
+  const selectedRoomIdSet = new Set(selectedRooms.map(room => String(room._id)));
+  const roomPlanMap = new Map<string, string[]>();
+  for (const item of normalizedRoomPlan) {
+    if (!targetClassIdSet.has(item.classId)) {
+      throw new BadRequestError('Room Plan contains a class outside the selected active classes');
+    }
+    const invalidRoom = item.roomIds.find((id: string) => !selectedRoomIdSet.has(id));
+    if (invalidRoom) {
+      throw new BadRequestError('Room Plan contains a room outside the selected organization rooms');
+    }
+    roomPlanMap.set(item.classId, item.roomIds);
+  }
+
+  if (normalizedRoomPlan.length) {
+    const classesWithStudents = new Set(selected.map(s => String(s.class?._id || s.class || '')));
+    for (const classId of classesWithStudents) {
+      if (classId && !roomPlanMap.has(classId)) {
+        const cls = targetClasses.find(c => String(c._id) === classId);
+        throw new BadRequestError(`Choose at least one Room for ${norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'each selected class'}`);
+      }
+    }
+  }
+
   const totalCapacity = selectedRooms.reduce((sum, room) => sum + Math.max(0, Number(room.capacity) || 0), 0);
   if (totalCapacity < selected.length) {
     throw new BadRequestError(
@@ -331,6 +366,21 @@ export const generate = async (req: Request, res: Response) => {
     );
   }
 
+  if (roomPlanMap.size) {
+    const lockedOutsidePlan = lockedRows.find(row => {
+      const student = selected.find(s => String(s._id) === String(row.student));
+      if (!student) return false;
+      const classId = String(student.class?._id || student.class || '');
+      const allowed = roomPlanMap.get(classId) || [];
+      return !allowed.includes(String(row.room));
+    });
+    if (lockedOutsidePlan) {
+      throw new BadRequestError(
+        'A locked student is in a Room outside the new class Room Plan. Include that Room or unlock the student before rebalancing.'
+      );
+    }
+  }
+
   const studentById = new Map(selected.map(student => [String(student._id), student]));
   const lockedStudentIds = new Set(lockedRows.map(row => String(row.student)));
   const initialCounts = new Map<string, number>();
@@ -357,23 +407,112 @@ export const generate = async (req: Request, res: Response) => {
   }
 
   const availableStudents = selected.filter(student => !lockedStudentIds.has(String(student._id)));
-  const mixed = roundRobinMix(availableStudents, allocationSeed);
-  const targets = balancedRoomTargets(selectedRooms, mixed.length, initialCounts, frozenRoomIds);
-  let cursor = 0;
 
-  for (const room of selectedRooms) {
-    const roomId = String(room._id);
-    const lockedCount = initialCounts.get(roomId) || 0;
-    const finalTarget = targets.get(roomId) || lockedCount;
-    const needed = Math.max(0, finalTarget - lockedCount);
-    const group = mixed.slice(cursor, cursor + needed);
-    cursor += group.length;
+  if (roomPlanMap.size) {
+    const currentCounts = new Map<string, number>(initialCounts);
+    const roomById = new Map(selectedRooms.map(room => [String(room._id), room]));
+    const studentsByClass = new Map<string, any[]>();
 
-    group.forEach(student => assignments.push({
-      roomId: room._id,
-      student,
-      locked: false,
-    }));
+    for (const student of availableStudents) {
+      const classId = String(student.class?._id || student.class || '');
+      const group = studentsByClass.get(classId) || [];
+      group.push(student);
+      studentsByClass.set(classId, group);
+    }
+
+    const classGroups = Array.from(studentsByClass.entries())
+      .map(([classId, group]) => ({
+        classId,
+        group,
+        allowedRoomIds: roomPlanMap.get(classId) || [],
+      }))
+      .sort((a, b) =>
+        a.allowedRoomIds.length - b.allowedRoomIds.length
+        || b.group.length - a.group.length
+        || a.classId.localeCompare(b.classId)
+      );
+
+    for (const classGroup of classGroups) {
+      const allowedRooms = classGroup.allowedRoomIds
+        .map(id => roomById.get(id))
+        .filter(Boolean) as any[];
+
+      if (!allowedRooms.length) {
+        throw new BadRequestError('A selected class has no available Rooms in the Room Plan');
+      }
+
+      const remainingCapacity = allowedRooms.reduce((sum, room) => {
+        const roomId = String(room._id);
+        if (frozenRoomIds.has(roomId)) return sum;
+        return sum + Math.max(0, Number(room.capacity || 0) - (currentCounts.get(roomId) || 0));
+      }, 0);
+
+      if (remainingCapacity < classGroup.group.length) {
+        const cls = targetClasses.find(c => String(c._id) === classGroup.classId);
+        const label = norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'Selected class';
+        throw new BadRequestError(
+          `${label} needs ${classGroup.group.length} available seats in its planned Rooms, but only ${remainingCapacity} remain. Choose another Room or adjust the plan.`
+        );
+      }
+
+      const shuffled = shuffle(
+        classGroup.group.slice().sort((a, b) =>
+          String(a.studentId || a._id).localeCompare(String(b.studentId || b._id), undefined, { numeric: true })
+        ),
+        mulberry32(hashSeed(`${allocationSeed}|${classGroup.classId}`)),
+      );
+
+      for (const student of shuffled) {
+        const candidates = allowedRooms
+          .filter(room => {
+            const id = String(room._id);
+            return !frozenRoomIds.has(id) && (currentCounts.get(id) || 0) < Math.max(0, Number(room.capacity) || 0);
+          })
+          .sort((a, b) => {
+            const aId = String(a._id);
+            const bId = String(b._id);
+            const aCapacity = Math.max(1, Number(a.capacity) || 1);
+            const bCapacity = Math.max(1, Number(b.capacity) || 1);
+            const aRatio = (currentCounts.get(aId) || 0) / aCapacity;
+            const bRatio = (currentCounts.get(bId) || 0) / bCapacity;
+            return aRatio - bRatio
+              || (currentCounts.get(aId) || 0) - (currentCounts.get(bId) || 0)
+              || String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true });
+          });
+
+        const room = candidates[0];
+        if (!room) {
+          throw new BadRequestError('Could not place every student within the selected class Room Plan');
+        }
+
+        const roomId = String(room._id);
+        currentCounts.set(roomId, (currentCounts.get(roomId) || 0) + 1);
+        assignments.push({
+          roomId: room._id,
+          student,
+          locked: false,
+        });
+      }
+    }
+  } else {
+    const mixed = roundRobinMix(availableStudents, allocationSeed);
+    const targets = balancedRoomTargets(selectedRooms, mixed.length, initialCounts, frozenRoomIds);
+    let cursor = 0;
+
+    for (const room of selectedRooms) {
+      const roomId = String(room._id);
+      const lockedCount = initialCounts.get(roomId) || 0;
+      const finalTarget = targets.get(roomId) || lockedCount;
+      const needed = Math.max(0, finalTarget - lockedCount);
+      const group = mixed.slice(cursor, cursor + needed);
+      cursor += group.length;
+
+      group.forEach(student => assignments.push({
+        roomId: room._id,
+        student,
+        locked: false,
+      }));
+    }
   }
 
   if (assignments.length !== selected.length) {
@@ -398,6 +537,7 @@ export const generate = async (req: Request, res: Response) => {
     rooms: breakdown.length,
     mixedClasses: true,
     roomOnly: true,
+    plannedByClass: roomPlanMap.size > 0,
     totalCapacity,
     freeCapacity: Math.max(0, totalCapacity - selected.length),
     lockedStudents: lockedRows.length,
