@@ -1124,6 +1124,7 @@ export function ExamSeatingCenterV3() {
             year={year}
             type={type}
             planRows={planRows}
+            schoolId={orgForAuto}
             setYear={setYear}
             setType={setType}
             setPlanRows={setPlanRows}
