@@ -10,7 +10,6 @@ import * as academicStructureController from '../../controllers/academic-structu
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
-import { syncClassExamRoom } from '../../middleware/class-room-sync.middleware';
 import { validateAcademicClass } from '../../middleware/academic-class.middleware';
 import { guardBulkClassDelete, guardSingleClassDelete } from '../../middleware/class-delete-guard.middleware';
 
@@ -23,7 +22,7 @@ router.get('/browse', roleMiddleware(['admin', 'org_admin', 'teacher', 'student'
 router.get('/academic-structure', adminOnly, asyncHandler(academicStructureController.getStructure));
 router.patch('/academic-structure', adminOnly, asyncHandler(academicStructureController.updateStructure));
 router.post('/advance-semester', adminOnly, asyncHandler(academicStructureController.advanceSemester));
-router.post('/', adminOnly, asyncHandler(validateAcademicClass), syncClassExamRoom, asyncHandler(classController.create));
+router.post('/', adminOnly, asyncHandler(validateAcademicClass), asyncHandler(classController.create));
 router.post('/import', adminOnly, upload.single('file'), asyncHandler(classController.bulkImport));
 router.get('/export', adminOnly, asyncHandler(classController.exportClasses as any));
 router.get('/template', adminOnly, asyncHandler(classController.downloadTemplate as any));
@@ -33,7 +32,7 @@ router.delete('/bulk', adminOnly, asyncHandler(guardBulkClassDelete), asyncHandl
 router.patch('/bulk/status', adminOnly, asyncHandler(classBulkActionsController.bulkUpdateStatus));
 router.post('/rollback-promotion', adminOnly, asyncHandler(classBulkActionsController.rollbackPromotion));
 router.post('/:id/duplicate', adminOnly, asyncHandler(classDuplicateController.duplicate));
-router.patch('/:id', adminOnly, asyncHandler(validateAcademicClass), syncClassExamRoom, asyncHandler(classController.update));
+router.patch('/:id', adminOnly, asyncHandler(validateAcademicClass), asyncHandler(classController.update));
 router.delete('/:id', adminOnly, asyncHandler(guardSingleClassDelete), asyncHandler(classController.remove));
 router.patch('/:id/status', adminOnly, asyncHandler(classController.updateStatus));
 router.get('/schedule/:courseId', asyncHandler(classController.getSchedule));
