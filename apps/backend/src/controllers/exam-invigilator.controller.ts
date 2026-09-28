@@ -472,6 +472,144 @@ export const assign = async (req: Request, res: Response): Promise<Response> => 
   return ApiResponse.success(res, populated, `${teacherName(populated.teacher)} assigned to ${populated.room?.name || 'room'}`);
 };
 
+export const bulkAssign = async (req: Request, res: Response): Promise<Response> => {
+  const periodId = clean(req.body?.periodId);
+  const examDate = clean(req.body?.examDate);
+  const startTime = clean(req.body?.startTime);
+  const endTime = clean(req.body?.endTime);
+  const rawAssignments = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
+
+  if (!periodId || !examDate || !startTime || !endTime) {
+    throw new BadRequestError('Exam, date and session time are required');
+  }
+  if (timeToMinutes(startTime) < 0 || timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+    throw new BadRequestError('Invalid exam shift time');
+  }
+
+  const assignments = rawAssignments.map((item: any) => ({
+    roomId: clean(item?.roomId),
+    teacherId: clean(item?.teacherId),
+  }));
+
+  if (!assignments.length) {
+    throw new BadRequestError('At least one room assignment is required');
+  }
+
+  const duplicateRoom = assignments.find((item: any, index: number) =>
+    assignments.findIndex((other: any) => other.roomId === item.roomId) !== index
+  );
+  if (duplicateRoom) throw new BadRequestError('Each room can appear only once');
+
+  const teacherIds = assignments.map((item: any) => item.teacherId).filter(Boolean);
+  if (new Set(teacherIds).size !== teacherIds.length) {
+    throw new BadRequestError('A teacher cannot be assigned to two rooms in the same session');
+  }
+
+  for (const item of assignments) {
+    if (!mongoose.isValidObjectId(item.roomId)) throw new BadRequestError('Invalid room');
+    if (item.teacherId && !mongoose.isValidObjectId(item.teacherId)) throw new BadRequestError('Invalid teacher');
+  }
+
+  const period = await loadPeriod(req, periodId);
+  const examType = await resolveExamType(period);
+  const { start, end } = dayBounds(examDate);
+
+  const matchingExam = await Exam.exists({
+    school: period.school,
+    period: period._id,
+    examDate: { $gte: start, $lt: end },
+    startTime,
+    endTime,
+    status: { $ne: 'cancelled' },
+    autoSchedule: { $ne: true },
+    schedulePlaced: { $ne: false },
+  });
+  if (!matchingExam) throw new BadRequestError('No scheduled exam exists for this date and shift');
+
+  const roomIds = assignments.map((item: any) => item.roomId);
+  const rooms = await ExamRoom.find({
+    _id: { $in: roomIds },
+    school: period.school,
+  }).select('_id').lean();
+  if (rooms.length !== roomIds.length) {
+    throw new BadRequestError('One or more rooms do not belong to this organization');
+  }
+
+  if (teacherIds.length) {
+    const [teachers, attendance] = await Promise.all([
+      Teacher.find({
+        _id: { $in: teacherIds },
+        school: period.school,
+        status: 'active',
+      }).select('_id').lean(),
+      ExamInvigilatorTeacherAttendance.find({
+        school: period.school,
+        period: period._id,
+        examDate: { $gte: start, $lt: end },
+        teacher: { $in: teacherIds },
+        status: 'present',
+      }).select('teacher').lean(),
+    ]);
+
+    if (teachers.length !== teacherIds.length) {
+      throw new BadRequestError('One or more selected teachers are not active teachers in this organization');
+    }
+
+    const presentIds = new Set(attendance.map((row: any) => String(row.teacher)));
+    const absentTeacher = teacherIds.find((id: string) => !presentIds.has(id));
+    if (absentTeacher) {
+      throw new BadRequestError('Every selected invigilator must be marked Present for this exam date');
+    }
+
+    const existingTeacherAssignments = await ExamInvigilatorAssignment.find({
+      school: period.school,
+      teacher: { $in: teacherIds },
+      examDate: { $gte: start, $lt: end },
+    }).lean() as any[];
+
+    const conflict = existingTeacherAssignments.find(row =>
+      !(row.startTime === startTime && row.endTime === endTime && roomIds.includes(String(row.room)))
+      && rangesOverlap(startTime, endTime, row.startTime, row.endTime)
+    );
+    if (conflict) {
+      throw new ConflictError('One of the selected teachers is already assigned to another exam room during this time');
+    }
+  }
+
+  await ExamInvigilatorAssignment.deleteMany({
+    school: period.school,
+    period: period._id,
+    examDate: { $gte: start, $lt: end },
+    startTime,
+    endTime,
+    room: { $in: roomIds },
+  });
+
+  const selected = assignments.filter((item: any) => item.teacherId);
+  if (selected.length) {
+    const createdBy = new mongoose.Types.ObjectId(req.user!.userId);
+    await ExamInvigilatorAssignment.insertMany(
+      selected.map((item: any) => ({
+        school: period.school,
+        period: period._id,
+        examDate: start,
+        startTime,
+        endTime,
+        room: new mongoose.Types.ObjectId(item.roomId),
+        teacher: new mongoose.Types.ObjectId(item.teacherId),
+        examType,
+        createdBy,
+      }))
+    );
+  }
+
+  return ApiResponse.success(res, {
+    rooms: assignments.length,
+    assigned: selected.length,
+    missing: assignments.length - selected.length,
+  }, 'Invigilator assignments confirmed');
+};
+
 export const remove = async (req: Request, res: Response): Promise<Response> => {
   const row = await ExamInvigilatorAssignment.findById(req.params.assignmentId);
   if (!row) throw new NotFoundError('Invigilation assignment');
