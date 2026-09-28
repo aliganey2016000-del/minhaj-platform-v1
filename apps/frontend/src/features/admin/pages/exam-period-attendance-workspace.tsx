@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, CheckCircle2, Clock3, Search, UserCheck, Users, XCircle } from 'lucide-react';
+import { BookOpen, CalendarDays, CheckCircle2, ChevronRight, Clock3, DoorOpen, Search, UserCheck, Users, XCircle } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
 
-type Room={_id:string;name:string;students:number;assignment?:{_id:string;teacher?:{name?:string}|null}|null};
+type Room={
+  _id:string;
+  name:string;
+  students:number;
+  markedStudents?:number;
+  classBreakdown?:Array<{classId:string;className:string;subject:string;students:number}>;
+  assignment?:{_id:string;teacher?:{name?:string}|null}|null;
+};
 type Session={key:string;examDate:string;startTime:string;endTime:string;rooms:Room[]};
 type Context={period:{name:string;academicYear:string};sessions:Session[]};
 type Roster={student:{_id:string;studentId:string;profile?:{firstName?:string;lastName?:string};class?:{title?:string;section?:string}|null};attendance?:{status?:string}|null};
@@ -50,6 +57,15 @@ export function ExamPeriodAttendanceWorkspace(){
   const state=(i:Item):Tab=>now<i.start?'upcoming':now<=i.end?'active':'completed';
   const groups=useMemo(()=>({upcoming:items.filter(i=>state(i)==='upcoming'),active:items.filter(i=>state(i)==='active'),completed:items.filter(i=>state(i)==='completed')}),[items,now]);
 
+  const shiftNumber=(session:Session)=>{
+    const shifts=Array.from(new Set(
+      (ctx?.sessions||[])
+        .filter(item=>item.examDate===session.examDate)
+        .map(item=>item.startTime+'::'+item.endTime)
+    )).sort();
+    return Math.max(1,shifts.indexOf(session.startTime+'::'+session.endTime)+1);
+  };
+
   useEffect(()=>{if(groups.active.length)setTab('active');else if(groups.upcoming.length)setTab('upcoming');else setTab('completed')},[ctx]);
 
   const open=async(i:Item)=>{
@@ -77,6 +93,7 @@ export function ExamPeriodAttendanceWorkspace(){
       await api.post('/exams/invigilators/'+selected.room.assignment._id+'/attendance',{records:roster.map(r=>({student:r.student._id,status:marks[r.student._id],notes:''}))});
       setSubmitted(p=>({...p,[selected.room.assignment!._id]:true}));
       setMessage('Attendance submitted successfully.');
+      await load();
     }catch(e:any){setError(e.response?.data?.message||'Could not submit attendance.')}
     finally{setBusy(false)}
   };
@@ -94,12 +111,63 @@ export function ExamPeriodAttendanceWorkspace(){
       {([['upcoming','Upcoming',CalendarDays],['active','Active',Clock3],['completed','Completed',CheckCircle2]] as const).map(([k,l,I])=><button key={k} onClick={()=>{setTab(k);setSelected(null)}} className={'rounded-xl p-3 text-sm font-bold '+(tab===k?'bg-primary-600 text-white':'text-[var(--color-text-secondary)]')}><I size={16} className="mx-auto mb-1"/>{l}<span className="ml-1 text-xs">({groups[k].length})</span></button>)}
     </div>
     <div className={selected?'grid gap-5 xl:grid-cols-[380px_1fr]':''}>
-      <div className="space-y-3">
-        {loading?<div className={card+' p-10 text-center'}>Loading…</div>:groups[tab].map(i=>{const done=Boolean(i.room.assignment?._id&&submitted[i.room.assignment._id]);return <button key={i.id} disabled={state(i)==='upcoming'} onClick={()=>void open(i)} className={card+' w-full p-4 text-left disabled:opacity-80'}>
-          <div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><b>{i.room.name}</b>{state(i)==='active'&&<span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">In Progress</span>}{state(i)==='completed'&&<span className={'rounded-full px-2 py-0.5 text-[10px] font-bold '+(done?'bg-emerald-100 text-emerald-700':'bg-red-100 text-red-700')}>{done?'Submitted':'Missed'}</span>}</div>
-          <div className="mt-2 space-y-1 text-xs text-[var(--color-text-tertiary)]"><p><CalendarDays size={13} className="mr-1 inline"/>{day(i.session.examDate)}</p><p><Clock3 size={13} className="mr-1 inline"/>{i.session.startTime}–{i.session.endTime}</p><p><UserCheck size={13} className="mr-1 inline"/>{i.room.assignment?.teacher?.name||'No invigilator'}</p><p><Users size={13} className="mr-1 inline"/>{i.room.students} students</p></div></div></div>
-        </button>})}
-        {!loading&&!groups[tab].length&&<div className={card+' p-10 text-center text-sm text-[var(--color-text-tertiary)]'}>No {tab} room sessions.</div>}
+      <div className={selected?'space-y-3':'grid gap-4 md:grid-cols-2 xl:grid-cols-3'}>
+        {loading?<div className={card+' p-10 text-center md:col-span-2 xl:col-span-3'}>Loading…</div>:groups[tab].map(i=>{
+          const assignmentId=i.room.assignment?._id;
+          const done=Boolean(
+            assignmentId
+            && (
+              submitted[assignmentId]
+              || (i.room.students>0&&(i.room.markedStudents||0)===i.room.students)
+            )
+          );
+          const status=state(i);
+          const classes=i.room.classBreakdown||[];
+          return <div key={i.id} className={card+' overflow-hidden'}>
+            <button
+              type="button"
+              disabled={status==='upcoming'}
+              onClick={()=>void open(i)}
+              className="w-full p-4 text-left disabled:cursor-default sm:p-5"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2 font-bold text-[var(--color-text-primary)]">
+                  <CalendarDays size={17} className="text-primary-600"/>
+                  {day(i.session.examDate)}
+                </div>
+                {status==='active'&&<span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-700">● In Progress</span>}
+                {status==='upcoming'&&<span className="shrink-0 rounded-full bg-blue-100 px-2.5 py-1 text-[10px] font-bold text-blue-700">Upcoming</span>}
+                {status==='completed'&&<span className={'shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold '+(done?'bg-emerald-100 text-emerald-700':'bg-red-100 text-red-700')}>{done?'✓ Submitted':'Missed'}</span>}
+              </div>
+
+              <div className="mt-3 space-y-2 text-sm text-[var(--color-text-secondary)]">
+                <p className="flex items-center gap-2"><Clock3 size={16} className="shrink-0 text-[var(--color-text-tertiary)]"/><span><b className="text-[var(--color-text-primary)]">Shift {shiftNumber(i.session)}</b> · {i.session.startTime}–{i.session.endTime}</span></p>
+                <p className="flex items-center gap-2"><DoorOpen size={16} className="shrink-0 text-[var(--color-text-tertiary)]"/><span>{i.room.name}</span></p>
+                <p className="flex items-center gap-2"><UserCheck size={16} className="shrink-0 text-[var(--color-text-tertiary)]"/><span>Invigilator: <b className="font-semibold text-[var(--color-text-primary)]">{i.room.assignment?.teacher?.name||'Not assigned'}</b></span></p>
+                <p className="flex items-center gap-2"><Users size={16} className="shrink-0 text-[var(--color-text-tertiary)]"/><span>Total: <b className="text-[var(--color-text-primary)]">{i.room.students} students</b></span></p>
+              </div>
+
+              <div className="mt-4 border-t border-[var(--color-border-default)] pt-3">
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Classes / Subjects</p>
+                <div className="space-y-1.5">
+                  {classes.length?classes.map(row=><div key={row.classId} className="flex items-center justify-between gap-3 rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-xs sm:text-sm">
+                    <span className="flex min-w-0 items-center gap-2"><BookOpen size={14} className="shrink-0 text-[var(--color-text-tertiary)]"/><span className="truncate font-semibold">{row.subject} {row.className}</span></span>
+                    <span className="shrink-0 font-bold text-[var(--color-text-secondary)]">{row.students} students</span>
+                  </div>):<p className="rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-xs text-[var(--color-text-tertiary)]">No class breakdown available.</p>}
+                </div>
+              </div>
+            </button>
+
+            {status!=='upcoming'&&<button
+              type="button"
+              onClick={()=>void open(i)}
+              className={'flex w-full items-center justify-center gap-2 border-t px-4 py-3 text-sm font-bold '+(status==='active'?'bg-primary-600 text-white':'text-primary-700 hover:bg-primary-50 dark:text-primary-300 dark:hover:bg-primary-950/20')}
+            >
+              {status==='active'?'Open Attendance':'Review Attendance'} <ChevronRight size={16}/>
+            </button>}
+          </div>
+        })}
+        {!loading&&!groups[tab].length&&<div className={card+' p-10 text-center text-sm text-[var(--color-text-tertiary)] md:col-span-2 xl:col-span-3'}>No {tab} room sessions.</div>}
       </div>
       {selected&&<div className={card+' overflow-hidden'}>
         <div className="border-b p-4"><h2 className="text-xl font-bold">{selected.room.name} Attendance</h2><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{day(selected.session.examDate)} · {selected.session.startTime}–{selected.session.endTime}</p></div>
