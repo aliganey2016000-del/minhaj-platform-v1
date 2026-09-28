@@ -1,15 +1,21 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Building2, CheckCircle2, CheckSquare, Users, Zap } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle2, Plus, Trash2, Users, Zap } from 'lucide-react';
 import { AcademicYearSelect } from '../../shared/components/academic-year-select';
 
-export type PlanRoomRow = {
+export type PlanAllocation = {
   classId: string;
-  roomIds: string[];
+  quota: number;
+};
+
+export type PlanRoomRow = {
+  roomId: string;
+  allocations: PlanAllocation[];
 };
 
 export type RoomPlanItem = {
   classId: string;
   roomIds: string[];
+  quotas: Array<{ roomId: string; count: number }>;
 };
 
 export type AutoDefaults = {
@@ -26,6 +32,7 @@ type ClassItem = {
   section?: string;
   department?: { _id: string; name: string } | string;
   status?: string;
+  gradeLevel?: number;
 };
 
 type Room = {
@@ -54,6 +61,22 @@ const input = 'w-full rounded-xl border border-[var(--color-border-default)] bg-
 const classNameOf = (c: ClassItem) => [c.title, c.section].filter(Boolean).join(' ');
 const departmentNameOf = (c: ClassItem) => typeof c.department === 'string' ? c.department : c.department?.name || '';
 
+const numericGrade = (c: ClassItem) => {
+  if (Number.isFinite(Number(c.gradeLevel))) return Number(c.gradeLevel);
+  const match = String(c.title || '').match(/\d+/);
+  return match ? Number(match[0]) : null;
+};
+
+const gradeKeyOf = (c: ClassItem) => {
+  const grade = numericGrade(c);
+  return grade !== null ? 'grade-' + grade : String(c.title || c._id).trim().toLowerCase();
+};
+
+const gradeLabelOf = (c: ClassItem) => {
+  const grade = numericGrade(c);
+  return grade !== null ? 'Grade ' + grade : c.title;
+};
+
 export function PlanRoomsPanel({
   classes,
   rooms,
@@ -66,15 +89,19 @@ export function PlanRoomsPanel({
   setPlanRows,
   onGenerate,
 }: Props) {
-  const [section, setSection] = useState<'all' | 'primary' | 'middle' | 'secondary'>('all');
   const [localError, setLocalError] = useState('');
 
   const activeClasses = useMemo(
     () => classes
-      .filter(c => c.status === 'active')
+      .filter(c => c.status === 'active' && (studentCounts[c._id] || 0) > 0)
       .slice()
-      .sort((a, b) => classNameOf(a).localeCompare(classNameOf(b), undefined, { numeric: true })),
-    [classes],
+      .sort((a, b) => {
+        const ga = numericGrade(a);
+        const gb = numericGrade(b);
+        if (ga !== null && gb !== null && ga !== gb) return ga - gb;
+        return classNameOf(a).localeCompare(classNameOf(b), undefined, { numeric: true });
+      }),
+    [classes, studentCounts],
   );
 
   const sortedRooms = useMemo(
@@ -84,107 +111,253 @@ export function PlanRoomsPanel({
     [rooms],
   );
 
-  const sectionOf = (c: ClassItem) => {
-    const label = (departmentNameOf(c) + ' ' + c.title).toLowerCase();
-    if (label.includes('primary')) return 'primary';
-    if (label.includes('middle')) return 'middle';
-    if (label.includes('secondary')) return 'secondary';
-    return 'all';
-  };
+  const classById = useMemo(() => new Map(activeClasses.map(c => [c._id, c])), [activeClasses]);
+  const roomById = useMemo(() => new Map(sortedRooms.map(r => [r._id, r])), [sortedRooms]);
+  const rowOf = (roomId: string) => planRows.find(row => row.roomId === roomId) || { roomId, allocations: [] };
 
-  const visibleClasses = activeClasses.filter(c => section === 'all' || sectionOf(c) === section);
-  const rowOf = (classId: string) => planRows.find(r => r.classId === classId) || { classId, roomIds: [] };
-  const roomById = new Map(sortedRooms.map(r => [r._id, r]));
-  const totalRoomCapacity = sortedRooms.reduce((sum, r) => sum + (Number(r.capacity) || 0), 0);
-  const activeStudentTotal = activeClasses.reduce((sum, c) => sum + (studentCounts[c._id] || 0), 0);
-  const usedRoomIds = Array.from(new Set(planRows.flatMap(r => r.roomIds)));
-  const selectedCapacity = usedRoomIds.reduce((sum, id) => sum + (Number(roomById.get(id)?.capacity) || 0), 0);
+  const totalRoomCapacity = sortedRooms.reduce((sum, room) => sum + (Number(room.capacity) || 0), 0);
+  const activeStudentTotal = activeClasses.reduce((sum, cls) => sum + (studentCounts[cls._id] || 0), 0);
 
-  const updateRooms = (classId: string, roomIds: string[]) => {
+  const assignedByClass = useMemo(() => {
+    const totals: Record<string, number> = {};
+    planRows.forEach(row => row.allocations.forEach(allocation => {
+      totals[allocation.classId] = (totals[allocation.classId] || 0) + Math.max(0, Number(allocation.quota) || 0);
+    }));
+    return totals;
+  }, [planRows]);
+
+  const assignedTotal = Object.values(assignedByClass).reduce((sum, value) => sum + value, 0);
+  const usedRoomCount = planRows.filter(row => row.allocations.some(a => Number(a.quota) > 0)).length;
+  const usedCapacity = planRows.reduce((sum, row) => {
+    const room = roomById.get(row.roomId);
+    return row.allocations.some(a => Number(a.quota) > 0) ? sum + (Number(room?.capacity) || 0) : sum;
+  }, 0);
+
+  const updateRow = (roomId: string, allocations: PlanAllocation[]) => {
     setLocalError('');
-    setPlanRows(planRows.map(r => r.classId === classId ? { ...r, roomIds } : r));
+    setPlanRows(sortedRooms.map(room => (
+      room._id === roomId
+        ? { roomId, allocations }
+        : rowOf(room._id)
+    )));
   };
 
-  const setRoomCount = (classId: string, count: number) => {
-    const current = rowOf(classId).roomIds.filter(id => roomById.has(id));
-    if (count <= current.length) {
-      updateRooms(classId, current.slice(0, count));
-      return;
-    }
-    const next = [...current];
-    for (const room of sortedRooms) {
-      if (next.length >= count) break;
-      if (!next.includes(room._id)) next.push(room._id);
-    }
-    updateRooms(classId, next);
+  const updateAllocation = (roomId: string, index: number, patch: Partial<PlanAllocation>) => {
+    const row = rowOf(roomId);
+    updateRow(roomId, row.allocations.map((allocation, i) => i === index ? { ...allocation, ...patch } : allocation));
   };
 
-  const toggleRoom = (classId: string, roomId: string) => {
-    const current = rowOf(classId).roomIds;
-    updateRooms(
-      classId,
-      current.includes(roomId) ? current.filter(id => id !== roomId) : [...current, roomId],
-    );
+  const removeAllocation = (roomId: string, index: number) => {
+    const row = rowOf(roomId);
+    updateRow(roomId, row.allocations.filter((_, i) => i !== index));
   };
 
-  const autoSuggest = () => {
+  const addAllocation = (roomId: string) => {
+    const row = rowOf(roomId);
+    if (row.allocations.length >= 3) return;
+    const used = new Set(row.allocations.map(a => a.classId));
+    const nextClass = activeClasses.find(cls => !used.has(cls._id));
+    if (!nextClass) return;
+    updateRow(roomId, [...row.allocations, { classId: nextClass._id, quota: 1 }]);
+  };
+
+  const generateSmartPlan = () => {
+    setLocalError('');
     if (!sortedRooms.length) {
-      setLocalError('Add at least one Room before planning.');
+      setLocalError('Add at least one Room before generating the plan.');
       return;
     }
-    let cursor = 0;
-    const next = activeClasses.map(cls => {
-      const students = studentCounts[cls._id] || 0;
-      if (students <= 0) return { classId: cls._id, roomIds: [] };
-      const selected: string[] = [];
-      let capacity = 0;
-      for (let i = 0; i < sortedRooms.length && capacity < students; i += 1) {
-        const room = sortedRooms[(cursor + i) % sortedRooms.length];
-        selected.push(room._id);
-        capacity += Number(room.capacity) || 0;
+    if (!activeClasses.length) {
+      setLocalError('No active students were found in the active classes.');
+      return;
+    }
+    if (totalRoomCapacity < activeStudentTotal) {
+      setLocalError('Room capacity is short by ' + (activeStudentTotal - totalRoomCapacity) + ' seats. Increase capacity or add another room.');
+      return;
+    }
+
+    type Candidate = {
+      classId: string;
+      gradeKey: string;
+      gradeNumber: number | null;
+      remaining: number;
+    };
+
+    const candidates: Candidate[] = activeClasses.map(cls => ({
+      classId: cls._id,
+      gradeKey: gradeKeyOf(cls),
+      gradeNumber: numericGrade(cls),
+      remaining: studentCounts[cls._id] || 0,
+    }));
+
+    const nextRows: PlanRoomRow[] = sortedRooms.map(room => ({ roomId: room._id, allocations: [] }));
+    let totalRemaining = activeStudentTotal;
+
+    const distanceScore = (candidate: Candidate, selected: Candidate[]) => {
+      if (!selected.length) return 0;
+      if (candidate.gradeNumber === null || selected.some(item => item.gradeNumber === null)) return 0;
+      return Math.min(...selected.map(item => Math.abs(Number(candidate.gradeNumber) - Number(item.gradeNumber))));
+    };
+
+    for (const row of nextRows) {
+      if (totalRemaining <= 0) break;
+      const room = roomById.get(row.roomId);
+      let seats = Math.min(Number(room?.capacity) || 0, totalRemaining);
+      if (seats <= 0) continue;
+
+      const selected: Candidate[] = [];
+      const selectedGrades = new Set<string>();
+
+      while (selected.length < 3) {
+        const options = candidates
+          .filter(candidate => candidate.remaining > 0 && !selectedGrades.has(candidate.gradeKey))
+          .sort((a, b) =>
+            distanceScore(b, selected) - distanceScore(a, selected)
+            || b.remaining - a.remaining
+            || a.classId.localeCompare(b.classId)
+          );
+        const candidate = options[0];
+        if (!candidate) break;
+        selected.push(candidate);
+        selectedGrades.add(candidate.gradeKey);
       }
-      cursor = (cursor + Math.max(1, selected.length)) % sortedRooms.length;
-      return { classId: cls._id, roomIds: selected };
+
+      if (!selected.length) break;
+
+      let cursor = 0;
+      while (seats > 0) {
+        let available = selected.filter(candidate => candidate.remaining > 0);
+        if (!available.length) {
+          const existingGrades = new Set(selected.map(candidate => candidate.gradeKey));
+          const extra = candidates
+            .filter(candidate => candidate.remaining > 0 && (!existingGrades.has(candidate.gradeKey) || selected.length < 3))
+            .sort((a, b) => b.remaining - a.remaining)[0];
+          if (!extra || selected.length >= 3) break;
+          selected.push(extra);
+          available = selected.filter(candidate => candidate.remaining > 0);
+        }
+        if (!available.length) break;
+
+        const candidate = available[cursor % available.length];
+        const existing = row.allocations.find(allocation => allocation.classId === candidate.classId);
+        if (existing) existing.quota += 1;
+        else row.allocations.push({ classId: candidate.classId, quota: 1 });
+
+        candidate.remaining -= 1;
+        seats -= 1;
+        totalRemaining -= 1;
+        cursor += 1;
+      }
+    }
+
+    if (totalRemaining > 0) {
+      setLocalError('The automatic plan could not place ' + totalRemaining + ' students. Please review room capacities.');
+      return;
+    }
+
+    setPlanRows(nextRows);
+  };
+
+  const validatePlan = () => {
+    if (!year || !type) return 'Select Academic Year and Exam Type first.';
+
+    for (const row of planRows) {
+      const room = roomById.get(row.roomId);
+      const used = row.allocations.reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
+      if (used > (Number(room?.capacity) || 0)) {
+        return (room?.name || 'A room') + ' is over capacity by ' + (used - (Number(room?.capacity) || 0)) + '.';
+      }
+
+      const positive = row.allocations.filter(a => Number(a.quota) > 0);
+      const duplicateClasses = new Set<string>();
+      for (const allocation of positive) {
+        if (!classById.has(allocation.classId)) return 'A room contains an invalid or inactive class.';
+        if (duplicateClasses.has(allocation.classId)) return 'The same class cannot appear twice in one room.';
+        duplicateClasses.add(allocation.classId);
+      }
+
+      const distinctGrades = new Set(positive.map(a => {
+        const cls = classById.get(a.classId);
+        return cls ? gradeKeyOf(cls) : '';
+      }).filter(Boolean));
+
+      if (positive.length > 0 && activeClasses.length > 1 && distinctGrades.size < 2) {
+        return (room?.name || 'A room') + ' must contain at least 2 different grades.';
+      }
+    }
+
+    for (const cls of activeClasses) {
+      const expected = studentCounts[cls._id] || 0;
+      const assigned = assignedByClass[cls._id] || 0;
+      if (assigned !== expected) {
+        const difference = expected - assigned;
+        return classNameOf(cls) + (difference > 0
+          ? ' still has ' + difference + ' unassigned student(s).'
+          : ' is over-assigned by ' + Math.abs(difference) + ' student(s).');
+      }
+    }
+
+    return '';
+  };
+
+  const confirmPlan = () => {
+    const validationError = validatePlan();
+    if (validationError) {
+      setLocalError(validationError);
+      return;
+    }
+
+    const classMap = new Map<string, RoomPlanItem>();
+    planRows.forEach(row => {
+      row.allocations
+        .filter(allocation => Number(allocation.quota) > 0)
+        .forEach(allocation => {
+          const existing = classMap.get(allocation.classId) || {
+            classId: allocation.classId,
+            roomIds: [],
+            quotas: [],
+          };
+          if (!existing.roomIds.includes(row.roomId)) existing.roomIds.push(row.roomId);
+          existing.quotas.push({ roomId: row.roomId, count: Math.max(0, Number(allocation.quota) || 0) });
+          classMap.set(allocation.classId, existing);
+        });
     });
-    setPlanRows(next);
-    setLocalError('');
+
+    const roomPlan = Array.from(classMap.values());
+    const roomIds = Array.from(new Set(roomPlan.flatMap(item => item.roomIds)));
+    const classIds = roomPlan.map(item => item.classId);
+
+    onGenerate({
+      academicYear: year,
+      examType: type,
+      classIds,
+      roomIds,
+      roomPlan,
+    });
   };
 
-  const generate = () => {
-    if (!year || !type) {
-      setLocalError('Select Academic Year and Exam Type first.');
-      return;
-    }
-    const rows = activeClasses
-      .map(cls => ({ cls, row: rowOf(cls._id), students: studentCounts[cls._id] || 0 }))
-      .filter(item => item.students > 0);
+  const classSummary = activeClasses.map(cls => {
+    const expected = studentCounts[cls._id] || 0;
+    const assigned = assignedByClass[cls._id] || 0;
+    return {
+      cls,
+      expected,
+      assigned,
+      remaining: expected - assigned,
+    };
+  });
 
-    const missing = rows.filter(({ row }) => row.roomIds.length === 0);
-    if (missing.length) {
-      setLocalError('Choose Rooms for ' + missing[0].cls.title + (missing.length > 1 ? ' and ' + (missing.length - 1) + ' more class(es).' : '.'));
-      return;
-    }
-
-    const insufficient = rows.find(({ row, students }) =>
-      row.roomIds.reduce((sum, id) => sum + (Number(roomById.get(id)?.capacity) || 0), 0) < students
-    );
-    if (insufficient) {
-      setLocalError(classNameOf(insufficient.cls) + ' needs more room capacity.');
-      return;
-    }
-
-    const classIds = rows.map(({ cls }) => cls._id);
-    const roomIds = Array.from(new Set(rows.flatMap(({ row }) => row.roomIds)));
-    const roomPlan = rows.map(({ cls, row }) => ({ classId: cls._id, roomIds: row.roomIds }));
-
-    onGenerate({ academicYear: year, examType: type, classIds, roomIds, roomPlan });
-  };
+  const currentPlanError = planRows.some(row => {
+    const room = roomById.get(row.roomId);
+    const used = row.allocations.reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
+    return used > (Number(room?.capacity) || 0);
+  });
 
   return (
     <div className="space-y-5">
       <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
         <div className={card + ' p-4 sm:p-5'}>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto]">
+          <div className="grid gap-4 md:grid-cols-2">
             <label>
               <span className="mb-2 block text-sm font-semibold">Academic Year</span>
               <AcademicYearSelect value={year} onChange={setYear} required />
@@ -197,26 +370,6 @@ export function PlanRoomsPanel({
                 <option value="final">Final</option>
               </select>
             </label>
-            <div>
-              <p className="mb-2 text-sm font-semibold">Section</p>
-              <div className="flex flex-wrap gap-1 rounded-xl bg-[var(--color-surface-secondary)] p-1">
-                {([
-                  ['all', 'All'],
-                  ['primary', 'Primary'],
-                  ['middle', 'Middle'],
-                  ['secondary', 'Secondary'],
-                ] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setSection(value)}
-                    className={'rounded-lg px-3 py-2 text-xs font-semibold transition ' + (section === value ? 'bg-primary-600 text-white shadow-sm' : 'hover:bg-[var(--color-surface-primary)]')}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
 
@@ -226,12 +379,12 @@ export function PlanRoomsPanel({
               <Building2 size={20} />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold">Available Rooms (This Organization)</p>
+              <p className="text-sm font-semibold">Available Rooms</p>
               <div className="mt-2 flex flex-wrap items-end gap-3">
                 <span className="text-3xl font-bold">{sortedRooms.length}</span>
-                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">{totalRoomCapacity} total capacity</span>
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">{totalRoomCapacity} seats</span>
               </div>
-              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Only rooms belonging to the current organization are used.</p>
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{activeStudentTotal} active students to place.</p>
             </div>
           </div>
         </div>
@@ -247,98 +400,128 @@ export function PlanRoomsPanel({
       <div className={card + ' overflow-hidden'}>
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <div>
-            <h2 className="text-lg font-bold">Plan Rooms per Class</h2>
-            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose how many rooms each class may use, then preview the Smart Allocation.</p>
+            <h2 className="text-lg font-bold">Smart Mixed-Grade Room Plan</h2>
+            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Generate the mix, edit any Grade / Class or quota, then confirm the exact plan.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={autoSuggest} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold hover:bg-[var(--color-surface-secondary)]">
+            <button type="button" onClick={generateSmartPlan} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white">
               <Zap size={16} />
-              Auto Suggest
+              Generate Smart Mixed Plan
             </button>
-            <button type="button" onClick={generate} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">
+            <button
+              type="button"
+              onClick={confirmPlan}
+              disabled={!planRows.some(row => row.allocations.length > 0) || currentPlanError}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
               <CheckCircle2 size={16} />
-              Generate Allocation
+              Confirm Plan
             </button>
           </div>
         </div>
 
-        {visibleClasses.length === 0 ? (
-          <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No active classes found for this section.</div>
+        {sortedRooms.length === 0 ? (
+          <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No rooms are available. Add rooms through Class Management first.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="w-full min-w-[1040px] text-sm">
               <thead className="bg-[var(--color-surface-secondary)]">
                 <tr>
-                  <th className="px-4 py-3 text-left">#</th>
-                  <th className="px-4 py-3 text-left">Class</th>
-                  <th className="px-4 py-3 text-left">Students</th>
-                  <th className="px-4 py-3 text-left">No. of Rooms</th>
-                  <th className="px-4 py-3 text-left">Selected Rooms</th>
-                  <th className="px-4 py-3 text-left">Total Capacity</th>
+                  <th className="px-4 py-3 text-left">Room</th>
+                  <th className="px-4 py-3 text-left">Capacity</th>
+                  <th className="px-4 py-3 text-left">Grade / Class &amp; Quota</th>
+                  <th className="px-4 py-3 text-left">Used</th>
+                  <th className="px-4 py-3 text-left">Available</th>
                   <th className="px-4 py-3 text-left">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {visibleClasses.map((cls, index) => {
-                  const row = rowOf(cls._id);
-                  const students = studentCounts[cls._id] || 0;
-                  const totalCapacity = row.roomIds.reduce((sum, id) => sum + (Number(roomById.get(id)?.capacity) || 0), 0);
-                  const enough = students === 0 || totalCapacity >= students;
+                {sortedRooms.map(room => {
+                  const row = rowOf(room._id);
+                  const positiveAllocations = row.allocations.filter(allocation => Number(allocation.quota) > 0);
+                  const used = positiveAllocations.reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
+                  const available = Number(room.capacity) - used;
+                  const distinctGrades = new Set(positiveAllocations.map(allocation => {
+                    const cls = classById.get(allocation.classId);
+                    return cls ? gradeKeyOf(cls) : '';
+                  }).filter(Boolean));
+
+                  let statusLabel = 'Unused';
+                  let statusClass = 'bg-slate-100 text-slate-600';
+                  if (used > Number(room.capacity)) {
+                    statusLabel = 'Over Capacity';
+                    statusClass = 'bg-red-100 text-red-700';
+                  } else if (used > 0 && distinctGrades.size < 2 && activeClasses.length > 1) {
+                    statusLabel = 'Single Grade';
+                    statusClass = 'bg-amber-100 text-amber-700';
+                  } else if (used > 0 && available > 0) {
+                    statusLabel = available + ' Space Left · ' + distinctGrades.size + ' Grades';
+                    statusClass = 'bg-blue-100 text-blue-700';
+                  } else if (used > 0) {
+                    statusLabel = 'Full · ' + distinctGrades.size + ' Grades';
+                    statusClass = 'bg-emerald-100 text-emerald-700';
+                  }
+
                   return (
-                    <tr key={cls._id} className="border-t align-top">
-                      <td className="px-4 py-4 text-[var(--color-text-tertiary)]">{index + 1}</td>
+                    <tr key={room._id} className="border-t align-top">
                       <td className="px-4 py-4">
-                        <p className="font-semibold">{classNameOf(cls)}</p>
-                        {departmentNameOf(cls) && <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{departmentNameOf(cls)}</p>}
+                        <p className="font-bold">{room.name}</p>
+                        <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{room.building || 'Main'}</p>
                       </td>
-                      <td className="px-4 py-4 font-semibold">{students}</td>
+                      <td className="px-4 py-4 text-lg font-bold">{room.capacity}</td>
                       <td className="px-4 py-4">
-                        <select
-                          className="w-24 rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-2"
-                          value={row.roomIds.length}
-                          onChange={e => setRoomCount(cls._id, Number(e.target.value))}
-                        >
-                          {Array.from({ length: sortedRooms.length + 1 }, (_, i) => <option key={i} value={i}>{i}</option>)}
-                        </select>
-                      </td>
-                      <td className="px-4 py-4">
-                        <details className="relative">
-                          <summary className="flex min-h-10 min-w-[280px] cursor-pointer list-none flex-wrap items-center gap-1.5 rounded-xl border bg-[var(--color-surface-primary)] px-3 py-2 [&::-webkit-details-marker]:hidden">
-                            {row.roomIds.length === 0 ? (
-                              <span className="text-[var(--color-text-tertiary)]">Choose rooms...</span>
-                            ) : row.roomIds.map(id => {
-                              const room = roomById.get(id);
-                              return room ? <span key={id} className="rounded-lg bg-[var(--color-surface-secondary)] px-2 py-1 text-xs font-semibold">{room.name} / {room.capacity}</span> : null;
-                            })}
-                          </summary>
-                          <div className="absolute left-0 top-12 z-40 w-[300px] max-w-[80vw] rounded-xl border bg-[var(--color-surface-primary)] p-2 shadow-xl">
-                            {sortedRooms.length === 0 ? (
-                              <p className="p-2 text-xs text-[var(--color-text-tertiary)]">No rooms available.</p>
-                            ) : sortedRooms.map(room => (
-                              <label key={room._id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 hover:bg-[var(--color-surface-secondary)]">
-                                <input type="checkbox" checked={row.roomIds.includes(room._id)} onChange={() => toggleRoom(cls._id, room._id)} className="h-4 w-4" />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-sm font-medium">{room.name}</span>
-                                  <span className="block text-xs text-[var(--color-text-tertiary)]">{room.building || 'Main'} / {room.capacity} seats</span>
-                                </span>
-                              </label>
-                            ))}
+                        <div className="min-w-[430px] overflow-hidden rounded-xl border">
+                          <div className="grid grid-cols-[1fr_110px_40px] bg-[var(--color-surface-secondary)] px-2 py-2 text-[11px] font-bold uppercase text-[var(--color-text-tertiary)]">
+                            <span>Grade / Class</span>
+                            <span>Quota</span>
+                            <span />
                           </div>
-                        </details>
+                          {row.allocations.length === 0 ? (
+                            <div className="px-3 py-4 text-xs text-[var(--color-text-tertiary)]">No grade assigned to this room.</div>
+                          ) : row.allocations.map((allocation, index) => {
+                            const selectedClass = classById.get(allocation.classId);
+                            return (
+                              <div key={room._id + '-' + index} className="grid grid-cols-[1fr_110px_40px] items-center gap-2 border-t p-2">
+                                <select
+                                  value={allocation.classId}
+                                  onChange={e => updateAllocation(room._id, index, { classId: e.target.value })}
+                                  className="min-w-0 rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-2 text-sm"
+                                >
+                                  {activeClasses.map(cls => (
+                                    <option key={cls._id} value={cls._id}>
+                                      {gradeLabelOf(cls)} · {classNameOf(cls)} · {studentCounts[cls._id] || 0} students
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={Math.max(1, studentCounts[allocation.classId] || 1)}
+                                  value={allocation.quota}
+                                  onChange={e => updateAllocation(room._id, index, { quota: Math.max(0, Number(e.target.value) || 0) })}
+                                  className="w-full rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-2 text-center font-bold"
+                                  aria-label={(selectedClass ? classNameOf(selectedClass) : 'Class') + ' quota'}
+                                />
+                                <button type="button" onClick={() => removeAllocation(room._id, index)} className="rounded-lg border p-2 text-red-600" title="Remove from room">
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                          {row.allocations.length < 3 && activeClasses.length > row.allocations.length && (
+                            <button type="button" onClick={() => addAllocation(room._id)} className="flex w-full items-center justify-center gap-1.5 border-t px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-secondary)]">
+                              <Plus size={14} />
+                              Add Grade / Class
+                            </button>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-4 py-4 font-semibold">{totalCapacity}</td>
+                      <td className="px-4 py-4 text-lg font-bold">{used}</td>
+                      <td className={'px-4 py-4 text-lg font-bold ' + (available < 0 ? 'text-red-600' : 'text-emerald-600')}>
+                        {available}
+                      </td>
                       <td className="px-4 py-4">
-                        {enough ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                            <CheckCircle2 size={13} />
-                            Enough
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
-                            <AlertTriangle size={13} />
-                            Need {students - totalCapacity}
-                          </span>
-                        )}
+                        <span className={'inline-flex rounded-full px-2.5 py-1 text-xs font-bold ' + statusClass}>{statusLabel}</span>
                       </td>
                     </tr>
                   );
@@ -349,39 +532,54 @@ export function PlanRoomsPanel({
         )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <div className={card + ' p-4 sm:p-5'}>
-          <h3 className="font-bold">Rooms Overview (This Organization)</h3>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              ['Total Rooms', sortedRooms.length, Building2],
-              ['Rooms Selected', usedRoomIds.length, CheckCircle2],
-              ['Total Capacity', totalRoomCapacity, Users],
-              ['Selected Capacity', selectedCapacity, CheckSquare],
-            ].map(([label, value, Icon]: any) => (
-              <div key={label} className="rounded-xl bg-[var(--color-surface-secondary)] p-4">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-[var(--color-surface-primary)] p-2"><Icon size={17} /></div>
-                  <div>
-                    <p className="text-xs text-[var(--color-text-tertiary)]">{label}</p>
-                    <p className="text-xl font-bold">{value}</p>
-                  </div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold">Grade / Class Check</h3>
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Every active student must be included exactly once in the plan.</p>
+            </div>
+            <Users size={18} />
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {classSummary.map(item => (
+              <div key={item.cls._id} className="rounded-xl bg-[var(--color-surface-secondary)] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="truncate text-sm font-semibold">{classNameOf(item.cls)}</p>
+                  <span className={'text-xs font-bold ' + (item.remaining === 0 ? 'text-emerald-600' : item.remaining > 0 ? 'text-amber-600' : 'text-red-600')}>
+                    {item.assigned}/{item.expected}
+                  </span>
                 </div>
+                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
+                  {item.remaining === 0 ? 'Complete' : item.remaining > 0 ? item.remaining + ' remaining' : Math.abs(item.remaining) + ' over-assigned'}
+                </p>
               </div>
             ))}
           </div>
         </div>
 
         <div className={card + ' p-4 sm:p-5'}>
-          <h3 className="font-bold">Allocation Summary</h3>
+          <h3 className="font-bold">Plan Summary</h3>
           <div className="mt-4 space-y-3 text-sm">
             <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Active Students</span><b>{activeStudentTotal}</b></div>
-            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Active Classes</span><b>{activeClasses.length}</b></div>
-            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Rooms Selected</span><b>{usedRoomIds.length}</b></div>
-            <div className="flex justify-between gap-3 border-t pt-3"><span className="text-[var(--color-text-tertiary)]">Selected Capacity</span><b>{selectedCapacity}</b></div>
+            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Assigned in Plan</span><b>{assignedTotal}</b></div>
+            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Rooms Used</span><b>{usedRoomCount}</b></div>
+            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Used-Room Capacity</span><b>{usedCapacity}</b></div>
+            <div className="flex justify-between gap-3 border-t pt-3">
+              <span className="text-[var(--color-text-tertiary)]">Unassigned</span>
+              <b className={activeStudentTotal - assignedTotal === 0 ? 'text-emerald-600' : 'text-amber-600'}>{activeStudentTotal - assignedTotal}</b>
+            </div>
           </div>
         </div>
       </div>
+
+      <div className="rounded-xl border border-primary-200 bg-primary-50/50 p-3 text-xs text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-200">
+        Smart plan prefers 3 different grade numbers per room. If that is not possible, it uses 2. A single-grade room is flagged before confirmation.
+      </div>
+
+      {activeClasses.some(cls => departmentNameOf(cls)) && (
+        <p className="text-xs text-[var(--color-text-tertiary)]">Department labels remain visible in Class Management; room mixing here is based on Grade number, not Primary/Secondary department.</p>
+      )}
     </div>
   );
 }
