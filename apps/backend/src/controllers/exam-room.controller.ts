@@ -61,10 +61,19 @@ async function syncRoomsFromClassManagement(req: Request) {
     });
 
     if (room) {
-      room.capacity = item.capacity;
-      room.building = clean(room.building) || DEFAULT_BUILDING;
-      room.capacityMode = 'auto';
-      await room.save();
+      // Legacy room rows may predate required fields such as createdBy.
+      // Updating only the sync-owned fields avoids re-validating unrelated
+      // legacy fields and prevents the Rooms screen from failing to load.
+      await ExamRoom.updateOne(
+        { _id: room._id },
+        {
+          $set: {
+            capacity: item.capacity,
+            building: clean(room.building) || DEFAULT_BUILDING,
+            capacityMode: 'auto',
+          },
+        }
+      );
     } else {
       room = await ExamRoom.create({
         name: item.name,
