@@ -519,6 +519,8 @@ function AutoGenerateModal({
   initialClassIds,
   initialRoomIds,
   initialRoomPlan,
+  initialStudentRoomOverrides,
+  initialCapacityOverrideRoomIds,
   close,
   onGenerated,
 }:{
@@ -531,6 +533,8 @@ function AutoGenerateModal({
   initialClassIds?:string[];
   initialRoomIds?:string[];
   initialRoomPlan?:AutoDefaults['roomPlan'];
+  initialStudentRoomOverrides?:AutoDefaults['studentRoomOverrides'];
+  initialCapacityOverrideRoomIds?:AutoDefaults['capacityOverrideRoomIds'];
   close:()=>void;
   onGenerated:(info:{message:string;academicYear:string;examType:'mid'|'final'})=>void;
 }) {
@@ -573,6 +577,8 @@ function AutoGenerateModal({
     classIds,
     roomIds,
     roomPlan:initialRoomPlan||[],
+    studentRoomOverrides:initialStudentRoomOverrides||[],
+    capacityOverrideRoomIds:initialCapacityOverrideRoomIds||[],
     overwrite,
     preview:previewOnly,
     seed,
@@ -1265,6 +1271,8 @@ export function ExamSeatingCenterV3() {
         initialClassIds={autoDefaults?.classIds}
         initialRoomIds={autoDefaults?.roomIds}
         initialRoomPlan={autoDefaults?.roomPlan}
+        initialStudentRoomOverrides={autoDefaults?.studentRoomOverrides}
+        initialCapacityOverrideRoomIds={autoDefaults?.capacityOverrideRoomIds}
         close={()=>{setModal(null);setAutoDefaults(null)}}
         onGenerated={info=>{setYear(info.academicYear);setType(info.examType);setTab('seating');setMessage(info.message);setAutoDefaults(null);void loadSeating(info.academicYear,info.examType)}}
       />}
