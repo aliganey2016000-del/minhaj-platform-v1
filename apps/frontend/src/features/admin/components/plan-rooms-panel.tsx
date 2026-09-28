@@ -453,12 +453,17 @@ export function PlanRoomsPanel({
       setLocalError('No active students were found in the active classes.');
       return;
     }
-    if (totalOperationalCapacity < activeStudentTotal) {
+    if (totalRoomCapacity < activeStudentTotal) {
       setLocalError(
-        'Operational capacity is short by ' + (activeStudentTotal - totalOperationalCapacity)
-        + ' seats. Add rooms or adjust Students per Invigilator / Max Invigilators in Room Plan Settings.'
+        'Physical room capacity is short by ' + (activeStudentTotal - totalRoomCapacity)
+        + ' seats. Add another physical Room or increase its real seating capacity.'
       );
       return;
+    }
+    if (totalOperationalCapacity < activeStudentTotal) {
+      setSettingsMessage(
+        'Operational capacity is below the student total. The smart plan will keep the safe allocation and show the remaining students for manual Room selection and approved overrides.'
+      );
     }
 
     const roomsByCapacity = sortedRooms.slice().sort((a, b) =>
@@ -1364,7 +1369,7 @@ export function PlanRoomsPanel({
                           <p className="font-semibold">{student.name || 'Student'}</p>
                           <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{student.studentId}</p>
                         </td>
-                        <td className="px-4 py-3 font-semibold">{student.className || classNameOf(classById.get(student.classId)!)}</td>
+                        <td className="px-4 py-3 font-semibold">{student.className || (classById.get(student.classId) ? classNameOf(classById.get(student.classId)!) : '—')}</td>
                         <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">{classRoomsLabel(student.classId)}</td>
                         <td className="px-4 py-3">
                           <select
