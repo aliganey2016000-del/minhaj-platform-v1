@@ -358,7 +358,7 @@ export function ExamAttendanceManage() {
     } finally {
       setLoading(false);
     }
-  }, [filterSchool]);
+  }, [filterSchool, contextPeriodId]);
 
   useEffect(() => { fetchExams(); }, [fetchExams]);
 
