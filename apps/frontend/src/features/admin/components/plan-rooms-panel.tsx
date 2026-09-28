@@ -193,37 +193,25 @@ export function PlanRoomsPanel({
     const nextRows: PlanRoomRow[] = sortedRooms.map(room => ({ roomId: room._id, allocations: [] }));
     let totalRemaining = activeStudentTotal;
 
-    const roomsNeeded: Room[] = [];
-    let plannedCapacity = 0;
-    for (const room of sortedRooms) {
-      roomsNeeded.push(room);
-      plannedCapacity += Number(room.capacity) || 0;
-      if (plannedCapacity >= activeStudentTotal) break;
-    }
-
     const distanceScore = (candidate: Candidate, selected: Candidate[]) => {
       if (!selected.length) return 0;
       if (candidate.gradeNumber === null || selected.some(item => item.gradeNumber === null)) return 0;
       return Math.min(...selected.map(item => Math.abs(Number(candidate.gradeNumber) - Number(item.gradeNumber))));
     };
 
-    const addSeat = (row: PlanRoomRow, candidate: Candidate) => {
-      const existing = row.allocations.find(allocation => allocation.classId === candidate.classId);
-      if (existing) existing.quota += 1;
-      else row.allocations.push({ classId: candidate.classId, quota: 1 });
-      candidate.remaining -= 1;
-      totalRemaining -= 1;
+    const addQuota = (row: PlanRoomRow, classId: string, amount: number) => {
+      if (amount <= 0) return;
+      const existing = row.allocations.find(allocation => allocation.classId === classId);
+      if (existing) existing.quota += amount;
+      else row.allocations.push({ classId, quota: amount });
     };
 
-    for (let roomIndex = 0; roomIndex < roomsNeeded.length; roomIndex += 1) {
+    for (const row of nextRows) {
       if (totalRemaining <= 0) break;
-
-      const room = roomsNeeded[roomIndex];
-      const row = nextRows.find(item => item.roomId === room._id)!;
-      let seats = Math.min(Number(room.capacity) || 0, totalRemaining);
+      const room = roomById.get(row.roomId);
+      let seats = Math.min(Number(room?.capacity) || 0, totalRemaining);
       if (seats <= 0) continue;
 
-      const roomsRemaining = Math.max(1, roomsNeeded.length - roomIndex);
       const selected: Candidate[] = [];
       const selectedGrades = new Set<string>();
 
@@ -232,7 +220,6 @@ export function PlanRoomsPanel({
           .filter(candidate => candidate.remaining > 0 && !selectedGrades.has(candidate.gradeKey))
           .sort((a, b) =>
             distanceScore(b, selected) - distanceScore(a, selected)
-            || (b.remaining / roomsRemaining) - (a.remaining / roomsRemaining)
             || b.remaining - a.remaining
             || a.classId.localeCompare(b.classId)
           );
@@ -244,51 +231,95 @@ export function PlanRoomsPanel({
 
       if (!selected.length) break;
 
-      const before = new Map(selected.map(candidate => [candidate.classId, candidate.remaining]));
-
-      // Give each selected grade at least one seat first so a room does not
-      // accidentally become single-grade when a mixed plan is possible.
-      for (const candidate of selected) {
-        if (seats <= 0 || candidate.remaining <= 0) break;
-        addSeat(row, candidate);
-        seats -= 1;
-      }
-
-      // Spread each grade across the rooms that are still needed instead of
-      // exhausting a small grade in the first room.
-      let progress = true;
-      while (seats > 0 && progress) {
-        progress = false;
-        for (const candidate of selected) {
-          if (seats <= 0 || candidate.remaining <= 0) continue;
-          const original = before.get(candidate.classId) || 0;
-          const fairTarget = Math.max(1, Math.ceil(original / roomsRemaining));
-          const alreadyHere = row.allocations.find(a => a.classId === candidate.classId)?.quota || 0;
-          if (alreadyHere >= fairTarget) continue;
-          addSeat(row, candidate);
-          seats -= 1;
-          progress = true;
-        }
-      }
-
-      // Fill remaining seats primarily from large grades, but reserve one
-      // student for future rooms where possible so later rooms stay mixed too.
+      let cursor = 0;
       while (seats > 0) {
-        const options = selected
-          .filter(candidate => candidate.remaining > 0)
-          .map(candidate => ({
-            candidate,
-            spareNow: candidate.remaining - Math.min(candidate.remaining, Math.max(0, roomsRemaining - 1)),
-          }))
-          .filter(item => item.spareNow > 0)
-          .sort((a, b) => b.spareNow - a.spareNow || b.candidate.remaining - a.candidate.remaining);
+        const available = selected.filter(candidate => candidate.remaining > 0);
+        if (!available.length) break;
 
-        const next = options[0]?.candidate;
-        if (!next) break;
-        addSeat(row, next);
+        const candidate = available[cursor % available.length];
+        addQuota(row, candidate.classId, 1);
+        candidate.remaining -= 1;
         seats -= 1;
+        totalRemaining -= 1;
+        cursor += 1;
       }
     }
+
+    // Repair any single-grade room by moving or swapping one student from a
+    // mixed donor room. This preserves every class total while keeping the
+    // generated plan easy to review and edit.
+    const rowGradeKeys = (row: PlanRoomRow) => new Set(
+      row.allocations
+        .filter(allocation => allocation.quota > 0)
+        .map(allocation => {
+          const cls = classById.get(allocation.classId);
+          return cls ? gradeKeyOf(cls) : '';
+        })
+        .filter(Boolean)
+    );
+
+    for (const targetRow of nextRows) {
+      const targetPositive = targetRow.allocations.filter(allocation => allocation.quota > 0);
+      const targetGrades = rowGradeKeys(targetRow);
+      if (!targetPositive.length || targetGrades.size >= 2) continue;
+
+      const targetClassId = targetPositive[0].classId;
+      const targetClass = classById.get(targetClassId);
+      if (!targetClass) continue;
+      const targetGrade = gradeKeyOf(targetClass);
+      const targetRoom = roomById.get(targetRow.roomId);
+      const targetUsed = targetPositive.reduce((sum, allocation) => sum + allocation.quota, 0);
+      const targetCapacity = Number(targetRoom?.capacity) || 0;
+
+      let repaired = false;
+      for (const donorRow of nextRows) {
+        if (donorRow.roomId === targetRow.roomId) continue;
+
+        const donorGrades = rowGradeKeys(donorRow);
+        if (donorGrades.size < 2) continue;
+
+        const donorMinority = donorRow.allocations.find(allocation => {
+          if (allocation.quota < 2) return false;
+          const cls = classById.get(allocation.classId);
+          return cls ? gradeKeyOf(cls) !== targetGrade : false;
+        });
+        if (!donorMinority) continue;
+
+        const donorHasTargetGrade = donorRow.allocations.some(allocation => {
+          const cls = classById.get(allocation.classId);
+          return allocation.quota > 0 && cls ? gradeKeyOf(cls) === targetGrade : false;
+        });
+        if (!donorHasTargetGrade && donorGrades.size >= 3 && targetUsed >= targetCapacity) continue;
+
+        donorMinority.quota -= 1;
+        addQuota(targetRow, donorMinority.classId, 1);
+
+        if (targetUsed >= targetCapacity) {
+          const targetMajor = targetRow.allocations.find(allocation => allocation.classId === targetClassId && allocation.quota > 0);
+          if (!targetMajor) {
+            donorMinority.quota += 1;
+            const added = targetRow.allocations.find(allocation => allocation.classId === donorMinority.classId);
+            if (added) added.quota -= 1;
+            continue;
+          }
+
+          targetMajor.quota -= 1;
+          addQuota(donorRow, targetClassId, 1);
+        }
+
+        repaired = true;
+        break;
+      }
+
+      if (!repaired) {
+        // Leave the row visible as Single Grade; validation will stop Confirm
+        // so the admin can adjust it manually.
+      }
+    }
+
+    nextRows.forEach(row => {
+      row.allocations = row.allocations.filter(allocation => allocation.quota > 0);
+    });
 
     if (totalRemaining > 0) {
       setLocalError('The automatic plan could not place ' + totalRemaining + ' students. Please review room capacities.');
