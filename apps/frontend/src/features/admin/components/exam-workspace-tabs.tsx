@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { Building2, CalendarDays, ClipboardCheck, UserCheck } from 'lucide-react';
 
 const tabs = [
@@ -20,7 +20,36 @@ const preloadTab = (to: (typeof tabs)[number]['to']) => {
   void preloaders[to]().catch(() => undefined);
 };
 
-export function ExamWorkspaceTabs() {
+type ExamWorkspaceContext = {
+  periodId?: string;
+  examName?: string;
+  academicYear?: string;
+  examType?: 'mid' | 'final' | '';
+  startDate?: string;
+  endDate?: string;
+};
+
+export function ExamWorkspaceTabs({ context }: { context?: ExamWorkspaceContext }) {
+  const location = useLocation();
+  const search = new URLSearchParams(location.search);
+
+  if (context) {
+    const values: Record<string, string | undefined> = {
+      periodId: context.periodId,
+      examName: context.examName,
+      academicYear: context.academicYear,
+      examType: context.examType || undefined,
+      startDate: context.startDate,
+      endDate: context.endDate,
+    };
+    Object.entries(values).forEach(([key, value]) => {
+      if (value) search.set(key, value);
+      else search.delete(key);
+    });
+  }
+
+  const query = search.toString();
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       tabs.forEach((tab) => preloadTab(tab.to));
@@ -38,7 +67,7 @@ export function ExamWorkspaceTabs() {
           return (
             <NavLink
               key={tab.to}
-              to={tab.to}
+              to={query ? `${tab.to}?${query}` : tab.to}
               end
               onPointerEnter={() => preloadTab(tab.to)}
               onFocus={() => preloadTab(tab.to)}
