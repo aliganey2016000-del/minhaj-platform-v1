@@ -3475,11 +3475,6 @@ function ExamTimetable({
   const classPrintSchoolName = printBranding.name || (user as any)?.organizationName || 'Organization';
   const classPrintLogo = printBranding.branding?.logo || '';
   const classPrintGeneratedOn = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date());
-  const allowedDayLabels = EXAM_DAY_OPTIONS
-    .filter((item) => rules.allowedExamDays.includes(item.value))
-    .map((item) => item.label)
-    .join(', ');
-
   if (rulesLoading && !classes.length && !periods.length) {
     return (
       <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center shadow-sm">
