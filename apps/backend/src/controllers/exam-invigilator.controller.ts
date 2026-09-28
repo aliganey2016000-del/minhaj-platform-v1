@@ -51,16 +51,40 @@ const teacherName = (teacher: any) => {
 
 async function resolveExamType(period: any): Promise<'mid' | 'final'> {
   const label = `${period?.name || ''} ${period?.term || ''}`.toLowerCase();
-  if (/\bfinal\b/.test(label)) return 'final';
-  if (/\b(mid|midterm|mid-term)\b/.test(label)) return 'mid';
+
+  // Be tolerant of common naming/spelling variations such as "Midtrem Exam".
+  if (/\bfinal[a-z-]*\b/.test(label)) return 'final';
+  if (/\bmid[a-z-]*\b/.test(label)) return 'mid';
+
+  const milestones = await Exam.distinct('milestone', {
+    school: period.school,
+    period: period._id,
+    milestone: { $in: ['mid', 'final'] },
+  });
+  if (milestones.length === 1 && (milestones[0] === 'mid' || milestones[0] === 'final')) {
+    return milestones[0] as 'mid' | 'final';
+  }
+
+  const examTitles = await Exam.find({
+    school: period.school,
+    period: period._id,
+    status: { $ne: 'cancelled' },
+  }).select('title').limit(50).lean() as any[];
+  const titleTypes = new Set<'mid' | 'final'>();
+  for (const exam of examTitles) {
+    const title = clean(exam?.title).toLowerCase();
+    if (/\bfinal[a-z-]*\b/.test(title)) titleTypes.add('final');
+    if (/\bmid[a-z-]*\b/.test(title)) titleTypes.add('mid');
+  }
+  if (titleTypes.size === 1) return Array.from(titleTypes)[0];
 
   const types = await ExamSeatingPlan.distinct('examType', {
     school: period.school,
     academicYear: period.academicYear,
   });
-
   if (types.length === 1 && (types[0] === 'mid' || types[0] === 'final')) return types[0] as 'mid' | 'final';
-  throw new BadRequestError('Could not determine whether this Exam is Mid or Final. Include Mid or Final in the Exam name.');
+
+  throw new BadRequestError('Could not determine whether this Exam is Mid or Final.');
 }
 
 async function loadPeriod(req: Request, periodId: string) {
@@ -309,6 +333,8 @@ export const context = async (req: Request, res: Response): Promise<Response> =>
       name: period.name,
       academicYear: period.academicYear,
       status: period.status,
+      startDate: period.startDate || null,
+      endDate: period.endDate || null,
     },
     examType,
     sessions,
@@ -337,7 +363,7 @@ export const assign = async (req: Request, res: Response): Promise<Response> => 
   const examType = await resolveExamType(period);
   const { start, end } = dayBounds(examDate);
 
-  const [room, teacher, matchingExam] = await Promise.all([
+  const [room, teacher, matchingExam, teacherAttendance] = await Promise.all([
     ExamRoom.findOne({ _id: roomId, school: period.school }).lean(),
     Teacher.findOne({ _id: teacherId, school: period.school, status: 'active' }).lean(),
     Exam.exists({
@@ -350,11 +376,20 @@ export const assign = async (req: Request, res: Response): Promise<Response> => 
       autoSchedule: { $ne: true },
       schedulePlaced: { $ne: false },
     }),
+    ExamInvigilatorTeacherAttendance.findOne({
+      school: period.school,
+      period: period._id,
+      examDate: { $gte: start, $lt: end },
+      teacher: teacherId,
+    }).select('status').lean(),
   ]);
 
   if (!room) throw new NotFoundError('Exam room');
   if (!teacher) throw new NotFoundError('Teacher');
   if (!matchingExam) throw new BadRequestError('No scheduled exam exists for this date and shift');
+  if (teacherAttendance?.status !== 'present') {
+    throw new BadRequestError('Mark this teacher Present for the selected Exam Date before assigning a room.');
+  }
 
   const sameDayTeacherAssignments = await ExamInvigilatorAssignment.find({
     school: period.school,
