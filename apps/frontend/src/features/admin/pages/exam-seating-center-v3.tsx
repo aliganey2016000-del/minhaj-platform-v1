@@ -723,7 +723,7 @@ function RoomModal({room,close,onSaved}:{room?:Room;close:()=>void;onSaved:()=>v
       <Field label="Room Name" value={name} onChange={setName} editable/>
       <Field label="Building" value={building} onChange={setBuilding} editable/>
       <Field label="Capacity" value={capacity} onChange={setCapacity} editable/>
-      <p className="text-xs text-[var(--color-text-tertiary)]">Capacity is enforced by Smart Auto Allocation and the capacity meter.</p>
+      <p className="text-xs text-[var(--color-text-tertiary)]">Changing Capacity here also updates the matching active Class Management room, so both places stay synchronized.</p>
       <div className="flex justify-end gap-2">
         <button type="button" onClick={close} className="rounded-xl border px-4 py-2.5">Cancel</button>
         <button disabled={busy} className="rounded-xl bg-primary-600 px-5 py-2.5 font-semibold text-white">{busy?'Saving...':'Save Room'}</button>
@@ -1100,14 +1100,14 @@ export function ExamSeatingCenterV3() {
       {tab==='rooms'
         ?<div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <div><h2 className="text-xl font-bold">Rooms</h2><p className="text-sm text-[var(--color-text-tertiary)]">Rooms and capacity are synced from active Class Management. Missing location defaults to Main.</p></div>
+            <div><h2 className="text-xl font-bold">Rooms</h2><p className="text-sm text-[var(--color-text-tertiary)]">Rooms are synced with active Class Management. Capacity can be changed from Class Management or here in Rooms; both stay synchronized. Missing location defaults to Main.</p></div>
             <RoomActions add={()=>{setEditingRoom(undefined);setModal('room')}} imp={()=>setModal('room-import')} exp={exportRooms}/>
           </div>
           <div className={`${card} overflow-hidden`}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-[var(--color-surface-secondary)]"><tr><th className="px-5 py-3 text-left">Room</th><th className="px-5 py-3 text-left">Building</th><th className="px-5 py-3 text-left">Capacity</th><th className="px-5 py-3 text-left">Capacity Source</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
-                <tbody>{rooms.map(r=><tr key={r._id} className="border-t"><td className="px-5 py-4 font-semibold">{r.name}</td><td className="px-5 py-4">{r.building||'Main'}</td><td className="px-5 py-4">{r.capacity}</td><td className="px-5 py-4"><span className="rounded-full border px-2.5 py-1 text-xs">{r.capacityMode==='auto'?'Class Management':'Manual'}</span></td><td className="px-5 py-4 text-right"><RoomRowActions room={r} onEdit={()=>{setEditingRoom(r);setModal('room')}} onDelete={()=>void deleteRoom(r)}/></td></tr>)}</tbody>
+                <thead className="bg-[var(--color-surface-secondary)]"><tr><th className="px-5 py-3 text-left">Room</th><th className="px-5 py-3 text-left">Building</th><th className="px-5 py-3 text-left">Capacity</th><th className="px-5 py-3 text-left">Capacity Sync</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
+                <tbody>{rooms.map(r=><tr key={r._id} className="border-t"><td className="px-5 py-4 font-semibold">{r.name}</td><td className="px-5 py-4">{r.building||'Main'}</td><td className="px-5 py-4">{r.capacity}</td><td className="px-5 py-4"><span className="rounded-full border px-2.5 py-1 text-xs">Class / Rooms</span></td><td className="px-5 py-4 text-right"><RoomRowActions room={r} onEdit={()=>{setEditingRoom(r);setModal('room')}} onDelete={()=>void deleteRoom(r)}/></td></tr>)}</tbody>
               </table>
             </div>
           </div>
