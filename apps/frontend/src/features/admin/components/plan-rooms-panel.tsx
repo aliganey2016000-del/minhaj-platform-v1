@@ -109,6 +109,7 @@ type Props = {
   type: string;
   planRows: PlanRoomRow[];
   schoolId?: string;
+  hideExamSelectors?: boolean;
   setYear: (value: string) => void;
   setType: (value: string) => void;
   setPlanRows: (value: PlanRoomRow[]) => void;
@@ -176,6 +177,7 @@ export function PlanRoomsPanel({
   type,
   planRows,
   schoolId,
+  hideExamSelectors = false,
   setYear,
   setType,
   setPlanRows,
@@ -1030,25 +1032,27 @@ export function PlanRoomsPanel({
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
-        <div className={card + ' p-4 sm:p-5'}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <label>
-              <span className="mb-2 block text-sm font-semibold">Academic Year</span>
-              <AcademicYearSelect value={year} onChange={setYear} required />
-            </label>
-            <label>
-              <span className="mb-2 block text-sm font-semibold">Exam Type</span>
-              <select className={input} value={type} onChange={e => setType(e.target.value)}>
-                <option value="">Select exam type...</option>
-                <option value="mid">Mid Exam</option>
-                <option value="final">Final</option>
-              </select>
-            </label>
+      <div className={hideExamSelectors ? '' : 'grid gap-4 xl:grid-cols-[1fr_360px]'}>
+        {!hideExamSelectors && (
+          <div className={card + ' p-4 sm:p-5'}>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label>
+                <span className="mb-2 block text-sm font-semibold">Academic Year</span>
+                <AcademicYearSelect value={year} onChange={setYear} required />
+              </label>
+              <label>
+                <span className="mb-2 block text-sm font-semibold">Exam Type</span>
+                <select className={input} value={type} onChange={e => setType(e.target.value)}>
+                  <option value="">Select exam type...</option>
+                  <option value="mid">Mid Exam</option>
+                  <option value="final">Final</option>
+                </select>
+              </label>
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className={card + ' border-primary-100 bg-primary-50/40 p-4 sm:p-5 dark:border-primary-900/40 dark:bg-primary-950/10'}>
+        <div className={card + ' border-primary-100 bg-primary-50/40 p-4 sm:p-5 dark:border-primary-900/40 dark:bg-primary-950/10' + (hideExamSelectors ? ' max-w-md' : '')}>
           <div className="flex items-start gap-3">
             <div className="rounded-xl bg-primary-100 p-2.5 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
               <Building2 size={20} />
