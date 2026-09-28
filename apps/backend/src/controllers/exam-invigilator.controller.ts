@@ -51,8 +51,8 @@ const teacherName = (teacher: any) => {
 
 async function resolveExamType(period: any): Promise<'mid' | 'final'> {
   const label = `${period?.name || ''} ${period?.term || ''}`.toLowerCase();
-  if (/\bfinal\b/.test(label)) return 'final';
-  if (/\b(mid|midterm|mid-term)\b/.test(label)) return 'mid';
+  if (/\bfinal/.test(label)) return 'final';
+  if (/\bmid/.test(label)) return 'mid';
 
   const types = await ExamSeatingPlan.distinct('examType', {
     school: period.school,
