@@ -385,6 +385,17 @@ export const generate = async (req: Request, res: Response) => {
 
       for (const [classId, expectedCount] of selectedCountByClass.entries()) {
         const quotas = quotaPlanMap.get(classId);
+        if (quotas) {
+          const oversized = Array.from(quotas.entries()).find(([, count]) => count > roomPlanSettings.maxClassPortion);
+          if (oversized) {
+            const cls = targetClasses.find(c => String(c._id) === classId);
+            const room = selectedRooms.find(r => String(r._id) === oversized[0]);
+            const label = norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'Selected class';
+            throw new BadRequestError(
+              `${label} assigns ${oversized[1]} students to ${room?.name || 'one room'}, above the Max Class Portion of ${roomPlanSettings.maxClassPortion}.`
+            );
+          }
+        }
         const plannedCount = quotas
           ? Array.from(quotas.values()).reduce((sum, count) => sum + count, 0)
           : 0;
