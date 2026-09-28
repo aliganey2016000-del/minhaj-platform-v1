@@ -240,6 +240,7 @@ export function PlanRoomsPanel({
   const totalRoomCapacity = sortedRooms.reduce((sum, room) => sum + (Number(room.capacity) || 0), 0);
   const totalOperationalCapacity = sortedRooms.reduce((sum, room) => sum + effectiveCapacity(room), 0);
   const activeStudentTotal = activeClasses.reduce((sum, cls) => sum + (studentCounts[cls._id] || 0), 0);
+  const activeGradeCount = new Set(activeClasses.map(gradeKeyOf)).size;
 
   const assignedByClass = useMemo(() => {
     const totals: Record<string, number> = {};
@@ -535,6 +536,7 @@ export function PlanRoomsPanel({
           if (!gradeAlready && distinct < settings.preferredGradesPerRoom) score -= 90;
           if (gradeAlready && distinct < settings.minimumGradesPerRoom) score += 120;
           if (settings.avoidSameClassSectionsTogether && roomHasClass(room._id, portion.classId)) score += 180;
+          if (settings.avoidSameClassSectionsTogether && gradeAlready && !roomHasClass(room._id, portion.classId)) score += 140;
           if (projectedShare > settings.maxSameGradeSharePercent) {
             score += (projectedShare - settings.maxSameGradeSharePercent) * (settings.priorityMode === 'maximum_mixing' ? 5 : 2);
           }
@@ -682,7 +684,7 @@ export function PlanRoomsPanel({
         return cls ? gradeKeyOf(cls) : '';
       }).filter(Boolean));
 
-      if (positive.length > 0 && activeClasses.length > 1 && distinctGrades.size < settings.minimumGradesPerRoom) {
+      if (positive.length > 0 && activeGradeCount >= settings.minimumGradesPerRoom && distinctGrades.size < settings.minimumGradesPerRoom) {
         return room.name + ' must contain at least ' + settings.minimumGradesPerRoom + ' different grades.';
       }
       if (distinctGrades.size > settings.preferredGradesPerRoom) {
@@ -991,7 +993,7 @@ export function PlanRoomsPanel({
                   if (used > operationalCapacity) {
                     statusLabel = 'Over Operational Capacity';
                     statusClass = 'bg-red-100 text-red-700';
-                  } else if (used > 0 && distinctGrades < settings.minimumGradesPerRoom && activeClasses.length > 1) {
+                  } else if (used > 0 && distinctGrades < settings.minimumGradesPerRoom && activeGradeCount >= settings.minimumGradesPerRoom) {
                     statusLabel = 'Needs More Grade Mix';
                     statusClass = 'bg-red-100 text-red-700';
                   } else if (used > 0 && maxShare > settings.maxSameGradeSharePercent) {
