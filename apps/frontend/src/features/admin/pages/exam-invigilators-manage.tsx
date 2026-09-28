@@ -168,6 +168,8 @@ export function ExamInvigilatorsManage() {
   const loadTeacherAttendance=async(date=attendanceDate)=>{
     if(!periodId||!date){setAttendanceRows([]);setAttendanceSummary({total:0,present:0,absent:0,unmarked:0});return}
     setAttendanceLoading(true);setError('');
+    setAttendanceRows([]);
+    setAttendanceSummary({total:0,present:0,absent:0,unmarked:0});
     try{
       const r=await api.get('/exams/invigilators/teacher-attendance',{params:{periodId,date}});
       const data=r.data?.data||{};
@@ -193,7 +195,7 @@ export function ExamInvigilatorsManage() {
     if(tab==='rooms'&&session?.examDate&&attendanceDate!==session.examDate){
       setAttendanceDate(session.examDate);
     }
-  },[tab,session?.examDate]);
+  },[tab,session?.examDate,attendanceDate]);
 
 
 
