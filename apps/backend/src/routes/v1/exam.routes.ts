@@ -7,6 +7,7 @@ import * as masterSeatController from '../../controllers/exam-seating-plan.contr
 import * as autoSeatController from '../../controllers/exam-seating-auto.controller';
 import * as examAttendanceController from '../../controllers/exam-attendance.controller';
 import * as invigilatorController from '../../controllers/exam-invigilator.controller';
+import * as roomPlanSettingsController from '../../controllers/exam-room-plan-settings.controller';
 import * as paperController from '../../controllers/exam-paper.controller';
 import * as appealController from '../../controllers/exam-appeal.controller';
 import * as attemptController from '../../controllers/exam-attempt.controller';
@@ -35,6 +36,8 @@ router.post('/import', adminOrTeacher, upload.single('file'), asyncHandler(examC
 // Per-organization rules used by fixed exam scheduling and seating checks.
 router.get('/schedule-rules', adminOnly, asyncHandler(examController.getScheduleRules));
 router.patch('/schedule-rules', adminOnly, asyncHandler(examController.updateScheduleRules));
+router.get('/room-plan-settings', adminOnly, asyncHandler(roomPlanSettingsController.getSettings));
+router.patch('/room-plan-settings', adminOnly, asyncHandler(roomPlanSettingsController.updateSettings));
 
 // Named exam containers (Midterm, Final, etc.) are created first; their
 // grade/shift grid is then edited through /schedule-grid.
