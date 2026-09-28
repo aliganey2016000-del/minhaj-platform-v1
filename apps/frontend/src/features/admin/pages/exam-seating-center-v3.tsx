@@ -39,6 +39,7 @@ type ClassItem = {
   school?: { _id: string; name: string } | string;
   shiftMode?: string;
   status?: string;
+  gradeLevel?: number;
 };
 type Room = {
   _id: string;
@@ -870,10 +871,11 @@ export function ExamSeatingCenterV3() {
   useEffect(()=>{void loadBase()},[]);
   useEffect(()=>{void loadSeating()},[year,type]);
   useEffect(()=>{
-    const validRoomIds=new Set(rooms.map(r=>r._id));
-    setPlanRows(prev=>classes.filter(c=>c.status==='active').map(cls=>({
-      classId:cls._id,
-      roomIds:(prev.find(row=>row.classId===cls._id)?.roomIds||[]).filter(id=>validRoomIds.has(id)),
+    const validClassIds=new Set(classes.filter(c=>c.status==='active').map(c=>c._id));
+    setPlanRows(prev=>rooms.map(room=>({
+      roomId:room._id,
+      allocations:(prev.find(row=>row.roomId===room._id)?.allocations||[])
+        .filter(allocation=>validClassIds.has(allocation.classId)),
     })));
   },[classes,rooms]);
 
