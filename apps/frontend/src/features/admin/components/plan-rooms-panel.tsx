@@ -111,7 +111,7 @@ type Props = {
   schoolId?: string;
   hideExamSelectors?: boolean;
   setYear: (value: string) => void;
-  setType: (value: string) => void;
+  setType: (value: '' | 'mid' | 'final') => void;
   setPlanRows: (value: PlanRoomRow[]) => void;
   onGenerate: (defaults: AutoDefaults) => void;
 };
@@ -1042,7 +1042,7 @@ export function PlanRoomsPanel({
               </label>
               <label>
                 <span className="mb-2 block text-sm font-semibold">Exam Type</span>
-                <select className={input} value={type} onChange={e => setType(e.target.value)}>
+                <select className={input} value={type} onChange={e => setType(e.target.value as '' | 'mid' | 'final')}>
                   <option value="">Select exam type...</option>
                   <option value="mid">Mid Exam</option>
                   <option value="final">Final</option>
