@@ -5,7 +5,7 @@ import ExamRoom from '../models/exam-room.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
-import { assertOwnOrg, applyOrgFilter } from '../utils/tenant-scope';
+import { assertOwnOrg, applyOrgFilter, resolveViewableOrgId } from '../utils/tenant-scope';
 import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { getExamSchedulingRulesForSchool } from '../utils/exam-scheduling-rules';
@@ -22,7 +22,16 @@ function payload(a: any) { const s=a?.student; return {...a,student:s?{...s,orga
 
 export const list = async (req: Request,res: Response) => { const q=req.query as any; let filter:any={}; if(q.academicYear)filter.academicYear=norm(q.academicYear); if(q.examType)filter.examType=examTypeValue(q.examType); filter=applyOrgFilter(req,filter,'school'); const rows=await populate(ExamSeatingPlan.find(filter).sort({room:1,deskNumber:1})); return ApiResponse.success(res,rows.map(payload)); };
 
-export const rooms = async (req: Request,res: Response) => { const filter=applyOrgFilter(req,{},'school'); const rows=await ExamRoom.find(filter).sort({name:1}).lean(); return ApiResponse.success(res,rows); };
+export const rooms = async (req: Request,res: Response) => {
+  const schoolId = resolveViewableOrgId(req, req.query.school);
+  const filter: Record<string, unknown> = {
+    ...(schoolId ? { school: schoolId } : {}),
+    capacityMode: { $ne: 'auto' },
+  };
+  if (req.user?.role !== 'admin' && !schoolId) filter.school = '__NO_TENANT__';
+  const rows = await ExamRoom.find(filter).sort({ name: 1 }).lean();
+  return ApiResponse.success(res, rows);
+};
 
 export const stats = async (req: Request,res: Response) => {
   const q=req.query as any;
@@ -61,7 +70,7 @@ export const add = async (req: Request,res: Response) => {
   const school=await schoolForStudent(req,student);
   if(organization&&student.school?.name&&key(organization)!==key(student.school.name)) throw new BadRequestError('Organization does not match the student');
   const schoolId=school?._id||school||null;
-  const roomDoc=await ExamRoom.findOne({name:norm(room),...(schoolId?{school:schoolId}:{})}).lean();
+  const roomDoc=await ExamRoom.findOne({name:norm(room),capacityMode:{ $ne:'auto' },...(schoolId?{school:schoolId}:{})}).lean();
   if(!roomDoc) throw new NotFoundError('Exam room');
   assertOwnOrg(req,roomDoc,'school');
   const seatValue=norm(seat) || `__ROOM_ONLY__${String(student._id)}`;
@@ -89,7 +98,7 @@ export const update = async (req: Request,res: Response) => {
   const {room,seat,academicYear,examType,locked}=req.body as any;
   const t=examType?examTypeValue(examType):row.examType;
   if(!t) throw new BadRequestError('Invalid Exam Type');
-  const roomDoc=await ExamRoom.findOne({name:norm(room),...(row.school?{school:row.school}:{})}).lean();
+  const roomDoc=await ExamRoom.findOne({name:norm(room),capacityMode:{ $ne:'auto' },...(row.school?{school:row.school}:{})}).lean();
   if(!roomDoc) throw new NotFoundError('Exam room');
   assertOwnOrg(req,roomDoc,'school');
   const requestedSeat=norm(seat);
@@ -211,11 +220,11 @@ async function validateRows(req: Request, rows: Record<string, unknown>[]) {
         school = student.school;
         scheduleRules = await getExamSchedulingRulesForSchool(school?._id || school || null);
       }
-      if (school && allRooms.length === 0) allRooms = await ExamRoom.find({ school: school._id || school }).sort({ name: 1 }).lean();
+      if (school && allRooms.length === 0) allRooms = await ExamRoom.find({ school: school._id || school, capacityMode: { $ne: 'auto' } }).sort({ name: 1 }).lean();
       if (school?.name && key(row.organization) !== key(school.name)) throw new Error('Organization does not match the student school');
       if (seenStudents.has(studentId)) throw new Error('Duplicate Student ID in file');
       seenStudents.add(studentId);
-      const roomDoc = await ExamRoom.findOne({ name: row.room, ...(school ? { school: school._id || school } : {}) });
+      const roomDoc = await ExamRoom.findOne({ name: row.room, capacityMode: { $ne: 'auto' }, ...(school ? { school: school._id || school } : {}) });
       if (!roomDoc) throw new Error(`Room "${row.room}" was not found`);
       assertOwnOrg(req, roomDoc, 'school');
       const seatKey = `${roomDoc._id.toString()}::${key(row.seat)}`;
