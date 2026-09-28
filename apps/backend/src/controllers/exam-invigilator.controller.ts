@@ -304,9 +304,22 @@ export const context = async (req: Request, res: Response): Promise<Response> =>
         capacity: room.capacity,
         students: 0,
         markedStudents: 0,
+        classBreakdown: {} as Record<string, { classId: string; className: string; subject: string; students: number }>,
       };
       current.students += 1;
       const exam = examByClass.get(studentClass);
+      const classRef = seat.student?.class;
+      const classLabel = [classRef?.title, classRef?.section].filter(Boolean).join(' ').trim() || 'Class';
+      const subject = exam?.course?.title?.en || exam?.title || 'Exam';
+      if (!current.classBreakdown[studentClass]) {
+        current.classBreakdown[studentClass] = {
+          classId: studentClass,
+          className: classLabel,
+          subject,
+          students: 0,
+        };
+      }
+      current.classBreakdown[studentClass].students += 1;
       if (exam && submittedAttendanceKeys.has(String(exam._id) + '::' + studentId)) {
         current.markedStudents += 1;
       }
@@ -321,7 +334,15 @@ export const context = async (req: Request, res: Response): Promise<Response> =>
         && String(row.room?._id || row.room) === String(room._id)
       );
       return {
-        ...room,
+        _id: room._id,
+        name: room.name,
+        building: room.building,
+        capacity: room.capacity,
+        students: room.students,
+        markedStudents: room.markedStudents,
+        classBreakdown: Object.values(room.classBreakdown || {}).sort((a: any, b: any) =>
+          String(a.className).localeCompare(String(b.className), undefined, { numeric: true })
+        ),
         assignment: assignment ? {
           _id: assignment._id,
           teacher: assignment.teacher ? {
