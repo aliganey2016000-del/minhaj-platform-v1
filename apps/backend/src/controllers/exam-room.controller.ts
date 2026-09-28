@@ -17,6 +17,29 @@ const DEFAULT_BUILDING = 'Main';
 
 const clean = (value: unknown) => String(value ?? '').trim();
 
+async function syncRoomEditsToClassManagement(
+  school: unknown,
+  previousName: string,
+  nextName: string,
+  capacity: number,
+) {
+  if (!school || !previousName) return;
+
+  await ClassModel.updateMany(
+    {
+      school,
+      status: 'active',
+      room: previousName,
+    },
+    {
+      $set: {
+        room: nextName,
+        capacity,
+      },
+    },
+  );
+}
+
 async function syncRoomsFromClassManagement(req: Request) {
   const classFilter = applyOrgFilter(req, { status: 'active' }, 'school') as Record<string, unknown>;
 
@@ -178,6 +201,21 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   const room = await ExamRoom.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
   if (!room) throw new NotFoundError('Exam room');
+
+  // Rooms and Class Management are two editing surfaces for the same physical
+  // room capacity. When an admin changes a synced room here, write the change
+  // back to every active class using that room so the next automatic room sync
+  // does not overwrite the edit with the previous class capacity.
+  const syncedCapacity = Number(room.capacity);
+  if (Number.isFinite(syncedCapacity) && syncedCapacity > 0) {
+    await syncRoomEditsToClassManagement(
+      existing.school,
+      clean(existing.name),
+      clean(room.name),
+      syncedCapacity,
+    );
+  }
+
   return ApiResponse.success(res, room, 'Exam room updated');
 };
 
@@ -258,6 +296,7 @@ export const importRooms = async (req: Request, res: Response): Promise<Response
       existing.capacityMode = 'manual';
       existing.building = building;
       await existing.save();
+      await syncRoomEditsToClassManagement(school, clean(existing.name), clean(existing.name), capacity);
       updated += 1;
       continue;
     }
