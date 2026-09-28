@@ -261,6 +261,16 @@ export const context = async (req: Request, res: Response): Promise<Response> =>
     })
     .lean() as any[];
 
+  const attendanceRows = exams.length && seating.length
+    ? await ExamAttendance.find({
+        exam: { $in: exams.map(exam => exam._id) },
+        student: { $in: seating.map(seat => seat.student?._id).filter(Boolean) },
+      }).select('exam student status').lean() as any[]
+    : [];
+  const submittedAttendanceKeys = new Set(
+    attendanceRows.filter(row => row.status).map(row => String(row.exam) + '::' + String(row.student))
+  );
+
   const grouped = new Map<string, any[]>();
   for (const exam of exams) {
     const key = `${dateKey(exam.examDate)}::${exam.startTime}::${exam.endTime}`;
