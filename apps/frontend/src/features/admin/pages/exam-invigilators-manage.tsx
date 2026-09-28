@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   CalendarDays,
   CheckCircle2,
   Clock3,
   DoorOpen,
-  RefreshCw,
   Search,
   ShieldCheck,
   UserCheck,
@@ -109,10 +109,18 @@ const localTodayKey = () => {
 };
 
 export function ExamInvigilatorsManage() {
+  const [workspaceSearchParams] = useSearchParams();
+  const contextPeriodId = workspaceSearchParams.get('periodId') || '';
+  const contextExamName = workspaceSearchParams.get('examName') || '';
+  const contextAcademicYear = workspaceSearchParams.get('academicYear') || '';
+  const contextStartDate = workspaceSearchParams.get('startDate') || '';
+  const contextEndDate = workspaceSearchParams.get('endDate') || '';
+  const hasExamContext = Boolean(contextPeriodId);
+
   const [tab,setTab]=useState<'attendance'|'rooms'>('attendance');
   const [periods,setPeriods]=useState<Period[]>([]);
   const [teachers,setTeachers]=useState<Teacher[]>([]);
-  const [periodId,setPeriodId]=useState('');
+  const [periodId,setPeriodId]=useState(contextPeriodId);
   const [context,setContext]=useState<Context|null>(null);
   const [activeSession,setActiveSession]=useState('');
   const [query,setQuery]=useState('');
@@ -138,7 +146,10 @@ export function ExamInvigilatorsManage() {
       const nextPeriods=periodRes.data?.data||[];
       setPeriods(nextPeriods);
       setTeachers(teacherRes.data?.data||[]);
-      setPeriodId(prev=>prev||nextPeriods[0]?._id||'');
+      setPeriodId(prev=>{
+        if(contextPeriodId&&nextPeriods.some((period:Period)=>period._id===contextPeriodId)) return contextPeriodId;
+        return prev||nextPeriods[0]?._id||'';
+      });
     }catch(err:any){
       setError(err.response?.data?.message||'Could not load exams and teachers.');
     }finally{
@@ -189,6 +200,9 @@ export function ExamInvigilatorsManage() {
   );
 
   useEffect(()=>{void loadBase()},[]);
+  useEffect(()=>{
+    if(contextPeriodId&&contextPeriodId!==periodId) setPeriodId(contextPeriodId);
+  },[contextPeriodId,periodId]);
   useEffect(()=>{if(periodId)void loadContext(periodId)},[periodId]);
   useEffect(()=>{if(periodId&&attendanceDate)void loadTeacherAttendance(attendanceDate)},[periodId,attendanceDate]);
   useEffect(()=>{
@@ -309,10 +323,33 @@ export function ExamInvigilatorsManage() {
     }
   };
 
-  if(loading)return <div className="p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
+  const formatContextDate=(value:string)=>{
+    if(!value)return '';
+    const date=new Date(value+'T00:00:00');
+    return Number.isNaN(date.getTime())?'':date.toLocaleDateString(undefined,{day:'numeric',month:'short'});
+  };
+  const contextRange=(()=>{
+    const start=formatContextDate(contextStartDate);
+    const end=formatContextDate(contextEndDate);
+    if(start&&end)return `${start} – ${end}`;
+    return start||end;
+  })();
+  const contextSubtitle=[
+    contextExamName||context?.period?.name,
+    contextAcademicYear||context?.period?.academicYear,
+    contextRange,
+  ].filter(Boolean).join(' · ');
+  const scheduleFallback=contextPeriodId
+    ? `/admin/exams/schedule?${workspaceSearchParams.toString()}`
+    : '/admin/exams/schedule';
+
+  if(loading)return <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
     <div className="mx-auto max-w-screen-2xl space-y-5">
-      <BackButton fallback="/admin/exams"/>
-      <div><h1 className="text-3xl font-bold">Invigilators</h1></div>
+      <BackButton fallback={scheduleFallback}/>
+      <div>
+        <h1 className="text-3xl font-bold">Invigilators</h1>
+        {contextSubtitle&&<p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{contextSubtitle}</p>}
+      </div>
       <ExamWorkspaceTabs />
       <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-5 shadow-sm">
         <div className="flex items-center gap-3 text-sm font-semibold text-[var(--color-text-secondary)]">
@@ -323,16 +360,15 @@ export function ExamInvigilatorsManage() {
     </div>
   </div>;
 
-  return <div className="p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
+  return <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
     <div className="mx-auto max-w-screen-2xl space-y-5">
-      <BackButton fallback="/admin/exams"/>
+      <BackButton fallback={scheduleFallback}/>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Invigilators</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Check which teachers are present on each exam day, then manage room assignments.</p>
-        </div>
-        <button type="button" onClick={()=>{void loadContext(); if(attendanceDate)void loadTeacherAttendance(attendanceDate)}} disabled={!periodId} className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50"><RefreshCw size={16}/>Refresh</button>
+      <div>
+        <h1 className="text-3xl font-bold">Invigilators</h1>
+        <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+          {contextSubtitle || 'Check which teachers are present on each exam day, then manage room assignments.'}
+        </p>
       </div>
 
       <ExamWorkspaceTabs />
@@ -349,7 +385,7 @@ export function ExamInvigilatorsManage() {
         </button>
       </div>
 
-      <div className={`${card} p-5`}>
+      {!hasExamContext&&<div className={`${card} p-5`}>
         <label className="space-y-1.5">
           <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">Exam</span>
           <select className={input} value={periodId} onChange={e=>{setPeriodId(e.target.value);setAttendanceDate(localTodayKey());setError('');setMessage('')}}>
@@ -357,7 +393,7 @@ export function ExamInvigilatorsManage() {
             {periods.map(period=><option key={period._id} value={period._id}>{period.name} · {period.academicYear}</option>)}
           </select>
         </label>
-      </div>
+      </div>}
 
       {tab==='attendance'&&<>
         <div className={`${card} p-5`}>
