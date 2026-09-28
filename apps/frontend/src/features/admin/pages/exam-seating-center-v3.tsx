@@ -544,6 +544,7 @@ function AutoGenerateModal({
   const [error,setError]=useState('');
   const [preview,setPreview]=useState<AutoPreview|null>(null);
   const [seed,setSeed]=useState(()=>String(Date.now()));
+  const hasExactPlan=Boolean(initialRoomPlan?.some(item=>item.quotas?.length));
 
   const visibleClasses=useMemo(
     ()=>classes
@@ -608,8 +609,8 @@ function AutoGenerateModal({
   return <Modal title="Smart Auto Allocation" close={close} wide>
     <div className="space-y-6">
       <div className="rounded-2xl border border-primary-200 bg-primary-50/50 p-4 dark:border-primary-900/40 dark:bg-primary-950/20">
-        <p className="font-semibold">Mix grades → preview → confirm</p>
-        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Students are mixed across the selected grades, room capacity is enforced, locked students stay where they are, and nothing is saved until you confirm the preview.</p>
+        <p className="font-semibold">{hasExactPlan?'Exact Plan → Preview → Confirm':'Mix grades → Preview → Confirm'}</p>
+        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{hasExactPlan?'The editable Grade / Class quotas from Plan Rooms are locked here. Preview verifies the exact distribution before saving.':'Students are mixed across the selected grades, room capacity is enforced, locked students stay where they are, and nothing is saved until you confirm the preview.'}</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -624,7 +625,7 @@ function AutoGenerateModal({
       <div>
         <p className="mb-2 text-sm font-semibold">Organization</p>
         {orgs.length>1
-          ?<select className={input} value={org} onChange={e=>{setOrg(e.target.value);setClassIds([]);setRoomIds([]);resetPreview()}}>
+          ?<select className={input} value={org} disabled={hasExactPlan} onChange={e=>{setOrg(e.target.value);setClassIds([]);setRoomIds([]);resetPreview()}}>
             <option value="">Select organization...</option>{orgs.map(o=><option key={o._id} value={o._id}>{o.name}</option>)}
           </select>
           :<div className={readonly}>{orgs[0]?.name||'Current organization'}</div>}
@@ -634,12 +635,12 @@ function AutoGenerateModal({
         <div className={`${card} p-4`}>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div><p className="font-semibold">Grades / Classes</p><p className="text-xs text-[var(--color-text-tertiary)]">{classIds.length} selected</p></div>
-            <button type="button" onClick={()=>{setClassIds(allClasses?[]:visibleClasses.map(c=>c._id));resetPreview()}} className="text-xs font-semibold text-primary-600">{allClasses?'Clear all':'Select all'}</button>
+            <button type="button" disabled={hasExactPlan} onClick={()=>{setClassIds(allClasses?[]:visibleClasses.map(c=>c._id));resetPreview()}} className="text-xs font-semibold text-primary-600 disabled:cursor-not-allowed disabled:opacity-40">{allClasses?'Clear all':'Select all'}</button>
           </div>
           <div className="max-h-72 space-y-2 overflow-auto">
             {visibleClasses.length===0
               ?<p className="text-sm text-[var(--color-text-tertiary)]">No active grades/classes.</p>
-              :visibleClasses.map(c=><button type="button" key={c._id} onClick={()=>{toggle(classIds,c._id,setClassIds);resetPreview()}} className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition ${classIds.includes(c._id)?'border-primary-300 bg-primary-50 dark:border-primary-900/50 dark:bg-primary-950/20':'border-transparent hover:bg-[var(--color-surface-secondary)]'}`}>
+              :visibleClasses.map(c=><button type="button" key={c._id} disabled={hasExactPlan} onClick={()=>{toggle(classIds,c._id,setClassIds);resetPreview()}} className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-70 ${classIds.includes(c._id)?'border-primary-300 bg-primary-50 dark:border-primary-900/50 dark:bg-primary-950/20':'border-transparent hover:bg-[var(--color-surface-secondary)]'}`}>
                 {classIds.includes(c._id)?<CheckSquare size={18} className="text-primary-600"/>:<Square size={18}/>}
                 <span className="font-medium">{classNameOf(c)}</span>
               </button>)}
@@ -649,12 +650,12 @@ function AutoGenerateModal({
         <div className={`${card} p-4`}>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div><p className="font-semibold">Rooms</p><p className="text-xs text-[var(--color-text-tertiary)]">{roomIds.length} selected · {selectedCapacity} total capacity</p></div>
-            <button type="button" onClick={()=>{setRoomIds(allRooms?[]:visibleRooms.map(r=>r._id));resetPreview()}} className="text-xs font-semibold text-primary-600">{allRooms?'Clear all':'Select all'}</button>
+            <button type="button" disabled={hasExactPlan} onClick={()=>{setRoomIds(allRooms?[]:visibleRooms.map(r=>r._id));resetPreview()}} className="text-xs font-semibold text-primary-600 disabled:cursor-not-allowed disabled:opacity-40">{allRooms?'Clear all':'Select all'}</button>
           </div>
           <div className="max-h-72 space-y-2 overflow-auto">
             {visibleRooms.length===0
               ?<p className="text-sm text-[var(--color-text-tertiary)]">No exam rooms available.</p>
-              :visibleRooms.map(r=><button type="button" key={r._id} onClick={()=>{toggle(roomIds,r._id,setRoomIds);resetPreview()}} className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${roomIds.includes(r._id)?'border-emerald-300 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20':'border-transparent hover:bg-[var(--color-surface-secondary)]'}`}>
+              :visibleRooms.map(r=><button type="button" key={r._id} disabled={hasExactPlan} onClick={()=>{toggle(roomIds,r._id,setRoomIds);resetPreview()}} className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-70 ${roomIds.includes(r._id)?'border-emerald-300 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20':'border-transparent hover:bg-[var(--color-surface-secondary)]'}`}>
                 {roomIds.includes(r._id)?<CheckSquare size={18} className="text-emerald-600"/>:<Square size={18}/>}
                 <div className="min-w-0 flex-1"><p className="font-medium">{r.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{r.building||'Main'}</p></div>
                 <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-bold">{r.capacity}</span>
