@@ -328,6 +328,9 @@ export const generate = async (req: Request, res: Response) => {
   const targetClassIdSet = new Set(targetClasses.map(c => String(c._id)));
   const selectedRoomIdSet = new Set(selectedRooms.map(room => String(room._id)));
   const roomPlanMap = new Map<string, string[]>();
+  const quotaPlanMap = new Map<string, Map<string, number>>();
+  const hasExactQuotaPlan = normalizedRoomPlan.some(item => item.quotas.length > 0);
+
   for (const item of normalizedRoomPlan) {
     if (!targetClassIdSet.has(item.classId)) {
       throw new BadRequestError('Room Plan contains a class outside the selected active classes');
@@ -336,15 +339,62 @@ export const generate = async (req: Request, res: Response) => {
     if (invalidRoom) {
       throw new BadRequestError('Room Plan contains a room outside the selected organization rooms');
     }
+
     roomPlanMap.set(item.classId, item.roomIds);
+
+    if (item.quotas.length) {
+      const quotaMap = new Map<string, number>();
+      for (const quota of item.quotas) {
+        quotaMap.set(quota.roomId, (quotaMap.get(quota.roomId) || 0) + quota.count);
+      }
+      quotaPlanMap.set(item.classId, quotaMap);
+    }
   }
 
   if (normalizedRoomPlan.length) {
     const classesWithStudents = new Set(selected.map(s => String(s.class?._id || s.class || '')));
     for (const classId of classesWithStudents) {
-      if (classId && !roomPlanMap.has(classId)) {
+      if (!classId || !roomPlanMap.has(classId)) {
         const cls = targetClasses.find(c => String(c._id) === classId);
         throw new BadRequestError(`Choose at least one Room for ${norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'each selected class'}`);
+      }
+    }
+
+    if (hasExactQuotaPlan) {
+      const selectedCountByClass = new Map<string, number>();
+      for (const student of selected) {
+        const classId = String(student.class?._id || student.class || '');
+        selectedCountByClass.set(classId, (selectedCountByClass.get(classId) || 0) + 1);
+      }
+
+      for (const [classId, expectedCount] of selectedCountByClass.entries()) {
+        const quotas = quotaPlanMap.get(classId);
+        const plannedCount = quotas
+          ? Array.from(quotas.values()).reduce((sum, count) => sum + count, 0)
+          : 0;
+        if (plannedCount !== expectedCount) {
+          const cls = targetClasses.find(c => String(c._id) === classId);
+          const label = norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'Selected class';
+          throw new BadRequestError(
+            `${label} has ${expectedCount} active students but the Room Plan assigns ${plannedCount}. Adjust the quotas before confirming.`
+          );
+        }
+      }
+
+      const plannedByRoom = new Map<string, number>();
+      for (const quotas of quotaPlanMap.values()) {
+        for (const [roomId, count] of quotas.entries()) {
+          plannedByRoom.set(roomId, (plannedByRoom.get(roomId) || 0) + count);
+        }
+      }
+
+      for (const room of selectedRooms) {
+        const planned = plannedByRoom.get(String(room._id)) || 0;
+        if (planned > Number(room.capacity || 0)) {
+          throw new BadRequestError(
+            `${room.name} is over capacity in the Room Plan by ${planned - Number(room.capacity || 0)} student(s).`
+          );
+        }
       }
     }
   }
