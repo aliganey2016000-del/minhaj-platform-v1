@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
 import ClassModel from '../models/class.model';
+import ExamRoom from '../models/exam-room.model';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Department from '../models/department.model';
 import AcademicStructure from '../models/academic-structure.model';
@@ -177,6 +178,48 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     .lean();
 
   if (!cls) throw new NotFoundError('Class');
+
+  // Room capacity is shared data: changing it from Class Management must
+  // immediately update the matching Rooms record as well. This also switches
+  // the room back to "auto" so subsequent room listing follows the class-side
+  // edit until somebody explicitly edits Capacity from the Rooms tab again.
+  const roomOrCapacityChanged =
+    Object.prototype.hasOwnProperty.call(req.body || {}, 'room') ||
+    Object.prototype.hasOwnProperty.call(req.body || {}, 'capacity');
+
+  if (roomOrCapacityChanged) {
+    const roomName = String((cls as any).room || '').trim();
+    const capacity = Number((cls as any).capacity);
+    const schoolId = existing.school;
+
+    if (schoolId && roomName && Number.isFinite(capacity) && capacity > 0) {
+      // One physical room can be referenced by several active classes. Keep
+      // their capacity identical so the exam allocator never receives
+      // conflicting capacities for the same room name.
+      await ClassModel.updateMany(
+        { school: schoolId, status: 'active', room: roomName },
+        { $set: { capacity } },
+      );
+
+      const examRoom = await ExamRoom.findOne({ school: schoolId, name: roomName });
+      if (examRoom) {
+        examRoom.capacity = capacity;
+        examRoom.capacityMode = 'auto';
+        if (!String(examRoom.building || '').trim()) examRoom.building = 'Main';
+        await examRoom.save();
+      } else {
+        await ExamRoom.create({
+          name: roomName,
+          building: 'Main',
+          capacity,
+          capacityMode: 'auto',
+          school: schoolId,
+          createdBy: req.user!.userId,
+        });
+      }
+    }
+  }
+
   const response = {
     ...cls,
     department: typeof (cls as any).department === 'string' ? (cls as any).department : (cls as any)?.department?.name || '',
