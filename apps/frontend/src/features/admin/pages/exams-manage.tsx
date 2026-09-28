@@ -4722,7 +4722,6 @@ export function ExamsManage() {
             <BackButton fallback="/admin/exams" />
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Schedule</h1>
           </div>
-          <ExamWorkspaceTabs />
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-5 shadow-sm">
             <div className="flex items-center gap-3 text-sm font-semibold text-[var(--color-text-secondary)]">
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-border-default)] border-t-primary-600" />
@@ -4744,7 +4743,7 @@ export function ExamsManage() {
               <div className="mt-1 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Schedule</h1>
-                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose the annual examination first, then open its List or Table Grid.</p>
+                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose an annual examination to open its exam workspace.</p>
                 </div>
                 <div className="shrink-0">
                   <ExamsActionsMenu
@@ -4779,8 +4778,6 @@ export function ExamsManage() {
                 </div>
               </div>
             </div>
-
-            <ExamWorkspaceTabs />
 
             <section className="overflow-visible rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
               <div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
@@ -4962,7 +4959,7 @@ export function ExamsManage() {
                 onClick={returnToExamList}
                 className="inline-flex items-center gap-1.5 rounded-lg px-1 py-1 text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
               >
-                <ArrowLeft className="h-4 w-4" /> All Exams
+                <ArrowLeft className="h-4 w-4" /> Annual Examinations
               </button>
               <div className="mt-1 flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -5002,6 +4999,8 @@ export function ExamsManage() {
                 </div>
               </div>
             </div>
+
+            <ExamWorkspaceTabs />
 
             <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm">
               <div className="relative min-w-0">
