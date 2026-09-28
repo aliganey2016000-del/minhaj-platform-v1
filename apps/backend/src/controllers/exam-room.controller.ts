@@ -49,7 +49,7 @@ async function syncRoomsFromClassManagement(req: Request) {
   }
 
   const classes = await ClassModel.find(classFilter)
-    .select('school room capacity status')
+    .select('school room capacity status updatedAt')
     .lean() as any[];
 
   const grouped = new Map<string, { school: string; name: string; capacity: number }>();
@@ -84,19 +84,31 @@ async function syncRoomsFromClassManagement(req: Request) {
     });
 
     if (room) {
-      // Legacy room rows may predate required fields such as createdBy.
-      // Updating only the sync-owned fields avoids re-validating unrelated
-      // legacy fields and prevents the Rooms screen from failing to load.
-      await ExamRoom.updateOne(
-        { _id: room._id },
-        {
-          $set: {
-            capacity: item.capacity,
-            building: clean(room.building) || DEFAULT_BUILDING,
-            capacityMode: 'auto',
-          },
+      // If Capacity was edited from the Rooms tab, keep that manual value and
+      // push it back to Class Management. Class Management edits explicitly
+      // switch the room back to auto mode (see class.controller.ts), so either
+      // screen can be the latest source without GET /exam-rooms undoing it.
+      if (room.capacityMode === 'manual') {
+        const manualCapacity = Number(room.capacity);
+        if (Number.isFinite(manualCapacity) && manualCapacity > 0) {
+          await syncRoomEditsToClassManagement(item.school, item.name, item.name, manualCapacity);
         }
-      );
+        if (!clean(room.building)) {
+          await ExamRoom.updateOne({ _id: room._id }, { $set: { building: DEFAULT_BUILDING } });
+        }
+      } else {
+        // Legacy/auto rows continue to follow Class Management.
+        await ExamRoom.updateOne(
+          { _id: room._id },
+          {
+            $set: {
+              capacity: item.capacity,
+              building: clean(room.building) || DEFAULT_BUILDING,
+              capacityMode: 'auto',
+            },
+          }
+        );
+      }
     } else {
       room = await ExamRoom.create({
         name: item.name,
