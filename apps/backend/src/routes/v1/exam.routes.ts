@@ -78,6 +78,7 @@ router.post('/invigilators/teacher-attendance', adminOnly, asyncHandler(invigila
 router.post('/invigilators/teacher-attendance/mark-all', adminOnly, asyncHandler(invigilatorController.markAllTeacherAttendance));
 router.get('/invigilators/context', adminOnly, asyncHandler(invigilatorController.context));
 router.post('/invigilators', adminOnly, asyncHandler(invigilatorController.assign));
+router.post('/invigilators/bulk', adminOnly, asyncHandler(invigilatorController.bulkAssign));
 router.delete('/invigilators/:assignmentId', adminOnly, asyncHandler(invigilatorController.remove));
 router.get('/invigilators/my', adminOrTeacher, asyncHandler(invigilatorController.myAssignments));
 router.get('/invigilators/:assignmentId/roster', adminOrTeacher, asyncHandler(invigilatorController.roster));
