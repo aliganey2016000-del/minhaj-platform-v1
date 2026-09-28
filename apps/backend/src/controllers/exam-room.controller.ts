@@ -6,15 +6,80 @@
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import ExamRoom from '../models/exam-room.model';
+import ClassModel from '../models/class.model';
 import SeatAllocation from '../models/seat-allocation.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 
-const DEFAULT_BUILDING = 'Main Campus';
+const DEFAULT_BUILDING = 'Main';
 
 const clean = (value: unknown) => String(value ?? '').trim();
+
+async function syncRoomsFromClassManagement(req: Request) {
+  const classFilter = applyOrgFilter(req, { status: 'active' }, 'school') as Record<string, unknown>;
+
+  if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    classFilter.school = teacher?.school || '__NO_TENANT__';
+  }
+
+  const classes = await ClassModel.find(classFilter)
+    .select('school room capacity status')
+    .lean() as any[];
+
+  const grouped = new Map<string, { school: string; name: string; capacity: number }>();
+
+  for (const cls of classes) {
+    const school = String(cls.school?._id || cls.school || '');
+    const name = clean(cls.room);
+    const capacity = Number(cls.capacity);
+
+    // Class Management is the source of truth for this list. A room without a
+    // valid capacity cannot be used for exam allocation yet, so do not create
+    // a fake capacity for it.
+    if (!school || !name || !Number.isFinite(capacity) || capacity < 1) continue;
+
+    const key = `${school}::${name.toLowerCase()}`;
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, { school, name, capacity });
+    } else {
+      // The same physical room may be referenced by more than one active
+      // class. Keep one room row and use the largest configured capacity.
+      current.capacity = Math.max(current.capacity, capacity);
+    }
+  }
+
+  const activeRoomIds: string[] = [];
+
+  for (const item of grouped.values()) {
+    let room = await ExamRoom.findOne({
+      school: item.school,
+      name: item.name,
+    });
+
+    if (room) {
+      room.capacity = item.capacity;
+      room.building = clean(room.building) || DEFAULT_BUILDING;
+      await room.save();
+    } else {
+      room = await ExamRoom.create({
+        name: item.name,
+        building: DEFAULT_BUILDING,
+        capacity: item.capacity,
+        capacityMode: 'auto',
+        school: item.school,
+        createdBy: req.user!.userId,
+      });
+    }
+
+    activeRoomIds.push(String(room._id));
+  }
+
+  return activeRoomIds;
+}
 
 // GET /exam-rooms
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
@@ -25,13 +90,17 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     (scopedFilter as any).school = teacher?.school || '__NO_TENANT__';
   }
 
-  // Rooms is the organization's explicit exam-room registry.
-  // Never synthesize rooms from Class.room values: stale class labels such as
-  // "1" or "12" are not physical rooms and must not leak into this screen.
-  // Legacy auto-created class-sync rows are hidden as well.
-  (scopedFilter as any).capacityMode = { $ne: 'auto' };
+  const activeRoomIds = await syncRoomsFromClassManagement(req);
 
-  const rooms = await ExamRoom.find(scopedFilter).sort({ building: 1, name: 1 }).lean();
+  if (!activeRoomIds.length) {
+    return ApiResponse.success(res, []);
+  }
+
+  const rooms = await ExamRoom.find({
+    ...scopedFilter,
+    _id: { $in: activeRoomIds },
+  }).sort({ building: 1, name: 1 }).lean();
+
   const normalized = rooms.map((room: any) => ({
     ...room,
     building: clean(room.building) || DEFAULT_BUILDING,
@@ -119,8 +188,10 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
 // GET /exam-rooms/export
 export const exportRooms = async (req: Request, res: Response): Promise<void> => {
   const filter = applyOrgFilter(req, {}, 'school');
-  (filter as any).capacityMode = { $ne: 'auto' };
-  const rooms = await ExamRoom.find(filter).sort({ building: 1, name: 1 }).lean();
+  const activeRoomIds = await syncRoomsFromClassManagement(req);
+  const rooms = activeRoomIds.length
+    ? await ExamRoom.find({ ...filter, _id: { $in: activeRoomIds } }).sort({ building: 1, name: 1 }).lean()
+    : [];
 
   const rows = rooms.map((r: any) => ({
     Room: r.name,
