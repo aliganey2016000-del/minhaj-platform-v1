@@ -78,7 +78,7 @@ const ResultsView = lazy(() => import('../features/admin/pages/results-view').th
 const ResultsEntry = lazy(() => import('../features/admin/pages/results-entry').then((m) => ({ default: m.ResultsEntry })));
 const ExamRoomsManage = lazy(() => import('../features/admin/pages/exam-rooms-manage').then((m) => ({ default: m.ExamRoomsManage })));
 const ExamInvigilatorsManage = lazy(() => import('../features/admin/pages/exam-invigilators-manage').then((m) => ({ default: m.ExamInvigilatorsManage })));
-const ExamAttendanceManage = lazy(() => import('../features/admin/pages/exam-attendance-manage').then((m) => ({ default: m.ExamAttendanceManage })));
+const ExamAttendanceManage = lazy(() => import('../features/admin/pages/exam-period-attendance-workspace').then((m) => ({ default: m.ExamPeriodAttendanceWorkspace })));
 const ExamPapersManage = lazy(() => import('../features/admin/pages/exam-papers-manage').then((m) => ({ default: m.ExamPapersManage })));
 const ExamPaperReviewPage = lazy(() => import('../features/admin/pages/exam-paper-review-page').then((m) => ({ default: m.ExamPaperReviewPage })));
 const ExamComplianceManage = lazy(() => import('../features/admin/pages/exam-compliance-manage').then((m) => ({ default: m.ExamComplianceManage })));
