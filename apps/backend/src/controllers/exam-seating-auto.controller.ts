@@ -272,7 +272,7 @@ export const generate = async (req: Request, res: Response) => {
   else if (department) classFilter.department = department;
 
   const targetClasses = await ClassModel.find(classFilter)
-    .select('_id title section department shiftMode room school')
+    .select('_id title section department shiftMode room school gradeLevel')
     .populate('department', 'name')
     .sort({ title: 1, section: 1 })
     .lean() as any[];
@@ -394,6 +394,48 @@ export const generate = async (req: Request, res: Response) => {
           throw new BadRequestError(
             `${room.name} is over capacity in the Room Plan by ${planned - Number(room.capacity || 0)} student(s).`
           );
+        }
+      }
+
+      const gradeKeyForClass = (cls: any) => {
+        const gradeLevel = Number(cls?.gradeLevel);
+        if (Number.isFinite(gradeLevel)) return `grade-${gradeLevel}`;
+        const match = norm(cls?.title).match(/\d+/);
+        return match ? `grade-${match[0]}` : key(cls?.title || cls?._id || '');
+      };
+
+      const classGradeMap = new Map(
+        targetClasses.map(cls => [String(cls._id), gradeKeyForClass(cls)])
+      );
+      const selectedGradeKeys = new Set(
+        Array.from(selectedCountByClass.keys())
+          .map(classId => classGradeMap.get(classId))
+          .filter(Boolean)
+      );
+      const roomGradeSets = new Map<string, Set<string>>();
+
+      for (const [classId, quotas] of quotaPlanMap.entries()) {
+        const gradeKey = classGradeMap.get(classId);
+        if (!gradeKey) continue;
+        for (const [roomId, count] of quotas.entries()) {
+          if (count <= 0) continue;
+          const grades = roomGradeSets.get(roomId) || new Set<string>();
+          grades.add(gradeKey);
+          roomGradeSets.set(roomId, grades);
+        }
+      }
+
+      if (selectedGradeKeys.size > 1) {
+        for (const room of selectedRooms) {
+          const planned = plannedByRoom.get(String(room._id)) || 0;
+          if (planned <= 0) continue;
+          const mixedGrades = roomGradeSets.get(String(room._id))?.size || 0;
+          if (mixedGrades < 2) {
+            throw new BadRequestError(`${room.name} must contain at least 2 different grade levels.`);
+          }
+          if (mixedGrades > 3) {
+            throw new BadRequestError(`${room.name} can contain at most 3 different grade levels in the mixed plan.`);
+          }
         }
       }
     }
