@@ -59,7 +59,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
         key: 'group:exam-management', label: 'Examinations', icon: NotebookPen,
         children: [
           { path: '/admin/exams', label: 'Overview', icon: LayoutDashboard },
-          { path: '/admin/exams/schedule', label: 'Exam Schedule', icon: CalendarRange },
+          { path: '/admin/exams/schedule', label: 'Exam Operations', icon: CalendarRange },
           { path: '/admin/results/enter', label: 'Marks Entry', icon: ClipboardEdit },
           { path: '/admin/exams/review', label: 'Review & Approval', icon: FileCheck2 },
           { path: '/admin/results', label: 'Results', icon: BarChart3 },
