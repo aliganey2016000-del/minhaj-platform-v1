@@ -17,6 +17,7 @@ router.get('/', asyncHandler(examRoomController.getAll));
 // swallowed by the generic /exams/:id route on mixed-version deployments.
 router.get('/plan-settings', adminOnly, asyncHandler(roomPlanSettingsController.getSettings));
 router.patch('/plan-settings', adminOnly, asyncHandler(roomPlanSettingsController.updateSettings));
+router.get('/planning-students', adminOnly, asyncHandler(roomPlanSettingsController.getPlanningStudents));
 router.get('/export', adminOnly, asyncHandler(examRoomController.exportRooms));
 router.post('/import', adminOnly, upload.single('file'), asyncHandler(examRoomController.importRooms));
 router.post('/', adminOnly, asyncHandler(examRoomController.create));
