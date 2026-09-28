@@ -4,7 +4,7 @@
  */
 
 import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown, Printer, SlidersHorizontal, RotateCcw } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown, Printer, RotateCcw } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -300,116 +300,6 @@ function CheckboxMultiFilter({
             );
           })}
           {options.length === 0 && <p className="px-2.5 py-3 text-xs text-[var(--color-text-tertiary)]">No options available.</p>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ExamFiltersMenu({
-  statusFilters,
-  setStatusFilters,
-  classFilters,
-  setClassFilters,
-  departmentFilters,
-  setDepartmentFilters,
-  scheduleFilters,
-  setScheduleFilters,
-  dateFilter,
-  setDateFilter,
-  statusOptions,
-  classOptions,
-  departmentOptions,
-  scheduleOptions,
-  onClear,
-}: {
-  statusFilters: string[] | null;
-  setStatusFilters: (value: string[] | null) => void;
-  classFilters: string[] | null;
-  setClassFilters: (value: string[] | null) => void;
-  departmentFilters: string[] | null;
-  setDepartmentFilters: (value: string[] | null) => void;
-  scheduleFilters: string[] | null;
-  setScheduleFilters: (value: string[] | null) => void;
-  dateFilter: string;
-  setDateFilter: (value: string) => void;
-  statusOptions: Array<{ value: string; label: string; count?: number }>;
-  classOptions: Array<{ value: string; label: string; count?: number }>;
-  departmentOptions: Array<{ value: string; label: string; count?: number }>;
-  scheduleOptions: Array<{ value: string; label: string; count?: number }>;
-  onClear: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const activeCount = [
-    statusFilters !== null,
-    classFilters !== null,
-    departmentFilters !== null,
-    scheduleFilters !== null,
-    Boolean(dateFilter),
-  ].filter(Boolean).length;
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [open]);
-
-  return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className={`inline-flex h-[42px] items-center justify-center gap-2 rounded-xl border px-3.5 text-sm font-bold transition-colors ${
-          activeCount
-            ? 'border-primary-300 bg-primary-50 text-primary-700 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-300'
-            : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] hover:border-primary-300'
-        }`}
-        aria-expanded={open}
-        aria-label="Exam filters"
-      >
-        <SlidersHorizontal className="h-4 w-4" />
-        <span className="hidden sm:inline">Filters</span>
-        {activeCount > 0 && (
-          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-600 px-1.5 text-[10px] font-black text-white">
-            {activeCount}
-          </span>
-        )}
-        <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      {open && (
-        <div className="absolute right-0 z-[100] mt-2 w-[min(88vw,360px)] rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-2xl">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold text-[var(--color-text-primary)]">Filters</p>
-              <p className="text-[11px] text-[var(--color-text-tertiary)]">Narrow the selected examination.</p>
-            </div>
-            {activeCount > 0 && (
-              <button type="button" onClick={onClear} className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">
-                Clear
-              </button>
-            )}
-          </div>
-
-          <div className="grid gap-2">
-            <CheckboxMultiFilter label="All Status" selected={statusFilters} onChange={setStatusFilters} options={statusOptions} />
-            <CheckboxMultiFilter label="All Classes" selected={classFilters} onChange={setClassFilters} options={classOptions} />
-            <CheckboxMultiFilter label="All Departments" selected={departmentFilters} onChange={setDepartmentFilters} options={departmentOptions} />
-            <CheckboxMultiFilter label="All Types" selected={scheduleFilters} onChange={setScheduleFilters} options={scheduleOptions} />
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Exam Date</span>
-              <input
-                type="date"
-                value={dateFilter}
-                onChange={(event) => setDateFilter(event.target.value)}
-                className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/20"
-              />
-            </label>
-          </div>
         </div>
       )}
     </div>
@@ -3851,7 +3741,7 @@ function ExamTimetable({
       `}</style>
 
       {selectedPeriod && perspective === 'class' && !editMode && (
-        <div className="mb-4 flex items-end gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm sm:gap-3 sm:p-4">
+        <div className="mb-4 flex w-full flex-nowrap items-end gap-1.5 overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-2.5 shadow-sm sm:gap-3 sm:p-4">
           <label className="min-w-0 flex-1">
             <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Class</span>
             <select
@@ -3862,7 +3752,7 @@ function ExamTimetable({
                 setGridError('');
                 setGridSuccess('');
               }}
-              className="w-full min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold"
+              className="w-full min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2.5 py-2.5 text-xs font-semibold sm:px-3 sm:text-sm"
             >
               {periodClasses.length === 0 && <option value="">No classes available</option>}
               {periodClasses.map((cls) => (
@@ -3935,9 +3825,6 @@ function ExamTimetable({
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
-                Create/select an Exam first. Auto Generate keeps same-name subjects on the same date + shift within Primary/Middle and Secondary groups. Allowed days: {allowedDayLabels || 'None'}.
-              </p>
             </div>
 
             {editMode && (
@@ -5122,49 +5009,13 @@ export function ExamsManage() {
             </div>
 
             <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm">
-              <div className="flex items-center gap-2">
-                <div className="relative min-w-0 flex-1">
-                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
-                  <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search exams, subjects or rooms..."
-                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] py-2.5 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary-500/20"
-                  />
-                </div>
-
-                <ExamFiltersMenu
-                  statusFilters={statusFilters}
-                  setStatusFilters={setStatusFilters}
-                  classFilters={classFilters}
-                  setClassFilters={setClassFilters}
-                  departmentFilters={departmentFilters}
-                  setDepartmentFilters={setDepartmentFilters}
-                  scheduleFilters={scheduleFilters}
-                  setScheduleFilters={setScheduleFilters}
-                  dateFilter={dateFilter}
-                  setDateFilter={setCalendarDate}
-                  statusOptions={[
-                    { value: 'scheduled', label: 'Scheduled', count: scheduledCount },
-                    { value: 'ongoing', label: 'Ongoing', count: ongoingCount },
-                    { value: 'completed', label: 'Completed', count: completedCount },
-                    { value: 'cancelled', label: 'Cancelled', count: cancelledCount },
-                  ]}
-                  classOptions={classOptions.map((item) => ({
-                    value: item.id,
-                    label: item.label,
-                    count: placedScopedExams.filter((exam) => exam.course?.class?._id === item.id).length,
-                  }))}
-                  departmentOptions={departmentOptions.map((item) => ({
-                    value: item.id,
-                    label: item.label,
-                    count: placedScopedExams.filter((exam) => exam.course?.class?.department?._id === item.id).length,
-                  }))}
-                  scheduleOptions={[
-                    { value: 'manual', label: 'Manual', count: manualCount },
-                    { value: 'auto', label: 'Automatic', count: autoCount },
-                  ]}
-                  onClear={clearFilters}
+              <div className="relative min-w-0">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search exams, subjects or rooms..."
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] py-2.5 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary-500/20"
                 />
               </div>
             </div>
