@@ -483,7 +483,94 @@ export const generate = async (req: Request, res: Response) => {
 
   const availableStudents = selected.filter(student => !lockedStudentIds.has(String(student._id)));
 
-  if (roomPlanMap.size) {
+  if (hasExactQuotaPlan) {
+    const currentCounts = new Map<string, number>(initialCounts);
+    const roomById = new Map(selectedRooms.map(room => [String(room._id), room]));
+    const studentsByClass = new Map<string, any[]>();
+    const lockedByClassRoom = new Map<string, number>();
+
+    for (const student of availableStudents) {
+      const classId = String(student.class?._id || student.class || '');
+      const group = studentsByClass.get(classId) || [];
+      group.push(student);
+      studentsByClass.set(classId, group);
+    }
+
+    for (const row of lockedRows) {
+      const student = studentById.get(String(row.student));
+      if (!student) continue;
+      const classId = String(student.class?._id || student.class || '');
+      const roomId = String(row.room);
+      const quotaKey = classId + '::' + roomId;
+      lockedByClassRoom.set(quotaKey, (lockedByClassRoom.get(quotaKey) || 0) + 1);
+    }
+
+    const plannedClassIds = Array.from(quotaPlanMap.keys()).sort();
+    for (const classId of plannedClassIds) {
+      const quotas = quotaPlanMap.get(classId) || new Map<string, number>();
+      const group = studentsByClass.get(classId) || [];
+      const shuffled = shuffle(
+        group.slice().sort((a, b) =>
+          String(a.studentId || a._id).localeCompare(String(b.studentId || b._id), undefined, { numeric: true })
+        ),
+        mulberry32(hashSeed(`${allocationSeed}|${classId}|exact-quota`)),
+      );
+
+      let cursor = 0;
+      const quotaEntries = Array.from(quotas.entries()).sort(([a], [b]) => {
+        const roomA = roomById.get(a);
+        const roomB = roomById.get(b);
+        return String(roomA?.name || a).localeCompare(String(roomB?.name || b), undefined, { numeric: true });
+      });
+
+      for (const [roomId, quota] of quotaEntries) {
+        const room = roomById.get(roomId);
+        if (!room) throw new BadRequestError('Room Plan contains a room that is no longer available');
+
+        const quotaKey = classId + '::' + roomId;
+        const lockedCount = lockedByClassRoom.get(quotaKey) || 0;
+        if (lockedCount > quota) {
+          const cls = targetClasses.find(c => String(c._id) === classId);
+          const label = norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'Selected class';
+          throw new BadRequestError(
+            `${label} already has ${lockedCount} locked student(s) in ${room.name}, which is above the planned quota of ${quota}.`
+          );
+        }
+
+        const needed = quota - lockedCount;
+        if (needed > 0 && frozenRoomIds.has(roomId)) {
+          throw new BadRequestError(
+            `${room.name} is locked. Unlock the room or adjust its exact quota before confirming.`
+          );
+        }
+
+        if ((currentCounts.get(roomId) || 0) + needed > Number(room.capacity || 0)) {
+          throw new BadRequestError(`${room.name} would exceed capacity under the exact Room Plan.`);
+        }
+
+        const chosen = shuffled.slice(cursor, cursor + needed);
+        if (chosen.length !== needed) {
+          const cls = targetClasses.find(c => String(c._id) === classId);
+          const label = norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'Selected class';
+          throw new BadRequestError(`Not enough available students remain to satisfy the exact quota for ${label}.`);
+        }
+
+        cursor += chosen.length;
+        currentCounts.set(roomId, (currentCounts.get(roomId) || 0) + chosen.length);
+        chosen.forEach(student => assignments.push({
+          roomId: room._id,
+          student,
+          locked: false,
+        }));
+      }
+
+      if (cursor !== shuffled.length) {
+        const cls = targetClasses.find(c => String(c._id) === classId);
+        const label = norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'Selected class';
+        throw new BadRequestError(`${label} still has ${shuffled.length - cursor} student(s) outside the exact Room Plan.`);
+      }
+    }
+  } else if (roomPlanMap.size) {
     const currentCounts = new Map<string, number>(initialCounts);
     const roomById = new Map(selectedRooms.map(room => [String(room._id), room]));
     const studentsByClass = new Map<string, any[]>();
@@ -613,6 +700,7 @@ export const generate = async (req: Request, res: Response) => {
     mixedClasses: true,
     roomOnly: true,
     plannedByClass: roomPlanMap.size > 0,
+    plannedByQuota: hasExactQuotaPlan,
     totalCapacity,
     freeCapacity: Math.max(0, totalCapacity - selected.length),
     lockedStudents: lockedRows.length,
