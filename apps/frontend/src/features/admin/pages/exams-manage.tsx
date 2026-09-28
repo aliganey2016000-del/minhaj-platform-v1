@@ -4743,7 +4743,7 @@ export function ExamsManage() {
               <div className="mt-1 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Operations</h1>
-                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose an annual examination to manage its schedule, rooms, invigilators and attendance.</p>
+                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose an exam period to manage its schedule, rooms, invigilators and attendance.</p>
                 </div>
                 <div className="shrink-0">
                   <ExamsActionsMenu
@@ -4782,8 +4782,8 @@ export function ExamsManage() {
             <section className="overflow-visible rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
               <div className="flex flex-col gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
                 <div>
-                  <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Annual Examinations</h2>
-                  <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Mid Exam, Final Exam and any other examination created for the selected academic year.</p>
+                  <h2 className="text-lg font-bold text-[var(--color-text-primary)]">Exam Periods</h2>
+                  <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Mid Exam, Final Exam and any other exam period created for the selected academic year.</p>
                 </div>
                 <AcademicYearSelect
                   format="short-slash"
@@ -4959,7 +4959,7 @@ export function ExamsManage() {
                 onClick={returnToExamList}
                 className="inline-flex items-center gap-1.5 rounded-lg px-1 py-1 text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
               >
-                <ArrowLeft className="h-4 w-4" /> Annual Examinations
+                <ArrowLeft className="h-4 w-4" /> Exam Periods
               </button>
               <div className="mt-1 flex items-start justify-between gap-3">
                 <div className="min-w-0">
