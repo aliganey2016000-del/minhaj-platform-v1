@@ -8,6 +8,10 @@ import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError } from '../utils/api-error';
 import { assertOwnOrg } from '../utils/tenant-scope';
+import {
+  getEffectiveRoomCapacity,
+  getExamRoomPlanSettingsForSchool,
+} from '../utils/exam-room-plan-settings';
 
 const norm = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
 const key = (v: unknown) => norm(v).toLowerCase();
@@ -218,6 +222,7 @@ export const generate = async (req: Request, res: Response) => {
 
   const school = await School.findById(targetSchoolId).select('_id').lean();
   if (!school) throw new BadRequestError('Selected Organization was not found');
+  const roomPlanSettings = await getExamRoomPlanSettingsForSchool(targetSchoolId);
 
   const normalizedDepartmentIds = Array.isArray(departmentIds)
     ? departmentIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)
@@ -325,6 +330,17 @@ export const generate = async (req: Request, res: Response) => {
   selectedRooms.forEach(r => assertOwnOrg(req, r, 'school'));
   if (!selectedRooms.length) throw new BadRequestError('Select at least one Room with a valid capacity');
 
+  const effectiveCapacityByRoom = new Map(
+    selectedRooms.map(room => [
+      String(room._id),
+      getEffectiveRoomCapacity(room.capacity, roomPlanSettings),
+    ])
+  );
+  const planningRooms = selectedRooms.map(room => ({
+    ...room,
+    capacity: effectiveCapacityByRoom.get(String(room._id)) || 0,
+  }));
+
   const targetClassIdSet = new Set(targetClasses.map(c => String(c._id)));
   const selectedRoomIdSet = new Set(selectedRooms.map(room => String(room._id)));
   const roomPlanMap = new Map<string, string[]>();
@@ -390,9 +406,10 @@ export const generate = async (req: Request, res: Response) => {
 
       for (const room of selectedRooms) {
         const planned = plannedByRoom.get(String(room._id)) || 0;
-        if (planned > Number(room.capacity || 0)) {
+        const effectiveCapacity = effectiveCapacityByRoom.get(String(room._id)) || 0;
+        if (planned > effectiveCapacity) {
           throw new BadRequestError(
-            `${room.name} is over capacity in the Room Plan by ${planned - Number(room.capacity || 0)} student(s).`
+            `${room.name} is over its operational capacity by ${planned - effectiveCapacity} student(s). Physical capacity is ${room.capacity}; current Room Plan settings allow ${effectiveCapacity}.`
           );
         }
       }
@@ -430,11 +447,15 @@ export const generate = async (req: Request, res: Response) => {
           const planned = plannedByRoom.get(String(room._id)) || 0;
           if (planned <= 0) continue;
           const mixedGrades = roomGradeSets.get(String(room._id))?.size || 0;
-          if (mixedGrades < 2) {
-            throw new BadRequestError(`${room.name} must contain at least 2 different grade levels.`);
+          if (mixedGrades < roomPlanSettings.minimumGradesPerRoom) {
+            throw new BadRequestError(
+              `${room.name} must contain at least ${roomPlanSettings.minimumGradesPerRoom} different grade levels under the current Room Plan settings.`
+            );
           }
-          if (mixedGrades > 3) {
-            throw new BadRequestError(`${room.name} can contain at most 3 different grade levels in the mixed plan.`);
+          if (mixedGrades > roomPlanSettings.preferredGradesPerRoom) {
+            throw new BadRequestError(
+              `${room.name} can contain at most ${roomPlanSettings.preferredGradesPerRoom} different grade levels under the current Room Plan settings.`
+            );
           }
         }
       }
@@ -442,9 +463,10 @@ export const generate = async (req: Request, res: Response) => {
   }
 
   const totalCapacity = selectedRooms.reduce((sum, room) => sum + Math.max(0, Number(room.capacity) || 0), 0);
-  if (totalCapacity < selected.length) {
+  const totalEffectiveCapacity = Array.from(effectiveCapacityByRoom.values()).reduce((sum, capacity) => sum + capacity, 0);
+  if (totalEffectiveCapacity < selected.length) {
     throw new BadRequestError(
-      `Insufficient room capacity: ${selected.length} students selected but the chosen rooms hold only ${totalCapacity}. Add another room or increase room capacity.`
+      `Insufficient operational capacity: ${selected.length} students selected but the chosen rooms allow ${totalEffectiveCapacity} under the current invigilator/reserve-seat settings. Add a room or adjust Room Plan Settings.`
     );
   }
 
@@ -518,8 +540,9 @@ export const generate = async (req: Request, res: Response) => {
 
   for (const room of selectedRooms) {
     const lockedCount = initialCounts.get(String(room._id)) || 0;
-    if (lockedCount > Number(room.capacity || 0)) {
-      throw new BadRequestError(`${room.name} has more locked students than its room capacity`);
+    const effectiveCapacity = effectiveCapacityByRoom.get(String(room._id)) || 0;
+    if (lockedCount > effectiveCapacity) {
+      throw new BadRequestError(`${room.name} has more locked students than its operational capacity of ${effectiveCapacity}`);
     }
   }
 
@@ -586,8 +609,9 @@ export const generate = async (req: Request, res: Response) => {
           );
         }
 
-        if ((currentCounts.get(roomId) || 0) + needed > Number(room.capacity || 0)) {
-          throw new BadRequestError(`${room.name} would exceed capacity under the exact Room Plan.`);
+        const effectiveCapacity = effectiveCapacityByRoom.get(roomId) || 0;
+        if ((currentCounts.get(roomId) || 0) + needed > effectiveCapacity) {
+          throw new BadRequestError(`${room.name} would exceed its operational capacity of ${effectiveCapacity} under the exact Room Plan.`);
         }
 
         const chosen = shuffled.slice(cursor, cursor + needed);
@@ -648,7 +672,8 @@ export const generate = async (req: Request, res: Response) => {
       const remainingCapacity = allowedRooms.reduce((sum, room) => {
         const roomId = String(room._id);
         if (frozenRoomIds.has(roomId)) return sum;
-        return sum + Math.max(0, Number(room.capacity || 0) - (currentCounts.get(roomId) || 0));
+        const effectiveCapacity = effectiveCapacityByRoom.get(roomId) || 0;
+        return sum + Math.max(0, effectiveCapacity - (currentCounts.get(roomId) || 0));
       }, 0);
 
       if (remainingCapacity < classGroup.group.length) {
@@ -670,13 +695,14 @@ export const generate = async (req: Request, res: Response) => {
         const candidates = allowedRooms
           .filter(room => {
             const id = String(room._id);
-            return !frozenRoomIds.has(id) && (currentCounts.get(id) || 0) < Math.max(0, Number(room.capacity) || 0);
+            const effectiveCapacity = effectiveCapacityByRoom.get(id) || 0;
+            return !frozenRoomIds.has(id) && (currentCounts.get(id) || 0) < effectiveCapacity;
           })
           .sort((a, b) => {
             const aId = String(a._id);
             const bId = String(b._id);
-            const aCapacity = Math.max(1, Number(a.capacity) || 1);
-            const bCapacity = Math.max(1, Number(b.capacity) || 1);
+            const aCapacity = Math.max(1, effectiveCapacityByRoom.get(aId) || 1);
+            const bCapacity = Math.max(1, effectiveCapacityByRoom.get(bId) || 1);
             const aRatio = (currentCounts.get(aId) || 0) / aCapacity;
             const bRatio = (currentCounts.get(bId) || 0) / bCapacity;
             return aRatio - bRatio
@@ -700,7 +726,7 @@ export const generate = async (req: Request, res: Response) => {
     }
   } else {
     const mixed = roundRobinMix(availableStudents, allocationSeed);
-    const targets = balancedRoomTargets(selectedRooms, mixed.length, initialCounts, frozenRoomIds);
+    const targets = balancedRoomTargets(planningRooms, mixed.length, initialCounts, frozenRoomIds);
     let cursor = 0;
 
     for (const room of selectedRooms) {
@@ -744,7 +770,9 @@ export const generate = async (req: Request, res: Response) => {
     plannedByClass: roomPlanMap.size > 0,
     plannedByQuota: hasExactQuotaPlan,
     totalCapacity,
-    freeCapacity: Math.max(0, totalCapacity - selected.length),
+    effectiveCapacity: totalEffectiveCapacity,
+    freeCapacity: Math.max(0, totalEffectiveCapacity - selected.length),
+    roomPlanSettings,
     lockedStudents: lockedRows.length,
     lockedRooms: frozenRoomIds.size,
     selectedClasses: targetClasses.map(c => ({
