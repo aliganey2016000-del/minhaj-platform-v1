@@ -21,6 +21,8 @@ type Period = {
   name: string;
   academicYear: string;
   status?: string;
+  startDate?: string | null;
+  endDate?: string | null;
 };
 
 type Teacher = {
@@ -98,6 +100,14 @@ const formatDay = (date: string) => {
   return Number.isNaN(d.getTime()) ? date : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 };
 
+const localTodayKey = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export function ExamInvigilatorsManage() {
   const [tab,setTab]=useState<'attendance'|'rooms'>('attendance');
   const [periods,setPeriods]=useState<Period[]>([]);
@@ -111,7 +121,7 @@ export function ExamInvigilatorsManage() {
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
 
-  const [attendanceDate,setAttendanceDate]=useState('');
+  const [attendanceDate,setAttendanceDate]=useState(()=>localTodayKey());
   const [attendanceRows,setAttendanceRows]=useState<TeacherAttendanceRow[]>([]);
   const [attendanceSummary,setAttendanceSummary]=useState<TeacherAttendanceSummary>({total:0,present:0,absent:0,unmarked:0});
   const [attendanceLoading,setAttendanceLoading]=useState(false);
@@ -143,12 +153,14 @@ export function ExamInvigilatorsManage() {
       const r=await api.get('/exams/invigilators/context',{params:{periodId:id}});
       const next=r.data?.data||null;
       setContext(next);
-      setActiveSession(prev=>next?.sessions?.some((s:Session)=>s.key===prev)?prev:next?.sessions?.[0]?.key||'');
-      const dates=Array.from(new Set<string>((next?.sessions||[]).map((s:Session)=>s.examDate))).sort();
-      setAttendanceDate(prev=>dates.includes(prev)?prev:dates[0]||'');
+      const today=localTodayKey();
+      setActiveSession(prev=>{
+        if(next?.sessions?.some((s:Session)=>s.key===prev))return prev;
+        return next?.sessions?.find((s:Session)=>s.examDate===today)?.key||next?.sessions?.[0]?.key||'';
+      });
+      setAttendanceDate(prev=>prev||today);
     }catch(err:any){
       setContext(null);
-      setAttendanceDate('');
       setError(err.response?.data?.message||'Could not load invigilation rooms.');
     }
   };
@@ -168,15 +180,22 @@ export function ExamInvigilatorsManage() {
     }
   };
 
-  useEffect(()=>{void loadBase()},[]);
-  useEffect(()=>{if(periodId)void loadContext(periodId)},[periodId]);
-  useEffect(()=>{if(periodId&&attendanceDate)void loadTeacherAttendance(attendanceDate)},[periodId,attendanceDate]);
-
   const session=context?.sessions.find(s=>s.key===activeSession)||null;
   const examDates=useMemo(
     ()=>Array.from(new Set((context?.sessions||[]).map(s=>s.examDate))).sort(),
     [context]
   );
+
+  useEffect(()=>{void loadBase()},[]);
+  useEffect(()=>{if(periodId)void loadContext(periodId)},[periodId]);
+  useEffect(()=>{if(periodId&&attendanceDate)void loadTeacherAttendance(attendanceDate)},[periodId,attendanceDate]);
+  useEffect(()=>{
+    if(tab==='rooms'&&session?.examDate&&attendanceDate!==session.examDate){
+      setAttendanceDate(session.examDate);
+    }
+  },[tab,session?.examDate]);
+
+
 
   const assignedTeacherBySession=useMemo(()=>{
     const map=new Map<string,Set<string>>();
@@ -205,6 +224,12 @@ export function ExamInvigilatorsManage() {
       `${row.teacher.name} ${row.teacher.teacherId||''} ${row.teacher.email||''}`.toLowerCase().includes(q)
     );
   },[attendanceRows,attendanceQuery]);
+
+  const presentTeacherIds=useMemo(
+    ()=>new Set(attendanceRows.filter(row=>row.attendance?.status==='present').map(row=>row.teacher._id)),
+    [attendanceRows],
+  );
+  const todayKey=localTodayKey();
 
   const totals=useMemo(()=>{
     const sessions=context?.sessions||[];
@@ -325,7 +350,7 @@ export function ExamInvigilatorsManage() {
       <div className={`${card} p-5`}>
         <label className="space-y-1.5">
           <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">Exam</span>
-          <select className={input} value={periodId} onChange={e=>setPeriodId(e.target.value)}>
+          <select className={input} value={periodId} onChange={e=>{setPeriodId(e.target.value);setAttendanceDate(localTodayKey());setError('');setMessage('')}}>
             <option value="">Select exam...</option>
             {periods.map(period=><option key={period._id} value={period._id}>{period.name} · {period.academicYear}</option>)}
           </select>
@@ -336,11 +361,28 @@ export function ExamInvigilatorsManage() {
         <div className={`${card} p-5`}>
           <div className="grid gap-4 lg:grid-cols-[260px_1fr_auto] lg:items-end">
             <label className="space-y-1.5">
-              <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">Exam Date</span>
-              <select className={input} value={attendanceDate} onChange={e=>setAttendanceDate(e.target.value)} disabled={!examDates.length}>
-                <option value="">Select exam day...</option>
-                {examDates.map(date=><option key={date} value={date}>{formatDay(date)}</option>)}
-              </select>
+              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-[var(--color-text-tertiary)]">
+                <span>Exam Date</span>
+                {attendanceDate===todayKey&&<span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Today</span>}
+              </span>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  className={input}
+                  value={attendanceDate}
+                  onChange={e=>setAttendanceDate(e.target.value)}
+                  disabled={!periodId}
+                />
+                <button
+                  type="button"
+                  onClick={()=>setAttendanceDate(todayKey)}
+                  disabled={!periodId}
+                  className="rounded-xl border px-3 text-xs font-bold disabled:opacity-50"
+                >
+                  Today
+                </button>
+              </div>
+              {examDates.length>0&&<p className="text-[11px] text-[var(--color-text-tertiary)]">Scheduled: {examDates.map(formatDay).join(' · ')}</p>}
             </label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]"/>
@@ -361,7 +403,7 @@ export function ExamInvigilatorsManage() {
 
         <div className={`${card} overflow-hidden`}>
           {attendanceLoading?<div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">Loading teacher attendance...</div>:
-          !attendanceDate?<div className="p-10 text-center"><CalendarDays className="mx-auto h-8 w-8 text-[var(--color-text-tertiary)]"/><p className="mt-3 font-bold">Select an exam day</p><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Only dates with scheduled exams appear here.</p></div>:
+          !attendanceDate?<div className="p-10 text-center"><CalendarDays className="mx-auto h-8 w-8 text-[var(--color-text-tertiary)]"/><p className="mt-3 font-bold">Select an exam date</p><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose today or another date to load all active teachers.</p></div>:
           <div className="divide-y divide-[var(--color-border-default)]">
             {filteredAttendance.map((row,index)=>{
               const status=row.attendance?.status;
@@ -393,7 +435,8 @@ export function ExamInvigilatorsManage() {
           <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
             <div>
               <p className="text-xs font-semibold text-[var(--color-text-tertiary)]">Room invigilator assignment</p>
-              <p className="mt-1 text-sm">Any present teacher can be assigned to any room. A teacher cannot be in two rooms during the same session.</p>
+              <p className="mt-1 text-sm">Only teachers marked Present for the selected session date can be assigned. A teacher cannot be in two rooms during the same session.</p>
+              {session&&<p className="mt-2 text-xs font-semibold text-emerald-600">{presentTeacherIds.size} teacher(s) marked Present for {formatDay(session.examDate)}.</p>}
             </div>
             <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3">
               <p className="text-xs font-semibold text-[var(--color-text-tertiary)]">Assignment Progress</p>
@@ -408,7 +451,7 @@ export function ExamInvigilatorsManage() {
             {context.sessions.map((s,index)=><button
               key={s.key}
               type="button"
-              onClick={()=>setActiveSession(s.key)}
+              onClick={()=>{setActiveSession(s.key);setAttendanceDate(s.examDate)}}
               className={`min-w-[170px] rounded-2xl border px-4 py-3 text-left transition ${activeSession===s.key?'border-primary-500 bg-primary-50 dark:bg-primary-950/20':'bg-[var(--color-surface-primary)]'}`}
             >
               <p className="text-xs font-bold text-primary-600">Session {index+1}</p>
@@ -458,11 +501,17 @@ export function ExamInvigilatorsManage() {
                       onChange={e=>void assign(room,e.target.value)}
                     >
                       <option value="">Not assigned</option>
-                      {teachers.map(teacher=>{
-                        const used=usedThisSession.has(teacher._id)&&teacher._id!==currentTeacher?._id;
-                        return <option key={teacher._id} value={teacher._id} disabled={used}>{teacherName(teacher)}{teacher.teacherId?` · ${teacher.teacherId}`:''}{used?' · Already assigned':''}</option>;
-                      })}
+                      {teachers
+                        .filter(teacher=>presentTeacherIds.has(teacher._id)||teacher._id===currentTeacher?._id)
+                        .map(teacher=>{
+                          const used=usedThisSession.has(teacher._id)&&teacher._id!==currentTeacher?._id;
+                          const present=presentTeacherIds.has(teacher._id);
+                          return <option key={teacher._id} value={teacher._id} disabled={used||!present}>
+                            {teacherName(teacher)}{teacher.teacherId?` · ${teacher.teacherId}`:''}{used?' · Already assigned':!present?' · Not Present':''}
+                          </option>;
+                        })}
                     </select>
+                    {presentTeacherIds.size===0&&<span className="block text-[11px] font-semibold text-amber-600">No teacher has been marked Present for this date. Mark Teacher Attendance first.</span>}
                   </label>
 
                   {currentTeacher&&<div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
