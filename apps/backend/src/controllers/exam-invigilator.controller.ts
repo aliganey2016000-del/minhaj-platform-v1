@@ -5,7 +5,9 @@ import ExamPeriod from '../models/exam-period.model';
 import ExamRoom from '../models/exam-room.model';
 import ExamSeatingPlan from '../models/exam-seating-plan.model';
 import ExamInvigilatorAssignment from '../models/exam-invigilator-assignment.model';
-import ExamInvigilatorTeacherAttendance from '../models/exam-invigilator-teacher-attendance.model';
+import ExamInvigilatorTeacherAttendance, {
+  ExamInvigilatorTeacherAttendanceStatus,
+} from '../models/exam-invigilator-teacher-attendance.model';
 import ExamAttendance from '../models/exam-attendance.model';
 import ExamAttendanceLog from '../models/exam-attendance-log.model';
 import Teacher from '../models/teacher.model';
@@ -586,14 +588,15 @@ export const markTeacherAttendance = async (req: Request, res: Response): Promis
   const periodId = clean(req.body?.periodId);
   const date = clean(req.body?.date);
   const teacherId = clean(req.body?.teacherId);
-  const status = clean(req.body?.status);
+  const rawStatus = clean(req.body?.status);
 
   if (!periodId || !date || !mongoose.isValidObjectId(teacherId)) {
     throw new BadRequestError('Exam, date and teacher are required');
   }
-  if (!['present', 'absent'].includes(status)) {
+  if (!['present', 'absent'].includes(rawStatus)) {
     throw new BadRequestError('Status must be present or absent');
   }
+  const status = rawStatus as ExamInvigilatorTeacherAttendanceStatus;
 
   const period = await loadPeriod(req, periodId);
   const { start } = dayBounds(date);
@@ -629,12 +632,13 @@ export const markTeacherAttendance = async (req: Request, res: Response): Promis
 export const markAllTeacherAttendance = async (req: Request, res: Response): Promise<Response> => {
   const periodId = clean(req.body?.periodId);
   const date = clean(req.body?.date);
-  const status = clean(req.body?.status);
+  const rawStatus = clean(req.body?.status);
 
   if (!periodId || !date) throw new BadRequestError('Exam and date are required');
-  if (!['present', 'absent'].includes(status)) {
+  if (!['present', 'absent'].includes(rawStatus)) {
     throw new BadRequestError('Status must be present or absent');
   }
+  const status = rawStatus as ExamInvigilatorTeacherAttendanceStatus;
 
   const period = await loadPeriod(req, periodId);
   const { start } = dayBounds(date);
