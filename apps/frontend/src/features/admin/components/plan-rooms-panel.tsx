@@ -319,7 +319,7 @@ export function PlanRoomsPanel({
                                 <input type="checkbox" checked={row.roomIds.includes(room._id)} onChange={() => toggleRoom(cls._id, room._id)} className="h-4 w-4" />
                                 <span className="min-w-0 flex-1">
                                   <span className="block truncate text-sm font-medium">{room.name}</span>
-                                  <span className="block text-xs text-[var(--color-text-tertiary)]">{room.building || 'Main Campus'} / {room.capacity} seats</span>
+                                  <span className="block text-xs text-[var(--color-text-tertiary)]">{room.building || 'Main'} / {room.capacity} seats</span>
                                 </span>
                               </label>
                             ))}
