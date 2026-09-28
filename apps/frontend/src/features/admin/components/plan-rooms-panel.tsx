@@ -1,5 +1,18 @@
-import { useMemo, useState } from 'react';
-import { AlertTriangle, Building2, CheckCircle2, Plus, Trash2, Users, Zap } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  Building2,
+  CheckCircle2,
+  Plus,
+  RotateCcw,
+  Save,
+  Settings2,
+  ShieldCheck,
+  Trash2,
+  Users,
+  Zap,
+} from 'lucide-react';
+import api from '../../../lib/axios';
 import { AcademicYearSelect } from '../../shared/components/academic-year-select';
 
 export type PlanAllocation = {
@@ -26,6 +39,33 @@ export type AutoDefaults = {
   roomPlan: RoomPlanItem[];
 };
 
+export type RoomPlanPriorityMode = 'balanced_security' | 'maximum_mixing' | 'maximum_room_usage';
+
+export type RoomPlanSettings = {
+  maxClassPortion: number;
+  minSplitPortion: number;
+  preferredGradesPerRoom: number;
+  minimumGradesPerRoom: number;
+  maxSameGradeSharePercent: number;
+  preferredGradeDistance: number;
+  targetRoomOccupancyPercent: number;
+  occupancyBalanceTolerance: number;
+  smallClassThreshold: number;
+  keepSmallClassesTogether: boolean;
+  splitBalanceEqual: boolean;
+  useMinimumRooms: boolean;
+  minimumStudentsPerUsedRoom: number;
+  reserveSeatsPerRoom: number;
+  studentsPerInvigilator: number;
+  maxInvigilatorsPerRoom: number;
+  avoidSameClassSectionsTogether: boolean;
+  avoidRepeatGradeMix: boolean;
+  autoRepairInvalidPlan: boolean;
+  priorityMode: RoomPlanPriorityMode;
+};
+
+type SchoolRef = { _id?: string; name?: string } | string;
+
 type ClassItem = {
   _id: string;
   title: string;
@@ -33,6 +73,7 @@ type ClassItem = {
   department?: { _id: string; name: string } | string;
   status?: string;
   gradeLevel?: number;
+  school?: SchoolRef;
 };
 
 type Room = {
@@ -40,6 +81,7 @@ type Room = {
   name: string;
   building?: string;
   capacity: number;
+  school?: SchoolRef;
 };
 
 type Props = {
@@ -49,10 +91,34 @@ type Props = {
   year: string;
   type: string;
   planRows: PlanRoomRow[];
+  schoolId?: string;
   setYear: (value: string) => void;
   setType: (value: string) => void;
   setPlanRows: (value: PlanRoomRow[]) => void;
   onGenerate: (defaults: AutoDefaults) => void;
+};
+
+const DEFAULT_SETTINGS: RoomPlanSettings = {
+  maxClassPortion: 50,
+  minSplitPortion: 15,
+  preferredGradesPerRoom: 3,
+  minimumGradesPerRoom: 2,
+  maxSameGradeSharePercent: 45,
+  preferredGradeDistance: 2,
+  targetRoomOccupancyPercent: 90,
+  occupancyBalanceTolerance: 5,
+  smallClassThreshold: 15,
+  keepSmallClassesTogether: true,
+  splitBalanceEqual: true,
+  useMinimumRooms: true,
+  minimumStudentsPerUsedRoom: 20,
+  reserveSeatsPerRoom: 2,
+  studentsPerInvigilator: 30,
+  maxInvigilatorsPerRoom: 2,
+  avoidSameClassSectionsTogether: true,
+  avoidRepeatGradeMix: true,
+  autoRepairInvalidPlan: true,
+  priorityMode: 'balanced_security',
 };
 
 const card = 'rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card';
@@ -60,6 +126,7 @@ const input = 'w-full rounded-xl border border-[var(--color-border-default)] bg-
 
 const classNameOf = (c: ClassItem) => [c.title, c.section].filter(Boolean).join(' ');
 const departmentNameOf = (c: ClassItem) => typeof c.department === 'string' ? c.department : c.department?.name || '';
+const schoolIdOf = (value?: SchoolRef) => typeof value === 'string' ? value : value?._id || '';
 
 const numericGrade = (c: ClassItem) => {
   if (Number.isFinite(Number(c.gradeLevel))) return Number(c.gradeLevel);
@@ -77,6 +144,13 @@ const gradeLabelOf = (c: ClassItem) => {
   return grade !== null ? 'Grade ' + grade : c.title;
 };
 
+const equalSplit = (total: number, parts: number) => {
+  const safeParts = Math.max(1, Math.min(parts, Math.max(1, total)));
+  const base = Math.floor(total / safeParts);
+  const extra = total % safeParts;
+  return Array.from({ length: safeParts }, (_, index) => base + (index < extra ? 1 : 0));
+};
+
 export function PlanRoomsPanel({
   classes,
   rooms,
@@ -84,12 +158,18 @@ export function PlanRoomsPanel({
   year,
   type,
   planRows,
+  schoolId,
   setYear,
   setType,
   setPlanRows,
   onGenerate,
 }: Props) {
   const [localError, setLocalError] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<RoomPlanSettings>(DEFAULT_SETTINGS);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState('');
 
   const activeClasses = useMemo(
     () => classes
@@ -111,11 +191,50 @@ export function PlanRoomsPanel({
     [rooms],
   );
 
+  const resolvedSchoolId = useMemo(() =>
+    schoolId
+    || schoolIdOf(sortedRooms.find(room => schoolIdOf(room.school))?.school)
+    || schoolIdOf(activeClasses.find(cls => schoolIdOf(cls.school))?.school)
+    || '',
+  [schoolId, sortedRooms, activeClasses]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setSettingsLoading(true);
+      setSettingsMessage('');
+      try {
+        const response = await api.get('/exams/room-plan-settings', {
+          params: resolvedSchoolId ? { school: resolvedSchoolId } : undefined,
+        });
+        if (!cancelled) setSettings({ ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || {}) });
+      } catch (err: any) {
+        if (!cancelled) {
+          setSettings(DEFAULT_SETTINGS);
+          setSettingsMessage(err.response?.data?.message || 'Using recommended Room Plan defaults.');
+        }
+      } finally {
+        if (!cancelled) setSettingsLoading(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [resolvedSchoolId]);
+
   const classById = useMemo(() => new Map(activeClasses.map(c => [c._id, c])), [activeClasses]);
   const roomById = useMemo(() => new Map(sortedRooms.map(r => [r._id, r])), [sortedRooms]);
   const rowOf = (roomId: string) => planRows.find(row => row.roomId === roomId) || { roomId, allocations: [] };
 
+  const effectiveCapacity = (room: Room) => {
+    const physical = Math.max(0, Math.trunc(Number(room.capacity) || 0));
+    if (!physical) return 0;
+    const afterReserve = Math.max(1, physical - Math.min(settings.reserveSeatsPerRoom, Math.max(0, physical - 1)));
+    const invigilatorCapacity = Math.max(1, settings.studentsPerInvigilator * settings.maxInvigilatorsPerRoom);
+    return Math.max(1, Math.min(afterReserve, invigilatorCapacity));
+  };
+
   const totalRoomCapacity = sortedRooms.reduce((sum, room) => sum + (Number(room.capacity) || 0), 0);
+  const totalOperationalCapacity = sortedRooms.reduce((sum, room) => sum + effectiveCapacity(room), 0);
   const activeStudentTotal = activeClasses.reduce((sum, cls) => sum + (studentCounts[cls._id] || 0), 0);
 
   const assignedByClass = useMemo(() => {
@@ -128,10 +247,32 @@ export function PlanRoomsPanel({
 
   const assignedTotal = Object.values(assignedByClass).reduce((sum, value) => sum + value, 0);
   const usedRoomCount = planRows.filter(row => row.allocations.some(a => Number(a.quota) > 0)).length;
-  const usedCapacity = planRows.reduce((sum, row) => {
+  const usedOperationalCapacity = planRows.reduce((sum, row) => {
     const room = roomById.get(row.roomId);
-    return row.allocations.some(a => Number(a.quota) > 0) ? sum + (Number(room?.capacity) || 0) : sum;
+    return room && row.allocations.some(a => Number(a.quota) > 0) ? sum + effectiveCapacity(room) : sum;
   }, 0);
+
+  const updateSettings = <K extends keyof RoomPlanSettings>(key: K, value: RoomPlanSettings[K]) => {
+    setSettings(prev => ({ ...prev, [key]: value }));
+    setSettingsMessage('');
+  };
+
+  const saveSettings = async () => {
+    setSettingsSaving(true);
+    setSettingsMessage('');
+    setLocalError('');
+    try {
+      const body: any = { settings };
+      if (resolvedSchoolId) body.school = resolvedSchoolId;
+      const response = await api.patch('/exams/room-plan-settings', body);
+      setSettings({ ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || settings) });
+      setSettingsMessage('Room Plan settings saved.');
+    } catch (err: any) {
+      setLocalError(err.response?.data?.message || 'Could not save Room Plan settings.');
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   const updateRow = (roomId: string, allocations: PlanAllocation[]) => {
     setLocalError('');
@@ -154,11 +295,34 @@ export function PlanRoomsPanel({
 
   const addAllocation = (roomId: string) => {
     const row = rowOf(roomId);
-    if (row.allocations.length >= 3) return;
-    const used = new Set(row.allocations.map(a => a.classId));
-    const nextClass = activeClasses.find(cls => !used.has(cls._id));
+    if (row.allocations.length >= settings.preferredGradesPerRoom) return;
+    const usedClasses = new Set(row.allocations.map(a => a.classId));
+    const usedGrades = new Set(row.allocations.map(a => {
+      const cls = classById.get(a.classId);
+      return cls ? gradeKeyOf(cls) : '';
+    }));
+    const nextClass = activeClasses.find(cls => !usedClasses.has(cls._id) && !usedGrades.has(gradeKeyOf(cls)))
+      || activeClasses.find(cls => !usedClasses.has(cls._id));
     if (!nextClass) return;
     updateRow(roomId, [...row.allocations, { classId: nextClass._id, quota: 1 }]);
+  };
+
+  const buildRoomTargets = (usedRooms: Room[], totalStudents: number) => {
+    const targets = new Map<string, number>(usedRooms.map(room => [room._id, 0]));
+    for (let placed = 0; placed < totalStudents; placed += 1) {
+      const candidate = usedRooms
+        .filter(room => (targets.get(room._id) || 0) < effectiveCapacity(room))
+        .sort((a, b) => {
+          const aTarget = targets.get(a._id) || 0;
+          const bTarget = targets.get(b._id) || 0;
+          const aCap = Math.max(1, effectiveCapacity(a));
+          const bCap = Math.max(1, effectiveCapacity(b));
+          return aTarget - bTarget || (aTarget / aCap) - (bTarget / bCap) || bCap - aCap;
+        })[0];
+      if (!candidate) break;
+      targets.set(candidate._id, (targets.get(candidate._id) || 0) + 1);
+    }
+    return targets;
   };
 
   const generateSmartPlan = () => {
@@ -171,162 +335,263 @@ export function PlanRoomsPanel({
       setLocalError('No active students were found in the active classes.');
       return;
     }
-    if (totalRoomCapacity < activeStudentTotal) {
-      setLocalError('Room capacity is short by ' + (activeStudentTotal - totalRoomCapacity) + ' seats. Increase capacity or add another room.');
+    if (totalOperationalCapacity < activeStudentTotal) {
+      setLocalError(
+        'Operational capacity is short by ' + (activeStudentTotal - totalOperationalCapacity)
+        + ' seats. Add rooms or adjust Students per Invigilator / Max Invigilators in Room Plan Settings.'
+      );
       return;
     }
 
-    type Candidate = {
+    const roomsByCapacity = sortedRooms.slice().sort((a, b) =>
+      effectiveCapacity(b) - effectiveCapacity(a)
+      || a.name.localeCompare(b.name, undefined, { numeric: true })
+    );
+
+    const usedRooms: Room[] = [];
+    let selectedCapacity = 0;
+    for (const room of roomsByCapacity) {
+      usedRooms.push(room);
+      selectedCapacity += effectiveCapacity(room);
+      if (selectedCapacity >= activeStudentTotal) break;
+    }
+
+    if (!settings.useMinimumRooms) {
+      let targetCapacity = usedRooms.reduce((sum, room) =>
+        sum + Math.max(1, Math.floor(effectiveCapacity(room) * settings.targetRoomOccupancyPercent / 100)), 0);
+      for (const room of roomsByCapacity) {
+        if (usedRooms.some(item => item._id === room._id)) continue;
+        const projectedAverage = activeStudentTotal / (usedRooms.length + 1);
+        if (targetCapacity >= activeStudentTotal || projectedAverage < settings.minimumStudentsPerUsedRoom) break;
+        usedRooms.push(room);
+        targetCapacity += Math.max(1, Math.floor(effectiveCapacity(room) * settings.targetRoomOccupancyPercent / 100));
+      }
+    }
+
+    const targets = buildRoomTargets(usedRooms, activeStudentTotal);
+    const averageTarget = activeStudentTotal / Math.max(1, usedRooms.length);
+    const targetRoomHint = Math.max(
+      settings.minSplitPortion * settings.minimumGradesPerRoom,
+      Math.round(averageTarget),
+    );
+
+    type Portion = {
+      id: string;
       classId: string;
       gradeKey: string;
       gradeNumber: number | null;
-      remaining: number;
+      count: number;
     };
 
-    const candidates: Candidate[] = activeClasses.map(cls => ({
-      classId: cls._id,
-      gradeKey: gradeKeyOf(cls),
-      gradeNumber: numericGrade(cls),
-      remaining: studentCounts[cls._id] || 0,
-    }));
+    const portions: Portion[] = [];
+    activeClasses.forEach(cls => {
+      const total = studentCounts[cls._id] || 0;
+      if (!total) return;
 
-    const nextRows: PlanRoomRow[] = sortedRooms.map(room => ({ roomId: room._id, allocations: [] }));
-    let totalRemaining = activeStudentTotal;
-
-    const distanceScore = (candidate: Candidate, selected: Candidate[]) => {
-      if (!selected.length) return 0;
-      if (candidate.gradeNumber === null || selected.some(item => item.gradeNumber === null)) return 0;
-      return Math.min(...selected.map(item => Math.abs(Number(candidate.gradeNumber) - Number(item.gradeNumber))));
-    };
-
-    const addQuota = (row: PlanRoomRow, classId: string, amount: number) => {
-      if (amount <= 0) return;
-      const existing = row.allocations.find(allocation => allocation.classId === classId);
-      if (existing) existing.quota += amount;
-      else row.allocations.push({ classId, quota: amount });
-    };
-
-    for (const row of nextRows) {
-      if (totalRemaining <= 0) break;
-      const room = roomById.get(row.roomId);
-      let seats = Math.min(Number(room?.capacity) || 0, totalRemaining);
-      if (seats <= 0) continue;
-
-      const selected: Candidate[] = [];
-      const selectedGrades = new Set<string>();
-
-      while (selected.length < 3) {
-        const options = candidates
-          .filter(candidate => candidate.remaining > 0 && !selectedGrades.has(candidate.gradeKey))
-          .sort((a, b) =>
-            distanceScore(b, selected) - distanceScore(a, selected)
-            || b.remaining - a.remaining
-            || a.classId.localeCompare(b.classId)
+      let parts = 1;
+      if (!(settings.keepSmallClassesTogether && total <= settings.smallClassThreshold) && total > settings.maxClassPortion) {
+        let desiredMax = settings.maxClassPortion;
+        if (settings.priorityMode === 'maximum_mixing') {
+          desiredMax = Math.min(
+            desiredMax,
+            Math.max(settings.minSplitPortion, Math.floor(targetRoomHint / settings.preferredGradesPerRoom)),
           );
-        const candidate = options[0];
-        if (!candidate) break;
-        selected.push(candidate);
-        selectedGrades.add(candidate.gradeKey);
-      }
-
-      if (!selected.length) break;
-
-      let cursor = 0;
-      while (seats > 0) {
-        const available = selected.filter(candidate => candidate.remaining > 0);
-        if (!available.length) break;
-
-        const candidate = available[cursor % available.length];
-        addQuota(row, candidate.classId, 1);
-        candidate.remaining -= 1;
-        seats -= 1;
-        totalRemaining -= 1;
-        cursor += 1;
-      }
-    }
-
-    // Repair any single-grade room by moving or swapping one student from a
-    // mixed donor room. This preserves every class total while keeping the
-    // generated plan easy to review and edit.
-    const rowGradeKeys = (row: PlanRoomRow) => new Set(
-      row.allocations
-        .filter(allocation => allocation.quota > 0)
-        .map(allocation => {
-          const cls = classById.get(allocation.classId);
-          return cls ? gradeKeyOf(cls) : '';
-        })
-        .filter(Boolean)
-    );
-
-    for (const targetRow of nextRows) {
-      const targetPositive = targetRow.allocations.filter(allocation => allocation.quota > 0);
-      const targetGrades = rowGradeKeys(targetRow);
-      if (!targetPositive.length || targetGrades.size >= 2) continue;
-
-      const targetClassId = targetPositive[0].classId;
-      const targetClass = classById.get(targetClassId);
-      if (!targetClass) continue;
-      const targetGrade = gradeKeyOf(targetClass);
-      const targetRoom = roomById.get(targetRow.roomId);
-      const targetUsed = targetPositive.reduce((sum, allocation) => sum + allocation.quota, 0);
-      const targetCapacity = Number(targetRoom?.capacity) || 0;
-
-      let repaired = false;
-      for (const donorRow of nextRows) {
-        if (donorRow.roomId === targetRow.roomId) continue;
-
-        const donorGrades = rowGradeKeys(donorRow);
-        if (donorGrades.size < 2) continue;
-
-        const donorMinority = donorRow.allocations.find(allocation => {
-          if (allocation.quota < 2) return false;
-          const cls = classById.get(allocation.classId);
-          return cls ? gradeKeyOf(cls) !== targetGrade : false;
-        });
-        if (!donorMinority) continue;
-
-        const donorHasTargetGrade = donorRow.allocations.some(allocation => {
-          const cls = classById.get(allocation.classId);
-          return allocation.quota > 0 && cls ? gradeKeyOf(cls) === targetGrade : false;
-        });
-        if (!donorHasTargetGrade && donorGrades.size >= 3 && targetUsed >= targetCapacity) continue;
-
-        donorMinority.quota -= 1;
-        addQuota(targetRow, donorMinority.classId, 1);
-
-        if (targetUsed >= targetCapacity) {
-          const targetMajor = targetRow.allocations.find(allocation => allocation.classId === targetClassId && allocation.quota > 0);
-          if (!targetMajor) {
-            donorMinority.quota += 1;
-            const added = targetRow.allocations.find(allocation => allocation.classId === donorMinority.classId);
-            if (added) added.quota -= 1;
-            continue;
-          }
-
-          targetMajor.quota -= 1;
-          addQuota(donorRow, targetClassId, 1);
+        } else if (settings.priorityMode === 'balanced_security') {
+          desiredMax = Math.min(
+            desiredMax,
+            Math.max(
+              settings.minSplitPortion,
+              Math.floor(targetRoomHint * settings.maxSameGradeSharePercent / 100),
+            ),
+          );
         }
 
-        repaired = true;
-        break;
+        parts = Math.max(1, Math.ceil(total / Math.max(1, desiredMax)));
+        while (parts > 1 && Math.floor(total / parts) < settings.minSplitPortion) parts -= 1;
       }
 
-      if (!repaired) {
-        // Leave the row visible as Single Grade; validation will stop Confirm
-        // so the admin can adjust it manually.
-      }
-    }
-
-    nextRows.forEach(row => {
-      row.allocations = row.allocations.filter(allocation => allocation.quota > 0);
+      equalSplit(total, parts).forEach((count, index) => {
+        portions.push({
+          id: cls._id + '-' + index,
+          classId: cls._id,
+          gradeKey: gradeKeyOf(cls),
+          gradeNumber: numericGrade(cls),
+          count,
+        });
+      });
     });
 
-    if (totalRemaining > 0) {
-      setLocalError('The automatic plan could not place ' + totalRemaining + ' students. Please review room capacities.');
+    portions.sort((a, b) => b.count - a.count || (a.gradeNumber ?? 999) - (b.gradeNumber ?? 999) || a.id.localeCompare(b.id));
+
+    const generatedRows: PlanRoomRow[] = sortedRooms.map(room => ({ roomId: room._id, allocations: [] }));
+    const loadByRoom = new Map<string, number>(sortedRooms.map(room => [room._id, 0]));
+    const mixSignatures = new Map<string, number>();
+
+    const addQuota = (roomId: string, classId: string, amount: number) => {
+      const row = generatedRows.find(item => item.roomId === roomId)!;
+      const existing = row.allocations.find(item => item.classId === classId);
+      if (existing) existing.quota += amount;
+      else row.allocations.push({ classId, quota: amount });
+      loadByRoom.set(roomId, (loadByRoom.get(roomId) || 0) + amount);
+    };
+
+    const roomGradeCounts = (roomId: string) => {
+      const row = generatedRows.find(item => item.roomId === roomId)!;
+      const map = new Map<string, number>();
+      row.allocations.forEach(allocation => {
+        const cls = classById.get(allocation.classId);
+        if (!cls || allocation.quota <= 0) return;
+        const grade = gradeKeyOf(cls);
+        map.set(grade, (map.get(grade) || 0) + allocation.quota);
+      });
+      return map;
+    };
+
+    const roomHasClass = (roomId: string, classId: string) =>
+      generatedRows.find(item => item.roomId === roomId)?.allocations.some(item => item.classId === classId && item.quota > 0) || false;
+
+    const gradeDistanceScore = (portion: Portion, grades: Map<string, number>) => {
+      if (portion.gradeNumber === null || !grades.size) return 0;
+      const existingNumbers = Array.from(grades.keys())
+        .map(key => Number(key.replace('grade-', '')))
+        .filter(Number.isFinite);
+      if (!existingNumbers.length) return 0;
+      return Math.min(...existingNumbers.map(value => Math.abs(value - Number(portion.gradeNumber))));
+    };
+
+    const queue = portions.slice();
+    let guard = 0;
+    while (queue.length && guard < 5000) {
+      guard += 1;
+      const portion = queue.shift()!;
+      const candidates = usedRooms
+        .filter(room => (loadByRoom.get(room._id) || 0) + portion.count <= effectiveCapacity(room))
+        .map(room => {
+          const load = loadByRoom.get(room._id) || 0;
+          const target = targets.get(room._id) || 0;
+          const grades = roomGradeCounts(room._id);
+          const gradeAlready = grades.has(portion.gradeKey);
+          const distinct = grades.size;
+          const projectedLoad = load + portion.count;
+          const projectedGradeCount = (grades.get(portion.gradeKey) || 0) + portion.count;
+          const projectedShare = projectedLoad > 0 ? projectedGradeCount / projectedLoad * 100 : 0;
+          const distance = gradeDistanceScore(portion, grades);
+          let score = Math.abs(projectedLoad - target) * 5;
+
+          if (projectedLoad > target) score += (projectedLoad - target) * 12;
+          if (!gradeAlready && distinct < settings.preferredGradesPerRoom) score -= 90;
+          if (gradeAlready && distinct < settings.minimumGradesPerRoom) score += 120;
+          if (settings.avoidSameClassSectionsTogether && roomHasClass(room._id, portion.classId)) score += 180;
+          if (projectedShare > settings.maxSameGradeSharePercent) {
+            score += (projectedShare - settings.maxSameGradeSharePercent) * (settings.priorityMode === 'maximum_mixing' ? 5 : 2);
+          }
+          if (!gradeAlready && distance >= settings.preferredGradeDistance) score -= Math.min(40, distance * 8);
+          if (settings.priorityMode === 'maximum_room_usage') score -= load * 0.5;
+          if (settings.priorityMode === 'maximum_mixing' && !gradeAlready) score -= 40;
+
+          return { room, score };
+        })
+        .sort((a, b) => a.score - b.score || a.room.name.localeCompare(b.room.name, undefined, { numeric: true }));
+
+      if (candidates.length) {
+        addQuota(candidates[0].room._id, portion.classId, portion.count);
+        continue;
+      }
+
+      if (portion.count >= settings.minSplitPortion * 2) {
+        const split = equalSplit(portion.count, 2);
+        queue.unshift(
+          { ...portion, id: portion.id + '-b', count: split[1] },
+          { ...portion, id: portion.id + '-a', count: split[0] },
+        );
+        continue;
+      }
+
+      setLocalError('Smart planning could not fit a ' + portion.count + '-student class portion. Increase room capacity or adjust split settings.');
       return;
     }
 
-    setPlanRows(nextRows);
+    if (queue.length) {
+      setLocalError('Smart planning stopped before every class portion could be placed.');
+      return;
+    }
+
+    if (settings.autoRepairInvalidPlan) {
+      const gradeSetOf = (row: PlanRoomRow) => new Set(
+        row.allocations
+          .filter(item => item.quota > 0)
+          .map(item => {
+            const cls = classById.get(item.classId);
+            return cls ? gradeKeyOf(cls) : '';
+          })
+          .filter(Boolean)
+      );
+
+      for (const targetRow of generatedRows) {
+        const targetLoad = loadByRoom.get(targetRow.roomId) || 0;
+        const targetGrades = gradeSetOf(targetRow);
+        if (!targetLoad || targetGrades.size >= settings.minimumGradesPerRoom) continue;
+
+        const targetAllocation = targetRow.allocations.find(item => item.quota > 0);
+        const targetClass = targetAllocation ? classById.get(targetAllocation.classId) : null;
+        if (!targetAllocation || !targetClass) continue;
+        const targetGrade = gradeKeyOf(targetClass);
+
+        for (const donorRow of generatedRows) {
+          if (donorRow.roomId === targetRow.roomId || !(loadByRoom.get(donorRow.roomId) || 0)) continue;
+          const donorGrades = gradeSetOf(donorRow);
+          if (donorGrades.size < settings.minimumGradesPerRoom) continue;
+
+          const donorAllocation = donorRow.allocations.find(item => {
+            if (item.quota <= 1) return false;
+            const cls = classById.get(item.classId);
+            return cls ? gradeKeyOf(cls) !== targetGrade : false;
+          });
+          if (!donorAllocation) continue;
+
+          const swapCount = Math.max(
+            1,
+            Math.min(
+              settings.minSplitPortion,
+              donorAllocation.quota - 1,
+              targetAllocation.quota,
+            ),
+          );
+          if (swapCount <= 0) continue;
+
+          donorAllocation.quota -= swapCount;
+          targetAllocation.quota -= swapCount;
+          const donorGetsTarget = donorRow.allocations.find(item => item.classId === targetAllocation.classId);
+          if (donorGetsTarget) donorGetsTarget.quota += swapCount;
+          else donorRow.allocations.push({ classId: targetAllocation.classId, quota: swapCount });
+
+          const targetGetsDonor = targetRow.allocations.find(item => item.classId === donorAllocation.classId);
+          if (targetGetsDonor) targetGetsDonor.quota += swapCount;
+          else targetRow.allocations.push({ classId: donorAllocation.classId, quota: swapCount });
+          break;
+        }
+      }
+    }
+
+    generatedRows.forEach(row => {
+      row.allocations = row.allocations.filter(item => item.quota > 0);
+      const grades = Array.from(new Set(row.allocations.map(item => {
+        const cls = classById.get(item.classId);
+        return cls ? gradeKeyOf(cls) : '';
+      }).filter(Boolean))).sort();
+      if (grades.length) {
+        const signature = grades.join('|');
+        mixSignatures.set(signature, (mixSignatures.get(signature) || 0) + 1);
+      }
+    });
+
+    setPlanRows(generatedRows);
+    const repeatedMixes = Array.from(mixSignatures.values()).filter(count => count > 1).length;
+    if (settings.avoidRepeatGradeMix && repeatedMixes > 0) {
+      setSettingsMessage('Plan generated. Repeated grade combinations were minimized where capacity allowed.');
+    } else {
+      setSettingsMessage('Smart mixed-grade plan generated from the saved Room Plan settings.');
+    }
   };
 
   const validatePlan = () => {
@@ -334,9 +599,11 @@ export function PlanRoomsPanel({
 
     for (const row of planRows) {
       const room = roomById.get(row.roomId);
+      if (!room) continue;
       const used = row.allocations.reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
-      if (used > (Number(room?.capacity) || 0)) {
-        return (room?.name || 'A room') + ' is over capacity by ' + (used - (Number(room?.capacity) || 0)) + '.';
+      const operationalCapacity = effectiveCapacity(room);
+      if (used > operationalCapacity) {
+        return room.name + ' is over operational capacity by ' + (used - operationalCapacity) + '.';
       }
 
       const positive = row.allocations.filter(a => Number(a.quota) > 0);
@@ -352,8 +619,11 @@ export function PlanRoomsPanel({
         return cls ? gradeKeyOf(cls) : '';
       }).filter(Boolean));
 
-      if (positive.length > 0 && activeClasses.length > 1 && distinctGrades.size < 2) {
-        return (room?.name || 'A room') + ' must contain at least 2 different grades.';
+      if (positive.length > 0 && activeClasses.length > 1 && distinctGrades.size < settings.minimumGradesPerRoom) {
+        return room.name + ' must contain at least ' + settings.minimumGradesPerRoom + ' different grades.';
+      }
+      if (distinctGrades.size > settings.preferredGradesPerRoom) {
+        return room.name + ' has more than ' + settings.preferredGradesPerRoom + ' grades.';
       }
     }
 
@@ -410,23 +680,66 @@ export function PlanRoomsPanel({
   const classSummary = activeClasses.map(cls => {
     const expected = studentCounts[cls._id] || 0;
     const assigned = assignedByClass[cls._id] || 0;
-    return {
-      cls,
-      expected,
-      assigned,
-      remaining: expected - assigned,
-    };
+    return { cls, expected, assigned, remaining: expected - assigned };
   });
 
-  const currentPlanError = planRows.some(row => {
-    const room = roomById.get(row.roomId);
-    const used = row.allocations.reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
-    return used > (Number(room?.capacity) || 0);
-  });
+  const currentPlanError = Boolean(validatePlan());
+
+  const NumberSetting = ({
+    label,
+    settingKey,
+    min,
+    max,
+    suffix,
+  }:{
+    label:string;
+    settingKey:keyof RoomPlanSettings;
+    min:number;
+    max:number;
+    suffix?:string;
+  }) => (
+    <label className="space-y-1.5">
+      <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">{label}</span>
+      <div className="relative">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={Number(settings[settingKey])}
+          onChange={e => updateSettings(settingKey as any, Math.max(min, Math.min(max, Number(e.target.value) || min)) as any)}
+          className={input + (suffix ? ' pr-12' : '')}
+        />
+        {suffix && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--color-text-tertiary)]">{suffix}</span>}
+      </div>
+    </label>
+  );
+
+  const ToggleSetting = ({
+    label,
+    description,
+    settingKey,
+  }:{
+    label:string;
+    description:string;
+    settingKey:keyof RoomPlanSettings;
+  }) => (
+    <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border p-3">
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold">{label}</span>
+        <span className="mt-0.5 block text-xs text-[var(--color-text-tertiary)]">{description}</span>
+      </span>
+      <input
+        type="checkbox"
+        checked={Boolean(settings[settingKey])}
+        onChange={e => updateSettings(settingKey as any, e.target.checked as any)}
+        className="mt-1 h-4 w-4"
+      />
+    </label>
+  );
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
+      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
         <div className={card + ' p-4 sm:p-5'}>
           <div className="grid gap-4 md:grid-cols-2">
             <label>
@@ -453,9 +766,9 @@ export function PlanRoomsPanel({
               <p className="text-sm font-semibold">Available Rooms</p>
               <div className="mt-2 flex flex-wrap items-end gap-3">
                 <span className="text-3xl font-bold">{sortedRooms.length}</span>
-                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">{totalRoomCapacity} seats</span>
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">{totalOperationalCapacity} operational seats</span>
               </div>
-              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{activeStudentTotal} active students to place.</p>
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{totalRoomCapacity} physical seats · {activeStudentTotal} active students.</p>
             </div>
           </div>
         </div>
@@ -468,14 +781,100 @@ export function PlanRoomsPanel({
         </div>
       )}
 
+      {settingsMessage && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
+          {settingsMessage}
+        </div>
+      )}
+
+      {settingsOpen && (
+        <div className={card + ' overflow-hidden'}>
+          <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+            <div>
+              <div className="flex items-center gap-2"><Settings2 size={18}/><h2 className="text-lg font-bold">Room Plan Settings</h2></div>
+              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Organization-level rules used every time Smart Mixed Plan is generated.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={()=>{setSettings(DEFAULT_SETTINGS);setSettingsMessage('Recommended defaults loaded. Save to apply them to this organization.')}} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold">
+                <RotateCcw size={15}/>Reset Defaults
+              </button>
+              <button type="button" disabled={settingsSaving} onClick={()=>void saveSettings()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                <Save size={15}/>{settingsSaving?'Saving...':'Save Settings'}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-6 p-4 sm:p-5">
+            <div>
+              <h3 className="font-bold">Basic Smart Rules</h3>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <NumberSetting label="Max Class Portion" settingKey="maxClassPortion" min={15} max={200} />
+                <NumberSetting label="Min Split Portion" settingKey="minSplitPortion" min={1} max={100} />
+                <NumberSetting label="Preferred Grades / Room" settingKey="preferredGradesPerRoom" min={2} max={3} />
+                <NumberSetting label="Minimum Grades / Room" settingKey="minimumGradesPerRoom" min={1} max={3} />
+                <NumberSetting label="Max Same-Grade Share" settingKey="maxSameGradeSharePercent" min={25} max={100} suffix="%" />
+                <NumberSetting label="Preferred Grade Distance" settingKey="preferredGradeDistance" min={0} max={12} />
+                <NumberSetting label="Target Room Occupancy" settingKey="targetRoomOccupancyPercent" min={50} max={100} suffix="%" />
+                <NumberSetting label="Balance Tolerance" settingKey="occupancyBalanceTolerance" min={0} max={50} />
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-bold">Invigilation & Capacity</h3>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <NumberSetting label="Students / Invigilator" settingKey="studentsPerInvigilator" min={1} max={100} />
+                <NumberSetting label="Max Invigilators / Room" settingKey="maxInvigilatorsPerRoom" min={1} max={10} />
+                <NumberSetting label="Reserve Seats / Room" settingKey="reserveSeatsPerRoom" min={0} max={50} />
+                <NumberSetting label="Minimum Students / Used Room" settingKey="minimumStudentsPerUsedRoom" min={1} max={100} />
+              </div>
+              <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">
+                Operational room capacity = the smaller of physical seats after reserve and Students / Invigilator × Max Invigilators.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="font-bold">Advanced Smart Behaviour</h3>
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <ToggleSetting label="Keep Small Classes Together" description={'Classes up to ' + settings.smallClassThreshold + ' students are not split.'} settingKey="keepSmallClassesTogether" />
+                <ToggleSetting label="Equal Class Splits" description="When a class must split, portions stay as equal as possible." settingKey="splitBalanceEqual" />
+                <ToggleSetting label="Use Minimum Rooms" description="Use the fewest rooms that safely hold all students." settingKey="useMinimumRooms" />
+                <ToggleSetting label="Avoid Same-Class Sections Together" description="Prefer different grades/sections in the same room." settingKey="avoidSameClassSectionsTogether" />
+                <ToggleSetting label="Avoid Repeated Grade Mix" description="Try not to repeat the same grade combination across many rooms." settingKey="avoidRepeatGradeMix" />
+                <ToggleSetting label="Auto Repair Invalid Mix" description="Try to repair single-grade rooms automatically before review." settingKey="autoRepairInvalidPlan" />
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <NumberSetting label="Small Class Threshold" settingKey="smallClassThreshold" min={1} max={50} />
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">Priority Mode</span>
+                  <select className={input} value={settings.priorityMode} onChange={e=>updateSettings('priorityMode',e.target.value as RoomPlanPriorityMode)}>
+                    <option value="balanced_security">Recommended · Balanced Exam Security</option>
+                    <option value="maximum_mixing">Maximum Mixing</option>
+                    <option value="maximum_room_usage">Maximum Room Usage</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={card + ' overflow-hidden'}>
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <div>
             <h2 className="text-lg font-bold">Smart Mixed-Grade Room Plan</h2>
-            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Generate the mix, edit any Grade / Class or quota, then confirm the exact plan.</p>
+            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Generate → Review & Edit → Confirm. Saved organization settings control the smart split and room mix.</p>
+            <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-semibold text-[var(--color-text-tertiary)]">
+              <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1">Max portion {settings.maxClassPortion}</span>
+              <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1">{settings.studentsPerInvigilator}/invigilator</span>
+              <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1">Max {settings.maxInvigilatorsPerRoom} invigilators/room</span>
+              <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1">{settings.minimumGradesPerRoom}–{settings.preferredGradesPerRoom} grades/room</span>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={generateSmartPlan} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white">
+            <button type="button" onClick={()=>setSettingsOpen(value=>!value)} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold">
+              <Settings2 size={16}/>{settingsLoading?'Loading Settings...':'Room Plan Settings'}
+            </button>
+            <button type="button" onClick={generateSmartPlan} disabled={settingsLoading} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
               <Zap size={16} />
               Generate Smart Mixed Plan
             </button>
@@ -495,7 +894,7 @@ export function PlanRoomsPanel({
           <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No rooms are available. Add rooms through Class Management first.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px] text-sm">
+            <table className="w-full min-w-[1080px] text-sm">
               <thead className="bg-[var(--color-surface-secondary)]">
                 <tr>
                   <th className="px-4 py-3 text-left">Room</th>
@@ -511,26 +910,39 @@ export function PlanRoomsPanel({
                   const row = rowOf(room._id);
                   const positiveAllocations = row.allocations.filter(allocation => Number(allocation.quota) > 0);
                   const used = positiveAllocations.reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
-                  const available = Number(room.capacity) - used;
-                  const distinctGrades = new Set(positiveAllocations.map(allocation => {
+                  const operationalCapacity = effectiveCapacity(room);
+                  const available = operationalCapacity - used;
+                  const gradeTotals = new Map<string, number>();
+                  positiveAllocations.forEach(allocation => {
                     const cls = classById.get(allocation.classId);
-                    return cls ? gradeKeyOf(cls) : '';
-                  }).filter(Boolean));
+                    if (!cls) return;
+                    const grade = gradeKeyOf(cls);
+                    gradeTotals.set(grade, (gradeTotals.get(grade) || 0) + allocation.quota);
+                  });
+                  const distinctGrades = gradeTotals.size;
+                  const maxShare = used > 0 ? Math.max(...Array.from(gradeTotals.values()), 0) / used * 100 : 0;
+                  const targetUsed = Math.round(operationalCapacity * settings.targetRoomOccupancyPercent / 100);
 
                   let statusLabel = 'Unused';
                   let statusClass = 'bg-slate-100 text-slate-600';
-                  if (used > Number(room.capacity)) {
-                    statusLabel = 'Over Capacity';
+                  if (used > operationalCapacity) {
+                    statusLabel = 'Over Operational Capacity';
                     statusClass = 'bg-red-100 text-red-700';
-                  } else if (used > 0 && distinctGrades.size < 2 && activeClasses.length > 1) {
-                    statusLabel = 'Single Grade';
+                  } else if (used > 0 && distinctGrades < settings.minimumGradesPerRoom && activeClasses.length > 1) {
+                    statusLabel = 'Needs More Grade Mix';
+                    statusClass = 'bg-red-100 text-red-700';
+                  } else if (used > 0 && maxShare > settings.maxSameGradeSharePercent) {
+                    statusLabel = 'Imbalanced · ' + Math.round(maxShare) + '% Same Grade';
                     statusClass = 'bg-amber-100 text-amber-700';
-                  } else if (used > 0 && available > 0) {
-                    statusLabel = available + ' Space Left · ' + distinctGrades.size + ' Grades';
-                    statusClass = 'bg-blue-100 text-blue-700';
-                  } else if (used > 0) {
-                    statusLabel = 'Full · ' + distinctGrades.size + ' Grades';
+                  } else if (used > 0 && used < settings.minimumStudentsPerUsedRoom && activeStudentTotal > used) {
+                    statusLabel = 'Low Occupancy';
+                    statusClass = 'bg-amber-100 text-amber-700';
+                  } else if (used > 0 && distinctGrades >= settings.preferredGradesPerRoom && Math.abs(used - targetUsed) <= settings.occupancyBalanceTolerance) {
+                    statusLabel = 'Excellent Mix · ' + distinctGrades + ' Grades';
                     statusClass = 'bg-emerald-100 text-emerald-700';
+                  } else if (used > 0) {
+                    statusLabel = 'Good Mix · ' + distinctGrades + ' Grades';
+                    statusClass = 'bg-blue-100 text-blue-700';
                   }
 
                   return (
@@ -539,7 +951,10 @@ export function PlanRoomsPanel({
                         <p className="font-bold">{room.name}</p>
                         <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{room.building || 'Main'}</p>
                       </td>
-                      <td className="px-4 py-4 text-lg font-bold">{room.capacity}</td>
+                      <td className="px-4 py-4">
+                        <p className="text-lg font-bold">{operationalCapacity}</p>
+                        <p className="text-[11px] text-[var(--color-text-tertiary)]">{room.capacity} physical · {settings.maxInvigilatorsPerRoom} invigilator(s)</p>
+                      </td>
                       <td className="px-4 py-4">
                         <div className="min-w-[430px] overflow-hidden rounded-xl border">
                           <div className="grid grid-cols-[1fr_110px_40px] bg-[var(--color-surface-secondary)] px-2 py-2 text-[11px] font-bold uppercase text-[var(--color-text-tertiary)]">
@@ -579,7 +994,7 @@ export function PlanRoomsPanel({
                               </div>
                             );
                           })}
-                          {row.allocations.length < 3 && activeClasses.length > row.allocations.length && (
+                          {row.allocations.length < settings.preferredGradesPerRoom && activeClasses.length > row.allocations.length && (
                             <button type="button" onClick={() => addAllocation(room._id)} className="flex w-full items-center justify-center gap-1.5 border-t px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-secondary)]">
                               <Plus size={14} />
                               Add Grade / Class
@@ -635,7 +1050,7 @@ export function PlanRoomsPanel({
             <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Active Students</span><b>{activeStudentTotal}</b></div>
             <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Assigned in Plan</span><b>{assignedTotal}</b></div>
             <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Rooms Used</span><b>{usedRoomCount}</b></div>
-            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Used-Room Capacity</span><b>{usedCapacity}</b></div>
+            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Operational Capacity</span><b>{usedOperationalCapacity}</b></div>
             <div className="flex justify-between gap-3 border-t pt-3">
               <span className="text-[var(--color-text-tertiary)]">Unassigned</span>
               <b className={activeStudentTotal - assignedTotal === 0 ? 'text-emerald-600' : 'text-amber-600'}>{activeStudentTotal - assignedTotal}</b>
@@ -644,8 +1059,11 @@ export function PlanRoomsPanel({
         </div>
       </div>
 
-      <div className="rounded-xl border border-primary-200 bg-primary-50/50 p-3 text-xs text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-200">
-        Smart plan prefers 3 different grade numbers per room. If that is not possible, it uses 2. A single-grade room is flagged before confirmation.
+      <div className="flex items-start gap-2 rounded-xl border border-primary-200 bg-primary-50/50 p-3 text-xs text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-200">
+        <ShieldCheck size={16} className="mt-0.5 shrink-0"/>
+        <span>
+          Smart planning now uses class split limits, invigilator capacity, reserve seats, room balance, grade distance and 2–3 grade mixing before presenting the editable Review.
+        </span>
       </div>
 
       {activeClasses.some(cls => departmentNameOf(cls)) && (
