@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
+  CalendarCheck,
   CalendarDays,
   CheckCircle2,
   Clock3,
@@ -11,6 +12,7 @@ import {
   Trash2,
   UserCheck,
   Users,
+  XCircle,
 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
@@ -64,6 +66,13 @@ type Context = {
   sessions: Session[];
 };
 
+type TeacherAttendanceRow = {
+  teacher: { _id: string; teacherId?: string; name: string; email?: string };
+  attendance: { status: 'present' | 'absent'; markedAt?: string } | null;
+};
+
+type TeacherAttendanceSummary = { total: number; present: number; absent: number; unmarked: number };
+
 const card = 'rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card';
 const input = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2.5 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20';
 
@@ -89,6 +98,16 @@ export function ExamInvigilatorsManage() {
   const [savingRoom,setSavingRoom]=useState('');
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
+
+  const [subTab,setSubTab]=useState<'attendance'|'rooms'>('attendance');
+  const [attendanceDate,setAttendanceDate]=useState('');
+  const [teacherRows,setTeacherRows]=useState<TeacherAttendanceRow[]>([]);
+  const [teacherSummary,setTeacherSummary]=useState<TeacherAttendanceSummary>({total:0,present:0,absent:0,unmarked:0});
+  const [attendanceLoading,setAttendanceLoading]=useState(false);
+  const [attendanceSaving,setAttendanceSaving]=useState('');
+  const [attendanceQuery,setAttendanceQuery]=useState('');
+  const [attendanceError,setAttendanceError]=useState('');
+  const [attendanceMessage,setAttendanceMessage]=useState('');
 
   const loadBase=async()=>{
     setLoading(true);setError('');
@@ -124,6 +143,71 @@ export function ExamInvigilatorsManage() {
 
   useEffect(()=>{void loadBase()},[]);
   useEffect(()=>{if(periodId)void loadContext(periodId)},[periodId]);
+
+  const sessionDates=useMemo(()=>{
+    const dates=new Set<string>();
+    (context?.sessions||[]).forEach(s=>{if(s.examDate)dates.add(s.examDate)});
+    return Array.from(dates).sort();
+  },[context]);
+
+  useEffect(()=>{
+    if(sessionDates.length && !sessionDates.includes(attendanceDate)){
+      setAttendanceDate(sessionDates[0]);
+    }
+    if(!sessionDates.length){
+      setAttendanceDate('');
+    }
+  },[sessionDates]);
+
+  const loadTeacherAttendance=async(date=attendanceDate)=>{
+    if(!periodId||!date){setTeacherRows([]);setTeacherSummary({total:0,present:0,absent:0,unmarked:0});return}
+    setAttendanceLoading(true);setAttendanceError('');
+    try{
+      const r=await api.get('/exams/invigilators/teacher-attendance',{params:{periodId,date}});
+      setTeacherRows(r.data?.data?.rows||[]);
+      setTeacherSummary(r.data?.data?.summary||{total:0,present:0,absent:0,unmarked:0});
+    }catch(err:any){
+      setTeacherRows([]);
+      setAttendanceError(err.response?.data?.message||'Could not load teacher attendance.');
+    }finally{
+      setAttendanceLoading(false);
+    }
+  };
+
+  useEffect(()=>{if(periodId&&attendanceDate)void loadTeacherAttendance(attendanceDate)},[periodId,attendanceDate]);
+
+  const markTeacher=async(teacherId:string,status:'present'|'absent')=>{
+    if(!periodId||!attendanceDate)return;
+    setAttendanceSaving(teacherId);setAttendanceError('');setAttendanceMessage('');
+    try{
+      await api.post('/exams/invigilators/teacher-attendance',{periodId,date:attendanceDate,teacherId,status});
+      await loadTeacherAttendance(attendanceDate);
+    }catch(err:any){
+      setAttendanceError(err.response?.data?.message||'Could not save attendance.');
+    }finally{
+      setAttendanceSaving('');
+    }
+  };
+
+  const markAllTeachers=async(status:'present'|'absent')=>{
+    if(!periodId||!attendanceDate)return;
+    setAttendanceSaving('all');setAttendanceError('');setAttendanceMessage('');
+    try{
+      const r=await api.post('/exams/invigilators/teacher-attendance/mark-all',{periodId,date:attendanceDate,status});
+      setAttendanceMessage(r.data?.message||`Marked all teachers as ${status}.`);
+      await loadTeacherAttendance(attendanceDate);
+    }catch(err:any){
+      setAttendanceError(err.response?.data?.message||'Could not save attendance.');
+    }finally{
+      setAttendanceSaving('');
+    }
+  };
+
+  const filteredTeacherRows=useMemo(()=>{
+    const q=attendanceQuery.trim().toLowerCase();
+    if(!q)return teacherRows;
+    return teacherRows.filter(row=>`${row.teacher.name} ${row.teacher.teacherId||''} ${row.teacher.email||''}`.toLowerCase().includes(q));
+  },[teacherRows,attendanceQuery]);
 
   const session=context?.sessions.find(s=>s.key===activeSession)||null;
   const assignedTeacherBySession=useMemo(()=>{
@@ -230,6 +314,95 @@ export function ExamInvigilatorsManage() {
       </div>
 
       {context&&context.sessions.length>0&&<>
+        <div className="flex bg-[var(--color-surface-secondary)] p-1 rounded-xl max-w-md gap-1">
+          <button
+            type="button"
+            onClick={()=>setSubTab('attendance')}
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${subTab==='attendance'?'bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] shadow-sm':'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'}`}
+          >
+            <CalendarCheck size={16}/>Teacher Attendance
+          </button>
+          <button
+            type="button"
+            onClick={()=>setSubTab('rooms')}
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${subTab==='rooms'?'bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] shadow-sm':'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'}`}
+          >
+            <DoorOpen size={16}/>Room Assignment
+          </button>
+        </div>
+      </>}
+
+      {context&&context.sessions.length>0&&subTab==='attendance'&&<div className="space-y-4">
+        <div className={`${card} p-4`}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="font-bold">Invigilator Attendance</h2>
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Pick the exam date, then mark which teachers showed up to invigilate.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="space-y-1.5">
+                <span className="sr-only">Exam date</span>
+                <select className={input} value={attendanceDate} onChange={e=>setAttendanceDate(e.target.value)}>
+                  {sessionDates.length===0&&<option value="">No exam dates</option>}
+                  {sessionDates.map(date=><option key={date} value={date}>{formatDay(date)}</option>)}
+                </select>
+              </label>
+              <button type="button" onClick={()=>void markAllTeachers('present')} disabled={!attendanceDate||attendanceSaving==='all'} className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-bold text-emerald-700 disabled:opacity-50 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"><CheckCircle2 size={14}/>Mark All Present</button>
+              <button type="button" onClick={()=>void markAllTeachers('absent')} disabled={!attendanceDate||attendanceSaving==='all'} className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-bold text-red-700 disabled:opacity-50 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300"><XCircle size={14}/>Mark All Absent</button>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3 text-center"><p className="text-xl font-bold text-emerald-600">{teacherSummary.present}</p><p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Present</p></div>
+            <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3 text-center"><p className="text-xl font-bold text-red-600">{teacherSummary.absent}</p><p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Absent</p></div>
+            <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3 text-center"><p className="text-xl font-bold text-amber-500">{teacherSummary.unmarked}</p><p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Unmarked</p></div>
+          </div>
+
+          <div className="relative mt-4"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]"/><input className={`${input} pl-9`} value={attendanceQuery} onChange={e=>setAttendanceQuery(e.target.value)} placeholder="Search teacher by name or ID..."/></div>
+        </div>
+
+        {attendanceError&&<div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{attendanceError}</div>}
+        {attendanceMessage&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">{attendanceMessage}</div>}
+
+        {attendanceLoading?<div className={`${card} p-10 text-center text-sm text-[var(--color-text-tertiary)]`}>Loading teacher attendance...</div>:
+        !attendanceDate?<div className={`${card} p-10 text-center text-sm text-[var(--color-text-tertiary)]`}>No exam dates scheduled yet for this exam.</div>:
+        filteredTeacherRows.length===0?<div className={`${card} p-10 text-center text-sm text-[var(--color-text-tertiary)]`}>No teachers match this search.</div>:
+        <div className={`${card} overflow-hidden`}>
+          <table className="w-full text-sm">
+            <thead className="bg-[var(--color-surface-secondary)]">
+              <tr>
+                <th className="px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">Teacher</th>
+                <th className="px-5 py-3 text-center text-xs font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">Status</th>
+                <th className="px-5 py-3 text-right text-xs font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTeacherRows.map(row=>{
+                const status=row.attendance?.status;
+                return <tr key={row.teacher._id} className="border-t border-[var(--color-border-default)]">
+                  <td className="px-5 py-3">
+                    <p className="font-semibold">{row.teacher.name}</p>
+                    <p className="text-xs text-[var(--color-text-tertiary)]">{row.teacher.teacherId||row.teacher.email||'—'}</p>
+                  </td>
+                  <td className="px-5 py-3 text-center">
+                    {status==='present'&&<span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"><CheckCircle2 size={13}/>Present</span>}
+                    {status==='absent'&&<span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-bold text-red-700 dark:bg-red-950/30 dark:text-red-300"><XCircle size={13}/>Absent</span>}
+                    {!status&&<span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-600 dark:bg-amber-950/30 dark:text-amber-300"><AlertCircle size={13}/>Unmarked</span>}
+                  </td>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center justify-end gap-2">
+                      <button type="button" onClick={()=>void markTeacher(row.teacher._id,'present')} disabled={attendanceSaving===row.teacher._id} className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold disabled:opacity-50 ${status==='present'?'border-emerald-500 bg-emerald-600 text-white':'border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/40 dark:text-emerald-300'}`}>Present</button>
+                      <button type="button" onClick={()=>void markTeacher(row.teacher._id,'absent')} disabled={attendanceSaving===row.teacher._id} className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold disabled:opacity-50 ${status==='absent'?'border-red-500 bg-red-600 text-white':'border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:text-red-300'}`}>Absent</button>
+                    </div>
+                  </td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>}
+      </div>}
+
+      {context&&context.sessions.length>0&&subTab==='rooms'&&<>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {context.sessions.map((s,index)=><button
             key={s.key}
