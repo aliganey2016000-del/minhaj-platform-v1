@@ -200,6 +200,8 @@ export const generate = async (req: Request, res: Response) => {
     classIds = [],
     roomIds = [],
     roomPlan = [],
+    studentRoomOverrides = [],
+    capacityOverrideRoomIds = [],
     shift = '',
   } = req.body as any;
 
@@ -271,6 +273,23 @@ export const generate = async (req: Request, res: Response) => {
         .filter((item: { classId: string; roomIds: string[] }) => item.classId && item.roomIds.length > 0)
     : [];
 
+  const normalizedCapacityOverrideRoomIds = Array.isArray(capacityOverrideRoomIds)
+    ? Array.from(new Set<string>(
+        capacityOverrideRoomIds
+          .filter((id: unknown) => mongoose.isValidObjectId(String(id)))
+          .map((id: unknown) => String(id))
+      ))
+    : [];
+
+  const normalizedStudentRoomOverrides: Array<{ studentId: string; roomId: string }> = Array.isArray(studentRoomOverrides)
+    ? studentRoomOverrides
+        .map((item: any) => ({
+          studentId: mongoose.isValidObjectId(String(item?.studentId || '')) ? String(item.studentId) : '',
+          roomId: mongoose.isValidObjectId(String(item?.roomId || '')) ? String(item.roomId) : '',
+        }))
+        .filter((item: { studentId: string; roomId: string }) => item.studentId && item.roomId)
+    : [];
+
   const classFilter: any = { status: 'active', school: targetSchoolId };
   if (normalizedClassIds.length) classFilter._id = { $in: normalizedClassIds };
   if (normalizedDepartmentIds.length) classFilter.department = { $in: normalizedDepartmentIds };
@@ -336,13 +355,26 @@ export const generate = async (req: Request, res: Response) => {
       getEffectiveRoomCapacity(room.capacity, roomPlanSettings),
     ])
   );
+  const selectedRoomIdSet = new Set(selectedRooms.map(room => String(room._id)));
+  const invalidCapacityOverrideRoom = normalizedCapacityOverrideRoomIds.find((id) => !selectedRoomIdSet.has(id));
+  if (invalidCapacityOverrideRoom) {
+    throw new BadRequestError('Capacity override contains a Room outside the selected organization Rooms');
+  }
+  const capacityOverrideSet = new Set(normalizedCapacityOverrideRoomIds);
+  const allowedCapacityByRoom = new Map(
+    selectedRooms.map(room => {
+      const roomId = String(room._id);
+      const physical = Math.max(0, Number(room.capacity) || 0);
+      const operational = effectiveCapacityByRoom.get(roomId) || 0;
+      return [roomId, capacityOverrideSet.has(roomId) ? physical : operational] as const;
+    })
+  );
   const planningRooms = selectedRooms.map(room => ({
     ...room,
-    capacity: effectiveCapacityByRoom.get(String(room._id)) || 0,
+    capacity: allowedCapacityByRoom.get(String(room._id)) || 0,
   }));
 
   const targetClassIdSet = new Set(targetClasses.map(c => String(c._id)));
-  const selectedRoomIdSet = new Set(selectedRooms.map(room => String(room._id)));
   const roomPlanMap = new Map<string, string[]>();
   const quotaPlanMap = new Map<string, Map<string, number>>();
   const hasExactQuotaPlan = normalizedRoomPlan.some(item => item.quotas.length > 0);
@@ -367,6 +399,32 @@ export const generate = async (req: Request, res: Response) => {
     }
   }
 
+  const selectedStudentIdSet = new Set(selected.map(student => String(student._id)));
+  const duplicateOverrideStudentIds = new Set<string>();
+  const seenOverrideStudentIds = new Set<string>();
+  for (const item of normalizedStudentRoomOverrides) {
+    if (!selectedStudentIdSet.has(item.studentId)) {
+      throw new BadRequestError('A manually resolved student is outside the selected active students');
+    }
+    if (!selectedRoomIdSet.has(item.roomId)) {
+      throw new BadRequestError('A manually resolved student points to a Room outside the selected Rooms');
+    }
+    if (seenOverrideStudentIds.has(item.studentId)) duplicateOverrideStudentIds.add(item.studentId);
+    seenOverrideStudentIds.add(item.studentId);
+  }
+  if (duplicateOverrideStudentIds.size) {
+    throw new BadRequestError('The same student cannot be manually assigned to more than one Room');
+  }
+
+  const selectedStudentById = new Map(selected.map(student => [String(student._id), student]));
+  const manualOverrideCountByClassRoom = new Map<string, number>();
+  for (const item of normalizedStudentRoomOverrides) {
+    const student = selectedStudentById.get(item.studentId);
+    const classId = String(student?.class?._id || student?.class || '');
+    const keyValue = classId + '::' + item.roomId;
+    manualOverrideCountByClassRoom.set(keyValue, (manualOverrideCountByClassRoom.get(keyValue) || 0) + 1);
+  }
+
   if (normalizedRoomPlan.length) {
     const classesWithStudents = new Set(selected.map(s => String(s.class?._id || s.class || '')));
     for (const classId of classesWithStudents) {
@@ -386,13 +444,17 @@ export const generate = async (req: Request, res: Response) => {
       for (const [classId, expectedCount] of selectedCountByClass.entries()) {
         const quotas = quotaPlanMap.get(classId);
         if (quotas) {
-          const oversized = Array.from(quotas.entries()).find(([, count]) => count > roomPlanSettings.maxClassPortion);
+          const oversized = Array.from(quotas.entries()).find(([roomId, count]) => {
+            const manualCount = manualOverrideCountByClassRoom.get(classId + '::' + roomId) || 0;
+            return count - manualCount > roomPlanSettings.maxClassPortion;
+          });
           if (oversized) {
             const cls = targetClasses.find(c => String(c._id) === classId);
             const room = selectedRooms.find(r => String(r._id) === oversized[0]);
+            const manualCount = manualOverrideCountByClassRoom.get(classId + '::' + oversized[0]) || 0;
             const label = norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'Selected class';
             throw new BadRequestError(
-              `${label} assigns ${oversized[1]} students to ${room?.name || 'one room'}, above the Max Class Portion of ${roomPlanSettings.maxClassPortion}.`
+              `${label} assigns ${oversized[1] - manualCount} automatically planned students to ${room?.name || 'one room'}, above the Max Class Portion of ${roomPlanSettings.maxClassPortion}.`
             );
           }
         }
@@ -408,6 +470,15 @@ export const generate = async (req: Request, res: Response) => {
         }
       }
 
+      for (const item of normalizedStudentRoomOverrides) {
+        const student = selectedStudentById.get(item.studentId);
+        const classId = String(student?.class?._id || student?.class || '');
+        const plannedQuota = quotaPlanMap.get(classId)?.get(item.roomId) || 0;
+        if (plannedQuota <= 0) {
+          throw new BadRequestError('A manually resolved student must be included in that class Room quota before confirmation');
+        }
+      }
+
       const plannedByRoom = new Map<string, number>();
       for (const quotas of quotaPlanMap.values()) {
         for (const [roomId, count] of quotas.entries()) {
@@ -416,11 +487,13 @@ export const generate = async (req: Request, res: Response) => {
       }
 
       for (const room of selectedRooms) {
-        const planned = plannedByRoom.get(String(room._id)) || 0;
-        const effectiveCapacity = effectiveCapacityByRoom.get(String(room._id)) || 0;
-        if (planned > effectiveCapacity) {
+        const roomId = String(room._id);
+        const planned = plannedByRoom.get(roomId) || 0;
+        const effectiveCapacity = effectiveCapacityByRoom.get(roomId) || 0;
+        const allowedCapacity = allowedCapacityByRoom.get(roomId) || 0;
+        if (planned > allowedCapacity) {
           throw new BadRequestError(
-            `${room.name} is over its operational capacity by ${planned - effectiveCapacity} student(s). Physical capacity is ${room.capacity}; current Room Plan settings allow ${effectiveCapacity}.`
+            `${room.name} exceeds its ${capacityOverrideSet.has(roomId) ? 'physical' : 'operational'} capacity by ${planned - allowedCapacity} student(s). Physical capacity is ${room.capacity}; operational capacity is ${effectiveCapacity}.`
           );
         }
       }
@@ -475,9 +548,11 @@ export const generate = async (req: Request, res: Response) => {
 
   const totalCapacity = selectedRooms.reduce((sum, room) => sum + Math.max(0, Number(room.capacity) || 0), 0);
   const totalEffectiveCapacity = Array.from(effectiveCapacityByRoom.values()).reduce((sum, capacity) => sum + capacity, 0);
-  if (totalEffectiveCapacity < selected.length) {
+  const totalAllowedCapacity = Array.from(allowedCapacityByRoom.values()).reduce((sum, capacity) => sum + capacity, 0);
+  const capacityForRequest = hasExactQuotaPlan ? totalAllowedCapacity : totalEffectiveCapacity;
+  if (capacityForRequest < selected.length) {
     throw new BadRequestError(
-      `Insufficient operational capacity: ${selected.length} students selected but the chosen rooms allow ${totalEffectiveCapacity} under the current invigilator/reserve-seat settings. Add a room or adjust Room Plan Settings.`
+      `Insufficient operational capacity: ${selected.length} students selected but the chosen rooms allow ${capacityForRequest}. Add a room, resolve remaining students with an approved capacity override, or adjust Room Plan Settings.`
     );
   }
 
@@ -551,19 +626,53 @@ export const generate = async (req: Request, res: Response) => {
 
   for (const room of selectedRooms) {
     const lockedCount = initialCounts.get(String(room._id)) || 0;
-    const effectiveCapacity = effectiveCapacityByRoom.get(String(room._id)) || 0;
-    if (lockedCount > effectiveCapacity) {
-      throw new BadRequestError(`${room.name} has more locked students than its operational capacity of ${effectiveCapacity}`);
+    const roomId = String(room._id);
+    const allowedCapacity = allowedCapacityByRoom.get(roomId) || 0;
+    if (lockedCount > allowedCapacity) {
+      throw new BadRequestError(`${room.name} has more locked students than its allowed capacity of ${allowedCapacity}`);
     }
   }
 
-  const availableStudents = selected.filter(student => !lockedStudentIds.has(String(student._id)));
+  const manualOverrideStudentIds = new Set(normalizedStudentRoomOverrides.map(item => item.studentId));
+  const invalidLockedManualOverride = normalizedStudentRoomOverrides.find(item => lockedStudentIds.has(item.studentId));
+  if (invalidLockedManualOverride) {
+    throw new BadRequestError('A locked student cannot be manually reassigned from Resolve Remaining. Unlock the student first.');
+  }
+  const availableStudents = selected.filter(student =>
+    !lockedStudentIds.has(String(student._id)) && !manualOverrideStudentIds.has(String(student._id))
+  );
 
   if (hasExactQuotaPlan) {
     const currentCounts = new Map<string, number>(initialCounts);
     const roomById = new Map(selectedRooms.map(room => [String(room._id), room]));
     const studentsByClass = new Map<string, any[]>();
     const lockedByClassRoom = new Map<string, number>();
+    const manualByClassRoom = new Map<string, any[]>();
+
+    for (const item of normalizedStudentRoomOverrides) {
+      const student = selectedStudentById.get(item.studentId);
+      const room = roomById.get(item.roomId);
+      if (!student || !room) throw new BadRequestError('A manually resolved student or Room is no longer available');
+      if (frozenRoomIds.has(item.roomId)) {
+        throw new BadRequestError(`${room.name} is locked. Unlock the room before adding a remaining student.`);
+      }
+      const classId = String(student.class?._id || student.class || '');
+      const keyValue = classId + '::' + item.roomId;
+      const list = manualByClassRoom.get(keyValue) || [];
+      list.push(student);
+      manualByClassRoom.set(keyValue, list);
+
+      const allowedCapacity = allowedCapacityByRoom.get(item.roomId) || 0;
+      if ((currentCounts.get(item.roomId) || 0) + 1 > allowedCapacity) {
+        throw new BadRequestError(`${room.name} exceeds its allowed capacity of ${allowedCapacity}.`);
+      }
+      currentCounts.set(item.roomId, (currentCounts.get(item.roomId) || 0) + 1);
+      assignments.push({
+        roomId: room._id,
+        student,
+        locked: false,
+      });
+    }
 
     for (const student of availableStudents) {
       const classId = String(student.class?._id || student.class || '');
@@ -605,24 +714,25 @@ export const generate = async (req: Request, res: Response) => {
 
         const quotaKey = classId + '::' + roomId;
         const lockedCount = lockedByClassRoom.get(quotaKey) || 0;
-        if (lockedCount > quota) {
+        const manualCount = manualByClassRoom.get(quotaKey)?.length || 0;
+        if (lockedCount + manualCount > quota) {
           const cls = targetClasses.find(c => String(c._id) === classId);
           const label = norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'Selected class';
           throw new BadRequestError(
-            `${label} already has ${lockedCount} locked student(s) in ${room.name}, which is above the planned quota of ${quota}.`
+            `${label} already has ${lockedCount + manualCount} locked/manual student(s) in ${room.name}, above the planned quota of ${quota}.`
           );
         }
 
-        const needed = quota - lockedCount;
+        const needed = quota - lockedCount - manualCount;
         if (needed > 0 && frozenRoomIds.has(roomId)) {
           throw new BadRequestError(
             `${room.name} is locked. Unlock the room or adjust its exact quota before confirming.`
           );
         }
 
-        const effectiveCapacity = effectiveCapacityByRoom.get(roomId) || 0;
-        if ((currentCounts.get(roomId) || 0) + needed > effectiveCapacity) {
-          throw new BadRequestError(`${room.name} would exceed its operational capacity of ${effectiveCapacity} under the exact Room Plan.`);
+        const allowedCapacity = allowedCapacityByRoom.get(roomId) || 0;
+        if ((currentCounts.get(roomId) || 0) + needed > allowedCapacity) {
+          throw new BadRequestError(`${room.name} would exceed its allowed capacity of ${allowedCapacity} under the exact Room Plan.`);
         }
 
         const chosen = shuffled.slice(cursor, cursor + needed);
@@ -782,7 +892,10 @@ export const generate = async (req: Request, res: Response) => {
     plannedByQuota: hasExactQuotaPlan,
     totalCapacity,
     effectiveCapacity: totalEffectiveCapacity,
-    freeCapacity: Math.max(0, totalEffectiveCapacity - selected.length),
+    allowedCapacity: totalAllowedCapacity,
+    freeCapacity: Math.max(0, totalAllowedCapacity - selected.length),
+    capacityOverrideRooms: Array.from(capacityOverrideSet),
+    manuallyResolvedStudents: normalizedStudentRoomOverrides.length,
     roomPlanSettings,
     lockedStudents: lockedRows.length,
     lockedRooms: frozenRoomIds.size,
