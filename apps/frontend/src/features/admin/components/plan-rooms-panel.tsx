@@ -205,7 +205,7 @@ export function PlanRoomsPanel({
       setSettingsLoading(true);
       setSettingsMessage('');
       try {
-        const response = await api.get('/exams/room-plan-settings', {
+        const response = await api.get('/exam-rooms/plan-settings', {
           params: resolvedSchoolId ? { school: resolvedSchoolId } : undefined,
         });
         if (!cancelled) {
@@ -283,7 +283,7 @@ export function PlanRoomsPanel({
     try {
       const body: any = { settings };
       if (resolvedSchoolId) body.school = resolvedSchoolId;
-      const response = await api.patch('/exams/room-plan-settings', body);
+      const response = await api.patch('/exam-rooms/plan-settings', body);
       setSettings({ ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || settings) });
       setSettingsDirty(false);
       setSettingsMessage('Room Plan settings saved.');
