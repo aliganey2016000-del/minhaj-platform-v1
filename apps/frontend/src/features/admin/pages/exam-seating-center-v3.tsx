@@ -702,7 +702,7 @@ function AutoGenerateModal({
   </Modal>;
 }
 
-function RoomModal({room,close,onSaved}:{room?:Room;close:()=>void;onSaved:()=>void}) {
+function RoomModal({room,close,onSaved}:{room?:Room;close:()=>void;onSaved:(saved:Room)=>void}) {
   const [name,setName]=useState(room?.name||'');
   const [building,setBuilding]=useState(room?.building||'Main');
   const [capacity,setCapacity]=useState(String(room?.capacity||30));
@@ -711,9 +711,10 @@ function RoomModal({room,close,onSaved}:{room?:Room;close:()=>void;onSaved:()=>v
   const submit=async(e:FormEvent)=>{
     e.preventDefault();setBusy(true);setError('');
     try{
-      if(room)await api.patch(`/exam-rooms/${room._id}`,{name,building,capacity:Number(capacity)});
-      else await api.post('/exam-rooms',{name,building,capacity:Number(capacity)});
-      onSaved();close();
+      const response=room
+        ?await api.patch(`/exam-rooms/${room._id}`,{name,building,capacity:Number(capacity)})
+        :await api.post('/exam-rooms',{name,building,capacity:Number(capacity)});
+      onSaved(response.data.data as Room);close();
     }catch(err:any){setError(err.response?.data?.message||'Failed to save room')}
     finally{setBusy(false)}
   };
@@ -1263,7 +1264,7 @@ export function ExamSeatingCenterV3() {
         close={()=>{setModal(null);setAutoDefaults(null)}}
         onGenerated={info=>{setYear(info.academicYear);setType(info.examType);setTab('seating');setMessage(info.message);setAutoDefaults(null);void loadSeating(info.academicYear,info.examType)}}
       />}
-      {modal==='room'&&<RoomModal room={editingRoom} close={()=>setModal(null)} onSaved={()=>{setMessage('Room saved successfully.');void loadBase()}}/>}
+      {modal==='room'&&<RoomModal room={editingRoom} close={()=>setModal(null)} onSaved={saved=>{setRooms(prev=>prev.some(r=>r._id===saved._id)?prev.map(r=>r._id===saved._id?saved:r):[...prev,saved]);setMessage('Room saved successfully.');void loadBase()}}/>}
       {modal==='room-import'&&<RoomImportModal close={()=>setModal(null)} onImported={m=>{setMessage(m);void loadBase()}}/>}
       {modal==='room-students'&&viewRoom&&<RoomStudentsModal
         room={viewRoom}
