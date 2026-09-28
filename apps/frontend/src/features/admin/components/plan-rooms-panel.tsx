@@ -944,6 +944,7 @@ export function PlanRoomsPanel({
             </div>
           </div>
         </div>
+        </div>
       )}
 
       <div className={card + ' overflow-hidden'}>
