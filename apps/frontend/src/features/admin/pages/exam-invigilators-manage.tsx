@@ -4,7 +4,6 @@ import {
   CalendarDays,
   CheckCircle2,
   Search,
-  UserCheck,
   UserX,
 } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -124,7 +123,7 @@ export function ExamInvigilatorsManage() {
         return prev||nextPeriods[0]?._id||'';
       });
     }catch(err:any){
-      setError(err.response?.data?.message||'Could not load exams and teachers.');
+      setError(err.response?.data?.message||'Could not load exam periods.');
     }finally{
       setLoading(false);
     }
