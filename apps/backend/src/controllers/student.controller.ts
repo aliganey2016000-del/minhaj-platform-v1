@@ -251,9 +251,15 @@ async function computeStudentStats(req: Request): Promise<StudentStatsResult> {
   // (countDocuments) still reported the real count. Cast explicitly for the
   // aggregation pipelines only.
   const aggregateMatch: Record<string, unknown> = { ...scopedFilter };
-  const schoolFilter = aggregateMatch.school as { $in?: unknown[] } | undefined;
-  if (schoolFilter && Array.isArray(schoolFilter.$in)) {
-    aggregateMatch.school = { $in: schoolFilter.$in.map((v) => (v ? new mongoose.Types.ObjectId(v as string) : null)) };
+  const schoolFilter = aggregateMatch.school;
+  if (typeof schoolFilter === 'string' && mongoose.isValidObjectId(schoolFilter)) {
+    aggregateMatch.school = new mongoose.Types.ObjectId(schoolFilter);
+  } else if (schoolFilter && typeof schoolFilter === 'object' && Array.isArray((schoolFilter as { $in?: unknown[] }).$in)) {
+    aggregateMatch.school = {
+      $in: (schoolFilter as { $in: unknown[] }).$in.map((v) =>
+        typeof v === 'string' && mongoose.isValidObjectId(v) ? new mongoose.Types.ObjectId(v) : v
+      ),
+    };
   }
 
   // Enrollment trend covers the trailing 12 months (inclusive of the
