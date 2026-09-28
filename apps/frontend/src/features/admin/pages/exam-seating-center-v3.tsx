@@ -271,7 +271,7 @@ function FieldsGrid({fields,setField,rooms,lockedStudent=false}:{fields:Fields;s
     <Field label="Room" editable>
       <select className={input} value={fields.room} onChange={e=>setField('room',e.target.value)} required>
         <option value="">Select room...</option>
-        {rooms.map(r=><option key={r._id} value={r.name}>{r.name} · {r.building||'Main Campus'} · capacity {r.capacity}</option>)}
+        {rooms.map(r=><option key={r._id} value={r.name}>{r.name} · {r.building||'Main'} · capacity {r.capacity}</option>)}
       </select>
     </Field>
   </div>;
@@ -655,7 +655,7 @@ function AutoGenerateModal({
               ?<p className="text-sm text-[var(--color-text-tertiary)]">No exam rooms available.</p>
               :visibleRooms.map(r=><button type="button" key={r._id} onClick={()=>{toggle(roomIds,r._id,setRoomIds);resetPreview()}} className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${roomIds.includes(r._id)?'border-emerald-300 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20':'border-transparent hover:bg-[var(--color-surface-secondary)]'}`}>
                 {roomIds.includes(r._id)?<CheckSquare size={18} className="text-emerald-600"/>:<Square size={18}/>}
-                <div className="min-w-0 flex-1"><p className="font-medium">{r.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{r.building||'Main Campus'}</p></div>
+                <div className="min-w-0 flex-1"><p className="font-medium">{r.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{r.building||'Main'}</p></div>
                 <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-bold">{r.capacity}</span>
               </button>)}
           </div>
@@ -680,7 +680,7 @@ function AutoGenerateModal({
         <div className="grid gap-3 md:grid-cols-2">
           {preview.roomBreakdown.map(room=><div key={room.roomId} className="rounded-2xl border border-emerald-200 bg-[var(--color-surface-primary)] p-4 dark:border-emerald-900/40">
             <div className="flex items-start justify-between gap-3">
-              <div><p className="font-bold">{room.room}</p><p className="text-xs text-[var(--color-text-tertiary)]">{room.building||'Main Campus'} · {room.students}/{room.capacity}</p></div>
+              <div><p className="font-bold">{room.room}</p><p className="text-xs text-[var(--color-text-tertiary)]">{room.building||'Main'} · {room.students}/{room.capacity}</p></div>
               <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${room.balanceScore>=90?'bg-emerald-100 text-emerald-700':room.balanceScore>=75?'bg-amber-100 text-amber-700':'bg-red-100 text-red-700'}`}>{room.balanceScore}% · {room.balanceLabel}</span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--color-surface-secondary)]">
@@ -704,7 +704,7 @@ function AutoGenerateModal({
 
 function RoomModal({room,close,onSaved}:{room?:Room;close:()=>void;onSaved:()=>void}) {
   const [name,setName]=useState(room?.name||'');
-  const [building,setBuilding]=useState(room?.building||'Main Campus');
+  const [building,setBuilding]=useState(room?.building||'Main');
   const [capacity,setCapacity]=useState(String(room?.capacity||30));
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
@@ -760,7 +760,7 @@ function RoomStudentsModal({
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[var(--color-surface-secondary)] p-4">
         <div>
           <p className="font-bold">{allocations.length} / {room.capacity} students</p>
-          <p className="text-xs text-[var(--color-text-tertiary)]">{room.building||'Main Campus'} · Drag/drop from the main room cards or move students here.</p>
+          <p className="text-xs text-[var(--color-text-tertiary)]">{room.building||'Main'} · Drag/drop from the main room cards or move students here.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={()=>void onToggleRoomLock(room,!roomLocked)} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold">{roomLocked?<Unlock size={15}/>:<Lock size={15}/>} {roomLocked?'Unlock Room':'Lock Room'}</button>
@@ -1049,7 +1049,7 @@ export function ExamSeatingCenterV3() {
   };
 
   const deleteRoom=async(room:Room)=>{
-    if(!window.confirm(`Delete ${room.name} from ${room.building||'Main Campus'}?`))return;
+    if(!window.confirm(`Delete ${room.name} from ${room.building||'Main'}?`))return;
     try{await api.delete(`/exam-rooms/${room._id}`);setMessage('Room deleted successfully.');await loadBase()}
     catch(err:any){setError(err.response?.data?.message||'Failed to delete room')}
   };
@@ -1100,14 +1100,14 @@ export function ExamSeatingCenterV3() {
       {tab==='rooms'
         ?<div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <div><h2 className="text-xl font-bold">Rooms</h2><p className="text-sm text-[var(--color-text-tertiary)]">Manage room name, building and capacity used by Smart Allocation.</p></div>
+            <div><h2 className="text-xl font-bold">Rooms</h2><p className="text-sm text-[var(--color-text-tertiary)]">Rooms and capacity are synced from active Class Management. Missing location defaults to Main.</p></div>
             <RoomActions add={()=>{setEditingRoom(undefined);setModal('room')}} imp={()=>setModal('room-import')} exp={exportRooms}/>
           </div>
           <div className={`${card} overflow-hidden`}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-[var(--color-surface-secondary)]"><tr><th className="px-5 py-3 text-left">Room</th><th className="px-5 py-3 text-left">Building</th><th className="px-5 py-3 text-left">Capacity</th><th className="px-5 py-3 text-left">Capacity Source</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
-                <tbody>{rooms.map(r=><tr key={r._id} className="border-t"><td className="px-5 py-4 font-semibold">{r.name}</td><td className="px-5 py-4">{r.building||'Main Campus'}</td><td className="px-5 py-4">{r.capacity}</td><td className="px-5 py-4"><span className="rounded-full border px-2.5 py-1 text-xs">{r.capacityMode==='manual'?'Manual':'Automatic'}</span></td><td className="px-5 py-4 text-right"><RoomRowActions room={r} onEdit={()=>{setEditingRoom(r);setModal('room')}} onDelete={()=>void deleteRoom(r)}/></td></tr>)}</tbody>
+                <tbody>{rooms.map(r=><tr key={r._id} className="border-t"><td className="px-5 py-4 font-semibold">{r.name}</td><td className="px-5 py-4">{r.building||'Main'}</td><td className="px-5 py-4">{r.capacity}</td><td className="px-5 py-4"><span className="rounded-full border px-2.5 py-1 text-xs">{r.capacityMode==='auto'?'Class Management':'Manual'}</span></td><td className="px-5 py-4 text-right"><RoomRowActions room={r} onEdit={()=>{setEditingRoom(r);setModal('room')}} onDelete={()=>void deleteRoom(r)}/></td></tr>)}</tbody>
               </table>
             </div>
           </div>
@@ -1167,7 +1167,7 @@ export function ExamSeatingCenterV3() {
                   className={`${card} p-4 transition ${draggedId?'ring-1 ring-primary-300':''}`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div><p className="font-bold">{room.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{room.building||'Main Campus'}</p></div>
+                    <div><p className="font-bold">{room.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{room.building||'Main'}</p></div>
                     <button type="button" onClick={()=>void toggleRoomLock(room,!roomLocked)} className={`rounded-lg border p-2 ${roomLocked?'text-amber-700':''}`} title={roomLocked?'Unlock room':'Lock room'}>{roomLocked?<Lock size={15}/>:<Unlock size={15}/>}</button>
                   </div>
                   <div className="mt-4 flex items-end justify-between gap-3"><div><p className="text-2xl font-bold">{count}<span className="text-sm font-normal text-[var(--color-text-tertiary)]"> / {room.capacity}</span></p><p className="text-xs text-[var(--color-text-tertiary)]">{Math.max(0,room.capacity-count)} spaces free</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${score>=90?'bg-emerald-100 text-emerald-700':score>=75?'bg-amber-100 text-amber-700':'bg-red-100 text-red-700'}`}>{score}% balance</span></div>
