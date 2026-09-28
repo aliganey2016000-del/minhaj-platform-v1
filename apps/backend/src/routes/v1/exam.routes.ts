@@ -73,6 +73,9 @@ router.post('/seating-plan/auto-generate', adminOnly, asyncHandler(autoSeatContr
 
 // Room-based exam invigilation: admin assigns one teacher per physical room/session.
 // Assigned teachers then receive exactly the mixed-grade students in that room.
+router.get('/invigilators/teacher-attendance', adminOnly, asyncHandler(invigilatorController.getTeacherAttendance));
+router.post('/invigilators/teacher-attendance', adminOnly, asyncHandler(invigilatorController.markTeacherAttendance));
+router.post('/invigilators/teacher-attendance/mark-all', adminOnly, asyncHandler(invigilatorController.markAllTeacherAttendance));
 router.get('/invigilators/context', adminOnly, asyncHandler(invigilatorController.context));
 router.post('/invigilators', adminOnly, asyncHandler(invigilatorController.assign));
 router.delete('/invigilators/:assignmentId', adminOnly, asyncHandler(invigilatorController.remove));
