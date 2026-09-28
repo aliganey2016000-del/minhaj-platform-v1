@@ -284,12 +284,18 @@ export const context = async (req: Request, res: Response): Promise<Response> =>
     const classIds = new Set(
       sessionExams.map(exam => String(exam.course?.class?._id || exam.course?.class || '')).filter(Boolean)
     );
+    const examByClass = new Map<string, any>();
+    for (const exam of sessionExams) {
+      const classId = String(exam.course?.class?._id || exam.course?.class || '');
+      if (classId && !examByClass.has(classId)) examByClass.set(classId, exam);
+    }
 
     const roomMap = new Map<string, any>();
     for (const seat of seating) {
       const studentClass = String(seat.student?.class?._id || seat.student?.class || '');
+      const studentId = String(seat.student?._id || '');
       const room = seat.room;
-      if (!room?._id || !classIds.has(studentClass)) continue;
+      if (!room?._id || !classIds.has(studentClass) || !studentId) continue;
       const roomId = String(room._id);
       const current = roomMap.get(roomId) || {
         _id: room._id,
@@ -297,8 +303,13 @@ export const context = async (req: Request, res: Response): Promise<Response> =>
         building: room.building,
         capacity: room.capacity,
         students: 0,
+        markedStudents: 0,
       };
       current.students += 1;
+      const exam = examByClass.get(studentClass);
+      if (exam && submittedAttendanceKeys.has(String(exam._id) + '::' + studentId)) {
+        current.markedStudents += 1;
+      }
       roomMap.set(roomId, current);
     }
 
