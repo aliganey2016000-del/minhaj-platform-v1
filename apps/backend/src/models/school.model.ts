@@ -77,6 +77,29 @@ export interface IExamSchedulingRules {
   allowedExamDays: number[];
 }
 
+export interface IExamRoomPlanSettings {
+  maxClassPortion: number;
+  minSplitPortion: number;
+  preferredGradesPerRoom: number;
+  minimumGradesPerRoom: number;
+  maxSameGradeSharePercent: number;
+  preferredGradeDistance: number;
+  targetRoomOccupancyPercent: number;
+  occupancyBalanceTolerance: number;
+  smallClassThreshold: number;
+  keepSmallClassesTogether: boolean;
+  splitBalanceEqual: boolean;
+  useMinimumRooms: boolean;
+  minimumStudentsPerUsedRoom: number;
+  reserveSeatsPerRoom: number;
+  studentsPerInvigilator: number;
+  maxInvigilatorsPerRoom: number;
+  avoidSameClassSectionsTogether: boolean;
+  avoidRepeatGradeMix: boolean;
+  autoRepairInvalidPlan: boolean;
+  priorityMode: 'balanced_security' | 'maximum_mixing' | 'maximum_room_usage';
+}
+
 export interface ISchool extends Document {
   _id: mongoose.Types.ObjectId;
   name: string;
@@ -109,6 +132,7 @@ export interface ISchool extends Document {
   customDomain?: string;
   branding: IBranding;
   examSchedulingRules: IExamSchedulingRules;
+  examRoomPlanSettings: IExamRoomPlanSettings;
   country: string;
   city: string;
   orgId?: string;
@@ -184,6 +208,36 @@ const examSchedulingRulesSchema = new Schema<IExamSchedulingRules>(
           days.every((day) => Number.isInteger(day) && day >= 0 && day <= 6),
         message: 'At least one valid exam day must be selected',
       },
+    },
+  },
+  { _id: false }
+);
+
+const examRoomPlanSettingsSchema = new Schema<IExamRoomPlanSettings>(
+  {
+    maxClassPortion: { type: Number, default: 50, min: 15, max: 200 },
+    minSplitPortion: { type: Number, default: 15, min: 1, max: 100 },
+    preferredGradesPerRoom: { type: Number, default: 3, min: 2, max: 3 },
+    minimumGradesPerRoom: { type: Number, default: 2, min: 1, max: 3 },
+    maxSameGradeSharePercent: { type: Number, default: 45, min: 25, max: 100 },
+    preferredGradeDistance: { type: Number, default: 2, min: 0, max: 12 },
+    targetRoomOccupancyPercent: { type: Number, default: 90, min: 50, max: 100 },
+    occupancyBalanceTolerance: { type: Number, default: 5, min: 0, max: 50 },
+    smallClassThreshold: { type: Number, default: 15, min: 1, max: 50 },
+    keepSmallClassesTogether: { type: Boolean, default: true },
+    splitBalanceEqual: { type: Boolean, default: true },
+    useMinimumRooms: { type: Boolean, default: true },
+    minimumStudentsPerUsedRoom: { type: Number, default: 20, min: 1, max: 100 },
+    reserveSeatsPerRoom: { type: Number, default: 2, min: 0, max: 50 },
+    studentsPerInvigilator: { type: Number, default: 30, min: 1, max: 100 },
+    maxInvigilatorsPerRoom: { type: Number, default: 2, min: 1, max: 10 },
+    avoidSameClassSectionsTogether: { type: Boolean, default: true },
+    avoidRepeatGradeMix: { type: Boolean, default: true },
+    autoRepairInvalidPlan: { type: Boolean, default: true },
+    priorityMode: {
+      type: String,
+      enum: ['balanced_security', 'maximum_mixing', 'maximum_room_usage'],
+      default: 'balanced_security',
     },
   },
   { _id: false }
@@ -283,6 +337,7 @@ const schoolSchema = new Schema<ISchool>(
     },
     branding: { type: brandingSchema, default: () => ({}) },
     examSchedulingRules: { type: examSchedulingRulesSchema, default: () => ({}) },
+    examRoomPlanSettings: { type: examRoomPlanSettingsSchema, default: () => ({}) },
     country: {
       type: String,
       required: [true, 'Country is required'],
