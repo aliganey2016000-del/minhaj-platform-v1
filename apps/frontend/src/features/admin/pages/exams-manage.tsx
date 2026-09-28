@@ -4720,7 +4720,7 @@ export function ExamsManage() {
         <div className="mx-auto max-w-[1100px] space-y-5">
           <div>
             <BackButton fallback="/admin/exams" />
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Schedule</h1>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Operations</h1>
           </div>
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-5 shadow-sm">
             <div className="flex items-center gap-3 text-sm font-semibold text-[var(--color-text-secondary)]">
@@ -4742,8 +4742,8 @@ export function ExamsManage() {
               <BackButton fallback="/admin/exams" />
               <div className="mt-1 flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Schedule</h1>
-                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose an annual examination to open its exam workspace.</p>
+                  <h1 className="text-2xl font-bold tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Exam Operations</h1>
+                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose an annual examination to manage its schedule, rooms, invigilators and attendance.</p>
                 </div>
                 <div className="shrink-0">
                   <ExamsActionsMenu
