@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, Clock, CalendarX, ClipboardCheck, Zap, Info, Printer, CheckSquare, FileText, BarChart3, QrCode, X, AlertTriangle, RotateCcw } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import api from '../../../lib/axios';
@@ -213,6 +213,13 @@ export function ExamAttendanceManage() {
   const { user } = useAuth();
   const isOrgAdmin = user?.role === 'org_admin';
   const navigate = useNavigate();
+  const [workspaceSearchParams] = useSearchParams();
+  const contextPeriodId = workspaceSearchParams.get('periodId') || '';
+  const contextExamName = workspaceSearchParams.get('examName') || '';
+  const contextAcademicYear = workspaceSearchParams.get('academicYear') || '';
+  const contextStartDate = workspaceSearchParams.get('startDate') || '';
+  const contextEndDate = workspaceSearchParams.get('endDate') || '';
+  const hasExamContext = Boolean(contextPeriodId);
   const [examSearch, setExamSearch] = useState('');
 
   // Cascading Organization → Department → Class filters that narrow the
@@ -316,7 +323,7 @@ export function ExamAttendanceManage() {
     setFilterDepartment('');
     setFilterClass('');
     setSelectedExam('');
-  }, [filterSchool]);
+  }, [filterSchool, contextPeriodId]);
 
   // Department → Classes
   useEffect(() => {
@@ -343,6 +350,7 @@ export function ExamAttendanceManage() {
     try {
       const params: Record<string, string> = { limit: '200' };
       if (filterSchool) params.school = filterSchool;
+      if (contextPeriodId) params.period = contextPeriodId;
       const { data } = await api.get('/exams', { params });
       setExams(data.data || []);
     } catch (err: any) {
@@ -604,12 +612,35 @@ export function ExamAttendanceManage() {
     }
   };
 
+  const formatContextDate = (value: string) => {
+    if (!value) return '';
+    const date = new Date(value + 'T00:00:00');
+    return Number.isNaN(date.getTime())
+      ? ''
+      : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  };
+  const contextRange = (() => {
+    const start = formatContextDate(contextStartDate);
+    const end = formatContextDate(contextEndDate);
+    if (start && end) return `${start} – ${end}`;
+    return start || end;
+  })();
+  const contextSubtitle = [
+    contextExamName,
+    contextAcademicYear,
+    contextRange,
+  ].filter(Boolean).join(' · ');
+  const scheduleFallback = contextPeriodId
+    ? `/admin/exams/schedule?${workspaceSearchParams.toString()}`
+    : '/admin/exams/schedule';
+
   if (loading) {
-    return <div className="p-6 pt-20 lg:p-10 lg:pt-10">
+    return <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
       <div className="mx-auto max-w-screen-2xl space-y-6">
         <div>
-          <BackButton fallback="/admin/exams" />
-          <h1 className="mt-1 text-3xl font-bold text-[var(--color-text-primary)]">Exam Attendance</h1>
+          <BackButton fallback={scheduleFallback} />
+          <h1 className="mt-2 text-3xl font-bold text-[var(--color-text-primary)]">Attendance</h1>
+          {contextSubtitle && <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{contextSubtitle}</p>}
         </div>
         <ExamWorkspaceTabs />
         <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-5 shadow-sm">
@@ -641,18 +672,21 @@ export function ExamAttendanceManage() {
   const showStickySaveBar = !!selectedExam && roster.length > 0 && !rosterLoading && tab === 'take';
 
   return (
-    <div className={`p-6 lg:p-10 pt-20 lg:pt-10 ${showStickySaveBar ? 'pb-28' : ''}`}>
+    <div className={`p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8 ${showStickySaveBar ? 'pb-28' : ''}`}>
       <div className="mx-auto max-w-screen-2xl space-y-6">
         <div>
-          <BackButton fallback="/admin/exams" />
-          <h1 className="text-3xl font-bold text-[var(--color-text-primary)] mt-1">✅ Exam Attendance</h1>
-          <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Invigilator portal — mark exam-day attendance</p>
+          <BackButton fallback={scheduleFallback} />
+          <h1 className="mt-2 text-3xl font-bold text-[var(--color-text-primary)]">Attendance</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+            {contextSubtitle || 'Mark and review exam-day student attendance.'}
+          </p>
         </div>
 
         <ExamWorkspaceTabs />
 
-        {/* Filters — Organization → Department → Class cascade + Exam */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100/80 dark:border-slate-800 shadow-sm">
+        {/* Global filters remain available when Attendance is opened directly.
+            Inside Exam Operations, the selected Exam Period already provides the scope. */}
+        {!hasExamContext && <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100/80 dark:border-slate-800 shadow-sm">
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1.5">
               🏢 Organization {isOrgAdmin && <span className="text-slate-400 font-normal">(your org)</span>}
@@ -714,7 +748,29 @@ export function ExamAttendanceManage() {
               ))}
             </select>
           </div>
-        </div>
+        </div>}
+
+        {hasExamContext && (
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm sm:p-5">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">Exam / Paper</span>
+              <select
+                value={selectedExam}
+                onChange={(e) => loadRoster(e.target.value)}
+                className="h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 text-sm font-medium text-[var(--color-text-primary)] shadow-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+              >
+                <option value="">Choose scheduled exam / class...</option>
+                {examsToShow.map((e) => (
+                  <option key={e._id} value={e._id}>
+                    {e.course?.class ? `${e.course.class.title} ${e.course.class.section || ''} · ` : ''}
+                    {e.course?.title?.en || e.title}
+                    {e.examDate ? ` · ${new Date(e.examDate).toLocaleDateString()}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
 
         {/* Tab Switcher — segmented control, matching Course Attendance.
             Always visible: Take Attendance needs one specific exam, but
@@ -745,7 +801,9 @@ export function ExamAttendanceManage() {
 
         {!selectedExam && (tab === 'view' || tab === 'report') && (
           <p className="text-xs text-[var(--color-text-tertiary)] -mt-2">
-            Showing aggregate {tab === 'view' ? 'records' : 'report'} for {filterClass ? 'this Class' : filterDepartment ? 'this Department' : filterSchool ? 'this Organization' : 'all organizations'} — pick a specific exam above for one exam's detail instead.
+            {hasExamContext
+              ? `Showing ${tab === 'view' ? 'records' : 'report'} for this Exam Period — choose a specific exam/paper above for its detail.`
+              : <>Showing aggregate {tab === 'view' ? 'records' : 'report'} for {filterClass ? 'this Class' : filterDepartment ? 'this Department' : filterSchool ? 'this Organization' : 'all organizations'} — pick a specific exam above for one exam's detail instead.</>}
           </p>
         )}
 
