@@ -4,6 +4,7 @@
  */
 
 import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown, Printer, RotateCcw } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
@@ -4275,6 +4276,7 @@ function ExamTimetable({
 
 export function ExamsManage() {
   const { user } = useAuth();
+  const [workspaceSearchParams, setWorkspaceSearchParams] = useSearchParams();
   const [exams, setExams] = useState<Exam[]>([]);
   const [examPeriods, setExamPeriods] = useState<ExamPeriod[]>([]);
   const [filterClasses, setFilterClasses] = useState<ClassBrief[]>([]);
@@ -4598,6 +4600,17 @@ export function ExamsManage() {
     setDepartmentFilters(null);
     setDateFilter('');
     setSearch('');
+
+    const params = new URLSearchParams();
+    params.set('periodId', period._id);
+    params.set('examName', period.name);
+    params.set('academicYear', period.academicYear);
+    const examType = examTypeForPeriod(period);
+    if (examType) params.set('examType', examType);
+    if (period.startDate) params.set('startDate', new Date(period.startDate).toISOString().slice(0, 10));
+    if (period.endDate) params.set('endDate', new Date(period.endDate).toISOString().slice(0, 10));
+    setWorkspaceSearchParams(params, { replace: true });
+
     if (pageSchoolId) {
       try {
         window.localStorage.setItem(`examSchedule:selectedPeriod:${pageSchoolId}`, period._id);
@@ -4620,6 +4633,7 @@ export function ExamsManage() {
     setDepartmentFilters(null);
     setDateFilter('');
     setSearch('');
+    setWorkspaceSearchParams({}, { replace: true });
   };
 
   const periodInputDate = (value?: string | null) =>
@@ -4691,12 +4705,36 @@ export function ExamsManage() {
   const selectedPeriodMeta = examPeriods.find((period) => period._id === selectedExamPeriodId);
   const overviewPeriods = examPeriods.filter((period) => !overviewYear || period.academicYear === overviewYear);
 
+  useEffect(() => {
+    const periodId = workspaceSearchParams.get('periodId') || '';
+    if (!periodId || !examPeriods.length) return;
+    const period = examPeriods.find((item) => item._id === periodId);
+    if (!period) return;
+    if (selectedExamPeriodId !== periodId) setSelectedExamPeriodId(periodId);
+    if (!examDetailOpen) setExamDetailOpen(true);
+    if (viewMode !== 'table') setViewMode('table');
+  }, [workspaceSearchParams, examPeriods, selectedExamPeriodId, examDetailOpen, viewMode]);
+
   const periodPaperCount = (periodId: string) =>
     exams.filter((exam) =>
       examPeriodId(exam) === periodId
       && exam.status !== 'cancelled'
       && (exam.autoSchedule || exam.schedulePlaced !== false)
     ).length;
+
+  const examTypeForPeriod = (period: ExamPeriod): 'mid' | 'final' | '' => {
+    const milestones = Array.from(new Set(
+      exams
+        .filter((exam) => examPeriodId(exam) === period._id && (exam.milestone === 'mid' || exam.milestone === 'final'))
+        .map((exam) => exam.milestone as 'mid' | 'final')
+    ));
+    if (milestones.length === 1) return milestones[0];
+
+    const label = `${period.name || ''} ${period.term || ''}`.toLowerCase();
+    if (/\bfinal[a-z-]*\b/.test(label)) return 'final';
+    if (/\bmid[a-z-]*\b/.test(label)) return 'mid';
+    return '';
+  };
 
   const formatPeriodRange = (period: ExamPeriod) => {
     const format = (value?: string | null) => value
@@ -5000,7 +5038,14 @@ export function ExamsManage() {
               </div>
             </div>
 
-            <ExamWorkspaceTabs />
+            <ExamWorkspaceTabs context={selectedPeriodMeta ? {
+              periodId: selectedPeriodMeta._id,
+              examName: selectedPeriodMeta.name,
+              academicYear: selectedPeriodMeta.academicYear,
+              examType: examTypeForPeriod(selectedPeriodMeta),
+              startDate: selectedPeriodMeta.startDate ? new Date(selectedPeriodMeta.startDate).toISOString().slice(0, 10) : '',
+              endDate: selectedPeriodMeta.endDate ? new Date(selectedPeriodMeta.endDate).toISOString().slice(0, 10) : '',
+            } : undefined} />
 
             <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm">
               <div className="relative min-w-0">
