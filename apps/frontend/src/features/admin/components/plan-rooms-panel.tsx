@@ -169,6 +169,7 @@ export function PlanRoomsPanel({
   const [settings, setSettings] = useState<RoomPlanSettings>(DEFAULT_SETTINGS);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState('');
 
   const activeClasses = useMemo(
@@ -207,7 +208,10 @@ export function PlanRoomsPanel({
         const response = await api.get('/exams/room-plan-settings', {
           params: resolvedSchoolId ? { school: resolvedSchoolId } : undefined,
         });
-        if (!cancelled) setSettings({ ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || {}) });
+        if (!cancelled) {
+          setSettings({ ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || {}) });
+          setSettingsDirty(false);
+        }
       } catch (err: any) {
         if (!cancelled) {
           setSettings(DEFAULT_SETTINGS);
@@ -253,7 +257,21 @@ export function PlanRoomsPanel({
   }, 0);
 
   const updateSettings = <K extends keyof RoomPlanSettings>(key: K, value: RoomPlanSettings[K]) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
+    setSettings(prev => {
+      const next = { ...prev, [key]: value } as RoomPlanSettings;
+      if (key === 'preferredGradesPerRoom') {
+        next.minimumGradesPerRoom = Math.min(next.minimumGradesPerRoom, Number(value));
+      }
+      if (key === 'minimumGradesPerRoom') {
+        next.minimumGradesPerRoom = Math.min(Number(value), next.preferredGradesPerRoom);
+      }
+      if (key === 'maxClassPortion') {
+        next.minSplitPortion = Math.min(next.minSplitPortion, Number(value));
+        next.smallClassThreshold = Math.min(next.smallClassThreshold, Number(value));
+      }
+      return next;
+    });
+    setSettingsDirty(true);
     setSettingsMessage('');
   };
 
@@ -266,6 +284,7 @@ export function PlanRoomsPanel({
       if (resolvedSchoolId) body.school = resolvedSchoolId;
       const response = await api.patch('/exams/room-plan-settings', body);
       setSettings({ ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || settings) });
+      setSettingsDirty(false);
       setSettingsMessage('Room Plan settings saved.');
     } catch (err: any) {
       setLocalError(err.response?.data?.message || 'Could not save Room Plan settings.');
@@ -327,6 +346,10 @@ export function PlanRoomsPanel({
 
   const generateSmartPlan = () => {
     setLocalError('');
+    if (settingsDirty) {
+      setLocalError('Save Room Plan Settings before generating so Review and Confirm use the same rules.');
+      return;
+    }
     if (!sortedRooms.length) {
       setLocalError('Add at least one Room before generating the plan.');
       return;
@@ -410,7 +433,29 @@ export function PlanRoomsPanel({
         while (parts > 1 && Math.floor(total / parts) < settings.minSplitPortion) parts -= 1;
       }
 
-      equalSplit(total, parts).forEach((count, index) => {
+      let splitCounts = equalSplit(total, parts);
+      if (!settings.splitBalanceEqual && parts > 1) {
+        const maxPart = Math.max(settings.minSplitPortion, Math.ceil(total / parts));
+        splitCounts = [];
+        let remaining = total;
+        while (remaining > 0) {
+          const count = Math.min(maxPart, remaining);
+          splitCounts.push(count);
+          remaining -= count;
+        }
+        if (splitCounts.length > 1 && splitCounts[splitCounts.length - 1] < settings.minSplitPortion) {
+          const shortage = settings.minSplitPortion - splitCounts[splitCounts.length - 1];
+          const donorIndex = splitCounts.length - 2;
+          if (splitCounts[donorIndex] - shortage >= settings.minSplitPortion) {
+            splitCounts[donorIndex] -= shortage;
+            splitCounts[splitCounts.length - 1] += shortage;
+          } else {
+            splitCounts = equalSplit(total, parts);
+          }
+        }
+      }
+
+      splitCounts.forEach((count, index) => {
         portions.push({
           id: cls._id + '-' + index,
           classId: cls._id,
@@ -465,7 +510,15 @@ export function PlanRoomsPanel({
       guard += 1;
       const portion = queue.shift()!;
       const candidates = usedRooms
-        .filter(room => (loadByRoom.get(room._id) || 0) + portion.count <= effectiveCapacity(room))
+        .filter(room => {
+          const row = generatedRows.find(item => item.roomId === room._id)!;
+          const grades = roomGradeCounts(room._id);
+          const existingClassCount = row.allocations.find(item => item.classId === portion.classId)?.quota || 0;
+          if ((loadByRoom.get(room._id) || 0) + portion.count > effectiveCapacity(room)) return false;
+          if (existingClassCount + portion.count > settings.maxClassPortion) return false;
+          if (!grades.has(portion.gradeKey) && grades.size >= settings.preferredGradesPerRoom) return false;
+          return true;
+        })
         .map(room => {
           const load = loadByRoom.get(room._id) || 0;
           const target = targets.get(room._id) || 0;
@@ -488,6 +541,16 @@ export function PlanRoomsPanel({
           if (!gradeAlready && distance >= settings.preferredGradeDistance) score -= Math.min(40, distance * 8);
           if (settings.priorityMode === 'maximum_room_usage') score -= load * 0.5;
           if (settings.priorityMode === 'maximum_mixing' && !gradeAlready) score -= 40;
+
+          if (settings.avoidRepeatGradeMix && !gradeAlready) {
+            const projectedSignature = Array.from(new Set([...grades.keys(), portion.gradeKey])).sort().join('|');
+            const repeated = generatedRows.filter(other => {
+              if (other.roomId === room._id) return false;
+              const otherGrades = Array.from(roomGradeCounts(other.roomId).keys()).sort().join('|');
+              return otherGrades && otherGrades === projectedSignature;
+            }).length;
+            score += repeated * 35;
+          }
 
           return { room, score };
         })
@@ -795,7 +858,7 @@ export function PlanRoomsPanel({
               <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Organization-level rules used every time Smart Mixed Plan is generated.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={()=>{setSettings(DEFAULT_SETTINGS);setSettingsMessage('Recommended defaults loaded. Save to apply them to this organization.')}} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold">
+              <button type="button" onClick={()=>{setSettings(DEFAULT_SETTINGS);setSettingsDirty(true);setSettingsMessage('Recommended defaults loaded. Save to apply them to this organization.')}} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold">
                 <RotateCcw size={15}/>Reset Defaults
               </button>
               <button type="button" disabled={settingsSaving} onClick={()=>void saveSettings()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
@@ -874,7 +937,7 @@ export function PlanRoomsPanel({
             <button type="button" onClick={()=>setSettingsOpen(value=>!value)} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold">
               <Settings2 size={16}/>{settingsLoading?'Loading Settings...':'Room Plan Settings'}
             </button>
-            <button type="button" onClick={generateSmartPlan} disabled={settingsLoading} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+            <button type="button" onClick={generateSmartPlan} disabled={settingsLoading||settingsDirty} title={settingsDirty?'Save Room Plan Settings first':''} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
               <Zap size={16} />
               Generate Smart Mixed Plan
             </button>
