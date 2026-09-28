@@ -228,15 +228,19 @@ export const generate = async (req: Request, res: Response) => {
   const normalizedRoomIds = Array.isArray(roomIds)
     ? roomIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)
     : [];
-  const normalizedRoomPlan = Array.isArray(roomPlan)
+  const normalizedRoomPlan: Array<{ classId: string; roomIds: string[] }> = Array.isArray(roomPlan)
     ? roomPlan
         .map((item: any) => ({
           classId: mongoose.isValidObjectId(String(item?.classId || '')) ? String(item.classId) : '',
           roomIds: Array.isArray(item?.roomIds)
-            ? Array.from(new Set(item.roomIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)))
+            ? Array.from(new Set<string>(
+                item.roomIds
+                  .filter((id: unknown) => mongoose.isValidObjectId(String(id)))
+                  .map((id: unknown) => String(id))
+              ))
             : [],
         }))
-        .filter((item: any) => item.classId && item.roomIds.length > 0)
+        .filter((item: { classId: string; roomIds: string[] }) => item.classId && item.roomIds.length > 0)
     : [];
 
   const classFilter: any = { status: 'active', school: targetSchoolId };
