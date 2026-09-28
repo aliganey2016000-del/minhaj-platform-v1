@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   Building2,
@@ -818,13 +819,23 @@ function RoomStudentsModal({
 }
 
 export function ExamSeatingCenterV3() {
+  const [workspaceSearchParams] = useSearchParams();
+  const contextPeriodId = workspaceSearchParams.get('periodId') || '';
+  const contextExamName = workspaceSearchParams.get('examName') || '';
+  const contextAcademicYear = workspaceSearchParams.get('academicYear') || '';
+  const rawContextExamType = workspaceSearchParams.get('examType') || '';
+  const contextExamType: 'mid' | 'final' | '' = rawContextExamType === 'mid' || rawContextExamType === 'final' ? rawContextExamType : '';
+  const contextStartDate = workspaceSearchParams.get('startDate') || '';
+  const contextEndDate = workspaceSearchParams.get('endDate') || '';
+  const hasExamContext = Boolean(contextPeriodId && contextAcademicYear && contextExamType);
+
   const [orgs,setOrgs]=useState<Org[]>([]);
   const [classes,setClasses]=useState<ClassItem[]>([]);
   const [rooms,setRooms]=useState<Room[]>([]);
   const [allocations,setAllocations]=useState<Allocation[]>([]);
   const [stats,setStats]=useState<AllocationStats>({totalStudents:0,assigned:0,unassigned:0,locked:0,roomsUsed:0});
-  const [year,setYear]=useState(currentAcademicYear);
-  const [type,setType]=useState('');
+  const [year,setYear]=useState(contextAcademicYear || currentAcademicYear);
+  const [type,setType]=useState(contextExamType);
   const [query,setQuery]=useState('');
   const [roomFilter,setRoomFilter]=useState('all');
   const [loading,setLoading]=useState(true);
@@ -876,6 +887,10 @@ export function ExamSeatingCenterV3() {
   };
 
   useEffect(()=>{void loadBase()},[]);
+  useEffect(()=>{
+    if (contextAcademicYear) setYear(contextAcademicYear);
+    if (contextExamType) setType(contextExamType);
+  },[contextAcademicYear,contextExamType]);
   useEffect(()=>{void loadSeating()},[year,type]);
   useEffect(()=>{
     const validClassIds=new Set(classes.filter(c=>c.status==='active').map(c=>c._id));
@@ -1064,12 +1079,31 @@ export function ExamSeatingCenterV3() {
     catch(err:any){setError(err.response?.data?.message||'Failed to delete room')}
   };
 
+  const formatContextDate=(value:string)=>{
+    if(!value)return '';
+    const date=new Date(value+'T00:00:00');
+    return Number.isNaN(date.getTime())?'':date.toLocaleDateString(undefined,{day:'numeric',month:'short'});
+  };
+  const contextRange=(()=>{
+    const start=formatContextDate(contextStartDate);
+    const end=formatContextDate(contextEndDate);
+    if(start&&end)return `${start} – ${end}`;
+    return start||end;
+  })();
+  const contextSubtitle=[contextExamName,contextAcademicYear,contextRange].filter(Boolean).join(' · ');
+  const scheduleFallback=contextPeriodId
+    ? `/admin/exams/schedule?${workspaceSearchParams.toString()}`
+    : '/admin/exams/schedule';
+
   const orgForAuto=orgs.length===1?orgs[0]._id:'';
 
-  if(loading)return <div className="p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
+  if(loading)return <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
     <div className="mx-auto max-w-screen-2xl space-y-5">
-      <BackButton fallback="/admin/exams"/>
-      <div><h1 className="text-3xl font-bold">Exam Room Allocation</h1></div>
+      <BackButton fallback={scheduleFallback}/>
+      <div>
+        <h1 className="text-3xl font-bold">Room Allocation</h1>
+        {contextSubtitle&&<p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{contextSubtitle}</p>}
+      </div>
       <ExamWorkspaceTabs />
       <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-5 shadow-sm">
         <div className="flex items-center gap-3 text-sm font-semibold text-[var(--color-text-secondary)]">
@@ -1080,14 +1114,16 @@ export function ExamSeatingCenterV3() {
     </div>
   </div>;
 
-  return <div className="p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
+  return <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
     <div className="mx-auto max-w-screen-2xl space-y-5">
-      <BackButton fallback="/admin/exams"/>
+      <BackButton fallback={scheduleFallback}/>
 
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Exam Room Allocation</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Smart mixed-grade room allocation with preview, locking, drag-and-drop moves and capacity protection.</p>
+          <h1 className="text-3xl font-bold">Room Allocation</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+            {contextSubtitle || 'Smart mixed-grade room allocation with preview, locking, drag-and-drop moves and capacity protection.'}
+          </p>
         </div>
         <Actions add={()=>setModal('add')} imp={()=>setModal('import')} exp={exportCsv} auto={()=>{setAutoDefaults(null);setModal('auto')}}/>
       </div>
@@ -1131,19 +1167,20 @@ export function ExamSeatingCenterV3() {
             type={type}
             planRows={planRows}
             schoolId={orgForAuto}
+            hideExamSelectors={hasExamContext}
             setYear={setYear}
             setType={setType}
             setPlanRows={setPlanRows}
             onGenerate={defaults=>{setAutoDefaults(defaults);setModal('auto')}}
           />
           :<>
-          <div className={`${card} p-5`}>
+          {!hasExamContext&&<div className={`${card} p-5`}>
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Academic Year" editable><AcademicYearSelect value={year} onChange={setYear} required/></Field>
               <Field label="Exam Type" editable><select className={input} value={type} onChange={e=>setType(e.target.value)}><option value="">Select exam type...</option><option value="mid">Mid Exam</option><option value="final">Final</option></select></Field>
             </div>
             <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">One room allocation applies to all subjects in the selected Academic Year + Exam Type.</p>
-          </div>
+          </div>}
 
           {year&&type&&<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {[
