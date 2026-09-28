@@ -232,7 +232,10 @@ interface StudentStatsResult {
 // Shared by getStats (Manage Students summary) and the analytics report
 // page's Excel export, so the two can never quietly report different numbers.
 async function computeStudentStats(req: Request): Promise<StudentStatsResult> {
-  const scopedFilter = applyOrgFilter(req, {}, 'school') as Record<string, unknown>;
+  const requestedStatus = String(req.query.status || '').trim();
+  const baseFilter: Record<string, unknown> = {};
+  if (requestedStatus && STUDENT_STATUSES.includes(requestedStatus)) baseFilter.status = requestedStatus;
+  const scopedFilter = applyOrgFilter(req, baseFilter, 'school') as Record<string, unknown>;
 
   if (req.user?.role === 'teacher') {
     const teacher = await getOwnTeacherRecord(req);
