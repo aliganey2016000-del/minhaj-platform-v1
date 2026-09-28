@@ -63,6 +63,7 @@ async function syncRoomsFromClassManagement(req: Request) {
     if (room) {
       room.capacity = item.capacity;
       room.building = clean(room.building) || DEFAULT_BUILDING;
+      room.capacityMode = 'auto';
       await room.save();
     } else {
       room = await ExamRoom.create({
