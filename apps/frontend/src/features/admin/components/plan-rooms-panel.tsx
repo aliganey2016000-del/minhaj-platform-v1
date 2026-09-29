@@ -55,6 +55,7 @@ export type RoomPlanSettings = {
   smallClassThreshold: number;
   keepSmallClassesTogether: boolean;
   splitBalanceEqual: boolean;
+  spreadSameClassAcrossRooms: boolean;
   useMinimumRooms: boolean;
   minimumStudentsPerUsedRoom: number;
   reserveSeatsPerRoom: number;
@@ -114,6 +115,7 @@ const DEFAULT_SETTINGS: RoomPlanSettings = {
   smallClassThreshold: 15,
   keepSmallClassesTogether: true,
   splitBalanceEqual: true,
+  spreadSameClassAcrossRooms: true,
   useMinimumRooms: true,
   minimumStudentsPerUsedRoom: 20,
   reserveSeatsPerRoom: 2,
@@ -178,6 +180,7 @@ export function PlanRoomsPanel({
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState('');
+  const [numberDrafts, setNumberDrafts] = useState<Record<string, string>>({});
   const [capacityOverrideRoomIds, setCapacityOverrideRoomIds] = useState<string[]>([]);
   const [classExtraDrafts, setClassExtraDrafts] = useState<Record<string, number>>({});
   const [expandedClassRooms, setExpandedClassRooms] = useState<Record<string, boolean>>({});
@@ -316,6 +319,7 @@ export function PlanRoomsPanel({
           const loadedSettings = { ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || {}) };
           setSettings(loadedSettings);
           setSavedSettings(loadedSettings);
+          setNumberDrafts({});
           setSettingsDirty(false);
         }
       } catch (err: any) {
@@ -348,6 +352,67 @@ export function PlanRoomsPanel({
   const totalOperationalCapacity = sortedRooms.reduce((sum, room) => sum + effectiveCapacity(room), 0);
   const activeStudentTotal = activeClasses.reduce((sum, cls) => sum + (studentCounts[cls._id] || 0), 0);
 
+  const recommendedSettings = useMemo<RoomPlanSettings>(() => {
+    const clamp = (value: number, min: number, max: number) =>
+      Math.max(min, Math.min(max, Math.round(value)));
+    const roomCount = Math.max(1, sortedRooms.length);
+    const totalPhysical = sortedRooms.reduce((sum, room) => sum + Math.max(0, Number(room.capacity) || 0), 0);
+    const averagePhysical = totalPhysical / roomCount;
+    const targetStudentsPerRoom = activeStudentTotal > 0
+      ? Math.ceil(activeStudentTotal / roomCount)
+      : Math.max(1, Math.round(averagePhysical * 0.75));
+    const preferredGrades = activeClasses.length >= 3 ? 3 : 2;
+    const recommendedPortion = clamp(
+      targetStudentsPerRoom / Math.max(1, preferredGrades),
+      15,
+      50,
+    );
+    const recommendedMinSplit = clamp(recommendedPortion * 0.55, 5, recommendedPortion);
+    const recommendedOccupancy = averagePhysical > 0
+      ? clamp((targetStudentsPerRoom / averagePhysical) * 100, 50, 95)
+      : 90;
+    const recommendedStudentsPerInvigilator = averagePhysical > 0
+      ? clamp(averagePhysical / 2, 1, 100)
+      : DEFAULT_SETTINGS.studentsPerInvigilator;
+
+    return {
+      ...DEFAULT_SETTINGS,
+      maxClassPortion: recommendedPortion,
+      minSplitPortion: recommendedMinSplit,
+      preferredGradesPerRoom: preferredGrades,
+      minimumGradesPerRoom: activeClasses.length >= 2 ? 2 : 1,
+      maxSameGradeSharePercent: preferredGrades === 3 ? 45 : 55,
+      preferredGradeDistance: 2,
+      targetRoomOccupancyPercent: recommendedOccupancy,
+      occupancyBalanceTolerance: 3,
+      smallClassThreshold: Math.min(recommendedPortion, Math.max(8, recommendedMinSplit)),
+      keepSmallClassesTogether: true,
+      splitBalanceEqual: true,
+      spreadSameClassAcrossRooms: true,
+      useMinimumRooms: false,
+      minimumStudentsPerUsedRoom: clamp(targetStudentsPerRoom * 0.5, 1, 100),
+      reserveSeatsPerRoom: averagePhysical >= 20 ? 2 : 0,
+      studentsPerInvigilator: recommendedStudentsPerInvigilator,
+      maxInvigilatorsPerRoom: 2,
+      avoidSameClassSectionsTogether: true,
+      avoidRepeatGradeMix: true,
+      autoRepairInvalidPlan: true,
+      priorityMode: 'balanced_security',
+    };
+  }, [sortedRooms, activeClasses.length, activeStudentTotal]);
+
+  const recommendedTargetPerRoom = sortedRooms.length
+    ? Math.ceil(activeStudentTotal / sortedRooms.length)
+    : 0;
+
+  const applyRecommendedSettings = () => {
+    setSettings(recommendedSettings);
+    setNumberDrafts({});
+    setSettingsDirty(true);
+    setLocalError('');
+    setSettingsMessage('');
+  };
+
   const assignedByClass = useMemo(() => {
     const totals: Record<string, number> = {};
     planRows.forEach(row => row.allocations.forEach(allocation => {
@@ -366,6 +431,7 @@ export function PlanRoomsPanel({
   const closeSettingsModal = () => {
     if (settingsSaving) return;
     setSettings(savedSettings);
+    setNumberDrafts({});
     setSettingsDirty(false);
     setLocalError('');
     setSettingsOpen(false);
@@ -401,6 +467,7 @@ export function PlanRoomsPanel({
       const saved = { ...DEFAULT_SETTINGS, ...(response.data?.data?.settings || settings) };
       setSettings(saved);
       setSavedSettings(saved);
+      setNumberDrafts({});
       setSettingsDirty(false);
       setSettingsOpen(false);
       setSettingsMessage('Room Plan Settings saved successfully.');
@@ -606,7 +673,7 @@ export function PlanRoomsPanel({
     while (queue.length && guard < 5000) {
       guard += 1;
       const portion = queue.shift()!;
-      const candidates = usedRooms
+      const eligibleRooms = usedRooms
         .filter(room => {
           const row = generatedRows.find(item => item.roomId === room._id)!;
           const grades = roomGradeCounts(room._id);
@@ -615,7 +682,12 @@ export function PlanRoomsPanel({
           if (existingClassCount + portion.count > settings.maxClassPortion) return false;
           if (!grades.has(portion.gradeKey) && grades.size >= settings.preferredGradesPerRoom) return false;
           return true;
-        })
+        });
+      const freshRoomsForClass = settings.spreadSameClassAcrossRooms
+        ? eligibleRooms.filter(room => !roomHasClass(room._id, portion.classId))
+        : [];
+      const candidatePool = freshRoomsForClass.length ? freshRoomsForClass : eligibleRooms;
+      const candidates = candidatePool
         .map(room => {
           const load = loadByRoom.get(room._id) || 0;
           const target = targets.get(room._id) || 0;
@@ -975,22 +1047,52 @@ export function PlanRoomsPanel({
     min:number;
     max:number;
     suffix?:string;
-  }) => (
-    <label className="space-y-1.5">
-      <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">{label}</span>
-      <div className="relative">
-        <input
-          type="number"
-          min={min}
-          max={max}
-          value={Number(settings[settingKey])}
-          onChange={e => updateSettings(settingKey as any, Math.max(min, Math.min(max, Number(e.target.value) || min)) as any)}
-          className={input + (suffix ? ' pr-12' : '')}
-        />
-        {suffix && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--color-text-tertiary)]">{suffix}</span>}
-      </div>
-    </label>
-  );
+  }) => {
+    const key = String(settingKey);
+    const draftValue = numberDrafts[key];
+    const displayedValue = draftValue !== undefined
+      ? draftValue
+      : String(Number(settings[settingKey]));
+
+    const commit = (raw: string) => {
+      const parsed = Number(raw);
+      if (raw.trim() !== '' && Number.isFinite(parsed)) {
+        const next = Math.max(min, Math.min(max, Math.trunc(parsed)));
+        updateSettings(settingKey as any, next as any);
+      }
+      setNumberDrafts(prev => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    };
+
+    return (
+      <label className="space-y-1.5">
+        <span className="text-xs font-semibold text-[var(--color-text-tertiary)]">{label}</span>
+        <div className="relative">
+          <input
+            type="number"
+            min={min}
+            max={max}
+            value={displayedValue}
+            onChange={e => {
+              const raw = e.target.value;
+              setNumberDrafts(prev => ({ ...prev, [key]: raw }));
+              if (raw.trim() === '') return;
+              const parsed = Number(raw);
+              if (Number.isFinite(parsed) && parsed >= min && parsed <= max) {
+                updateSettings(settingKey as any, Math.trunc(parsed) as any);
+              }
+            }}
+            onBlur={e => commit(e.target.value)}
+            className={input + (suffix ? ' pr-12' : '')}
+          />
+          {suffix && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--color-text-tertiary)]">{suffix}</span>}
+        </div>
+      </label>
+    );
+  };
 
   const ToggleSetting = ({
     label,
@@ -1077,7 +1179,10 @@ export function PlanRoomsPanel({
                 <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Organization-level rules used every time Smart Mixed Plan is generated.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" onClick={()=>{setSettings(DEFAULT_SETTINGS);setSettingsDirty(true);setSettingsMessage('')}} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold">
+                <button type="button" onClick={applyRecommendedSettings} className="inline-flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-sm font-bold text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-300">
+                  <Zap size={15}/>Fill Recommended
+                </button>
+                <button type="button" onClick={()=>{setSettings(DEFAULT_SETTINGS);setNumberDrafts({});setSettingsDirty(true);setSettingsMessage('')}} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold">
                   <RotateCcw size={15}/>Reset Defaults
                 </button>
                 <button type="button" disabled={settingsSaving} onClick={()=>void saveSettings()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
@@ -1091,6 +1196,23 @@ export function PlanRoomsPanel({
 
             <div className="overflow-y-auto">
               <div className="space-y-6 p-4 sm:p-5">
+            <div className="rounded-xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900/40 dark:bg-primary-950/20">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-bold text-primary-800 dark:text-primary-200">Recommended from current data</p>
+                  <p className="mt-1 text-sm text-primary-700/90 dark:text-primary-300/90">
+                    {activeStudentTotal} active students · {sortedRooms.length} active Rooms · about {recommendedTargetPerRoom} students per Room.
+                  </p>
+                </div>
+                <button type="button" onClick={applyRecommendedSettings} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white">
+                  <Zap size={16}/>Use Recommended
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">
+                Recommendation favors balanced use of all Active Rooms, equal class splits, and spreading the same class across different Rooms before reusing one.
+              </p>
+            </div>
+
             <div>
               <h3 className="font-bold">Basic Smart Rules</h3>
               <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1123,7 +1245,8 @@ export function PlanRoomsPanel({
               <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 <ToggleSetting label="Keep Small Classes Together" description={'Classes up to ' + settings.smallClassThreshold + ' students are not split.'} settingKey="keepSmallClassesTogether" />
                 <ToggleSetting label="Equal Class Splits" description="When a class must split, portions stay as equal as possible." settingKey="splitBalanceEqual" />
-                <ToggleSetting label="Use Minimum Rooms" description="Use the fewest rooms that safely hold all students." settingKey="useMinimumRooms" />
+                <ToggleSetting label="Spread Same Class Across Rooms" description="Give each class portion a different suitable Room before putting another portion of that class in the same Room." settingKey="spreadSameClassAcrossRooms" />
+                <ToggleSetting label="Use Minimum Rooms" description="Use the fewest rooms that safely hold all students. Turn this off for stronger all-Room balancing." settingKey="useMinimumRooms" />
                 <ToggleSetting label="Avoid Same-Class Sections Together" description="Prefer different grades/sections in the same room." settingKey="avoidSameClassSectionsTogether" />
                 <ToggleSetting label="Avoid Repeated Grade Mix" description="Try not to repeat the same grade combination across many rooms." settingKey="avoidRepeatGradeMix" />
                 <ToggleSetting label="Auto Repair Invalid Mix" description="Try to repair single-grade rooms automatically before review." settingKey="autoRepairInvalidPlan" />
@@ -1167,6 +1290,7 @@ export function PlanRoomsPanel({
                   type="button"
                   onClick={() => {
                     setSettings(savedSettings);
+                    setNumberDrafts({});
                     setSettingsDirty(false);
                     setSettingsMessage('');
                     setSettingsOpen(true);
