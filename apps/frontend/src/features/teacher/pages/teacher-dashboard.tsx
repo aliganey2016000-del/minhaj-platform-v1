@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
   ArrowRight,
   BookOpen,
+  CalendarDays,
+  CheckCircle2,
   ClipboardCheck,
   ClipboardList,
+  Clock3,
+  FileText,
+  GraduationCap,
   RefreshCw,
+  Sparkles,
   TrendingUp,
-  Trophy,
   Users,
-  Zap,
 } from 'lucide-react';
 import api from '../../../lib/axios';
 
@@ -20,9 +24,9 @@ interface CourseCard {
   title: { en: string; so?: string; ar?: string };
   slug: string;
   category: string;
-  enrolledStudents: number;
-  maxStudents: number;
   status: string;
+  studentCount?: number;
+  class?: { _id?: string; title?: string; section?: string } | string | null;
 }
 
 interface PendingSubmission {
@@ -41,34 +45,58 @@ interface DashboardData {
     totalCourses: number;
     totalStudents: number;
     pendingSubmissions: number;
-    avgPerformance: number;
+    avgPerformance: number | null;
+    performanceSamples?: number;
   };
-  teacher: { teacherId: string };
+  teacher: {
+    teacherId: string;
+    qualification?: string;
+    specialization?: string;
+  };
 }
 
-interface GamificationData {
-  topStudents: Array<{ studentId: string; name: string; xp: number; level: number; streak: number }>;
-  totalClassXP: number;
-  participantCount: number;
+interface Duty {
+  _id: string;
+  examDate: string;
+  startTime: string;
+  endTime: string;
+  studentCount: number;
+  completed: boolean;
+  room?: { name?: string; building?: string };
+  period?: { name?: string; academicYear?: string };
 }
 
-const cardClass = 'rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]';
+const cardClass = 'rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm';
+
+const classNameOf = (course: CourseCard) => {
+  const cls = course.class;
+  if (!cls || typeof cls === 'string') return '';
+  return [cls.title, cls.section].filter(Boolean).join(' ');
+};
+
+const dutyStart = (duty: Duty) => {
+  const date = new Date(duty.examDate);
+  if (Number.isNaN(date.getTime())) return Number.MAX_SAFE_INTEGER;
+  const day = date.toISOString().slice(0, 10);
+  return new Date(`${day}T${duty.startTime || '00:00'}:00`).getTime();
+};
 
 export function TeacherDashboard() {
   const { i18n } = useTranslation();
   const lang = i18n.language as 'en' | 'so' | 'ar';
   const isSo = lang === 'so';
+
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [gamification, setGamification] = useState<GamificationData | null>(null);
+  const [duties, setDuties] = useState<Duty[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const load = async () => {
     setLoading(true);
     setError('');
-    const [dashboardResult, gamificationResult] = await Promise.allSettled([
+    const [dashboardResult, dutiesResult] = await Promise.allSettled([
       api.get('/teacher-portal/dashboard'),
-      api.get('/teacher-portal/dashboard/gamification'),
+      api.get('/exams/invigilators/my'),
     ]);
 
     if (dashboardResult.status === 'fulfilled') {
@@ -77,15 +105,25 @@ export function TeacherDashboard() {
       setError(dashboardResult.reason?.response?.data?.message || 'Failed to load dashboard');
     }
 
-    if (gamificationResult.status === 'fulfilled') {
-      setGamification(gamificationResult.value.data?.data || null);
+    if (dutiesResult.status === 'fulfilled') {
+      setDuties(dutiesResult.value.data?.data || []);
+    } else {
+      setDuties([]);
     }
+
     setLoading(false);
   };
 
   useEffect(() => {
     void load();
   }, []);
+
+  const nextDuty = useMemo(() => {
+    const now = Date.now();
+    return [...duties]
+      .filter((duty) => !duty.completed && dutyStart(duty) >= now)
+      .sort((a, b) => dutyStart(a) - dutyStart(b))[0] || null;
+  }, [duties]);
 
   if (loading) {
     return (
@@ -104,11 +142,7 @@ export function TeacherDashboard() {
         <div className="text-center">
           <AlertCircle className="mx-auto h-10 w-10 text-red-500" />
           <p className="mt-3 text-sm text-red-600">{error || 'Dashboard unavailable'}</p>
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white"
-          >
+          <button type="button" onClick={() => void load()} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">
             <RefreshCw className="h-4 w-4" /> Retry
           </button>
         </div>
@@ -116,174 +150,223 @@ export function TeacherDashboard() {
     );
   }
 
+  const performance = dashboard.stats.avgPerformance;
   const stats = [
-    { label: isSo ? 'Koorsooyin' : 'Courses', value: dashboard.stats.totalCourses, icon: BookOpen },
-    { label: isSo ? 'Arday' : 'Students', value: dashboard.stats.totalStudents, icon: Users },
-    { label: isSo ? 'Sugaya' : 'To review', value: dashboard.stats.pendingSubmissions, icon: ClipboardList },
-    { label: isSo ? 'Waxqabad' : 'Performance', value: `${dashboard.stats.avgPerformance}%`, icon: TrendingUp },
+    {
+      label: isSo ? 'Koorsooyinka' : 'Courses',
+      value: dashboard.stats.totalCourses,
+      icon: BookOpen,
+      tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
+    },
+    {
+      label: isSo ? 'Ardayda' : 'Students',
+      value: dashboard.stats.totalStudents,
+      icon: Users,
+      tone: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300',
+    },
+    {
+      label: isSo ? 'Sugaya qiimeyn' : 'To review',
+      value: dashboard.stats.pendingSubmissions,
+      icon: ClipboardList,
+      tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
+    },
+    {
+      label: isSo ? 'Waxqabad' : 'Performance',
+      value: performance === null ? '—' : `${performance}%`,
+      sub: performance === null ? (isSo ? 'Weli dhibco ma jiraan' : 'No graded work yet') : `${dashboard.stats.performanceSamples || 0} graded`,
+      icon: TrendingUp,
+      tone: 'bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300',
+    },
   ];
 
   const quickActions = [
-    { label: isSo ? 'Qaado xaadirinta' : 'Take attendance', href: '/teacher/attendance', icon: ClipboardCheck },
-    { label: isSo ? 'Qiimee shaqada' : 'Review submissions', href: '/teacher/gradebook', icon: ClipboardList },
-    { label: isSo ? 'Casharrada' : 'Manage lessons', href: '/teacher/lessons', icon: BookOpen },
-    { label: isSo ? 'Analytics' : 'View analytics', href: '/teacher/analytics', icon: TrendingUp },
+    { label: isSo ? 'Qaado xaadirinta' : 'Take Attendance', href: '/teacher/attendance', icon: ClipboardCheck, tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' },
+    { label: isSo ? 'Imtixaannada' : 'Exam Workspace', href: '/teacher/exams', icon: FileText, tone: 'bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300' },
+    { label: isSo ? 'Qiimee shaqada' : 'Review Work', href: '/teacher/gradebook', icon: ClipboardList, tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300' },
+    { label: isSo ? 'Natiijooyinka' : 'Enter Results', href: '/teacher/results/enter', icon: GraduationCap, tone: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300' },
   ];
 
   return (
-    <div className="mx-auto max-w-7xl p-4 md:p-6 lg:p-8">
-      <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-emerald-600">Teacher portal</p>
-          <h1 className="mt-1 text-2xl font-black text-[var(--color-text-primary)]">
-            {isSo ? 'Dashboard-ka Macallinka' : lang === 'ar' ? 'لوحة المعلم' : 'Teacher Dashboard'}
-          </h1>
-          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
-            {isSo ? 'Wax walba oo muhiim ah hal meel.' : 'Your teaching activity at a glance.'}
-            {dashboard.teacher?.teacherId ? ` · ID ${dashboard.teacher.teacherId}` : ''}
-          </p>
+    <div className="mx-auto max-w-7xl space-y-5 p-3 sm:p-5 lg:p-8">
+      <section className="overflow-hidden rounded-3xl border border-emerald-200/70 bg-gradient-to-br from-emerald-600 via-emerald-600 to-teal-700 text-white shadow-sm dark:border-emerald-900/50">
+        <div className="p-5 sm:p-6">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-[11px] font-bold uppercase tracking-wide">
+                <Sparkles className="h-3.5 w-3.5" />
+                {isSo ? 'Shaqada maanta' : 'Teacher Workspace'}
+              </div>
+              <h1 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">
+                {isSo ? 'Dashboard-ka Macallinka' : lang === 'ar' ? 'لوحة المعلم' : 'Teacher Dashboard'}
+              </h1>
+              <p className="mt-1 max-w-2xl text-sm text-emerald-50">
+                {dashboard.teacher?.specialization
+                  ? dashboard.teacher.specialization
+                  : isSo ? 'Waxyaabaha muhiimka kuu ah hal meel.' : 'The work that needs your attention, in one place.'}
+              </p>
+              {dashboard.teacher?.teacherId && (
+                <span className="mt-3 inline-flex rounded-lg bg-black/10 px-2.5 py-1 text-xs font-semibold">ID {dashboard.teacher.teacherId}</span>
+              )}
+            </div>
+
+            <button type="button" onClick={() => void load()} className="inline-flex min-h-11 w-fit items-center justify-center gap-2 rounded-xl bg-white/15 px-4 py-2.5 text-sm font-bold text-white backdrop-blur transition hover:bg-white/20">
+              <RefreshCw className="h-4 w-4" /> Refresh
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="inline-flex w-fit items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]"
-        >
-          <RefreshCw className="h-3.5 w-3.5" /> Refresh
-        </button>
-      </header>
+      </section>
 
       {error && (
-        <div className="mb-5 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-          <AlertCircle className="h-4 w-4" /> {error}
+        <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+          <AlertCircle className="h-4 w-4 shrink-0" /> {error}
         </div>
       )}
 
-      <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {stats.map(({ label, value, icon: Icon }) => (
-          <div key={label} className={`${cardClass} p-4`}>
-            <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40">
-              <Icon className="h-4 w-4" />
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {stats.map(({ label, value, sub, icon: Icon, tone }) => (
+          <div key={label} className={`${cardClass} min-w-0 p-4 sm:p-5`}>
+            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}>
+              <Icon className="h-5 w-5" />
             </div>
-            <p className="text-2xl font-black text-[var(--color-text-primary)]">{value}</p>
-            <p className="mt-1 text-xs font-medium text-[var(--color-text-tertiary)]">{label}</p>
+            <p className="mt-4 truncate text-2xl font-black text-[var(--color-text-primary)] sm:text-3xl">{value}</p>
+            <p className="mt-1 text-xs font-bold text-[var(--color-text-secondary)] sm:text-sm">{label}</p>
+            {sub && <p className="mt-1 truncate text-[10px] text-[var(--color-text-tertiary)] sm:text-xs">{sub}</p>}
           </div>
         ))}
       </section>
 
-      <section className={`${cardClass} mb-6 p-4 md:p-5`}>
-        <div className="mb-3">
-          <h2 className="text-sm font-bold text-[var(--color-text-primary)]">{isSo ? 'Tallaabooyin degdeg ah' : 'Quick actions'}</h2>
-          <p className="text-xs text-[var(--color-text-tertiary)]">{isSo ? 'Bilow shaqada aad hadda u baahan tahay.' : 'Start the task you need right now.'}</p>
+      <section className={`${cardClass} p-4 sm:p-5`}>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-black text-[var(--color-text-primary)]">{isSo ? 'Shaqo degdeg ah' : 'Quick Actions'}</h2>
+            <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{isSo ? 'Hal taabasho ku bilow.' : 'Start the task you need now.'}</p>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-          {quickActions.map(({ label, href, icon: Icon }) => (
-            <Link
-              key={href}
-              to={href}
-              className="group flex min-h-20 items-center gap-3 rounded-xl border border-[var(--color-border-subtle)] p-3 transition hover:border-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-surface-secondary)] text-emerald-600">
-                <Icon className="h-4 w-4" />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {quickActions.map(({ label, href, icon: Icon, tone }) => (
+            <Link key={href} to={href} className="group flex min-h-24 flex-col justify-between rounded-2xl border border-[var(--color-border-subtle)] p-3.5 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-sm">
+              <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}><Icon className="h-5 w-5" /></span>
+              <span className="mt-3 flex items-end justify-between gap-2 text-xs font-black text-[var(--color-text-primary)] sm:text-sm">
+                <span>{label}</span><ArrowRight className="h-4 w-4 shrink-0 text-[var(--color-text-tertiary)] transition group-hover:translate-x-0.5" />
               </span>
-              <span className="min-w-0 text-xs font-bold text-[var(--color-text-primary)]">{label}</span>
-              <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-[var(--color-text-tertiary)] transition group-hover:translate-x-0.5" />
             </Link>
           ))}
         </div>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-        <div className="space-y-6">
-          <section className={`${cardClass} overflow-hidden`}>
-            <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-4 py-4 md:px-5">
-              <div>
-                <h2 className="text-sm font-bold text-[var(--color-text-primary)]">{isSo ? 'Koorsooyinkayga' : 'My courses'}</h2>
-                <p className="text-xs text-[var(--color-text-tertiary)]">{dashboard.activeCourses.length} active</p>
-              </div>
-              <Link to="/teacher/courses" className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600">
-                View all <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
+        <section className={`${cardClass} overflow-hidden`}>
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] px-4 py-4 sm:px-5">
+            <div>
+              <h2 className="font-black text-[var(--color-text-primary)]">{isSo ? 'Koorsooyinkayga' : 'My Courses'}</h2>
+              <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{dashboard.activeCourses.length} active</p>
             </div>
-            <div className="divide-y divide-[var(--color-border-subtle)]">
-              {dashboard.activeCourses.slice(0, 6).map((course) => {
-                const title = course.title?.[lang] || course.title?.en || 'Course';
-                return (
-                  <Link key={course._id} to={`/teacher/courses/${course._id}`} className="flex items-center gap-3 px-4 py-3.5 hover:bg-[var(--color-surface-secondary)] md:px-5">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-xs font-black text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                      {course.category?.charAt(0)?.toUpperCase() || 'C'}
+            <Link to="/teacher/courses" className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-bold text-emerald-600">
+              View all <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+
+          <div className="divide-y divide-[var(--color-border-subtle)]">
+            {dashboard.activeCourses.slice(0, 5).map((course, index) => {
+              const title = course.title?.[lang] || course.title?.en || 'Course';
+              const classLabel = classNameOf(course);
+              const tones = [
+                'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
+                'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300',
+                'bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300',
+                'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
+              ];
+              return (
+                <Link key={course._id} to={`/teacher/courses/${course._id}`} className="flex min-h-16 items-center gap-3 px-4 py-3.5 transition hover:bg-[var(--color-surface-secondary)] sm:px-5">
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-black ${tones[index % tones.length]}`}>
+                    {title.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-black text-[var(--color-text-primary)]">{title}</span>
+                    <span className="mt-0.5 block truncate text-xs text-[var(--color-text-tertiary)]">
+                      {classLabel || 'Assigned class'} · {course.studentCount || 0} students
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-bold text-[var(--color-text-primary)]">{title}</span>
-                      <span className="block text-xs text-[var(--color-text-tertiary)]">{course.enrolledStudents}/{course.maxStudents} students</span>
-                    </span>
-                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold capitalize text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{course.status}</span>
-                  </Link>
-                );
-              })}
-              {dashboard.activeCourses.length === 0 && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No active courses.</p>}
-            </div>
-          </section>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-[var(--color-text-tertiary)]" />
+                </Link>
+              );
+            })}
+            {dashboard.activeCourses.length === 0 && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No active courses assigned.</p>}
+          </div>
+        </section>
 
-          <section className={`${cardClass} overflow-hidden`}>
-            <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-4 py-4 md:px-5">
+        <div className="space-y-4">
+          <section className={`${cardClass} p-4 sm:p-5`}>
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-sm font-bold text-[var(--color-text-primary)]">{isSo ? 'Shaqooyinka sugaya' : 'Pending submissions'}</h2>
-                <p className="text-xs text-[var(--color-text-tertiary)]">{dashboard.stats.pendingSubmissions} need attention</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-violet-600">Next Exam Duty</p>
+                {nextDuty ? (
+                  <>
+                    <h2 className="mt-2 text-lg font-black">{nextDuty.room?.name || 'Exam Room'}</h2>
+                    <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{nextDuty.period?.name || 'Exam'} · {nextDuty.studentCount} students</p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="mt-2 text-lg font-black">No upcoming duty</h2>
+                    <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">New invigilation assignments will appear here.</p>
+                  </>
+                )}
               </div>
-              <Link to="/teacher/gradebook" className="text-xs font-bold text-emerald-600">Open gradebook</Link>
+              <div className="rounded-xl bg-violet-50 p-2.5 text-violet-600 dark:bg-violet-950/30 dark:text-violet-300"><CalendarDays className="h-5 w-5" /></div>
             </div>
-            <div className="divide-y divide-[var(--color-border-subtle)]">
-              {dashboard.pendingSubmissions.slice(0, 5).map((submission) => (
-                <div key={submission._id} className="flex items-center gap-3 px-4 py-3.5 md:px-5">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-xs font-black text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{submission.studentName?.charAt(0) || '?'}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-[var(--color-text-primary)]">{submission.studentName} · {submission.assignmentTitle}</p>
-                    <p className="truncate text-xs text-[var(--color-text-tertiary)]">{submission.courseTitle} · {new Date(submission.submittedAt).toLocaleDateString()}</p>
-                  </div>
-                  <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold capitalize text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{submission.status}</span>
-                </div>
-              ))}
-              {dashboard.pendingSubmissions.length === 0 && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">Nothing waiting for review.</p>}
-            </div>
-          </section>
-        </div>
 
-        <aside className="space-y-6">
-          <section className={`${cardClass} overflow-hidden`}>
-            <div className="border-b border-[var(--color-border-subtle)] px-4 py-4">
-              <div className="flex items-center gap-2">
-                <Trophy className="h-4 w-4 text-amber-500" />
-                <h2 className="text-sm font-bold text-[var(--color-text-primary)]">{isSo ? 'Hogaamiyayaasha XP' : 'Class leaderboard'}</h2>
-              </div>
-              <div className="mt-2 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
-                <Zap className="h-3.5 w-3.5 text-amber-500" /> {gamification?.totalClassXP?.toLocaleString() || 0} class XP · {gamification?.participantCount || 0} students
-              </div>
-            </div>
-            <div className="divide-y divide-[var(--color-border-subtle)]">
-              {gamification?.topStudents?.slice(0, 6).map((student, index) => (
-                <div key={student.studentId} className="flex items-center gap-3 px-4 py-3">
-                  <span className="w-5 text-center text-xs font-black text-[var(--color-text-tertiary)]">{index + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-bold text-[var(--color-text-primary)]">{student.name}{student.streak > 0 ? ` 🔥${student.streak}` : ''}</p>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]">
-                      <div className="h-full rounded-full bg-amber-400" style={{ width: `${Math.min(100, (student.xp / 1000) * 100)}%` }} />
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-bold text-amber-600">{student.xp} XP</span>
+            {nextDuty && (
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3">
+                  <p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Date</p>
+                  <p className="mt-1 text-sm font-bold">{new Date(nextDuty.examDate).toLocaleDateString(undefined,{day:'numeric',month:'short'})}</p>
                 </div>
-              ))}
-              {!gamification?.topStudents?.length && <p className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">No leaderboard data yet.</p>}
-            </div>
-          </section>
+                <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3">
+                  <p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Time</p>
+                  <p className="mt-1 text-sm font-bold">{nextDuty.startTime}–{nextDuty.endTime}</p>
+                </div>
+              </div>
+            )}
 
-          <section className={`${cardClass} p-5`}>
-            <h2 className="text-sm font-bold text-[var(--color-text-primary)]">Attendance</h2>
-            <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">Open today’s teaching schedule and mark students Present or Absent. Add an excuse only when an absent student is excused.</p>
-            <Link to="/teacher/attendance" className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
-              <ClipboardCheck className="h-4 w-4" /> Take attendance
+            <Link to="/teacher/exam-attendance" className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white">
+              <Clock3 className="h-4 w-4" /> Open Exam Duties
             </Link>
           </section>
-        </aside>
+
+          <section className={`${cardClass} overflow-hidden`}>
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] px-4 py-4">
+              <div>
+                <h2 className="font-black">{isSo ? 'Sugaya qiimeyn' : 'Needs Review'}</h2>
+                <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{dashboard.stats.pendingSubmissions} submissions</p>
+              </div>
+              {dashboard.stats.pendingSubmissions === 0 && <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+            </div>
+
+            <div className="divide-y divide-[var(--color-border-subtle)]">
+              {dashboard.pendingSubmissions.slice(0, 3).map((submission) => (
+                <div key={submission._id} className="flex items-center gap-3 px-4 py-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-xs font-black text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">{submission.studentName?.charAt(0) || '?'}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-black">{submission.studentName}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-tertiary)]">{submission.assignmentTitle} · {submission.courseTitle}</p>
+                  </div>
+                </div>
+              ))}
+              {dashboard.pendingSubmissions.length === 0 && (
+                <div className="p-6 text-center">
+                  <CheckCircle2 className="mx-auto h-7 w-7 text-emerald-600" />
+                  <p className="mt-2 text-sm font-black">Nothing waiting for review.</p>
+                </div>
+              )}
+            </div>
+
+            {dashboard.stats.pendingSubmissions > 0 && (
+              <Link to="/teacher/gradebook" className="flex min-h-11 items-center justify-center gap-2 border-t border-[var(--color-border-subtle)] text-xs font-black text-amber-700 dark:text-amber-300">
+                Review submissions <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            )}
+          </section>
+        </div>
       </div>
     </div>
   );
