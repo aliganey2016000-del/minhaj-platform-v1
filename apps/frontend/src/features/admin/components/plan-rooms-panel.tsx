@@ -481,11 +481,10 @@ export function PlanRoomsPanel({
       return;
     }
     if (totalRoomCapacity < activeStudentTotal) {
-      setLocalError(
+      setSettingsMessage(
         'Physical room capacity is short by ' + (activeStudentTotal - totalRoomCapacity)
-        + ' seats. Add another physical Room or increase its real seating capacity.'
+        + ' seat(s). The smart plan will keep the safe allocation and let you resolve the remaining students by Class with an Admin-approved Room override.'
       );
-      return;
     }
     if (totalOperationalCapacity < activeStudentTotal) {
       setSettingsMessage(
@@ -1194,11 +1193,14 @@ export function PlanRoomsPanel({
 
                   let statusLabel = 'Unused';
                   let statusClass = 'bg-slate-100 text-slate-600';
-                  if (used > Number(room.capacity)) {
-                    statusLabel = 'Over Physical Capacity';
+                  if (used > Number(room.capacity) && capacityOverrideRoomIds.includes(room._id)) {
+                    statusLabel = 'Admin Override +' + (used - Number(room.capacity)) + ' · ' + used + '/' + room.capacity;
+                    statusClass = 'bg-amber-100 text-amber-700';
+                  } else if (used > Number(room.capacity)) {
+                    statusLabel = 'Admin Override Required';
                     statusClass = 'bg-red-100 text-red-700';
                   } else if (used > operationalCapacity && capacityOverrideRoomIds.includes(room._id)) {
-                    statusLabel = 'Override +' + (used - operationalCapacity) + ' · ' + used + '/' + room.capacity;
+                    statusLabel = 'Admin Override · ' + used + '/' + room.capacity;
                     statusClass = 'bg-amber-100 text-amber-700';
                   } else if (used > operationalCapacity) {
                     statusLabel = 'Override Required';
