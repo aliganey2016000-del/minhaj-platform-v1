@@ -565,6 +565,7 @@ export function PlanRoomsPanel({
     const generatedRows: PlanRoomRow[] = sortedRooms.map(room => ({ roomId: room._id, allocations: [] }));
     const loadByRoom = new Map<string, number>(sortedRooms.map(room => [room._id, 0]));
     const mixSignatures = new Map<string, number>();
+    let fallbackRoomsActivated = 0;
 
     const addQuota = (roomId: string, classId: string, amount: number) => {
       const row = generatedRows.find(item => item.roomId === roomId)!;
@@ -666,6 +667,25 @@ export function PlanRoomsPanel({
         continue;
       }
 
+      // Minimum Rooms is only the starting point. If the currently active
+      // rooms cannot accept this remaining class portion under the saved
+      // mixing rules, automatically activate the next available Room before
+      // declaring any students unresolved.
+      const nextUnusedRoom = roomsByCapacity.find(room =>
+        !usedRooms.some(activeRoom => activeRoom._id === room._id)
+      );
+      if (nextUnusedRoom) {
+        usedRooms.push(nextUnusedRoom);
+        fallbackRoomsActivated += 1;
+
+        const refreshedTargets = buildRoomTargets(usedRooms, activeStudentTotal);
+        targets.clear();
+        refreshedTargets.forEach((value, roomId) => targets.set(roomId, value));
+
+        queue.unshift(portion);
+        continue;
+      }
+
       unresolvedByClass.set(
         portion.classId,
         (unresolvedByClass.get(portion.classId) || 0) + portion.count,
@@ -758,8 +778,13 @@ export function PlanRoomsPanel({
     const unresolvedTotal = Array.from(unresolvedByClass.values()).reduce((sum, count) => sum + count, 0);
     if (unresolvedTotal > 0) {
       setSettingsMessage(
-        'Partial plan generated. ' + unresolvedTotal
-        + ' student(s) remain. Resolve them by Class below using Add Extra.'
+        'All available Rooms were considered. ' + unresolvedTotal
+        + ' student(s) still remain and need Class/Room Resolution.'
+      );
+    } else if (fallbackRoomsActivated > 0) {
+      setSettingsMessage(
+        'Smart plan completed. ' + fallbackRoomsActivated
+        + ' additional available Room(s) were opened automatically so no students were left unassigned.'
       );
     } else {
       const repeatedMixes = Array.from(mixSignatures.values()).filter(count => count > 1).length;
