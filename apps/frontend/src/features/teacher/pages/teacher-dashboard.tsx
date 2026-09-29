@@ -6,7 +6,6 @@ import {
   ArrowRight,
   BookOpen,
   CalendarDays,
-  CheckCircle2,
   ClipboardCheck,
   ClipboardList,
   Clock3,
@@ -14,7 +13,6 @@ import {
   GraduationCap,
   RefreshCw,
   Sparkles,
-  TrendingUp,
   Users,
 } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -55,6 +53,13 @@ interface DashboardData {
   };
 }
 
+interface TeachingSchedule {
+  _id: string;
+  startTime: string;
+  endTime: string;
+  class?: { _id?: string; title?: string; section?: string } | null;
+}
+
 interface Duty {
   _id: string;
   examDate: string;
@@ -88,15 +93,17 @@ export function TeacherDashboard() {
 
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [duties, setDuties] = useState<Duty[]>([]);
+  const [teachingSchedule, setTeachingSchedule] = useState<TeachingSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const load = async () => {
     setLoading(true);
     setError('');
-    const [dashboardResult, dutiesResult] = await Promise.allSettled([
+    const [dashboardResult, dutiesResult, scheduleResult] = await Promise.allSettled([
       api.get('/teacher-portal/dashboard'),
       api.get('/exams/invigilators/my'),
+      api.get('/class-schedules/my-teaching'),
     ]);
 
     if (dashboardResult.status === 'fulfilled') {
@@ -109,6 +116,12 @@ export function TeacherDashboard() {
       setDuties(dutiesResult.value.data?.data || []);
     } else {
       setDuties([]);
+    }
+
+    if (scheduleResult.status === 'fulfilled') {
+      setTeachingSchedule(scheduleResult.value.data?.data || []);
+    } else {
+      setTeachingSchedule([]);
     }
 
     setLoading(false);
@@ -150,13 +163,35 @@ export function TeacherDashboard() {
     );
   }
 
-  const performance = dashboard.stats.avgPerformance;
+  const assignedClasses = new Set(
+    [
+      ...teachingSchedule.map((item) => String(item.class?._id || '')),
+      ...dashboard.activeCourses.map((course) => {
+        const cls = course.class;
+        return typeof cls === 'string' ? cls : String(cls?._id || '');
+      }),
+    ].filter(Boolean),
+  );
+
+  const weeklyMinutes = teachingSchedule.reduce((sum, item) => {
+    const [startHour, startMinute] = String(item.startTime || '').split(':').map(Number);
+    const [endHour, endMinute] = String(item.endTime || '').split(':').map(Number);
+    if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) return sum;
+    const minutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+    return sum + Math.max(0, minutes);
+  }, 0);
+
+  const weeklyHours = weeklyMinutes / 60;
+  const weeklyHoursLabel = Number.isInteger(weeklyHours)
+    ? String(weeklyHours)
+    : weeklyHours.toFixed(1);
+
   const stats = [
     {
-      label: isSo ? 'Koorsooyinka' : 'Courses',
-      value: dashboard.stats.totalCourses,
-      icon: BookOpen,
-      tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
+      label: isSo ? 'Fasallada' : 'Classes',
+      value: assignedClasses.size,
+      icon: GraduationCap,
+      tone: 'bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300',
     },
     {
       label: isSo ? 'Ardayda' : 'Students',
@@ -165,17 +200,16 @@ export function TeacherDashboard() {
       tone: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300',
     },
     {
-      label: isSo ? 'Sugaya qiimeyn' : 'To review',
-      value: dashboard.stats.pendingSubmissions,
-      icon: ClipboardList,
-      tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
+      label: isSo ? 'Koorsooyinka' : 'Courses',
+      value: dashboard.stats.totalCourses,
+      icon: BookOpen,
+      tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
     },
     {
-      label: isSo ? 'Waxqabad' : 'Performance',
-      value: performance === null ? '—' : `${performance}%`,
-      sub: performance === null ? (isSo ? 'Weli dhibco ma jiraan' : 'No graded work yet') : `${dashboard.stats.performanceSamples || 0} graded`,
-      icon: TrendingUp,
-      tone: 'bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300',
+      label: isSo ? 'Saacadaha / usbuuc' : 'Hrs / Week',
+      value: weeklyHoursLabel,
+      icon: Clock3,
+      tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
     },
   ];
 
@@ -223,14 +257,13 @@ export function TeacherDashboard() {
       )}
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {stats.map(({ label, value, sub, icon: Icon, tone }) => (
+        {stats.map(({ label, value, icon: Icon, tone }) => (
           <div key={label} className={`${cardClass} min-w-0 p-4 sm:p-5`}>
             <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}>
               <Icon className="h-5 w-5" />
             </div>
             <p className="mt-4 truncate text-2xl font-black text-[var(--color-text-primary)] sm:text-3xl">{value}</p>
             <p className="mt-1 text-xs font-bold text-[var(--color-text-secondary)] sm:text-sm">{label}</p>
-            {sub && <p className="mt-1 truncate text-[10px] text-[var(--color-text-tertiary)] sm:text-xs">{sub}</p>}
           </div>
         ))}
       </section>
@@ -333,39 +366,6 @@ export function TeacherDashboard() {
             </Link>
           </section>
 
-          <section className={`${cardClass} overflow-hidden`}>
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] px-4 py-4">
-              <div>
-                <h2 className="font-black">{isSo ? 'Sugaya qiimeyn' : 'Needs Review'}</h2>
-                <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{dashboard.stats.pendingSubmissions} submissions</p>
-              </div>
-              {dashboard.stats.pendingSubmissions === 0 && <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
-            </div>
-
-            <div className="divide-y divide-[var(--color-border-subtle)]">
-              {dashboard.pendingSubmissions.slice(0, 3).map((submission) => (
-                <div key={submission._id} className="flex items-center gap-3 px-4 py-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-xs font-black text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">{submission.studentName?.charAt(0) || '?'}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-black">{submission.studentName}</p>
-                    <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-tertiary)]">{submission.assignmentTitle} · {submission.courseTitle}</p>
-                  </div>
-                </div>
-              ))}
-              {dashboard.pendingSubmissions.length === 0 && (
-                <div className="p-6 text-center">
-                  <CheckCircle2 className="mx-auto h-7 w-7 text-emerald-600" />
-                  <p className="mt-2 text-sm font-black">Nothing waiting for review.</p>
-                </div>
-              )}
-            </div>
-
-            {dashboard.stats.pendingSubmissions > 0 && (
-              <Link to="/teacher/gradebook" className="flex min-h-11 items-center justify-center gap-2 border-t border-[var(--color-border-subtle)] text-xs font-black text-amber-700 dark:text-amber-300">
-                Review submissions <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
-            )}
-          </section>
         </div>
       </div>
     </div>
