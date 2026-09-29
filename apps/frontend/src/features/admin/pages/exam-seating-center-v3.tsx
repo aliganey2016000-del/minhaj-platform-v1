@@ -49,6 +49,7 @@ type Room = {
   building?: string;
   capacity: number;
   capacityMode?: 'auto' | 'manual';
+  allocationEnabled?: boolean;
   school?: { _id?: string; name?: string } | string;
 };
 type Student = {
@@ -231,9 +232,10 @@ function RoomActions({add,imp,exp}:{add:()=>void;imp:()=>void;exp:()=>void}) {
   </div>;
 }
 
-function RoomRowActions({room,onEdit,onDelete}:{room:Room;onEdit:()=>void;onDelete:()=>void}) {
+function RoomRowActions({room,onEdit,onDelete,onToggleAvailability}:{room:Room;onEdit:()=>void;onDelete:()=>void;onToggleAvailability:()=>void}) {
   const [open,setOpen]=useState(false);
   const ref=useRef<HTMLDivElement>(null);
+  const active=room.allocationEnabled!==false;
   useEffect(()=>{
     if(!open)return;
     const h=(e:MouseEvent)=>{if(ref.current&&!ref.current.contains(e.target as Node))setOpen(false)};
@@ -243,7 +245,11 @@ function RoomRowActions({room,onEdit,onDelete}:{room:Room;onEdit:()=>void;onDele
   const run=(fn:()=>void)=>{setOpen(false);fn()};
   return <div ref={ref} className="relative inline-flex justify-end">
     <button type="button" aria-label={`Actions for ${room.name}`} onClick={()=>setOpen(v=>!v)} className="rounded-lg border p-2"><MoreVertical size={17}/></button>
-    {open&&<div className="absolute right-0 top-10 z-[120] w-44 rounded-2xl border bg-[var(--color-surface-primary)] p-1.5 text-left shadow-2xl">
+    {open&&<div className="absolute right-0 top-10 z-[120] w-48 rounded-2xl border bg-[var(--color-surface-primary)] p-1.5 text-left shadow-2xl">
+      <button onClick={()=>run(onToggleAvailability)} className={`flex w-full gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-[var(--color-surface-secondary)] ${active?'text-amber-700':'text-emerald-700'}`}>
+        {active?<Square size={16}/>:<CheckSquare size={16}/>}
+        {active?'Deactivate':'Activate'}
+      </button>
       <button onClick={()=>run(onEdit)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--color-surface-secondary)]"><Pencil size={16}/>Edit</button>
       <button onClick={()=>run(onDelete)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-sm text-red-600 hover:bg-red-50"><Trash2 size={16}/>Delete</button>
     </div>}
@@ -854,6 +860,10 @@ export function ExamSeatingCenterV3() {
   const [selectedIds,setSelectedIds]=useState<string[]>([]);
   const [bulkBusy,setBulkBusy]=useState(false);
   const [draggedId,setDraggedId]=useState('');
+  const activeAllocationRooms=useMemo(
+    ()=>rooms.filter(room=>room.allocationEnabled!==false),
+    [rooms],
+  );
 
   const loadBase=async()=>{
     setLoading(true);setError('');
@@ -896,12 +906,12 @@ export function ExamSeatingCenterV3() {
   useEffect(()=>{void loadSeating()},[year,type]);
   useEffect(()=>{
     const validClassIds=new Set(classes.filter(c=>c.status==='active').map(c=>c._id));
-    setPlanRows(prev=>rooms.map(room=>({
+    setPlanRows(prev=>activeAllocationRooms.map(room=>({
       roomId:room._id,
       allocations:(prev.find(row=>row.roomId===room._id)?.allocations||[])
         .filter(allocation=>validClassIds.has(allocation.classId)),
     })));
-  },[classes,rooms]);
+  },[classes,activeAllocationRooms]);
 
   const filtered=useMemo(()=>allocations.filter(a=>{
     const text=[a.student?.organization,a.student?.department,a.student?.className,a.student?.shift,a.student?.studentId,nameOf(a.student),a.room?.name].join(' ').toLowerCase();
@@ -1081,6 +1091,20 @@ export function ExamSeatingCenterV3() {
     catch(err:any){setError(err.response?.data?.message||'Failed to delete room')}
   };
 
+  const toggleRoomAvailability=async(room:Room)=>{
+    const next=room.allocationEnabled===false;
+    setError('');
+    setMessage('');
+    try{
+      const response=await api.patch(`/exam-rooms/${room._id}`,{allocationEnabled:next});
+      const updated=response.data?.data||{...room,allocationEnabled:next};
+      setRooms(prev=>prev.map(item=>item._id===room._id?{...item,...updated}:item));
+      setMessage(`${room.name} is now ${next?'Active':'Inactive'} for Room Plan allocation.`);
+    }catch(err:any){
+      setError(err.response?.data?.message||'Could not update Room availability.');
+    }
+  };
+
   const formatContextDate=(value:string)=>{
     if(!value)return '';
     const date=new Date(value+'T00:00:00');
@@ -1216,8 +1240,8 @@ export function ExamSeatingCenterV3() {
           <div className={`${card} overflow-hidden`}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-[var(--color-surface-secondary)]"><tr><th className="px-5 py-3 text-left">Room</th><th className="px-5 py-3 text-left">Building</th><th className="px-5 py-3 text-left">Capacity</th><th className="px-5 py-3 text-left">Capacity Sync</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
-                <tbody>{rooms.map(r=><tr key={r._id} className="border-t"><td className="px-5 py-4 font-semibold">{r.name}</td><td className="px-5 py-4">{r.building||'Main'}</td><td className="px-5 py-4">{r.capacity}</td><td className="px-5 py-4"><span className="rounded-full border px-2.5 py-1 text-xs">Class / Rooms</span></td><td className="px-5 py-4 text-right"><RoomRowActions room={r} onEdit={()=>{setEditingRoom(r);setModal('room')}} onDelete={()=>void deleteRoom(r)}/></td></tr>)}</tbody>
+                <thead className="bg-[var(--color-surface-secondary)]"><tr><th className="px-5 py-3 text-left">Room</th><th className="px-5 py-3 text-left">Building</th><th className="px-5 py-3 text-left">Capacity</th><th className="px-5 py-3 text-left">Status</th><th className="px-5 py-3 text-left">Capacity Sync</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
+                <tbody>{rooms.map(r=><tr key={r._id} className="border-t"><td className="px-5 py-4 font-semibold">{r.name}</td><td className="px-5 py-4">{r.building||'Main'}</td><td className="px-5 py-4">{r.capacity}</td><td className="px-5 py-4">{r.allocationEnabled===false?<span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">Inactive</span>:<span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">Active</span>}</td><td className="px-5 py-4"><span className="rounded-full border px-2.5 py-1 text-xs">Class / Rooms</span></td><td className="px-5 py-4 text-right"><RoomRowActions room={r} onEdit={()=>{setEditingRoom(r);setModal('room')}} onDelete={()=>void deleteRoom(r)} onToggleAvailability={()=>void toggleRoomAvailability(r)}/></td></tr>)}</tbody>
               </table>
             </div>
           </div>
@@ -1225,7 +1249,7 @@ export function ExamSeatingCenterV3() {
         :tab==='plan'
           ?<PlanRoomsPanel
             classes={classes}
-            rooms={rooms}
+            rooms={activeAllocationRooms}
             studentCounts={classStudentCounts}
             year={year}
             type={type}
@@ -1378,13 +1402,13 @@ export function ExamSeatingCenterV3() {
           </div>
         </>}
 
-      {modal==='add'&&<AddModal rooms={rooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment added successfully.');void loadSeating()}}/>}
+      {modal==='add'&&<AddModal rooms={activeAllocationRooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment added successfully.');void loadSeating()}}/>}
       {modal==='edit'&&editing&&<EditModal allocation={editing} rooms={rooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment updated successfully.');void loadSeating()}}/>}
       {modal==='import'&&<ImportModal close={()=>setModal(null)} onImported={(info)=>{setYear(info.academicYear);setType(info.examType);setMessage(`Imported ${info.count} room assignments successfully.`);void loadSeating(info.academicYear,info.examType)}}/>}
       {modal==='auto'&&<AutoGenerateModal
         orgs={orgs}
         classes={classes}
-        rooms={rooms}
+        rooms={activeAllocationRooms}
         selectedOrg={orgForAuto}
         initialYear={autoDefaults?.academicYear}
         initialType={autoDefaults?.examType}
