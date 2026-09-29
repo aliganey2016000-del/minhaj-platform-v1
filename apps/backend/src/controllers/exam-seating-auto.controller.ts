@@ -366,7 +366,14 @@ export const generate = async (req: Request, res: Response) => {
       const roomId = String(room._id);
       const physical = Math.max(0, Number(room.capacity) || 0);
       const operational = effectiveCapacityByRoom.get(roomId) || 0;
-      return [roomId, capacityOverrideSet.has(roomId) ? physical : operational] as const;
+      const adminApproved = capacityOverrideSet.has(roomId);
+      // An explicit Admin override is the approval to exceed both operational
+      // and listed physical capacity for this exact reviewed Room Plan.
+      // It is still bounded by the total selected students in this request.
+      const approvedCapacity = adminApproved
+        ? Math.max(physical, selected.length)
+        : operational;
+      return [roomId, approvedCapacity] as const;
     })
   );
   const planningRooms = selectedRooms.map(room => ({
@@ -443,21 +450,8 @@ export const generate = async (req: Request, res: Response) => {
 
       for (const [classId, expectedCount] of selectedCountByClass.entries()) {
         const quotas = quotaPlanMap.get(classId);
-        if (quotas) {
-          const oversized = Array.from(quotas.entries()).find(([roomId, count]) => {
-            const manualCount = manualOverrideCountByClassRoom.get(classId + '::' + roomId) || 0;
-            return count - manualCount > roomPlanSettings.maxClassPortion;
-          });
-          if (oversized) {
-            const cls = targetClasses.find(c => String(c._id) === classId);
-            const room = selectedRooms.find(r => String(r._id) === oversized[0]);
-            const manualCount = manualOverrideCountByClassRoom.get(classId + '::' + oversized[0]) || 0;
-            const label = norm([cls?.title, cls?.section].filter(Boolean).join(' ')) || 'Selected class';
-            throw new BadRequestError(
-              `${label} assigns ${oversized[1] - manualCount} automatically planned students to ${room?.name || 'one room'}, above the Max Class Portion of ${roomPlanSettings.maxClassPortion}.`
-            );
-          }
-        }
+        // Max Class Portion is a smart-generation preference. Once an admin
+        // reviews and edits an exact quota plan, the exact class quota is authoritative.
         const plannedCount = quotas
           ? Array.from(quotas.values()).reduce((sum, count) => sum + count, 0)
           : 0;
@@ -493,7 +487,7 @@ export const generate = async (req: Request, res: Response) => {
         const allowedCapacity = allowedCapacityByRoom.get(roomId) || 0;
         if (planned > allowedCapacity) {
           throw new BadRequestError(
-            `${room.name} exceeds its ${capacityOverrideSet.has(roomId) ? 'physical' : 'operational'} capacity by ${planned - allowedCapacity} student(s). Physical capacity is ${room.capacity}; operational capacity is ${effectiveCapacity}.`
+            `${room.name} exceeds its approved capacity by ${planned - allowedCapacity} student(s). Physical capacity is ${room.capacity}; operational capacity is ${effectiveCapacity}.`
           );
         }
       }
@@ -526,23 +520,8 @@ export const generate = async (req: Request, res: Response) => {
         }
       }
 
-      if (selectedGradeKeys.size > 1) {
-        for (const room of selectedRooms) {
-          const planned = plannedByRoom.get(String(room._id)) || 0;
-          if (planned <= 0) continue;
-          const mixedGrades = roomGradeSets.get(String(room._id))?.size || 0;
-          if (mixedGrades < roomPlanSettings.minimumGradesPerRoom) {
-            throw new BadRequestError(
-              `${room.name} must contain at least ${roomPlanSettings.minimumGradesPerRoom} different grade levels under the current Room Plan settings.`
-            );
-          }
-          if (mixedGrades > roomPlanSettings.preferredGradesPerRoom) {
-            throw new BadRequestError(
-              `${room.name} can contain at most ${roomPlanSettings.preferredGradesPerRoom} different grade levels under the current Room Plan settings.`
-            );
-          }
-        }
-      }
+      // Grade-mix limits are generation preferences. An exact Room Plan has
+      // already been reviewed by the admin, so fallback mixes do not block save.
     }
   }
 
