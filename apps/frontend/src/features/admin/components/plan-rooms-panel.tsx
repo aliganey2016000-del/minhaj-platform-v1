@@ -634,6 +634,7 @@ export function PlanRoomsPanel({
     const loadByRoom = new Map<string, number>(sortedRooms.map(room => [room._id, 0]));
     const mixSignatures = new Map<string, number>();
     let fallbackRoomsActivated = 0;
+    let relaxedMixPlacements = 0;
 
     const addQuota = (roomId: string, classId: string, amount: number) => {
       const row = generatedRows.find(item => item.roomId === roomId)!;
@@ -673,77 +674,72 @@ export function PlanRoomsPanel({
     while (queue.length && guard < 5000) {
       guard += 1;
       const portion = queue.shift()!;
-      const eligibleRooms = usedRooms
-        .filter(room => {
-          const row = generatedRows.find(item => item.roomId === room._id)!;
-          const grades = roomGradeCounts(room._id);
-          const existingClassCount = row.allocations.find(item => item.classId === portion.classId)?.quota || 0;
-          if ((loadByRoom.get(room._id) || 0) + portion.count > effectiveCapacity(room)) return false;
-          if (existingClassCount + portion.count > settings.maxClassPortion) return false;
-          if (!grades.has(portion.gradeKey) && grades.size >= settings.preferredGradesPerRoom) return false;
-          return true;
-        });
-      const freshRoomsForClass = settings.spreadSameClassAcrossRooms
-        ? eligibleRooms.filter(room => !roomHasClass(room._id, portion.classId))
-        : [];
-      const candidatePool = freshRoomsForClass.length ? freshRoomsForClass : eligibleRooms;
-      const candidates = candidatePool
-        .map(room => {
-          const load = loadByRoom.get(room._id) || 0;
-          const target = targets.get(room._id) || 0;
-          const grades = roomGradeCounts(room._id);
-          const gradeAlready = grades.has(portion.gradeKey);
-          const distinct = grades.size;
-          const projectedLoad = load + portion.count;
-          const projectedGradeCount = (grades.get(portion.gradeKey) || 0) + portion.count;
-          const projectedShare = projectedLoad > 0 ? projectedGradeCount / projectedLoad * 100 : 0;
-          const distance = gradeDistanceScore(portion, grades);
-          let score = Math.abs(projectedLoad - target) * 5;
+      const buildCandidates = (allowExtraGradeMix: boolean) => {
+        const eligibleRooms = usedRooms
+          .filter(room => {
+            const row = generatedRows.find(item => item.roomId === room._id)!;
+            const grades = roomGradeCounts(room._id);
+            const existingClassCount = row.allocations.find(item => item.classId === portion.classId)?.quota || 0;
+            if ((loadByRoom.get(room._id) || 0) + portion.count > effectiveCapacity(room)) return false;
+            if (existingClassCount + portion.count > settings.maxClassPortion) return false;
+            if (!allowExtraGradeMix && !grades.has(portion.gradeKey) && grades.size >= settings.preferredGradesPerRoom) return false;
+            return true;
+          });
 
-          if (projectedLoad > target) score += (projectedLoad - target) * 12;
-          if (!gradeAlready && distinct < settings.preferredGradesPerRoom) score -= 90;
-          if (gradeAlready && distinct < settings.minimumGradesPerRoom) score += 120;
-          if (settings.avoidSameClassSectionsTogether && roomHasClass(room._id, portion.classId)) score += 180;
-          if (settings.avoidSameClassSectionsTogether && gradeAlready && !roomHasClass(room._id, portion.classId)) score += 140;
-          if (projectedShare > settings.maxSameGradeSharePercent) {
-            score += (projectedShare - settings.maxSameGradeSharePercent) * (settings.priorityMode === 'maximum_mixing' ? 5 : 2);
-          }
-          if (!gradeAlready && distance >= settings.preferredGradeDistance) score -= Math.min(40, distance * 8);
-          if (settings.priorityMode === 'maximum_room_usage') score -= load * 0.5;
-          if (settings.priorityMode === 'maximum_mixing' && !gradeAlready) score -= 40;
+        const freshRoomsForClass = settings.spreadSameClassAcrossRooms
+          ? eligibleRooms.filter(room => !roomHasClass(room._id, portion.classId))
+          : [];
+        const candidatePool = freshRoomsForClass.length ? freshRoomsForClass : eligibleRooms;
 
-          if (settings.avoidRepeatGradeMix && !gradeAlready) {
-            const projectedSignature = Array.from(new Set([...grades.keys(), portion.gradeKey])).sort().join('|');
-            const repeated = generatedRows.filter(other => {
-              if (other.roomId === room._id) return false;
-              const otherGrades = Array.from(roomGradeCounts(other.roomId).keys()).sort().join('|');
-              return otherGrades && otherGrades === projectedSignature;
-            }).length;
-            score += repeated * 35;
-          }
+        return candidatePool
+          .map(room => {
+            const load = loadByRoom.get(room._id) || 0;
+            const target = targets.get(room._id) || 0;
+            const grades = roomGradeCounts(room._id);
+            const gradeAlready = grades.has(portion.gradeKey);
+            const distinct = grades.size;
+            const projectedLoad = load + portion.count;
+            const projectedGradeCount = (grades.get(portion.gradeKey) || 0) + portion.count;
+            const projectedShare = projectedLoad > 0 ? projectedGradeCount / projectedLoad * 100 : 0;
+            const distance = gradeDistanceScore(portion, grades);
+            let score = Math.abs(projectedLoad - target) * 5;
 
-          return { room, score };
-        })
-        .sort((a, b) => a.score - b.score || a.room.name.localeCompare(b.room.name, undefined, { numeric: true }));
+            if (projectedLoad > target) score += (projectedLoad - target) * 12;
+            if (!gradeAlready && distinct < settings.preferredGradesPerRoom) score -= 90;
+            if (!gradeAlready && distinct >= settings.preferredGradesPerRoom) score += allowExtraGradeMix ? 45 : 1000;
+            if (gradeAlready && distinct < settings.minimumGradesPerRoom) score += 120;
+            if (settings.avoidSameClassSectionsTogether && roomHasClass(room._id, portion.classId)) score += 180;
+            if (settings.avoidSameClassSectionsTogether && gradeAlready && !roomHasClass(room._id, portion.classId)) score += 140;
+            if (projectedShare > settings.maxSameGradeSharePercent) {
+              score += (projectedShare - settings.maxSameGradeSharePercent) * (settings.priorityMode === 'maximum_mixing' ? 5 : 2);
+            }
+            if (!gradeAlready && distance >= settings.preferredGradeDistance) score -= Math.min(40, distance * 8);
+            if (settings.priorityMode === 'maximum_room_usage') score -= load * 0.5;
+            if (settings.priorityMode === 'maximum_mixing' && !gradeAlready) score -= 40;
+
+            if (settings.avoidRepeatGradeMix && !gradeAlready) {
+              const projectedSignature = Array.from(new Set([...grades.keys(), portion.gradeKey])).sort().join('|');
+              const repeated = generatedRows.filter(other => {
+                if (other.roomId === room._id) return false;
+                const otherGrades = Array.from(roomGradeCounts(other.roomId).keys()).sort().join('|');
+                return otherGrades && otherGrades === projectedSignature;
+              }).length;
+              score += repeated * 35;
+            }
+
+            return { room, score };
+          })
+          .sort((a, b) => a.score - b.score || a.room.name.localeCompare(b.room.name, undefined, { numeric: true }));
+      };
+
+      let candidates = buildCandidates(false);
 
       if (candidates.length) {
         addQuota(candidates[0].room._id, portion.classId, portion.count);
         continue;
       }
 
-      if (portion.count >= settings.minSplitPortion * 2) {
-        const split = equalSplit(portion.count, 2);
-        queue.unshift(
-          { ...portion, id: portion.id + '-b', count: split[1] },
-          { ...portion, id: portion.id + '-a', count: split[0] },
-        );
-        continue;
-      }
-
-      // Minimum Rooms is only the starting point. If the currently active
-      // rooms cannot accept this remaining class portion under the saved
-      // mixing rules, automatically activate the next available Room before
-      // declaring any students unresolved.
+      // Before weakening any mix preference, activate another allowed Room.
       const nextUnusedRoom = roomsByCapacity.find(room =>
         !usedRooms.some(activeRoom => activeRoom._id === room._id)
       );
@@ -756,6 +752,24 @@ export function PlanRoomsPanel({
         refreshedTargets.forEach((value, roomId) => targets.set(roomId, value));
 
         queue.unshift(portion);
+        continue;
+      }
+
+      // Preferred Grades / Room is a preference, not a reason to leave
+      // students unassigned when active Rooms still have safe capacity.
+      candidates = buildCandidates(true);
+      if (candidates.length) {
+        addQuota(candidates[0].room._id, portion.classId, portion.count);
+        relaxedMixPlacements += 1;
+        continue;
+      }
+
+      if (portion.count >= settings.minSplitPortion * 2) {
+        const split = equalSplit(portion.count, 2);
+        queue.unshift(
+          { ...portion, id: portion.id + '-b', count: split[1] },
+          { ...portion, id: portion.id + '-a', count: split[0] },
+        );
         continue;
       }
 
@@ -854,10 +868,13 @@ export function PlanRoomsPanel({
         'All available Rooms were considered. ' + unresolvedTotal
         + ' student(s) still remain and need Class/Room Resolution.'
       );
-    } else if (fallbackRoomsActivated > 0) {
+    } else if (fallbackRoomsActivated > 0 || relaxedMixPlacements > 0) {
+      const details = [
+        fallbackRoomsActivated > 0 ? fallbackRoomsActivated + ' additional Room(s) opened' : '',
+        relaxedMixPlacements > 0 ? relaxedMixPlacements + ' placement(s) used a wider grade mix' : '',
+      ].filter(Boolean).join(' · ');
       setSettingsMessage(
-        'Smart plan completed. ' + fallbackRoomsActivated
-        + ' additional available Room(s) were opened automatically so no students were left unassigned.'
+        'Smart plan completed with all students assigned. ' + details + '.'
       );
     } else {
       const repeatedMixes = Array.from(mixSignatures.values()).filter(count => count > 1).length;
