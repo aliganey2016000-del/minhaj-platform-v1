@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BookOpen,
   CalendarDays,
@@ -105,6 +105,7 @@ const localTodayKey = () => {
 };
 
 export function ExamInvigilatorsManage() {
+  const navigate = useNavigate();
   const [workspaceSearchParams] = useSearchParams();
   const contextPeriodId = workspaceSearchParams.get('periodId') || '';
   const contextExamName = workspaceSearchParams.get('examName') || '';
@@ -112,8 +113,11 @@ export function ExamInvigilatorsManage() {
   const contextStartDate = workspaceSearchParams.get('startDate') || '';
   const contextEndDate = workspaceSearchParams.get('endDate') || '';
   const hasExamContext = Boolean(contextPeriodId);
+  const requestedStep = workspaceSearchParams.get('step') || '';
 
-  const [tab, setTab] = useState<'attendance' | 'assignment'>('attendance');
+  const [tab, setTab] = useState<'attendance' | 'assignment'>(
+    requestedStep === 'assignment' ? 'assignment' : 'attendance'
+  );
   const [periods, setPeriods] = useState<Period[]>([]);
   const [periodId, setPeriodId] = useState(contextPeriodId);
   const [context, setContext] = useState<Context | null>(null);
@@ -428,6 +432,14 @@ export function ExamInvigilatorsManage() {
       setMessage(response.data?.message || 'Invigilator assignments confirmed.');
       setAssignmentDirty(false);
       await loadContext(context.period._id);
+
+      const attendanceSearch = new URLSearchParams(workspaceSearchParams);
+      attendanceSearch.delete('step');
+      navigate(
+        '/admin/exams/attendance' + (
+          attendanceSearch.toString() ? '?' + attendanceSearch.toString() : ''
+        )
+      );
     } catch (err: any) {
       setError(err.response?.data?.message || 'Could not confirm invigilator assignments.');
     } finally {
