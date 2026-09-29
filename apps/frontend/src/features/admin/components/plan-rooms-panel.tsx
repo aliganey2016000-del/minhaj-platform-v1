@@ -383,7 +383,7 @@ export function PlanRoomsPanel({
       maxSameGradeSharePercent: preferredGrades === 3 ? 45 : 55,
       preferredGradeDistance: 2,
       targetRoomOccupancyPercent: recommendedOccupancy,
-      occupancyBalanceTolerance: 3,
+      occupancyBalanceTolerance: 1,
       smallClassThreshold: Math.min(recommendedPortion, Math.max(8, recommendedMinSplit)),
       keepSmallClassesTogether: true,
       splitBalanceEqual: true,
@@ -627,6 +627,7 @@ export function PlanRoomsPanel({
     const mixSignatures = new Map<string, number>();
     let fallbackRoomsActivated = 0;
     let relaxedMixPlacements = 0;
+    let rebalancedStudents = 0;
 
     const addQuota = (roomId: string, classId: string, amount: number) => {
       const row = generatedRows.find(item => item.roomId === roomId)!;
@@ -838,6 +839,128 @@ export function PlanRoomsPanel({
       }
     }
 
+    // Final Rebalance Pass:
+    // Once every student is placed, move small quota counts from rooms above
+    // their target into rooms below target. This keeps the same class totals
+    // while tightening room loads around the balanced target.
+    const unresolvedBeforeBalance = Array.from(unresolvedByClass.values())
+      .reduce((sum, count) => sum + count, 0);
+
+    if (unresolvedBeforeBalance === 0 && usedRooms.length > 1) {
+      const finalTargets = buildRoomTargets(usedRooms, activeStudentTotal);
+      const tolerance = Math.max(0, Math.trunc(settings.occupancyBalanceTolerance || 0));
+      let balanceGuard = 0;
+
+      while (balanceGuard < 1000) {
+        balanceGuard += 1;
+
+        const donors = usedRooms
+          .map(room => ({
+            room,
+            load: loadByRoom.get(room._id) || 0,
+            target: finalTargets.get(room._id) || 0,
+          }))
+          .filter(item => item.load > item.target + tolerance)
+          .sort((a, b) => (b.load - b.target) - (a.load - a.target));
+
+        const receivers = usedRooms
+          .map(room => ({
+            room,
+            load: loadByRoom.get(room._id) || 0,
+            target: finalTargets.get(room._id) || 0,
+          }))
+          .filter(item =>
+            item.load < item.target - tolerance
+            && item.load < effectiveCapacity(item.room)
+          )
+          .sort((a, b) => (b.target - b.load) - (a.target - a.load));
+
+        if (!donors.length || !receivers.length) break;
+
+        let moved = false;
+
+        for (const donor of donors) {
+          if (moved) break;
+          const donorRow = generatedRows.find(row => row.roomId === donor.room._id);
+          if (!donorRow) continue;
+
+          for (const receiver of receivers) {
+            if (moved) break;
+            if (receiver.room._id === donor.room._id) continue;
+
+            const receiverRow = generatedRows.find(row => row.roomId === receiver.room._id);
+            if (!receiverRow) continue;
+
+            const receiverGrades = roomGradeCounts(receiver.room._id);
+
+            const candidateAllocations = donorRow.allocations
+              .filter(allocation => allocation.quota > 0)
+              .map(allocation => {
+                const cls = classById.get(allocation.classId);
+                if (!cls) return null;
+
+                const existingTarget = receiverRow.allocations.find(
+                  item => item.classId === allocation.classId
+                );
+                if (settings.spreadSameClassAcrossRooms && existingTarget) return null;
+
+                const receiverClassCount = existingTarget?.quota || 0;
+                const donorExcess = donor.load - donor.target;
+                const receiverDeficit = receiver.target - receiver.load;
+                const receiverSpace = effectiveCapacity(receiver.room) - receiver.load;
+                const classSpace = Math.max(0, settings.maxClassPortion - receiverClassCount);
+                const maxMove = Math.min(
+                  allocation.quota,
+                  donorExcess,
+                  receiverDeficit,
+                  receiverSpace,
+                  classSpace,
+                );
+                if (maxMove <= 0) return null;
+
+                const grade = gradeKeyOf(cls);
+                const addsNewGrade = !receiverGrades.has(grade);
+                const gradePenalty = addsNewGrade && receiverGrades.size >= settings.preferredGradesPerRoom
+                  ? 50
+                  : 0;
+                const projectedLoad = receiver.load + maxMove;
+                const projectedTargetGap = Math.abs(projectedLoad - receiver.target);
+
+                return {
+                  allocation,
+                  maxMove,
+                  score: gradePenalty + projectedTargetGap,
+                };
+              })
+              .filter(Boolean)
+              .sort((a:any, b:any) => a.score - b.score || b.maxMove - a.maxMove);
+
+            const candidate = candidateAllocations[0] as any;
+            if (!candidate) continue;
+
+            const amount = Math.max(1, Math.trunc(candidate.maxMove));
+            candidate.allocation.quota -= amount;
+
+            const targetAllocation = receiverRow.allocations.find(
+              item => item.classId === candidate.allocation.classId
+            );
+            if (targetAllocation) targetAllocation.quota += amount;
+            else receiverRow.allocations.push({
+              classId: candidate.allocation.classId,
+              quota: amount,
+            });
+
+            loadByRoom.set(donor.room._id, donor.load - amount);
+            loadByRoom.set(receiver.room._id, receiver.load + amount);
+            rebalancedStudents += amount;
+            moved = true;
+          }
+        }
+
+        if (!moved) break;
+      }
+    }
+
     generatedRows.forEach(row => {
       row.allocations = row.allocations.filter(item => item.quota > 0);
       const grades = Array.from(new Set(row.allocations.map(item => {
@@ -860,10 +983,11 @@ export function PlanRoomsPanel({
         'All available Rooms were considered. ' + unresolvedTotal
         + ' student(s) still remain and need Class/Room Resolution.'
       );
-    } else if (fallbackRoomsActivated > 0 || relaxedMixPlacements > 0) {
+    } else if (fallbackRoomsActivated > 0 || relaxedMixPlacements > 0 || rebalancedStudents > 0) {
       const details = [
         fallbackRoomsActivated > 0 ? fallbackRoomsActivated + ' additional Room(s) opened' : '',
         relaxedMixPlacements > 0 ? relaxedMixPlacements + ' placement(s) used a wider grade mix' : '',
+        rebalancedStudents > 0 ? rebalancedStudents + ' student seat(s) rebalanced across Rooms' : '',
       ].filter(Boolean).join(' · ');
       setSettingsMessage(
         'Smart plan completed with all students assigned. ' + details + '.'
@@ -1232,7 +1356,7 @@ export function PlanRoomsPanel({
                 <NumberSetting label="Max Same-Grade Share" settingKey="maxSameGradeSharePercent" min={25} max={100} suffix="%" />
                 <NumberSetting label="Preferred Grade Distance" settingKey="preferredGradeDistance" min={0} max={12} />
                 <NumberSetting label="Target Room Occupancy" settingKey="targetRoomOccupancyPercent" min={50} max={100} suffix="%" />
-                <NumberSetting label="Balance Tolerance" settingKey="occupancyBalanceTolerance" min={0} max={50} />
+                <NumberSetting label="Balance Tolerance (± students)" settingKey="occupancyBalanceTolerance" min={0} max={50} />
               </div>
             </div>
 
