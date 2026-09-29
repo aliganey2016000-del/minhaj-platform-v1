@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRight,
   Building2,
   CalendarDays,
-  CheckCircle2,
   ClipboardCheck,
-  Clock3,
   FileText,
   ListChecks,
   RefreshCw,
@@ -34,31 +31,12 @@ interface Exam {
   course?: { _id: string; title?: { en?: string }; class?: { title?: string; section?: string } };
 }
 
-interface Duty {
-  _id: string;
-  examDate: string;
-  startTime: string;
-  endTime: string;
-  studentCount: number;
-  markedCount: number;
-  completed: boolean;
-  room?: { name?: string; building?: string };
-  period?: { name?: string; academicYear?: string };
-}
 
 const dayKey = (value?: string) => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
   return date.toISOString().slice(0, 10);
-};
-
-const localTodayKey = () => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
 };
 
 function effectiveStatus(exam: Exam) {
@@ -104,8 +82,6 @@ function PaperStatus({ value }: { value?: Exam['paperStatus'] }) {
 
 export function TeacherExams() {
   const [exams, setExams] = useState<Exam[]>([]);
-  const [duties, setDuties] = useState<Duty[]>([]);
-  const [openIncidents, setOpenIncidents] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -114,44 +90,17 @@ export function TeacherExams() {
   const load = async () => {
     setLoading(true);
     setError('');
-    const [examResult, dutyResult, incidentResult] = await Promise.allSettled([
-      api.get('/exams', { params: { limit: 200 } }),
-      api.get('/exams/invigilators/my'),
-      api.get('/exam-incidents'),
-    ]);
-
-    if (examResult.status === 'fulfilled') {
-      setExams(examResult.value.data?.data || []);
-    } else {
-      setError(examResult.reason?.response?.data?.message || 'Failed to load your exam workspace.');
+    try {
+      const { data } = await api.get('/exams', { params: { limit: 200 } });
+      setExams(data?.data || []);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to load your exam workspace.');
+    } finally {
+      setLoading(false);
     }
-
-    if (dutyResult.status === 'fulfilled') setDuties(dutyResult.value.data?.data || []);
-    if (incidentResult.status === 'fulfilled') {
-      const rows = incidentResult.value.data?.data || [];
-      setOpenIncidents(rows.filter((item: any) => item.status === 'open').length);
-    }
-    setLoading(false);
   };
 
   useEffect(() => { void load(); }, []);
-
-  const today = localTodayKey();
-  const todayExams = useMemo(
-    () => exams.filter(exam => dayKey(exam.examDate) === today && effectiveStatus(exam) !== 'cancelled'),
-    [exams, today],
-  );
-  const todayDuties = useMemo(
-    () => duties.filter(duty => dayKey(duty.examDate) === today),
-    [duties, today],
-  );
-
-  const summary = useMemo(() => ({
-    upcoming: exams.filter(exam => effectiveStatus(exam) === 'scheduled').length,
-    active: exams.filter(exam => effectiveStatus(exam) === 'ongoing').length,
-    paperAction: exams.filter(exam => !exam.paperStatus || exam.paperStatus === 'draft' || exam.paperStatus === 'rejected').length,
-    pendingDuty: duties.filter(duty => !duty.completed).length,
-  }), [exams, duties]);
 
   const visible = useMemo(() => exams.filter((exam) => {
     const status = effectiveStatus(exam);
@@ -186,90 +135,6 @@ export function TeacherExams() {
         <TeacherExamWorkflowNav />
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-600 dark:border-red-900/50 dark:bg-red-950/30">{error}</div>}
-
-        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[
-            ['Upcoming Exams', summary.upcoming, CalendarDays, 'text-blue-600 bg-blue-50 dark:bg-blue-950/30'],
-            ['Live Now', summary.active, Clock3, 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30'],
-            ['Papers Need Action', summary.paperAction, FileText, 'text-amber-600 bg-amber-50 dark:bg-amber-950/30'],
-            ['Pending Duties', summary.pendingDuty, ClipboardCheck, 'text-violet-600 bg-violet-50 dark:bg-violet-950/30'],
-          ].map(([label, value, Icon, tone]: any) => (
-            <div key={label} className={card + ' p-4'}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0"><p className="text-xs font-semibold text-[var(--color-text-tertiary)]">{label}</p><p className="mt-1 text-2xl font-black">{value}</p></div>
-                <div className={`rounded-xl p-2.5 ${tone}`}><Icon className="h-5 w-5" /></div>
-              </div>
-            </div>
-          ))}
-        </section>
-
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,.65fr)]">
-          <div className={card + ' overflow-hidden'}>
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] p-4 sm:p-5">
-              <div>
-                <h2 className="font-bold">Today</h2>
-                <p className="text-xs text-[var(--color-text-tertiary)]">Your immediate exam work for today.</p>
-              </div>
-              <span className="rounded-full bg-[var(--color-surface-secondary)] px-3 py-1 text-xs font-bold">{todayExams.length + todayDuties.length} items</span>
-            </div>
-
-            <div className="divide-y divide-[var(--color-border-subtle)]">
-              {todayDuties.map(duty => (
-                <Link key={'duty-' + duty._id} to={`/teacher/exam-attendance/${duty._id}`} className="flex min-h-20 items-center gap-3 p-4 transition hover:bg-[var(--color-surface-secondary)] sm:p-5">
-                  <div className="rounded-xl bg-violet-50 p-2.5 text-violet-600 dark:bg-violet-950/30"><ClipboardCheck className="h-5 w-5" /></div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold">Invigilate · {duty.room?.name || 'Exam Room'}</p>
-                    <p className="mt-1 truncate text-xs text-[var(--color-text-tertiary)]">{duty.period?.name || 'Exam'} · {duty.startTime}–{duty.endTime} · {duty.studentCount} students</p>
-                  </div>
-                  <ArrowRight className="h-4 w-4 shrink-0 text-[var(--color-text-tertiary)]" />
-                </Link>
-              ))}
-              {todayExams.map(exam => (
-                <Link key={'exam-' + exam._id} to={`/teacher/exams/${exam._id}/paper`} className="flex min-h-20 items-center gap-3 p-4 transition hover:bg-[var(--color-surface-secondary)] sm:p-5">
-                  <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600 dark:bg-emerald-950/30"><CalendarDays className="h-5 w-5" /></div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-bold">{exam.course?.title?.en || exam.title}</p>
-                    <p className="mt-1 truncate text-xs text-[var(--color-text-tertiary)]">{exam.startTime || '—'}–{exam.endTime || '—'} · {exam.course?.class?.title || 'Class'}</p>
-                  </div>
-                  <Status value={effectiveStatus(exam)} />
-                </Link>
-              ))}
-              {todayExams.length === 0 && todayDuties.length === 0 && (
-                <div className="p-8 text-center">
-                  <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" />
-                  <p className="mt-2 font-bold">No exam task scheduled for today.</p>
-                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">You can prepare upcoming papers or review your schedule.</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className={card + ' p-4 sm:p-5'}>
-            <h2 className="font-bold">Your Exam Workflow</h2>
-            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Follow these steps as work becomes available.</p>
-            <div className="mt-4 space-y-2.5">
-              {[
-                ['1', 'Check Schedule', 'Know your subject, class, date and shift.', '/teacher/exams', CalendarDays],
-                ['2', 'Prepare Paper', 'Draft, submit and respond to review.', '/teacher/exam-papers', FileText],
-                ['3', 'Invigilate & Attend', 'Open only rooms assigned to you.', '/teacher/exam-attendance', ClipboardCheck],
-                ['4', 'Report Issues', 'Record exam-room incidents immediately.', '/teacher/exam-incidents', TriangleAlert],
-                ['5', 'Enter Results', 'Complete marks after the exam.', '/teacher/results/enter', ListChecks],
-              ].map(([step, label, desc, path, Icon]: any) => (
-                <Link key={step} to={path} className="flex items-center gap-3 rounded-xl border border-[var(--color-border-subtle)] p-3 transition hover:border-emerald-300 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/10">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--color-surface-secondary)] text-xs font-black">{step}</div>
-                  <div className="min-w-0 flex-1"><p className="text-sm font-bold">{label}</p><p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">{desc}</p></div>
-                  <Icon className="h-4 w-4 shrink-0 text-emerald-600" />
-                </Link>
-              ))}
-            </div>
-            {openIncidents > 0 && (
-              <Link to="/teacher/exam-incidents" className="mt-4 flex items-center justify-between rounded-xl bg-amber-50 p-3 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                <span className="text-xs font-bold">{openIncidents} open incident{openIncidents === 1 ? '' : 's'}</span>
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            )}
-          </div>
-        </section>
 
         <section className="space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
