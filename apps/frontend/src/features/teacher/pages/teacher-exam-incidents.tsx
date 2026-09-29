@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, RefreshCw, Search } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { TeacherExamWorkflowNav } from '../components/teacher-exam-workflow-nav';
 
 const TYPES = ['cheating', 'disruption', 'technical_issue', 'accommodation', 'other'];
 const SEVERITIES = ['low', 'medium', 'high'];
@@ -53,9 +54,10 @@ export function TeacherExamIncidents() {
   const visible = useMemo(() => incidents.filter((i) => (filter === 'all' || i.status === filter) && `${i.exam?.title || ''} ${i.description} ${i.student?.profile?.firstName || ''} ${i.student?.profile?.lastName || ''}`.toLowerCase().includes(query.toLowerCase())), [incidents, filter, query]);
 
   return (
-    <div className="min-h-screen bg-[var(--color-surface-secondary)] p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-emerald-600">Exam Operations</p><h1 className="mt-1 text-3xl font-bold">Exam Incidents</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Report cheating, disruptions, technical issues, and accommodations.</p></div><button onClick={load} disabled={loading} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button></div>
+    <div className="min-h-screen bg-[var(--color-surface-secondary)] p-3 pt-16 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
+      <div className="mx-auto max-w-7xl space-y-5 sm:space-y-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-emerald-600">Teacher Exam Operations</p><h1 className="mt-1 text-2xl font-black sm:text-3xl">Exam Incidents</h1><p className="mt-1 max-w-2xl text-sm text-[var(--color-text-tertiary)]">Record cheating, disruptions, technical issues, or accommodations connected to your assigned exams.</p></div><button onClick={()=>void load()} disabled={loading} className="inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button></div>
+        <TeacherExamWorkflowNav />
         {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/30">{error}</div>}
         {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30">{message}</div>}
 
