@@ -65,5 +65,45 @@ export const getMyScheduleAsTeacher = async (req: Request, res: Response): Promi
     .sort({ dayOfWeek: 1, startTime: 1 })
     .lean();
 
-  return ApiResponse.success(res, schedules.filter(isLiveEligibleSchedule));
+  const liveSchedules = schedules.filter(isLiveEligibleSchedule);
+  const classIds = Array.from(new Set(
+    liveSchedules
+      .map((schedule: any) => String(schedule.class?._id || schedule.class || ''))
+      .filter(Boolean),
+  ));
+
+  // Teacher timetable student totals come from the students currently
+  // registered in the Class itself. Course enrollment is intentionally not
+  // required: a student belongs to the lesson because they are an ACTIVE
+  // student of that scheduled class.
+  const countsByClass = new Map<string, number>();
+  if (classIds.length > 0) {
+    const Student = mongoose.model('Student');
+    const classObjectIds = classIds
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+    const scopedSchoolId = mongoose.Types.ObjectId.isValid(String(schoolId))
+      ? new mongoose.Types.ObjectId(String(schoolId))
+      : schoolId;
+
+    const rows = await Student.aggregate([
+      {
+        $match: {
+          school: scopedSchoolId,
+          class: { $in: classObjectIds },
+          status: 'active',
+        },
+      },
+      { $group: { _id: '$class', count: { $sum: 1 } } },
+    ]);
+
+    rows.forEach((row: any) => countsByClass.set(String(row._id), Number(row.count) || 0));
+  }
+
+  const result = liveSchedules.map((schedule: any) => ({
+    ...schedule,
+    studentCount: countsByClass.get(String(schedule.class?._id || schedule.class || '')) || 0,
+  }));
+
+  return ApiResponse.success(res, result);
 };
