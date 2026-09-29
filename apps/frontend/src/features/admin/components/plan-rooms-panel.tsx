@@ -87,20 +87,6 @@ type Room = {
   school?: SchoolRef;
 };
 
-type PlanningStudent = {
-  _id: string;
-  studentId: string;
-  name: string;
-  classId: string;
-  className: string;
-  gradeLevel?: number | null;
-};
-
-type RemainingStudent = PlanningStudent & {
-  selectedRoomId: string;
-  allowOverride: boolean;
-};
-
 type Props = {
   classes: ClassItem[];
   rooms: Room[];
@@ -193,10 +179,8 @@ export function PlanRoomsPanel({
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState('');
-  const [remainingStudents, setRemainingStudents] = useState<RemainingStudent[]>([]);
-  const [studentRoomOverrides, setStudentRoomOverrides] = useState<Array<{ studentId: string; roomId: string }>>([]);
   const [capacityOverrideRoomIds, setCapacityOverrideRoomIds] = useState<string[]>([]);
-  const [resolvingStudents, setResolvingStudents] = useState(false);
+  const [classExtraDrafts, setClassExtraDrafts] = useState<Record<string, number>>({});
   const [draftReady, setDraftReady] = useState(false);
   const restoredDraftKey = useRef('');
 
@@ -263,24 +247,22 @@ export function PlanRoomsPanel({
 
         if (restoredRows.some(row => row.allocations.length > 0)) setPlanRows(restoredRows);
 
-        setStudentRoomOverrides(
-          Array.isArray(saved?.studentRoomOverrides)
-            ? saved.studentRoomOverrides.filter((item: any) => item?.studentId && validRoomIds.has(String(item?.roomId || '')))
-            : [],
-        );
         setCapacityOverrideRoomIds(
           Array.isArray(saved?.capacityOverrideRoomIds)
             ? saved.capacityOverrideRoomIds.filter((roomId: string) => validRoomIds.has(roomId))
             : [],
         );
-        setRemainingStudents(
-          Array.isArray(saved?.remainingStudents)
-            ? saved.remainingStudents.filter((student: RemainingStudent) =>
-                student?._id
-                && validClassIds.has(student.classId)
-                && (!student.selectedRoomId || validRoomIds.has(student.selectedRoomId))
+        setClassExtraDrafts(
+          saved?.classExtraDrafts && typeof saved.classExtraDrafts === 'object'
+            ? Object.fromEntries(
+                Object.entries(saved.classExtraDrafts)
+                  .filter(([key, value]) => {
+                    const [classId, roomId] = key.split('::');
+                    return validClassIds.has(classId) && validRoomIds.has(roomId) && Number(value) >= 0;
+                  })
+                  .map(([key, value]) => [key, Math.max(0, Number(value) || 0)])
               )
-            : [],
+            : {},
         );
 
         if (restoredRows.some(row => row.allocations.length > 0)) {
@@ -299,9 +281,8 @@ export function PlanRoomsPanel({
     if (!draftReady || restoredDraftKey.current !== draftStorageKey) return;
 
     const hasPlan = planRows.some(row => row.allocations.some(allocation => Number(allocation.quota) > 0));
-    const hasManualResolution = studentRoomOverrides.length > 0
-      || capacityOverrideRoomIds.length > 0
-      || remainingStudents.length > 0;
+    const hasManualResolution = capacityOverrideRoomIds.length > 0
+      || Object.values(classExtraDrafts).some(value => Number(value) > 0);
 
     try {
       if (!hasPlan && !hasManualResolution) {
@@ -309,16 +290,15 @@ export function PlanRoomsPanel({
       } else {
         window.localStorage.setItem(draftStorageKey, JSON.stringify({
           planRows,
-          studentRoomOverrides,
           capacityOverrideRoomIds,
-          remainingStudents,
+          classExtraDrafts,
           savedAt: new Date().toISOString(),
         }));
       }
     } catch {
       // Draft persistence is best-effort only.
     }
-  }, [draftReady, draftStorageKey, planRows, studentRoomOverrides, capacityOverrideRoomIds, remainingStudents]);
+  }, [draftReady, draftStorageKey, planRows, capacityOverrideRoomIds, classExtraDrafts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -484,62 +464,10 @@ export function PlanRoomsPanel({
     (rows.find(row => row.roomId === roomId)?.allocations || [])
       .reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
 
-  const classRoomsLabel = (classId: string) => {
-    const entries = planRows
-      .map(row => {
-        const quota = row.allocations.find(allocation => allocation.classId === classId)?.quota || 0;
-        const room = roomById.get(row.roomId);
-        return quota > 0 && room ? room.name + ': ' + quota : '';
-      })
-      .filter(Boolean);
-    return entries.join(' · ') || 'Not yet placed';
-  };
-
-  const loadPlanningStudents = async (): Promise<PlanningStudent[]> => {
-    const classIds = activeClasses.map(cls => cls._id);
-    if (!classIds.length) return [];
-    const response = await api.get('/exam-rooms/planning-students', {
-      params: {
-        ...(resolvedSchoolId ? { school: resolvedSchoolId } : {}),
-        classIds: classIds.join(','),
-      },
-    });
-    return Array.isArray(response.data?.data) ? response.data.data : [];
-  };
-
-  const chooseSuggestedRoom = (
-    student: PlanningStudent,
-    rows: PlanRoomRow[],
-    provisionalLoads: Map<string, number>,
-  ) => {
-    const cls = classById.get(student.classId);
-    const studentGrade = cls ? gradeKeyOf(cls) : '';
-    const candidates = sortedRooms
-      .filter(room => (provisionalLoads.get(room._id) || roomUsed(room._id, rows)) < Number(room.capacity || 0))
-      .map(room => {
-        const row = rows.find(item => item.roomId === room._id) || { roomId: room._id, allocations: [] };
-        const used = provisionalLoads.get(room._id) ?? roomUsed(room._id, rows);
-        const operational = effectiveCapacity(room);
-        const sameClass = row.allocations.some(item => item.classId === student.classId && item.quota > 0);
-        const sameGrade = row.allocations.some(item => {
-          const other = classById.get(item.classId);
-          return item.quota > 0 && other ? gradeKeyOf(other) === studentGrade : false;
-        });
-        const overOperational = used >= operational ? 1 : 0;
-        const occupancy = used / Math.max(1, operational);
-        const score = overOperational * 1000 + (sameClass ? 120 : 0) + (sameGrade ? 40 : 0) + occupancy * 100;
-        return { room, score, used };
-      })
-      .sort((a, b) => a.score - b.score || a.used - b.used || a.room.name.localeCompare(b.room.name, undefined, { numeric: true }));
-
-    return candidates[0]?.room._id || sortedRooms[0]?._id || '';
-  };
-
   const generateSmartPlan = async () => {
     setLocalError('');
-    setRemainingStudents([]);
-    setStudentRoomOverrides([]);
     setCapacityOverrideRoomIds([]);
+    setClassExtraDrafts({});
     if (settingsDirty) {
       setLocalError('Save Room Plan Settings before generating so Review and Confirm use the same rules.');
       return;
@@ -860,47 +788,10 @@ export function PlanRoomsPanel({
 
     const unresolvedTotal = Array.from(unresolvedByClass.values()).reduce((sum, count) => sum + count, 0);
     if (unresolvedTotal > 0) {
-      setResolvingStudents(true);
-      try {
-        const planningStudents = await loadPlanningStudents();
-        const provisionalLoads = new Map<string, number>(
-          sortedRooms.map(room => [room._id, roomUsed(room._id, generatedRows)])
-        );
-        const nextRemaining: RemainingStudent[] = [];
-
-        for (const [classId, count] of unresolvedByClass.entries()) {
-          const classStudents = planningStudents
-            .filter(student => student.classId === classId)
-            .slice()
-            .sort((a, b) => a.studentId.localeCompare(b.studentId, undefined, { numeric: true }));
-          const assignedCount = generatedRows.reduce((sum, row) =>
-            sum + (row.allocations.find(allocation => allocation.classId === classId)?.quota || 0), 0
-          );
-          const unresolvedStudents = classStudents.slice(assignedCount, assignedCount + count);
-
-          unresolvedStudents.forEach(student => {
-            const selectedRoomId = chooseSuggestedRoom(student, generatedRows, provisionalLoads);
-            if (selectedRoomId) {
-              provisionalLoads.set(selectedRoomId, (provisionalLoads.get(selectedRoomId) || 0) + 1);
-            }
-            nextRemaining.push({
-              ...student,
-              selectedRoomId,
-              allowOverride: false,
-            });
-          });
-        }
-
-        setRemainingStudents(nextRemaining);
-        setSettingsMessage(
-          'Partial plan generated. ' + nextRemaining.length
-          + ' student(s) need manual room resolution below.'
-        );
-      } catch (err: any) {
-        setLocalError(err.response?.data?.message || 'The partial plan was created, but remaining student details could not be loaded.');
-      } finally {
-        setResolvingStudents(false);
-      }
+      setSettingsMessage(
+        'Partial plan generated. ' + unresolvedTotal
+        + ' student(s) remain. Resolve them by Class below using Add Extra.'
+      );
     } else {
       const repeatedMixes = Array.from(mixSignatures.values()).filter(count => count > 1).length;
       if (settings.avoidRepeatGradeMix && repeatedMixes > 0) {
@@ -911,84 +802,16 @@ export function PlanRoomsPanel({
     }
   };
 
-  const updateRemainingRoom = (studentId: string, roomId: string) => {
-    setRemainingStudents(prev => prev.map(student =>
-      student._id === studentId
-        ? { ...student, selectedRoomId: roomId, allowOverride: false }
-        : student
-    ));
-    setLocalError('');
-  };
-
-  const toggleRemainingOverride = (studentId: string, allowed: boolean) => {
-    setRemainingStudents(prev => prev.map(student =>
-      student._id === studentId ? { ...student, allowOverride: allowed } : student
-    ));
-    setLocalError('');
-  };
-
-  const assignRemainingStudent = (student: RemainingStudent) => {
-    const room = roomById.get(student.selectedRoomId);
-    if (!room) {
-      setLocalError('Choose a Room for this student.');
-      return;
-    }
-
-    const used = roomUsed(room._id);
-    const operational = effectiveCapacity(room);
-    const physical = Math.max(0, Number(room.capacity) || 0);
-    const nextUsed = used + 1;
-
-    if (nextUsed > physical) {
-      setLocalError(room.name + ' cannot accept this student because physical capacity is ' + physical + '.');
-      return;
-    }
-    if (nextUsed > operational && !student.allowOverride) {
-      setLocalError(room.name + ' will exceed operational capacity. Enable Allow Override for this student first.');
-      return;
-    }
-
-    const nextRows = sortedRooms.map(currentRoom => {
-      const row = rowOf(currentRoom._id);
-      if (currentRoom._id !== room._id) return row;
-      const existing = row.allocations.find(allocation => allocation.classId === student.classId);
-      const allocations = existing
-        ? row.allocations.map(allocation =>
-            allocation.classId === student.classId
-              ? { ...allocation, quota: allocation.quota + 1 }
-              : allocation
-          )
-        : [...row.allocations, { classId: student.classId, quota: 1 }];
-      return { roomId: room._id, allocations };
-    });
-
-    setPlanRows(nextRows);
-    setStudentRoomOverrides(prev => [
-      ...prev.filter(item => item.studentId !== student._id),
-      { studentId: student._id, roomId: room._id },
-    ]);
-    if (nextUsed > operational) {
-      setCapacityOverrideRoomIds(prev => prev.includes(room._id) ? prev : [...prev, room._id]);
-    }
-    setRemainingStudents(prev => prev.filter(item => item._id !== student._id));
-    setLocalError('');
-    setSettingsMessage(student.name + ' assigned to ' + room.name + '.');
-  };
-
   const validatePlan = () => {
     if (!year || !type) return 'Select Academic Year and Exam Type first.';
-    if (remainingStudents.length > 0) {
-      return remainingStudents.length + ' remaining student(s) still need a Room.';
-    }
-
     for (const row of planRows) {
       const room = roomById.get(row.roomId);
       if (!room) continue;
       const used = row.allocations.reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
       const operationalCapacity = effectiveCapacity(room);
       const physicalCapacity = Math.max(0, Number(room.capacity) || 0);
-      if (used > physicalCapacity) {
-        return room.name + ' is over physical capacity by ' + (used - physicalCapacity) + '.';
+      if (used > physicalCapacity && !capacityOverrideRoomIds.includes(room._id)) {
+        return room.name + ' is over physical capacity by ' + (used - physicalCapacity) + ' and needs an Admin override.';
       }
       if (used > operationalCapacity && !capacityOverrideRoomIds.includes(room._id)) {
         return room.name + ' is over operational capacity by ' + (used - operationalCapacity) + ' and needs an approved override.';
@@ -1054,7 +877,7 @@ export function PlanRoomsPanel({
       classIds,
       roomIds,
       roomPlan,
-      studentRoomOverrides,
+      studentRoomOverrides: [],
       capacityOverrideRoomIds,
     });
   };
@@ -1064,6 +887,59 @@ export function PlanRoomsPanel({
     const assigned = assignedByClass[cls._id] || 0;
     return { cls, expected, assigned, remaining: expected - assigned };
   });
+
+  const unresolvedClassSummary = classSummary.filter(item => item.remaining > 0);
+
+  const updateClassExtra = (classId: string, roomId: string, requested: number) => {
+    const key = classId + '::' + roomId;
+    const previous = Math.max(0, Number(classExtraDrafts[key]) || 0);
+    const expected = studentCounts[classId] || 0;
+    const currentlyAssigned = assignedByClass[classId] || 0;
+    const remaining = Math.max(0, expected - currentlyAssigned);
+    const next = Math.max(0, Math.min(Math.trunc(Number(requested) || 0), previous + remaining));
+    const delta = next - previous;
+
+    if (!delta) {
+      setClassExtraDrafts(prev => ({ ...prev, [key]: next }));
+      return;
+    }
+
+    const nextRows = sortedRooms.map(room => {
+      const row = rowOf(room._id);
+      if (room._id !== roomId) return row;
+
+      const existing = row.allocations.find(allocation => allocation.classId === classId);
+      if (existing) {
+        const nextQuota = Math.max(0, existing.quota + delta);
+        return {
+          roomId,
+          allocations: row.allocations
+            .map(allocation => allocation.classId === classId ? { ...allocation, quota: nextQuota } : allocation)
+            .filter(allocation => allocation.quota > 0),
+        };
+      }
+
+      return delta > 0
+        ? { roomId, allocations: [...row.allocations, { classId, quota: delta }] }
+        : row;
+    });
+
+    const room = roomById.get(roomId);
+    const projectedLoad = roomUsed(roomId, nextRows);
+    if (room) {
+      const operational = effectiveCapacity(room);
+      if (projectedLoad > operational) {
+        setCapacityOverrideRoomIds(prev => prev.includes(roomId) ? prev : [...prev, roomId]);
+      } else {
+        setCapacityOverrideRoomIds(prev => prev.filter(id => id !== roomId));
+      }
+    }
+
+    setPlanRows(nextRows);
+    setClassExtraDrafts(prev => ({ ...prev, [key]: next }));
+    setLocalError('');
+    setSettingsMessage('');
+  };
 
   const currentPlanError = Boolean(validatePlan());
 
@@ -1266,14 +1142,14 @@ export function PlanRoomsPanel({
             <button type="button" onClick={()=>{setSettings(savedSettings);setSettingsDirty(false);setSettingsMessage('');setSettingsOpen(true)}} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold">
               <Settings2 size={16}/>{settingsLoading?'Loading Settings...':'Room Plan Settings'}
             </button>
-            <button type="button" onClick={()=>void generateSmartPlan()} disabled={settingsLoading||settingsDirty||resolvingStudents} title={settingsDirty?'Save Room Plan Settings first':''} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+            <button type="button" onClick={()=>void generateSmartPlan()} disabled={settingsLoading||settingsDirty} title={settingsDirty?'Save Room Plan Settings first':''} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
               <Zap size={16} />
               Generate Smart Mixed Plan
             </button>
             <button
               type="button"
               onClick={confirmPlan}
-              disabled={!planRows.some(row => row.allocations.length > 0) || resolvingStudents}
+              disabled={!planRows.some(row => row.allocations.length > 0)}
               title={currentPlanError ? 'Tap to see the remaining validation issue.' : 'Review the exact allocation, then save it.'}
               className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -1417,118 +1293,98 @@ export function PlanRoomsPanel({
         )}
       </div>
 
-      {(remainingStudents.length > 0 || resolvingStudents) && (
+      {unresolvedClassSummary.length > 0 && (
         <div className={card + ' overflow-hidden border-amber-200 dark:border-amber-900/40'}>
           <div className="border-b bg-amber-50/60 p-4 dark:bg-amber-950/10 sm:p-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="font-bold text-amber-800 dark:text-amber-200">Resolve Remaining Students</h3>
+                <h3 className="font-bold text-amber-800 dark:text-amber-200">Resolve Remaining by Class</h3>
                 <p className="mt-1 text-sm text-amber-700/90 dark:text-amber-300/90">
-                  The smart plan is kept. Choose any Room from the dropdown; its current load updates immediately. Operational capacity can be overridden, but physical capacity remains a hard limit.
+                  Add remaining students by class. Assigned totals, Room load and Free Seats update automatically. If Add Extra exceeds the normal Room load, that Room is recorded as an Admin-approved override.
                 </p>
               </div>
               <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
-                {resolvingStudents ? 'Loading students…' : remainingStudents.length + ' remaining'}
+                {unresolvedClassSummary.reduce((sum, item) => sum + item.remaining, 0)} remaining
               </span>
             </div>
           </div>
 
-          {!resolvingStudents && (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1120px] text-sm">
-                <thead className="bg-[var(--color-surface-secondary)]">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Student</th>
-                    <th className="px-4 py-3 text-left">Class</th>
-                    <th className="px-4 py-3 text-left">Class Planned Rooms</th>
-                    <th className="px-4 py-3 text-left">Suggested / Selected Room</th>
-                    <th className="px-4 py-3 text-left">Room Load</th>
-                    <th className="px-4 py-3 text-left">Override</th>
-                    <th className="px-4 py-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {remainingStudents.map(student => {
-                    const room = roomById.get(student.selectedRoomId);
-                    const used = room ? roomUsed(room._id) : 0;
-                    const operational = room ? effectiveCapacity(room) : 0;
-                    const physical = room ? Number(room.capacity) || 0 : 0;
-                    const nextUsed = room ? used + 1 : 0;
-                    const needsOverride = Boolean(room && nextUsed > operational);
-                    const physicalFull = Boolean(room && nextUsed > physical);
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-sm">
+              <thead className="bg-[var(--color-surface-secondary)]">
+                <tr>
+                  <th className="px-4 py-3 text-left">Class</th>
+                  <th className="px-4 py-3 text-left">Assigned / Total</th>
+                  <th className="px-4 py-3 text-left">Room Allocation</th>
+                  <th className="px-4 py-3 text-right">Remaining</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unresolvedClassSummary.map(item => (
+                  <tr key={item.cls._id} className="border-t align-top">
+                    <td className="px-4 py-4">
+                      <p className="font-bold">{classNameOf(item.cls)}</p>
+                      <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{gradeLabelOf(item.cls)}</p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className="text-lg font-bold">{item.assigned}/{item.expected}</span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="min-w-[620px] overflow-hidden rounded-xl border">
+                        <div className="grid grid-cols-[1.1fr_120px_160px_120px] bg-[var(--color-surface-secondary)] px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                          <span>Room</span>
+                          <span>Assigned</span>
+                          <span>Free Seats</span>
+                          <span>Add Extra</span>
+                        </div>
+                        {sortedRooms.map(room => {
+                          const row = rowOf(room._id);
+                          const classAssigned = row.allocations.find(allocation => allocation.classId === item.cls._id)?.quota || 0;
+                          const totalLoad = roomUsed(room._id);
+                          const capacity = Math.max(0, Number(room.capacity) || 0);
+                          const free = capacity - totalLoad;
+                          const key = item.cls._id + '::' + room._id;
+                          const extra = Math.max(0, Number(classExtraDrafts[key]) || 0);
+                          const overridden = capacityOverrideRoomIds.includes(room._id);
 
-                    return (
-                      <tr key={student._id} className="border-t align-top">
-                        <td className="px-4 py-3">
-                          <p className="font-semibold">{student.name || 'Student'}</p>
-                          <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{student.studentId}</p>
-                        </td>
-                        <td className="px-4 py-3 font-semibold">{student.className || (classById.get(student.classId) ? classNameOf(classById.get(student.classId)!) : '—')}</td>
-                        <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">{classRoomsLabel(student.classId)}</td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={student.selectedRoomId}
-                            onChange={e => updateRemainingRoom(student._id, e.target.value)}
-                            className={input + ' min-w-[190px]'}
-                          >
-                            <option value="">Choose room...</option>
-                            {sortedRooms.map(option => {
-                              const optionUsed = roomUsed(option._id);
-                              const optionOperational = effectiveCapacity(option);
-                              return (
-                                <option key={option._id} value={option._id}>
-                                  {option.name} — {optionUsed}/{optionOperational}{optionUsed >= optionOperational ? ' · override' : ''}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          {room ? (
-                            <div>
-                              <p className={'font-bold ' + (physicalFull ? 'text-red-600' : needsOverride ? 'text-amber-600' : 'text-emerald-600')}>
-                                {used}/{operational} → {nextUsed}/{operational}
-                              </p>
-                              <p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">
-                                Physical {physical}{needsOverride && !physicalFull ? ' · +' + Math.max(0, nextUsed - operational) + ' operational override' : ''}
-                              </p>
-                            </div>
-                          ) : '—'}
-                        </td>
-                        <td className="px-4 py-3">
-                          {needsOverride && !physicalFull ? (
-                            <label className="inline-flex items-center gap-2 text-xs font-semibold text-amber-700">
+                          return (
+                            <div key={key} className="grid grid-cols-[1.1fr_120px_160px_120px] items-center gap-2 border-t px-3 py-2.5">
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold">{room.name}</p>
+                                {overridden && (
+                                  <p className="mt-0.5 text-[10px] font-bold text-amber-600">
+                                    Admin Override{totalLoad > capacity ? ' +' + (totalLoad - capacity) : ''}
+                                  </p>
+                                )}
+                              </div>
+                              <span className="font-bold">{classAssigned}</span>
+                              <span className={'font-bold ' + (free < 0 ? 'text-red-600' : free === 0 ? 'text-amber-600' : 'text-emerald-600')}>
+                                {free} ({totalLoad}/{capacity})
+                              </span>
                               <input
-                                type="checkbox"
-                                checked={student.allowOverride}
-                                onChange={e => toggleRemainingOverride(student._id, e.target.checked)}
-                                className="h-4 w-4"
+                                type="number"
+                                min={0}
+                                max={extra + item.remaining}
+                                value={extra}
+                                onChange={event => updateClassExtra(item.cls._id, room._id, Number(event.target.value))}
+                                className="w-full rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-2 text-center font-bold"
+                                aria-label={'Add extra ' + classNameOf(item.cls) + ' students to ' + room.name}
                               />
-                              Allow Override
-                            </label>
-                          ) : physicalFull ? (
-                            <span className="text-xs font-semibold text-red-600">Physical Full</span>
-                          ) : (
-                            <span className="text-xs font-semibold text-emerald-600">Not needed</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            disabled={!room || physicalFull || (needsOverride && !student.allowOverride)}
-                            onClick={() => assignRemainingStudent(student)}
-                            className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            Assign
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-sm font-bold text-amber-800">
+                        {item.remaining}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
