@@ -63,6 +63,7 @@ export function TeacherSchedule() {
   const [periods, setPeriods] = useState<Period[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedDay, setSelectedDay] = useState<number>(() => new Date().getDay());
 
   useEffect(() => {
     (async () => {
@@ -103,10 +104,6 @@ export function TeacherSchedule() {
   });
   Object.values(grouped).forEach((items) => items.sort((a, b) => a.startTime.localeCompare(b.startTime)));
 
-  // The school week is displayed Saturday first everywhere else in the
-  // timetable experience; keep the teacher portal consistent.
-  const daysWithSchedules = DISPLAY_ORDER.filter((day) => grouped[day]?.length);
-
   const sessionLabel = (schedule: Schedule, fallbackIndex: number) => {
     const configuredIndex = lessonPeriods.findIndex(
       (period) => period.startTime === schedule.startTime && period.endTime === schedule.endTime,
@@ -115,11 +112,41 @@ export function TeacherSchedule() {
   };
 
   return (
-    <div className="p-6 lg:p-10 pt-20 lg:pt-10">
-      <div className="mx-auto max-w-3xl space-y-6">
+    <div className="p-4 pt-4 sm:p-6 lg:p-8">
+      <div className="mx-auto max-w-4xl space-y-5">
         <div>
-          <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">🕐 My Teaching Schedule</h1>
-          <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Your weekly class timetable</p>
+          <h1 className="text-3xl font-black tracking-tight text-[var(--color-text-primary)]">My Teaching Schedule</h1>
+          <p className="mt-1 text-sm font-medium text-[var(--color-text-tertiary)]">My Schedule</p>
+
+          <div className="mt-4 overflow-x-auto pb-1">
+            <div className="grid min-w-[620px] grid-cols-7 gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-2 shadow-sm">
+              {DISPLAY_ORDER.map((day) => {
+                const active = selectedDay === day;
+                const today = new Date().getDay() === day;
+                const shortName = DAYS[day].slice(0, 3);
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => setSelectedDay(day)}
+                    className={
+                      'min-h-14 rounded-xl px-2 py-2 text-center text-xs font-bold transition ' +
+                      (active
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]')
+                    }
+                  >
+                    <span className="block">{shortName}</span>
+                    {today && (
+                      <span className={`mt-1 block text-[9px] font-bold uppercase tracking-wide ${active ? 'text-emerald-100' : 'text-emerald-600'}`}>
+                        Today
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {error && (
@@ -139,53 +166,60 @@ export function TeacherSchedule() {
           </div>
         )}
 
-        {!loading && daysWithSchedules.length > 0 && (
-          <div className="space-y-4">
-            {daysWithSchedules.map((day) => (
-              <div key={day} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
-                <div className="px-5 py-3 bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-subtle)]">
-                  <h3 className="text-sm font-bold text-[var(--color-text-primary)]">{DAYS[day]}</h3>
-                </div>
-                <div className="divide-y divide-[var(--color-border-subtle)]">
-                  {grouped[day].map((schedule, index) => {
-                    const shift = getShiftLabel(schedule);
-                    const configuredIndex = lessonPeriods.findIndex(
-                      (period) => period.startTime === schedule.startTime && period.endTime === schedule.endTime,
-                    );
-                    return (
-                      <div key={schedule._id} className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--color-surface-secondary)] transition-colors">
-                        <div className="flex-shrink-0 w-24 text-center">
-                          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary-600 text-sm font-extrabold text-white shadow-sm">
-                            {configuredIndex >= 0 ? configuredIndex + 1 : index + 1}
-                          </div>
-                          <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-primary-700 dark:text-primary-300">
-                            {sessionLabel(schedule, index)}
-                          </p>
-                        </div>
+        {!loading && schedules.length > 0 && (
+          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] px-4 py-3 sm:px-5">
+              <h3 className="text-sm font-black text-[var(--color-text-primary)]">{DAYS[selectedDay]}</h3>
+              <span className="rounded-full bg-[var(--color-surface-primary)] px-2.5 py-1 text-[11px] font-bold text-[var(--color-text-tertiary)]">
+                {(grouped[selectedDay] || []).length} class{(grouped[selectedDay] || []).length === 1 ? '' : 'es'}
+              </span>
+            </div>
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-block rounded-lg bg-primary-50 dark:bg-primary-950/30 px-3 py-1.5 text-sm font-semibold text-primary-700 dark:text-primary-300">
-                              {schedule.startTime} – {schedule.endTime}
-                            </span>
-                            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-semibold text-[var(--color-text-secondary)]">
-                              {getShiftIcon(shift)} {shift}
-                            </span>
-                          </div>
-
-                          <p className="mt-2 text-sm font-semibold text-[var(--color-text-primary)] truncate">
-                            {schedule.course?.title?.en || 'Untitled Course'}
-                          </p>
-                          <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-                            🏫 {schedule.class ? `${schedule.class.title} ${schedule.class.section || ''}`.trim() : '—'}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+            {(grouped[selectedDay] || []).length === 0 ? (
+              <div className="p-10 text-center">
+                <p className="text-sm font-bold text-[var(--color-text-primary)]">No classes on {DAYS[selectedDay]}.</p>
+                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Choose another day above to view your schedule.</p>
               </div>
-            ))}
+            ) : (
+              <div className="divide-y divide-[var(--color-border-subtle)]">
+                {(grouped[selectedDay] || []).map((schedule, index) => {
+                  const shift = getShiftLabel(schedule);
+                  const configuredIndex = lessonPeriods.findIndex(
+                    (period) => period.startTime === schedule.startTime && period.endTime === schedule.endTime,
+                  );
+                  return (
+                    <div key={schedule._id} className="flex items-center gap-3 px-4 py-4 transition-colors hover:bg-[var(--color-surface-secondary)] sm:gap-4 sm:px-5">
+                      <div className="w-20 flex-shrink-0 text-center sm:w-24">
+                        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-emerald-600 text-sm font-extrabold text-white shadow-sm">
+                          {configuredIndex >= 0 ? configuredIndex + 1 : index + 1}
+                        </div>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                          {sessionLabel(schedule, index)}
+                        </p>
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-block rounded-lg bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                            {schedule.startTime} – {schedule.endTime}
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-semibold text-[var(--color-text-secondary)]">
+                            {getShiftIcon(shift)} {shift}
+                          </span>
+                        </div>
+
+                        <p className="mt-2 truncate text-sm font-semibold text-[var(--color-text-primary)]">
+                          {schedule.course?.title?.en || 'Untitled Course'}
+                        </p>
+                        <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">
+                          🏫 {schedule.class ? `${schedule.class.title} ${schedule.class.section || ''}`.trim() : '—'}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
