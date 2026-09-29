@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Building2,
@@ -110,6 +110,7 @@ type Props = {
   planRows: PlanRoomRow[];
   schoolId?: string;
   hideExamSelectors?: boolean;
+  draftKey?: string;
   setYear: (value: string) => void;
   setType: (value: '' | 'mid' | 'final') => void;
   setPlanRows: (value: PlanRoomRow[]) => void;
@@ -178,6 +179,7 @@ export function PlanRoomsPanel({
   planRows,
   schoolId,
   hideExamSelectors = false,
+  draftKey,
   setYear,
   setType,
   setPlanRows,
@@ -195,6 +197,8 @@ export function PlanRoomsPanel({
   const [studentRoomOverrides, setStudentRoomOverrides] = useState<Array<{ studentId: string; roomId: string }>>([]);
   const [capacityOverrideRoomIds, setCapacityOverrideRoomIds] = useState<string[]>([]);
   const [resolvingStudents, setResolvingStudents] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+  const restoredDraftKey = useRef('');
 
   const activeClasses = useMemo(
     () => classes
@@ -222,6 +226,99 @@ export function PlanRoomsPanel({
     || schoolIdOf(activeClasses.find(cls => schoolIdOf(cls.school))?.school)
     || '',
   [schoolId, sortedRooms, activeClasses]);
+
+  const draftStorageKey = useMemo(
+    () => 'sahal:room-plan-draft:' + (
+      draftKey || [resolvedSchoolId || 'current', year || 'year', type || 'exam'].join(':')
+    ),
+    [draftKey, resolvedSchoolId, year, type],
+  );
+
+  useEffect(() => {
+    if (!sortedRooms.length || !activeClasses.length || restoredDraftKey.current === draftStorageKey) return;
+
+    setDraftReady(false);
+    const validRoomIds = new Set(sortedRooms.map(room => room._id));
+    const validClassIds = new Set(activeClasses.map(cls => cls._id));
+
+    try {
+      const raw = window.localStorage.getItem(draftStorageKey);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        const savedRows: PlanRoomRow[] = Array.isArray(saved?.planRows) ? saved.planRows : [];
+        const restoredRows = sortedRooms.map(room => {
+          const row = savedRows.find(item => item?.roomId === room._id);
+          return {
+            roomId: room._id,
+            allocations: Array.isArray(row?.allocations)
+              ? row.allocations
+                  .filter((allocation: PlanAllocation) => validClassIds.has(allocation.classId) && Number(allocation.quota) > 0)
+                  .map((allocation: PlanAllocation) => ({
+                    classId: allocation.classId,
+                    quota: Math.max(0, Number(allocation.quota) || 0),
+                  }))
+              : [],
+          };
+        });
+
+        if (restoredRows.some(row => row.allocations.length > 0)) setPlanRows(restoredRows);
+
+        setStudentRoomOverrides(
+          Array.isArray(saved?.studentRoomOverrides)
+            ? saved.studentRoomOverrides.filter((item: any) => item?.studentId && validRoomIds.has(String(item?.roomId || '')))
+            : [],
+        );
+        setCapacityOverrideRoomIds(
+          Array.isArray(saved?.capacityOverrideRoomIds)
+            ? saved.capacityOverrideRoomIds.filter((roomId: string) => validRoomIds.has(roomId))
+            : [],
+        );
+        setRemainingStudents(
+          Array.isArray(saved?.remainingStudents)
+            ? saved.remainingStudents.filter((student: RemainingStudent) =>
+                student?._id
+                && validClassIds.has(student.classId)
+                && (!student.selectedRoomId || validRoomIds.has(student.selectedRoomId))
+              )
+            : [],
+        );
+
+        if (restoredRows.some(row => row.allocations.length > 0)) {
+          setSettingsMessage('Unsaved Room Plan draft restored from this device.');
+        }
+      }
+    } catch {
+      // Continue with a fresh plan if browser draft data is unreadable.
+    } finally {
+      restoredDraftKey.current = draftStorageKey;
+      setDraftReady(true);
+    }
+  }, [draftStorageKey, sortedRooms, activeClasses, setPlanRows]);
+
+  useEffect(() => {
+    if (!draftReady || restoredDraftKey.current !== draftStorageKey) return;
+
+    const hasPlan = planRows.some(row => row.allocations.some(allocation => Number(allocation.quota) > 0));
+    const hasManualResolution = studentRoomOverrides.length > 0
+      || capacityOverrideRoomIds.length > 0
+      || remainingStudents.length > 0;
+
+    try {
+      if (!hasPlan && !hasManualResolution) {
+        window.localStorage.removeItem(draftStorageKey);
+      } else {
+        window.localStorage.setItem(draftStorageKey, JSON.stringify({
+          planRows,
+          studentRoomOverrides,
+          capacityOverrideRoomIds,
+          remainingStudents,
+          savedAt: new Date().toISOString(),
+        }));
+      }
+    } catch {
+      // Draft persistence is best-effort only.
+    }
+  }, [draftReady, draftStorageKey, planRows, studentRoomOverrides, capacityOverrideRoomIds, remainingStudents]);
 
   useEffect(() => {
     let cancelled = false;
@@ -910,12 +1007,9 @@ export function PlanRoomsPanel({
         return cls ? gradeKeyOf(cls) : '';
       }).filter(Boolean));
 
-      if (positive.length > 0 && activeGradeCount >= settings.minimumGradesPerRoom && distinctGrades.size < settings.minimumGradesPerRoom) {
-        return room.name + ' must contain at least ' + settings.minimumGradesPerRoom + ' different grades.';
-      }
-      if (distinctGrades.size > settings.preferredGradesPerRoom) {
-        return room.name + ' has more than ' + settings.preferredGradesPerRoom + ' grades.';
-      }
+      // Grade-mix counts are smart-planning preferences, not hard save blockers.
+      // A complete capacity-safe plan may end with a fallback room that has fewer
+      // or more grades than preferred.
     }
 
     for (const cls of activeClasses) {
@@ -1184,11 +1278,12 @@ export function PlanRoomsPanel({
             <button
               type="button"
               onClick={confirmPlan}
-              disabled={!planRows.some(row => row.allocations.length > 0) || currentPlanError}
+              disabled={!planRows.some(row => row.allocations.length > 0) || resolvingStudents}
+              title={currentPlanError ? 'Tap to see the remaining validation issue.' : 'Review the exact allocation, then save it.'}
               className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               <CheckCircle2 size={16} />
-              Confirm Plan
+              Confirm & Save Plan
             </button>
           </div>
         </div>
