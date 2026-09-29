@@ -24,6 +24,7 @@ import ClassModel from '../models/class.model';
 import Department from '../models/department.model';
 import Course from '../models/course.model';
 import Teacher from '../models/teacher.model';
+import Student from '../models/student.model';
 import User from '../models/user.model';
 import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
@@ -49,7 +50,7 @@ const TEACHER_POPULATE = {
 // Class -> Course hierarchy this page now displays needs its own hop.
 const CLASS_POPULATE = {
   path: 'class',
-  select: 'title section department',
+  select: 'title section department shiftMode',
   populate: { path: 'department', select: 'name' },
 };
 
@@ -421,7 +422,33 @@ export const getMyScheduleAsTeacher = async (req: Request, res: Response): Promi
     .sort({ dayOfWeek: 1, startTime: 1 })
     .lean();
 
-  return ApiResponse.success(res, schedules);
+  // A teacher's roster is the active students registered in the assigned
+  // class. Course enrollment is intentionally not required.
+  const classIds = [...new Set(
+    schedules
+      .map((schedule: any) => String(schedule.class?._id || schedule.class || ''))
+      .filter(Boolean),
+  )]
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+
+  const studentCountRows = classIds.length
+    ? await Student.aggregate([
+        { $match: { status: 'active', class: { $in: classIds } } },
+        { $group: { _id: '$class', count: { $sum: 1 } } },
+      ])
+    : [];
+
+  const studentCountByClass = new Map(
+    studentCountRows.map((row: any) => [String(row._id), Number(row.count || 0)]),
+  );
+
+  const schedulesWithStudentCounts = schedules.map((schedule: any) => ({
+    ...schedule,
+    studentCount: studentCountByClass.get(String(schedule.class?._id || schedule.class || '')) || 0,
+  }));
+
+  return ApiResponse.success(res, schedulesWithStudentCounts);
 };
 
 // ---------------------------------------------------------------------------
