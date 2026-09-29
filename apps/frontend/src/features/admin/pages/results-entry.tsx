@@ -41,7 +41,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ClipboardEdit, Save, Loader2, AlertTriangle, CheckCircle2, UploadCloud, GraduationCap, Users, Clock, SlidersHorizontal } from 'lucide-react';
+import { ClipboardEdit, Save, Loader2, AlertTriangle, CheckCircle2, UploadCloud, GraduationCap, Users, Clock, SlidersHorizontal, ArrowRight, BookOpen } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 import { SearchableSelect, type SearchableSelectOption } from '../../shared/components/searchable-select';
@@ -686,7 +686,83 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
         )}
 
         {!loading && !selectedCourseId && (
-          <div className="space-y-3">
+          <div className="space-y-4">
+            <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-sm">
+              <div className="flex flex-col gap-1 border-b border-[var(--color-border-default)] px-4 py-4 sm:px-5">
+                <h2 className="text-base font-black text-[var(--color-text-primary)]">My Courses for Results</h2>
+                <p className="text-xs text-[var(--color-text-tertiary)]">Choose a course to open its student results list.</p>
+              </div>
+
+              {filteredCourses.length === 0 ? (
+                <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">
+                  No courses match the selected filters.
+                </div>
+              ) : (
+                <div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3">
+                  {filteredCourses.map((course, index) => {
+                    const progress = summary?.courses.find((item) => item._id === course._id);
+                    const total = progress?.totalStudents || 0;
+                    const graded = progress?.gradedStudents || 0;
+                    const percent = total ? Math.round((graded / total) * 100) : 0;
+                    const completed = Boolean(progress?.completed);
+
+                    return (
+                      <button
+                        key={course._id}
+                        type="button"
+                        onClick={() => loadCourse(course._id)}
+                        className="group rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 text-left transition hover:-translate-y-0.5 hover:border-emerald-400 hover:shadow-md"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
+                            index % 4 === 0
+                              ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30'
+                              : index % 4 === 1
+                              ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/30'
+                              : index % 4 === 2
+                              ? 'bg-violet-50 text-violet-600 dark:bg-violet-950/30'
+                              : 'bg-amber-50 text-amber-600 dark:bg-amber-950/30'
+                          }`}>
+                            <BookOpen className="h-5 w-5" />
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <h3 className="truncate font-black text-[var(--color-text-primary)]">{course.title?.en || 'Untitled course'}</h3>
+                                <p className="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">
+                                  {course.class ? `${course.class.title} (${course.class.section})` : 'No class'}
+                                </p>
+                              </div>
+                              <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-tertiary)] transition group-hover:translate-x-0.5 group-hover:text-emerald-600" />
+                            </div>
+
+                            <div className="mt-4 flex items-center justify-between gap-3">
+                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                                completed
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                              }`}>
+                                {completed ? 'Completed' : 'Pending'}
+                              </span>
+                              <span className="text-xs font-bold text-[var(--color-text-secondary)]">{graded}/{total} graded</span>
+                            </div>
+
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-secondary)]">
+                              <div
+                                className={`h-full rounded-full ${completed ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                                style={{ width: `${percent}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
             {summary && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <MetricCard
@@ -718,6 +794,7 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                 />
               </div>
             )}
+
             {summary && activeSummaryTab && (
               <SummaryBreakdownPanel
                 tab={activeSummaryTab}
@@ -725,9 +802,6 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                 onClose={() => setActiveSummaryTab(null)}
                 onSelectCourse={jumpToCourse}
               />
-            )}
-            {!activeSummaryTab && (
-              <div className="text-center py-10 text-[var(--color-text-tertiary)]"><p className="text-lg">👆 Select a course above to enter results</p></div>
             )}
           </div>
         )}
