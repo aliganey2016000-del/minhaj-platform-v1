@@ -40,7 +40,7 @@
  * visits without needing a per-course setting.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ClipboardEdit, Save, Loader2, AlertTriangle, CheckCircle2, UploadCloud, GraduationCap, Users, Clock, SlidersHorizontal, ArrowRight, BookOpen } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
@@ -297,6 +297,9 @@ function SummaryBreakdownPanel({ tab, courses, onClose, onSelectCourse }: {
 }
 
 export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProps) {
+  const [searchParams] = useSearchParams();
+  const requestedCourseId = searchParams.get('courseId') || '';
+  const requestedCourseOpenedRef = useRef('');
   const [courses, setCourses] = useState<CourseBrief[]>([]);
   const [summary, setSummary] = useState<EntrySummary | null>(null);
   const [orgFilter, setOrgFilter] = useState('');
@@ -430,6 +433,17 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
   };
 
   /** Jumping in from a quick-metric tab's course list bypasses the cascading filters entirely (a course from "Pending" might not match whatever Org/Dept/Class is currently picked), so those reset here to guarantee the target course shows up in the Course picker. */
+  useEffect(() => {
+    if (!requestedCourseId || requestedCourseOpenedRef.current === requestedCourseId) return;
+    if (!courses.some((course) => course._id === requestedCourseId)) return;
+    requestedCourseOpenedRef.current = requestedCourseId;
+    setOrgFilter('');
+    setDeptFilter('');
+    setClassFilter('');
+    setActiveSummaryTab(null);
+    void loadCourse(requestedCourseId);
+  }, [courses, requestedCourseId]);
+
   const jumpToCourse = (courseId: string) => {
     setOrgFilter('');
     setDeptFilter('');
