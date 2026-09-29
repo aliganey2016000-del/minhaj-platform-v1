@@ -22,6 +22,8 @@ type Assignment = {
   studentCount: number;
   markedCount: number;
   completed: boolean;
+  submissionStatus?: 'submitted' | 'missing';
+  submittedBy?: { name: string; role?: string } | null;
   room?: { _id: string; name: string; building?: string; capacity?: number };
   period?: { _id: string; name: string; academicYear: string; status?: string };
 };
@@ -153,7 +155,14 @@ export function TeacherExamAttendance() {
                   <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold capitalize ${statusTone[status]}`}>{status}</span>
                 </div>
 
-                <p className="mt-4 truncate text-sm font-bold">{assignment.period?.name||'Exam'}</p>
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <p className="truncate text-sm font-bold">{assignment.period?.name||'Exam'}</p>
+                  {status==='completed' && (
+                    assignment.submissionStatus==='submitted'
+                      ? <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">Submitted by {assignment.submittedBy?.name||'User'}</span>
+                      : <span className="shrink-0 rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700 dark:bg-red-950/30 dark:text-red-300">Missing</span>
+                  )}
+                </div>
                 <div className="mt-2 space-y-1.5 text-xs text-[var(--color-text-tertiary)]">
                   <span className="flex items-center gap-1.5"><CalendarDays size={14}/>{formatDate(assignment.examDate)}</span>
                   <span className="flex items-center gap-1.5"><Clock3 size={14}/>{assignment.startTime}–{assignment.endTime}</span>
