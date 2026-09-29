@@ -1319,11 +1319,28 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
 
-  // Teacher: assigned-only access — only exams for courses assigned to them.
+  // Teacher: assigned-only access, and named Exam Periods are visible only
+  // after the administrator publishes them. Legacy exams without a period
+  // remain available for backward compatibility.
   if (req.user?.role === 'teacher') {
     const teacher = await getOwnTeacherRecord(req);
     const teacherCourseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
     scopedFilter.course = { $in: teacherCourseIds };
+
+    const teacherSchoolId = String((teacher as any)?.school?._id || (teacher as any)?.school || '');
+    const publishedPeriodIds = /^[a-f\d]{24}$/i.test(teacherSchoolId)
+      ? await ExamPeriod.find({ school: teacherSchoolId, status: 'published' }).distinct('_id')
+      : [];
+
+    if (period) {
+      const allowed = publishedPeriodIds.filter((id: any) => String(id) === String(period));
+      scopedFilter.period = { $in: allowed };
+    } else {
+      scopedFilter.$or = [
+        { period: { $in: publishedPeriodIds } },
+        { period: null },
+      ];
+    }
   }
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
