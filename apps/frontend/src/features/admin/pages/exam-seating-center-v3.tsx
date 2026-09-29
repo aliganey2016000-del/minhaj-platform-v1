@@ -134,7 +134,7 @@ type AutoPreview = {
 };
 
 const columns = ['Organization','Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Seat'];
-const roomAssignmentColumns = ['Organization','Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Lock'];
+const roomAssignmentColumns = ['Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Lock'];
 const card = 'rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card';
 const input = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2.5 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20';
 const readonly = `${input} bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)]`;
@@ -1063,7 +1063,6 @@ export function ExamSeatingCenterV3() {
   const exportCsv=()=>csvDownload(`exam-room-allocation-${year}-${type}.csv`,[
     roomAssignmentColumns,
     ...filtered.map(a=>[
-      a.student?.organization||'',
       a.student?.department||'',
       a.student?.className||'',
       a.student?.shift||'',
@@ -1387,7 +1386,7 @@ export function ExamSeatingCenterV3() {
               :filtered.length===0
                 ?<div className="p-20 text-center"><b>No room assignments</b><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Use Smart Auto Allocation, Add Room Assignment, or Import Excel.</p></div>
                 :<div className="overflow-x-auto">
-                  <table className="w-full min-w-[1180px] text-sm">
+                  <table className="w-full min-w-[1040px] text-sm">
                     <thead className="bg-[var(--color-surface-secondary)]"><tr>
                       <th className="w-10 px-5 py-3 text-center"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll} className="h-4 w-4"/></th>
                       <th className="w-8 px-2 py-3"></th>
@@ -1402,7 +1401,6 @@ export function ExamSeatingCenterV3() {
                     >
                       <td className="px-5 py-4 text-center"><input type="checkbox" checked={selectedIds.includes(a._id)} onChange={()=>toggleSelect(a._id)} className="h-4 w-4"/></td>
                       <td className="px-2 py-4 text-[var(--color-text-tertiary)]">{a.locked?<Lock size={14}/>:<GripVertical size={15}/>}</td>
-                      <td className="px-4 py-4">{a.student?.organization||'—'}</td>
                       <td className="px-4 py-4">{a.student?.department||'—'}</td>
                       <td className="px-4 py-4">{a.student?.className||'—'}</td>
                       <td className="px-4 py-4">{a.student?.shift||'—'}</td>
