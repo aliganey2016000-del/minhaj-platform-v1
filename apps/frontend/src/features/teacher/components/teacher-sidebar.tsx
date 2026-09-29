@@ -17,10 +17,10 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     { path: '/teacher/schedule', label: 'My Schedule', icon: '🕐' },
     { path: '/teacher/attendance', label: 'Attendance', icon: '🗓️' },
     { path: '/teacher/assignments', label: 'Assignments', icon: '📝' },
-    { key: 'group:exams', label: 'Exams', icon: '🧪', children: [
-      { path: '/teacher/exams', label: 'Exam Schedule', icon: '📅' },
-      { path: '/teacher/exam-attendance', label: 'Exam Attendance', icon: '✅' },
-      { path: '/teacher/exam-papers', label: 'My Exam Papers', icon: '📄' },
+    { key: 'group:exams', label: 'Exam Operations', icon: '🧪', children: [
+      { path: '/teacher/exams', label: 'Exam Workspace', icon: '🧭' },
+      { path: '/teacher/exam-attendance', label: 'Invigilation & Attendance', icon: '✅' },
+      { path: '/teacher/exam-papers', label: 'Exam Papers', icon: '📄' },
       { path: '/teacher/exam-incidents', label: 'Incidents & Issues', icon: '⚠️' },
     ] },
     { key: 'group:quizzes', label: 'Quiz Builder', icon: '❓', children: [
