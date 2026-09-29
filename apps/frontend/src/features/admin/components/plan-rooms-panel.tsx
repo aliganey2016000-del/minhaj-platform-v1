@@ -180,6 +180,7 @@ export function PlanRoomsPanel({
   const [settingsMessage, setSettingsMessage] = useState('');
   const [capacityOverrideRoomIds, setCapacityOverrideRoomIds] = useState<string[]>([]);
   const [classExtraDrafts, setClassExtraDrafts] = useState<Record<string, number>>({});
+  const [expandedClassRooms, setExpandedClassRooms] = useState<Record<string, boolean>>({});
   const [resolutionTab, setResolutionTab] = useState<'plan' | 'room' | 'class'>('plan');
   const [actionsOpen, setActionsOpen] = useState(false);
   const [confirmingPlan, setConfirmingPlan] = useState(false);
@@ -1330,42 +1331,79 @@ export function PlanRoomsPanel({
                           <span>Free Seats</span>
                           <span>Add Extra</span>
                         </div>
-                        {sortedRooms.map(room => {
-                          const row = rowOf(room._id);
-                          const classAssigned = row.allocations.find(allocation => allocation.classId === item.cls._id)?.quota || 0;
-                          const totalLoad = roomUsed(room._id);
-                          const capacity = Math.max(0, Number(room.capacity) || 0);
-                          const free = capacity - totalLoad;
-                          const key = item.cls._id + '::' + room._id;
-                          const extra = Math.max(0, Number(classExtraDrafts[key]) || 0);
-                          const overridden = capacityOverrideRoomIds.includes(room._id);
+                        {sortedRooms
+                          .filter(room => {
+                            if (expandedClassRooms[item.cls._id]) return true;
+                            const row = rowOf(room._id);
+                            const classAssigned = row.allocations.find(allocation => allocation.classId === item.cls._id)?.quota || 0;
+                            const key = item.cls._id + '::' + room._id;
+                            const extra = Math.max(0, Number(classExtraDrafts[key]) || 0);
+                            return classAssigned > 0 || extra > 0;
+                          })
+                          .map(room => {
+                            const row = rowOf(room._id);
+                            const classAssigned = row.allocations.find(allocation => allocation.classId === item.cls._id)?.quota || 0;
+                            const totalLoad = roomUsed(room._id);
+                            const capacity = Math.max(0, Number(room.capacity) || 0);
+                            const free = capacity - totalLoad;
+                            const key = item.cls._id + '::' + room._id;
+                            const extra = Math.max(0, Number(classExtraDrafts[key]) || 0);
+                            const overridden = capacityOverrideRoomIds.includes(room._id);
+
+                            return (
+                              <div key={key} className="grid grid-cols-[1.1fr_120px_160px_120px] items-center gap-2 border-t px-3 py-2.5">
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold">{room.name}</p>
+                                  {overridden && (
+                                    <p className="mt-0.5 text-[10px] font-bold text-amber-600">
+                                      Admin Override{totalLoad > capacity ? ' +' + (totalLoad - capacity) : ''}
+                                    </p>
+                                  )}
+                                </div>
+                                <span className="font-bold">{classAssigned}</span>
+                                <span className={'font-bold ' + (free < 0 ? 'text-red-600' : free === 0 ? 'text-amber-600' : 'text-emerald-600')}>
+                                  {free} ({totalLoad}/{capacity})
+                                </span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={extra + Math.max(0, item.remaining)}
+                                  value={extra}
+                                  onChange={event => updateClassExtra(item.cls._id, room._id, Number(event.target.value))}
+                                  className="w-full rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-2 text-center font-bold"
+                                  aria-label={'Add extra ' + classNameOf(item.cls) + ' students to ' + room.name}
+                                />
+                              </div>
+                            );
+                          })}
+                        {(() => {
+                          const assignedRoomCount = sortedRooms.filter(room => {
+                            const row = rowOf(room._id);
+                            const classAssigned = row.allocations.find(allocation => allocation.classId === item.cls._id)?.quota || 0;
+                            const key = item.cls._id + '::' + room._id;
+                            const extra = Math.max(0, Number(classExtraDrafts[key]) || 0);
+                            return classAssigned > 0 || extra > 0;
+                          }).length;
+                          const hiddenRoomCount = Math.max(0, sortedRooms.length - assignedRoomCount);
+                          if (hiddenRoomCount === 0) return null;
 
                           return (
-                            <div key={key} className="grid grid-cols-[1.1fr_120px_160px_120px] items-center gap-2 border-t px-3 py-2.5">
-                              <div className="min-w-0">
-                                <p className="truncate font-semibold">{room.name}</p>
-                                {overridden && (
-                                  <p className="mt-0.5 text-[10px] font-bold text-amber-600">
-                                    Admin Override{totalLoad > capacity ? ' +' + (totalLoad - capacity) : ''}
-                                  </p>
-                                )}
-                              </div>
-                              <span className="font-bold">{classAssigned}</span>
-                              <span className={'font-bold ' + (free < 0 ? 'text-red-600' : free === 0 ? 'text-amber-600' : 'text-emerald-600')}>
-                                {free} ({totalLoad}/{capacity})
-                              </span>
-                              <input
-                                type="number"
-                                min={0}
-                                max={extra + Math.max(0, item.remaining)}
-                                value={extra}
-                                onChange={event => updateClassExtra(item.cls._id, room._id, Number(event.target.value))}
-                                className="w-full rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-2 text-center font-bold"
-                                aria-label={'Add extra ' + classNameOf(item.cls) + ' students to ' + room.name}
-                              />
+                            <div className="border-t px-3 py-2.5">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedClassRooms(prev => ({
+                                  ...prev,
+                                  [item.cls._id]: !prev[item.cls._id],
+                                }))}
+                                className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-bold text-primary-700 hover:bg-[var(--color-surface-secondary)] dark:text-primary-300"
+                              >
+                                {expandedClassRooms[item.cls._id]
+                                  ? 'Show Assigned Rooms Only'
+                                  : 'Show More Rooms (' + hiddenRoomCount + ')'}
+                              </button>
                             </div>
                           );
-                        })}
+                        })()}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-right">
