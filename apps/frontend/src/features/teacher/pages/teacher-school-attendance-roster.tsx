@@ -2,13 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   BookOpen,
-  Check,
   Clock3,
   Loader2,
   Save,
   Search,
   Users,
-  X,
 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
@@ -288,35 +286,39 @@ export function TeacherSchoolAttendanceRoster() {
                   <div className="flex shrink-0 gap-2">
                     <button
                       type="button"
+                      aria-label={`Mark ${student.name} present`}
+                      title="Present"
                       disabled={detail.locked}
                       onClick={() => setDrafts((current) => ({
                         ...current,
                         [student._id]: { ...draft, status: 'present', reasonCode: '' },
                       }))}
                       className={
-                        'inline-flex min-h-10 w-[88px] items-center justify-center gap-1 rounded-xl border px-2 text-xs font-black transition disabled:opacity-50 sm:w-[104px] sm:text-sm ' +
+                        'inline-flex h-11 w-11 items-center justify-center rounded-xl border text-base font-black transition disabled:opacity-50 ' +
                         (draft.status === 'present'
                           ? 'border-emerald-600 bg-emerald-600 text-white'
-                          : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]')
+                          : 'border-emerald-600/50 text-emerald-600')
                       }
                     >
-                      <Check className="h-4 w-4" /> Present
+                      P
                     </button>
                     <button
                       type="button"
+                      aria-label={`Mark ${student.name} absent`}
+                      title="Absent"
                       disabled={detail.locked}
                       onClick={() => setDrafts((current) => ({
                         ...current,
                         [student._id]: { ...draft, status: 'absent' },
                       }))}
                       className={
-                        'inline-flex min-h-10 w-[84px] items-center justify-center gap-1 rounded-xl border px-2 text-xs font-black transition disabled:opacity-50 sm:w-[100px] sm:text-sm ' +
+                        'inline-flex h-11 w-11 items-center justify-center rounded-xl border text-base font-black transition disabled:opacity-50 ' +
                         (draft.status === 'absent'
                           ? 'border-red-600 bg-red-600 text-white'
-                          : 'border-[var(--color-border-default)] text-[var(--color-text-secondary)]')
+                          : 'border-red-600/50 text-red-600')
                       }
                     >
-                      <X className="h-4 w-4" /> Absent
+                      A
                     </button>
                   </div>
                 </div>
