@@ -3,12 +3,11 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle2,
-  Plus,
+  MoreVertical,
   RotateCcw,
   Save,
   Settings2,
   ShieldCheck,
-  Trash2,
   Users,
   X,
   Zap,
@@ -181,6 +180,8 @@ export function PlanRoomsPanel({
   const [settingsMessage, setSettingsMessage] = useState('');
   const [capacityOverrideRoomIds, setCapacityOverrideRoomIds] = useState<string[]>([]);
   const [classExtraDrafts, setClassExtraDrafts] = useState<Record<string, number>>({});
+  const [resolutionTab, setResolutionTab] = useState<'class' | 'room'>('class');
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const restoredDraftKey = useRef('');
 
@@ -344,7 +345,6 @@ export function PlanRoomsPanel({
   const totalRoomCapacity = sortedRooms.reduce((sum, room) => sum + (Number(room.capacity) || 0), 0);
   const totalOperationalCapacity = sortedRooms.reduce((sum, room) => sum + effectiveCapacity(room), 0);
   const activeStudentTotal = activeClasses.reduce((sum, cls) => sum + (studentCounts[cls._id] || 0), 0);
-  const activeGradeCount = new Set(activeClasses.map(gradeKeyOf)).size;
 
   const assignedByClass = useMemo(() => {
     const totals: Record<string, number> = {};
@@ -407,39 +407,6 @@ export function PlanRoomsPanel({
     } finally {
       setSettingsSaving(false);
     }
-  };
-
-  const updateRow = (roomId: string, allocations: PlanAllocation[]) => {
-    setLocalError('');
-    setPlanRows(sortedRooms.map(room => (
-      room._id === roomId
-        ? { roomId, allocations }
-        : rowOf(room._id)
-    )));
-  };
-
-  const updateAllocation = (roomId: string, index: number, patch: Partial<PlanAllocation>) => {
-    const row = rowOf(roomId);
-    updateRow(roomId, row.allocations.map((allocation, i) => i === index ? { ...allocation, ...patch } : allocation));
-  };
-
-  const removeAllocation = (roomId: string, index: number) => {
-    const row = rowOf(roomId);
-    updateRow(roomId, row.allocations.filter((_, i) => i !== index));
-  };
-
-  const addAllocation = (roomId: string) => {
-    const row = rowOf(roomId);
-    if (row.allocations.length >= settings.preferredGradesPerRoom) return;
-    const usedClasses = new Set(row.allocations.map(a => a.classId));
-    const usedGrades = new Set(row.allocations.map(a => {
-      const cls = classById.get(a.classId);
-      return cls ? gradeKeyOf(cls) : '';
-    }));
-    const nextClass = activeClasses.find(cls => !usedClasses.has(cls._id) && !usedGrades.has(gradeKeyOf(cls)))
-      || activeClasses.find(cls => !usedClasses.has(cls._id));
-    if (!nextClass) return;
-    updateRow(roomId, [...row.allocations, { classId: nextClass._id, quota: 1 }]);
   };
 
   const buildRoomTargets = (usedRooms: Room[], totalStudents: number) => {
@@ -784,6 +751,8 @@ export function PlanRoomsPanel({
     });
 
     setPlanRows(generatedRows);
+    setResolutionTab('class');
+    setActionsOpen(false);
 
     const unresolvedTotal = Array.from(unresolvedByClass.values()).reduce((sum, count) => sum + count, 0);
     if (unresolvedTotal > 0) {
@@ -893,6 +862,9 @@ export function PlanRoomsPanel({
       key.startsWith(item.cls._id + '::') && Number(value) > 0
     )
   );
+  const hasGeneratedPlan = planRows.some(row => row.allocations.some(allocation => Number(allocation.quota) > 0));
+  const classResolutionRows = unresolvedClassSummary.length > 0 ? unresolvedClassSummary : classSummary;
+  const roomResolutionRows = sortedRooms.filter(room => roomUsed(room._id) > 0);
 
   const updateClassExtra = (classId: string, roomId: string, requested: number) => {
     const key = classId + '::' + roomId;
@@ -1131,191 +1103,102 @@ export function PlanRoomsPanel({
       )}
 
       <div className={card + ' overflow-hidden'}>
-        <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-          <div>
-            <h2 className="text-lg font-bold">Smart Mixed-Grade Room Plan</h2>
-            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Generate → Review & Edit → Confirm. Saved organization settings control the smart split and room mix.</p>
-            <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-semibold text-[var(--color-text-tertiary)]">
-              <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1">Max portion {settings.maxClassPortion}</span>
-              <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1">{settings.studentsPerInvigilator}/invigilator</span>
-              <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1">Max {settings.maxInvigilatorsPerRoom} invigilators/room</span>
-              <span className="rounded-full bg-[var(--color-surface-secondary)] px-2.5 py-1">{settings.minimumGradesPerRoom}–{settings.preferredGradesPerRoom} grades/room</span>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={()=>{setSettings(savedSettings);setSettingsDirty(false);setSettingsMessage('');setSettingsOpen(true)}} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold">
-              <Settings2 size={16}/>{settingsLoading?'Loading Settings...':'Room Plan Settings'}
-            </button>
-            <button type="button" onClick={()=>void generateSmartPlan()} disabled={settingsLoading||settingsDirty} title={settingsDirty?'Save Room Plan Settings first':''} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-              <Zap size={16} />
-              Generate Smart Mixed Plan
-            </button>
+        <div className="relative flex items-center justify-between gap-3 border-b p-4 sm:p-5">
+          <h2 className="text-lg font-bold">Smart Mixed-Grade Room Plan</h2>
+
+          <div className="relative">
             <button
               type="button"
-              onClick={confirmPlan}
-              disabled={!planRows.some(row => row.allocations.length > 0)}
-              title={currentPlanError ? 'Tap to see the remaining validation issue.' : 'Review the exact allocation, then save it.'}
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setActionsOpen(open => !open)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]"
+              aria-label="Room Plan actions"
+              aria-expanded={actionsOpen}
             >
-              <CheckCircle2 size={16} />
-              Confirm & Save Plan
+              <MoreVertical size={19} />
             </button>
+
+            {actionsOpen && (
+              <div className="absolute right-0 top-12 z-30 w-64 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettings(savedSettings);
+                    setSettingsDirty(false);
+                    setSettingsMessage('');
+                    setSettingsOpen(true);
+                    setActionsOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"
+                >
+                  <Settings2 size={16} />
+                  {settingsLoading ? 'Loading Settings...' : 'Room Plan Settings'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void generateSmartPlan()}
+                  disabled={settingsLoading || settingsDirty}
+                  title={settingsDirty ? 'Save Room Plan Settings first' : ''}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Zap size={16} />
+                  Generate Smart Mixed Plan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionsOpen(false);
+                    confirmPlan();
+                  }}
+                  disabled={!hasGeneratedPlan}
+                  title={currentPlanError ? 'Tap to see the remaining validation issue.' : 'Confirm the reviewed Room Plan.'}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300 dark:hover:bg-emerald-950/20"
+                >
+                  <CheckCircle2 size={16} />
+                  Confirm Plan
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        {sortedRooms.length === 0 ? (
-          <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No rooms are available. Add rooms through Class Management first.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px] text-sm">
-              <thead className="bg-[var(--color-surface-secondary)]">
-                <tr>
-                  <th className="px-4 py-3 text-left">Room</th>
-                  <th className="px-4 py-3 text-left">Capacity</th>
-                  <th className="px-4 py-3 text-left">Grade / Class &amp; Quota</th>
-                  <th className="px-4 py-3 text-left">Used</th>
-                  <th className="px-4 py-3 text-left">Available</th>
-                  <th className="px-4 py-3 text-left">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRooms.map(room => {
-                  const row = rowOf(room._id);
-                  const positiveAllocations = row.allocations.filter(allocation => Number(allocation.quota) > 0);
-                  const used = positiveAllocations.reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
-                  const operationalCapacity = effectiveCapacity(room);
-                  const available = operationalCapacity - used;
-                  const gradeTotals = new Map<string, number>();
-                  positiveAllocations.forEach(allocation => {
-                    const cls = classById.get(allocation.classId);
-                    if (!cls) return;
-                    const grade = gradeKeyOf(cls);
-                    gradeTotals.set(grade, (gradeTotals.get(grade) || 0) + allocation.quota);
-                  });
-                  const distinctGrades = gradeTotals.size;
-                  const maxShare = used > 0 ? Math.max(...Array.from(gradeTotals.values()), 0) / used * 100 : 0;
-                  const targetUsed = Math.round(operationalCapacity * settings.targetRoomOccupancyPercent / 100);
+        <div className="grid grid-cols-2 border-b bg-[var(--color-surface-secondary)]/50 p-2">
+          <button
+            type="button"
+            disabled={!hasGeneratedPlan}
+            onClick={() => setResolutionTab('class')}
+            className={
+              'rounded-xl px-3 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ' +
+              (resolutionTab === 'class' && hasGeneratedPlan
+                ? 'bg-[var(--color-surface-primary)] text-primary-700 shadow-sm dark:text-primary-300'
+                : 'text-[var(--color-text-secondary)]')
+            }
+          >
+            Class Resolution
+          </button>
+          <button
+            type="button"
+            disabled={!hasGeneratedPlan}
+            onClick={() => setResolutionTab('room')}
+            className={
+              'rounded-xl px-3 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ' +
+              (resolutionTab === 'room' && hasGeneratedPlan
+                ? 'bg-[var(--color-surface-primary)] text-primary-700 shadow-sm dark:text-primary-300'
+                : 'text-[var(--color-text-secondary)]')
+            }
+          >
+            Room Resolution
+          </button>
+        </div>
 
-                  let statusLabel = 'Unused';
-                  let statusClass = 'bg-slate-100 text-slate-600';
-                  if (used > Number(room.capacity) && capacityOverrideRoomIds.includes(room._id)) {
-                    statusLabel = 'Admin Override +' + (used - Number(room.capacity)) + ' · ' + used + '/' + room.capacity;
-                    statusClass = 'bg-amber-100 text-amber-700';
-                  } else if (used > Number(room.capacity)) {
-                    statusLabel = 'Admin Override Required';
-                    statusClass = 'bg-red-100 text-red-700';
-                  } else if (used > operationalCapacity && capacityOverrideRoomIds.includes(room._id)) {
-                    statusLabel = 'Admin Override · ' + used + '/' + room.capacity;
-                    statusClass = 'bg-amber-100 text-amber-700';
-                  } else if (used > operationalCapacity) {
-                    statusLabel = 'Override Required';
-                    statusClass = 'bg-red-100 text-red-700';
-                  } else if (used > 0 && distinctGrades < settings.minimumGradesPerRoom && activeGradeCount >= settings.minimumGradesPerRoom) {
-                    statusLabel = 'Needs More Grade Mix';
-                    statusClass = 'bg-red-100 text-red-700';
-                  } else if (used > 0 && maxShare > settings.maxSameGradeSharePercent) {
-                    statusLabel = 'Imbalanced · ' + Math.round(maxShare) + '% Same Grade';
-                    statusClass = 'bg-amber-100 text-amber-700';
-                  } else if (used > 0 && used < settings.minimumStudentsPerUsedRoom && activeStudentTotal > used) {
-                    statusLabel = 'Low Occupancy';
-                    statusClass = 'bg-amber-100 text-amber-700';
-                  } else if (used > 0 && distinctGrades >= settings.preferredGradesPerRoom && Math.abs(used - targetUsed) <= settings.occupancyBalanceTolerance) {
-                    statusLabel = 'Excellent Mix · ' + distinctGrades + ' Grades';
-                    statusClass = 'bg-emerald-100 text-emerald-700';
-                  } else if (used > 0) {
-                    statusLabel = 'Good Mix · ' + distinctGrades + ' Grades';
-                    statusClass = 'bg-blue-100 text-blue-700';
-                  }
-
-                  return (
-                    <tr key={room._id} className="border-t align-top">
-                      <td className="px-4 py-4">
-                        <p className="font-bold">{room.name}</p>
-                        <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{room.building || 'Main'}</p>
-                      </td>
-                      <td className="px-4 py-4">
-                        <p className="text-lg font-bold">{operationalCapacity}</p>
-                        <p className="text-[11px] text-[var(--color-text-tertiary)]">{room.capacity} physical · {settings.maxInvigilatorsPerRoom} invigilator(s)</p>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="min-w-[430px] overflow-hidden rounded-xl border">
-                          <div className="grid grid-cols-[1fr_110px_40px] bg-[var(--color-surface-secondary)] px-2 py-2 text-[11px] font-bold uppercase text-[var(--color-text-tertiary)]">
-                            <span>Grade / Class</span>
-                            <span>Quota</span>
-                            <span />
-                          </div>
-                          {row.allocations.length === 0 ? (
-                            <div className="px-3 py-4 text-xs text-[var(--color-text-tertiary)]">No grade assigned to this room.</div>
-                          ) : row.allocations.map((allocation, index) => {
-                            const selectedClass = classById.get(allocation.classId);
-                            return (
-                              <div key={room._id + '-' + index} className="grid grid-cols-[1fr_110px_40px] items-center gap-2 border-t p-2">
-                                <select
-                                  value={allocation.classId}
-                                  onChange={e => updateAllocation(room._id, index, { classId: e.target.value })}
-                                  className="min-w-0 rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-2 text-sm"
-                                >
-                                  {activeClasses.map(cls => (
-                                    <option key={cls._id} value={cls._id}>
-                                      {gradeLabelOf(cls)} · {classNameOf(cls)} · {studentCounts[cls._id] || 0} students
-                                    </option>
-                                  ))}
-                                </select>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={Math.max(1, studentCounts[allocation.classId] || 1)}
-                                  value={allocation.quota}
-                                  onChange={e => updateAllocation(room._id, index, { quota: Math.max(0, Number(e.target.value) || 0) })}
-                                  className="w-full rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-2 text-center font-bold"
-                                  aria-label={(selectedClass ? classNameOf(selectedClass) : 'Class') + ' quota'}
-                                />
-                                <button type="button" onClick={() => removeAllocation(room._id, index)} className="rounded-lg border p-2 text-red-600" title="Remove from room">
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            );
-                          })}
-                          {row.allocations.length < settings.preferredGradesPerRoom && activeClasses.length > row.allocations.length && (
-                            <button type="button" onClick={() => addAllocation(room._id)} className="flex w-full items-center justify-center gap-1.5 border-t px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-[var(--color-surface-secondary)]">
-                              <Plus size={14} />
-                              Add Grade / Class
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-lg font-bold">{used}</td>
-                      <td className={'px-4 py-4 text-lg font-bold ' + (available < 0 ? 'text-red-600' : 'text-emerald-600')}>
-                        {available}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className={'inline-flex rounded-full px-2.5 py-1 text-xs font-bold ' + statusClass}>{statusLabel}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        {!hasGeneratedPlan ? (
+          <div className="p-10 text-center sm:p-12">
+            <Zap className="mx-auto h-8 w-8 text-[var(--color-text-tertiary)]" />
+            <p className="mt-3 font-bold">Generate the Smart Mixed Plan first</p>
+            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+              Use the three-dot menu above, then review the result by Class or by Room.
+            </p>
           </div>
-        )}
-      </div>
-
-      {unresolvedClassSummary.length > 0 && (
-        <div className={card + ' overflow-hidden border-amber-200 dark:border-amber-900/40'}>
-          <div className="border-b bg-amber-50/60 p-4 dark:bg-amber-950/10 sm:p-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="font-bold text-amber-800 dark:text-amber-200">Resolve Remaining by Class</h3>
-                <p className="mt-1 text-sm text-amber-700/90 dark:text-amber-300/90">
-                  Add remaining students by class. Assigned totals, Room load and Free Seats update automatically. If Add Extra exceeds the normal Room load, that Room is recorded as an Admin-approved override.
-                </p>
-              </div>
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
-                {Math.max(0, unresolvedClassSummary.reduce((sum, item) => sum + item.remaining, 0))} remaining
-              </span>
-            </div>
-          </div>
-
+        ) : resolutionTab === 'class' ? (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[980px] text-sm">
               <thead className="bg-[var(--color-surface-secondary)]">
@@ -1327,7 +1210,7 @@ export function PlanRoomsPanel({
                 </tr>
               </thead>
               <tbody>
-                {unresolvedClassSummary.map(item => (
+                {classResolutionRows.map(item => (
                   <tr key={item.cls._id} className="border-t align-top">
                     <td className="px-4 py-4">
                       <p className="font-bold">{classNameOf(item.cls)}</p>
@@ -1371,7 +1254,7 @@ export function PlanRoomsPanel({
                               <input
                                 type="number"
                                 min={0}
-                                max={extra + item.remaining}
+                                max={extra + Math.max(0, item.remaining)}
                                 value={extra}
                                 onChange={event => updateClassExtra(item.cls._id, room._id, Number(event.target.value))}
                                 className="w-full rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-2 text-center font-bold"
@@ -1392,8 +1275,103 @@ export function PlanRoomsPanel({
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-sm">
+              <thead className="bg-[var(--color-surface-secondary)]">
+                <tr>
+                  <th className="px-4 py-3 text-left">Room</th>
+                  <th className="px-4 py-3 text-left">Assigned / Total</th>
+                  <th className="px-4 py-3 text-left">Class Allocation</th>
+                  <th className="px-4 py-3 text-left">Free Seats</th>
+                </tr>
+              </thead>
+              <tbody>
+                {roomResolutionRows.map(room => {
+                  const row = rowOf(room._id);
+                  const allocations = row.allocations.filter(allocation => Number(allocation.quota) > 0);
+                  const used = roomUsed(room._id);
+                  const capacity = Math.max(0, Number(room.capacity) || 0);
+                  const free = capacity - used;
+                  const overridden = capacityOverrideRoomIds.includes(room._id);
+
+                  return (
+                    <tr key={room._id} className="border-t align-top">
+                      <td className="px-4 py-4">
+                        <p className="font-bold">{room.name}</p>
+                        <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{room.building || 'Main'}</p>
+                        {overridden && (
+                          <p className="mt-1 text-[10px] font-bold text-amber-600">
+                            Admin Override{used > capacity ? ' +' + (used - capacity) : ''}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-lg font-bold">
+                        {used}/{capacity}
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="min-w-[620px] overflow-hidden rounded-xl border">
+                          <div className="grid grid-cols-[1.2fr_130px_130px_120px] bg-[var(--color-surface-secondary)] px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                            <span>Class</span>
+                            <span>Assigned / Total</span>
+                            <span>Unassigned</span>
+                            <span>Add Extra</span>
+                          </div>
+                          {allocations.length === 0 ? (
+                            <div className="px-3 py-4 text-xs text-[var(--color-text-tertiary)]">
+                              No class allocation in this Room.
+                            </div>
+                          ) : allocations.map(allocation => {
+                            const cls = classById.get(allocation.classId);
+                            if (!cls) return null;
+                            const total = studentCounts[allocation.classId] || 0;
+                            const globallyAssigned = assignedByClass[allocation.classId] || 0;
+                            const unassigned = Math.max(0, total - globallyAssigned);
+                            const key = allocation.classId + '::' + room._id;
+                            const extra = Math.max(0, Number(classExtraDrafts[key]) || 0);
+
+                            return (
+                              <div key={key} className="grid grid-cols-[1.2fr_130px_130px_120px] items-center gap-2 border-t px-3 py-2.5">
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold">{classNameOf(cls)}</p>
+                                  <p className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">{gradeLabelOf(cls)}</p>
+                                </div>
+                                <span className="font-bold">{allocation.quota}/{total}</span>
+                                <span className={'font-bold ' + (unassigned > 0 ? 'text-amber-600' : 'text-emerald-600')}>
+                                  {unassigned}
+                                </span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={extra + unassigned}
+                                  value={extra}
+                                  onChange={event => updateClassExtra(allocation.classId, room._id, Number(event.target.value))}
+                                  className="w-full rounded-lg border bg-[var(--color-surface-primary)] px-2.5 py-2 text-center font-bold"
+                                  aria-label={'Add extra ' + classNameOf(cls) + ' students to ' + room.name}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td className={'px-4 py-4 text-lg font-bold ' + (free < 0 ? 'text-red-600' : free === 0 ? 'text-amber-600' : 'text-emerald-600')}>
+                        {free} ({used}/{capacity})
+                      </td>
+                    </tr>
+                  );
+                })}
+                {roomResolutionRows.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">
+                      No Room allocations yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <div className={card + ' p-4 sm:p-5'}>
