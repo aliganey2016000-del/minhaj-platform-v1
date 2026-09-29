@@ -8,7 +8,6 @@ import {
   Save,
   Settings2,
   ShieldCheck,
-  Users,
   X,
   Zap,
 } from 'lucide-react';
@@ -420,13 +419,6 @@ export function PlanRoomsPanel({
     }));
     return totals;
   }, [planRows]);
-
-  const assignedTotal = Object.values(assignedByClass).reduce((sum, value) => sum + value, 0);
-  const usedRoomCount = planRows.filter(row => row.allocations.some(a => Number(a.quota) > 0)).length;
-  const usedOperationalCapacity = planRows.reduce((sum, row) => {
-    const room = roomById.get(row.roomId);
-    return room && row.allocations.some(a => Number(a.quota) > 0) ? sum + effectiveCapacity(room) : sum;
-  }, 0);
 
   const closeSettingsModal = () => {
     if (settingsSaving) return;
@@ -1653,47 +1645,6 @@ export function PlanRoomsPanel({
             </table>
           </div>
         )}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        <div className={card + ' p-4 sm:p-5'}>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="font-bold">Grade / Class Check</h3>
-              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Every active student must be included exactly once in the plan.</p>
-            </div>
-            <Users size={18} />
-          </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {classSummary.map(item => (
-              <div key={item.cls._id} className="rounded-xl bg-[var(--color-surface-secondary)] p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="truncate text-sm font-semibold">{classNameOf(item.cls)}</p>
-                  <span className={'text-xs font-bold ' + (item.remaining === 0 ? 'text-emerald-600' : item.remaining > 0 ? 'text-amber-600' : 'text-red-600')}>
-                    {item.assigned}/{item.expected}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
-                  {item.remaining === 0 ? 'Complete' : item.remaining > 0 ? item.remaining + ' remaining' : Math.abs(item.remaining) + ' over-assigned'}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className={card + ' p-4 sm:p-5'}>
-          <h3 className="font-bold">Plan Summary</h3>
-          <div className="mt-4 space-y-3 text-sm">
-            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Active Students</span><b>{activeStudentTotal}</b></div>
-            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Assigned in Plan</span><b>{assignedTotal}</b></div>
-            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Rooms Used</span><b>{usedRoomCount}</b></div>
-            <div className="flex justify-between gap-3"><span className="text-[var(--color-text-tertiary)]">Operational Capacity</span><b>{usedOperationalCapacity}</b></div>
-            <div className="flex justify-between gap-3 border-t pt-3">
-              <span className="text-[var(--color-text-tertiary)]">Unassigned</span>
-              <b className={activeStudentTotal - assignedTotal === 0 ? 'text-emerald-600' : 'text-amber-600'}>{activeStudentTotal - assignedTotal}</b>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div className="flex items-start gap-2 rounded-xl border border-primary-200 bg-primary-50/50 p-3 text-xs text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-200">
