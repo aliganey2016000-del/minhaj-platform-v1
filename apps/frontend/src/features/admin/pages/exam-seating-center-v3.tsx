@@ -8,6 +8,7 @@ import {
   CheckSquare,
   Download,
   FileSpreadsheet,
+  Filter,
   GripVertical,
   Lock,
   MoreVertical,
@@ -845,7 +846,9 @@ export function ExamSeatingCenterV3() {
   const [year,setYear]=useState(contextAcademicYear || currentAcademicYear);
   const [type,setType]=useState(contextExamType);
   const [query,setQuery]=useState('');
-  const [roomFilter,setRoomFilter]=useState('all');
+  const [filterField,setFilterField]=useState<'class'|'shift'|'academicYear'|'examType'|'room'|''>('');
+  const [filterValue,setFilterValue]=useState('');
+  const [filterMenuOpen,setFilterMenuOpen]=useState(false);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
@@ -912,10 +915,28 @@ export function ExamSeatingCenterV3() {
     })));
   },[classes,activeAllocationRooms]);
 
+  const filterOptions=useMemo(()=>{
+    const unique=(values:string[])=>Array.from(new Set(values.filter(Boolean))).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+    return {
+      class: unique(allocations.map(a=>a.student?.className||'')),
+      shift: unique(allocations.map(a=>a.student?.shift||'')),
+      academicYear: unique(allocations.map(a=>a.academicYear||'')),
+      examType: unique(allocations.map(a=>a.examType==='mid'?'Mid Exam':a.examType==='final'?'Final':'').filter(Boolean)),
+      room: unique(allocations.map(a=>a.room?.name||'')),
+    };
+  },[allocations]);
+
   const filtered=useMemo(()=>allocations.filter(a=>{
     const text=[a.student?.organization,a.student?.department,a.student?.className,a.student?.shift,a.student?.studentId,nameOf(a.student),a.room?.name].join(' ').toLowerCase();
-    return(!query||text.includes(query.toLowerCase()))&&(roomFilter==='all'||a.room?._id===roomFilter);
-  }),[allocations,query,roomFilter]);
+    if(query&&!text.includes(query.toLowerCase()))return false;
+    if(!filterField||!filterValue)return true;
+    if(filterField==='class')return (a.student?.className||'')===filterValue;
+    if(filterField==='shift')return (a.student?.shift||'')===filterValue;
+    if(filterField==='academicYear')return a.academicYear===filterValue;
+    if(filterField==='examType')return (a.examType==='mid'?'Mid Exam':'Final')===filterValue;
+    if(filterField==='room')return (a.room?.name||'')===filterValue;
+    return true;
+  }),[allocations,query,filterField,filterValue]);
 
   const allocationsByRoom=useMemo(()=>{
     const map=new Map<string,Allocation[]>();
@@ -951,7 +972,7 @@ export function ExamSeatingCenterV3() {
   const totalUsedCapacity=usedRooms.reduce((sum,r)=>sum+(Number(r.capacity)||0),0);
   const freeSpaces=Math.max(0,totalUsedCapacity-allocations.length);
 
-  useEffect(()=>{setSelectedIds([])},[year,type,query,roomFilter]);
+  useEffect(()=>{setSelectedIds([])},[year,type,query,filterField,filterValue]);
   const allFilteredSelected=filtered.length>0&&filtered.every(a=>selectedIds.includes(a._id));
   const toggleSelect=(id:string)=>setSelectedIds(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
   const toggleSelectAll=()=>setSelectedIds(allFilteredSelected?[]:filtered.map(a=>a._id));
@@ -1289,9 +1310,76 @@ export function ExamSeatingCenterV3() {
           </div>}
 
           <div className={`${card} overflow-hidden`}>
-            <div className="flex flex-col gap-3 border-b p-5 lg:flex-row">
-              <div className="relative flex-1"><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2"/><input className={`${input} pl-9`} value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search student, class, room..." disabled={!year||!type}/></div>
-              <select className={`${input} lg:w-52`} value={roomFilter} onChange={e=>setRoomFilter(e.target.value)} disabled={!year||!type}><option value="all">All Rooms</option>{rooms.map(r=><option key={r._id} value={r._id}>{r.name}</option>)}</select>
+            <div className="flex flex-col gap-3 border-b p-5 lg:flex-row lg:items-center">
+              <div className="relative flex-1">
+                <Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2"/>
+                <input className={`${input} pl-9`} value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search student, class, room..." disabled={!year||!type}/>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row lg:items-center">
+                <div className="relative">
+                  <button
+                    type="button"
+                    disabled={!year||!type}
+                    onClick={()=>setFilterMenuOpen(open=>!open)}
+                    className="inline-flex w-full items-center justify-between gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2.5 text-sm font-semibold disabled:opacity-50 sm:w-44"
+                  >
+                    <span className="inline-flex items-center gap-2"><Filter size={16}/>All Filters</span>
+                    <span className="text-xs text-[var(--color-text-tertiary)]">▾</span>
+                  </button>
+                  {filterMenuOpen&&(
+                    <div className="absolute right-0 top-12 z-40 w-52 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl">
+                      {([
+                        ['class','Class'],
+                        ['shift','Shift'],
+                        ['academicYear','Academic Year'],
+                        ['examType','Exam Type'],
+                        ['room','Room'],
+                      ] as const).map(([key,label])=>(
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={()=>{setFilterField(key);setFilterValue('');setFilterMenuOpen(false)}}
+                          className={`w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)] ${filterField===key?'text-primary-700 dark:text-primary-300':''}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                      {(filterField||filterValue)&&(
+                        <button
+                          type="button"
+                          onClick={()=>{setFilterField('');setFilterValue('');setFilterMenuOpen(false)}}
+                          className="mt-1 w-full rounded-lg border-t px-3 py-2.5 text-left text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"
+                        >
+                          Clear Filter
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {filterField&&(
+                  <div className="flex min-w-0 items-center gap-2">
+                    <select
+                      className={`${input} min-w-[180px] sm:w-56`}
+                      value={filterValue}
+                      onChange={e=>setFilterValue(e.target.value)}
+                    >
+                      <option value="">All {filterField==='class'?'Classes':filterField==='shift'?'Shifts':filterField==='academicYear'?'Academic Years':filterField==='examType'?'Exam Types':'Rooms'}</option>
+                      {filterOptions[filterField].map(value=><option key={value} value={value}>{value}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={()=>{setFilterField('');setFilterValue('')}}
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--color-border-default)]"
+                      aria-label="Clear filter"
+                      title="Clear filter"
+                    >
+                      <X size={15}/>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {!year||!type
