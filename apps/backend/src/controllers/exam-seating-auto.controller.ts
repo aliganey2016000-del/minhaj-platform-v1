@@ -334,15 +334,17 @@ export const generate = async (req: Request, res: Response) => {
       school: targetSchoolId,
       _id: { $in: normalizedRoomIds },
       capacity: { $gt: 0 },
+      allocationEnabled: { $ne: false },
     }).sort({ building: 1, name: 1 }).lean();
 
     if (selectedRooms.length !== normalizedRoomIds.length) {
-      throw new BadRequestError('One or more selected Rooms are missing or have no capacity');
+      throw new BadRequestError('One or more selected Rooms are inactive, missing, or have no capacity');
     }
   } else {
     selectedRooms = await ExamRoom.find({
       school: targetSchoolId,
       capacity: { $gt: 0 },
+      allocationEnabled: { $ne: false },
     }).sort({ building: 1, name: 1 }).lean();
   }
 
