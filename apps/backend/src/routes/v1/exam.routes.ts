@@ -41,7 +41,7 @@ router.patch('/room-plan-settings', adminOnly, asyncHandler(roomPlanSettingsCont
 
 // Named exam containers (Midterm, Final, etc.) are created first; their
 // grade/shift grid is then edited through /schedule-grid.
-router.get('/periods', adminOnly, asyncHandler(examController.getExamPeriods));
+router.get('/periods', adminOrTeacher, asyncHandler(examController.getExamPeriods));
 router.post('/periods', adminOnly, asyncHandler(examController.createExamPeriod));
 router.patch('/periods/:periodId', adminOnly, asyncHandler(examController.updateExamPeriod));
 router.delete('/periods/:periodId', adminOnly, asyncHandler(examController.deleteExamPeriod));
