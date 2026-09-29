@@ -335,8 +335,23 @@ export const updateScheduleRules = async (req: Request, res: Response): Promise<
 
 // GET /exams/periods — reusable named exam periods such as Midterm / Final.
 export const getExamPeriods = async (req: Request, res: Response): Promise<Response> => {
-  const schoolId = scheduleRulesSchoolId(req);
-  const periods = await ExamPeriod.find({ school: schoolId })
+  const teacherView = req.user?.role === 'teacher';
+  let schoolId = '';
+
+  if (teacherView) {
+    const teacher = await getOwnTeacherRecord(req);
+    schoolId = String((teacher as any)?.school?._id || (teacher as any)?.school || '');
+    // A teacher without an organization/school record should see an empty
+    // workspace rather than being able to supply another tenant in the query.
+    if (!/^[a-f\\d]{24}$/i.test(schoolId)) return ApiResponse.success(res, []);
+  } else {
+    schoolId = scheduleRulesSchoolId(req);
+  }
+
+  const periods = await ExamPeriod.find({
+    school: schoolId,
+    ...(teacherView ? { status: 'published' } : {}),
+  })
     .populate('school', 'name')
     .sort({ academicYear: -1, startDate: -1, createdAt: -1 })
     .lean();
