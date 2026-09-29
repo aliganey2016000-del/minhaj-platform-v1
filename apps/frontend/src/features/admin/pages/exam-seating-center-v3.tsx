@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowRight,
   Building2,
   CheckCircle2,
   CheckSquare,
@@ -819,6 +820,7 @@ function RoomStudentsModal({
 }
 
 export function ExamSeatingCenterV3() {
+  const navigate = useNavigate();
   const [workspaceSearchParams] = useSearchParams();
   const contextPeriodId = workspaceSearchParams.get('periodId') || '';
   const contextExamName = workspaceSearchParams.get('examName') || '';
@@ -1100,6 +1102,11 @@ export function ExamSeatingCenterV3() {
     ? `period:${contextPeriodId}`
     : `scope:${orgForAuto||'current'}:${year||'year'}:${type||'exam'}`;
   const planDraftStorageKey=`sahal:room-plan-draft:${planDraftId}`;
+  const invigilatorSearchParams = new URLSearchParams(workspaceSearchParams);
+  invigilatorSearchParams.set('step', 'assignment');
+  const invigilatorHref = '/admin/exams/invigilators' + (
+    invigilatorSearchParams.toString() ? '?' + invigilatorSearchParams.toString() : ''
+  );
 
   const confirmReviewedRoomPlan = async (defaults: AutoDefaults) => {
     if (!defaults.academicYear || !defaults.examType) {
@@ -1239,6 +1246,24 @@ export function ExamSeatingCenterV3() {
             </div>
             <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">One room allocation applies to all subjects in the selected Academic Year + Exam Type.</p>
           </div>}
+
+          {year&&type&&allocations.length>0&&stats.unassigned===0&&issues.length===0&&(
+            <div className="flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-bold text-emerald-800 dark:text-emerald-200">Room Allocation Confirmed</p>
+                <p className="mt-1 text-sm text-emerald-700/90 dark:text-emerald-300/90">
+                  All active students are assigned. Continue to Invigilator Assignment for this Exam Period.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={()=>navigate(invigilatorHref)}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white"
+              >
+                Continue to Invigilator <ArrowRight size={16}/>
+              </button>
+            </div>
+          )}
 
           {year&&type&&<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {[
