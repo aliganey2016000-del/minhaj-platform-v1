@@ -1004,6 +1004,7 @@ export function ExamSeatingCenterV3() {
 
   const moveAllocation=async(allocation:Allocation,targetRoom:Room)=>{
     if(allocation.locked){setError('Unlock this student before moving them.');return}
+    if(targetRoom.allocationEnabled===false){setError(`${targetRoom.name} is Inactive and cannot receive students.`);return}
     const targetCount=(allocationsByRoom.get(targetRoom._id)||[]).length;
     if(targetCount>=targetRoom.capacity){setError(`${targetRoom.name} is full (${targetCount}/${targetRoom.capacity}).`);return}
     setError('');
@@ -1403,7 +1404,7 @@ export function ExamSeatingCenterV3() {
         </>}
 
       {modal==='add'&&<AddModal rooms={activeAllocationRooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment added successfully.');void loadSeating()}}/>}
-      {modal==='edit'&&editing&&<EditModal allocation={editing} rooms={rooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment updated successfully.');void loadSeating()}}/>}
+      {modal==='edit'&&editing&&<EditModal allocation={editing} rooms={activeAllocationRooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment updated successfully.');void loadSeating()}}/>}
       {modal==='import'&&<ImportModal close={()=>setModal(null)} onImported={(info)=>{setYear(info.academicYear);setType(info.examType);setMessage(`Imported ${info.count} room assignments successfully.`);void loadSeating(info.academicYear,info.examType)}}/>}
       {modal==='auto'&&<AutoGenerateModal
         orgs={orgs}
@@ -1433,7 +1434,7 @@ export function ExamSeatingCenterV3() {
       {modal==='room-students'&&viewRoom&&<RoomStudentsModal
         room={viewRoom}
         allocations={allocationsByRoom.get(viewRoom._id)||[]}
-        rooms={rooms}
+        rooms={activeAllocationRooms}
         close={()=>setModal(null)}
         onMove={moveAllocation}
         onToggleStudentLock={toggleStudentLock}
