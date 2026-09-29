@@ -1096,6 +1096,10 @@ export function ExamSeatingCenterV3() {
     : '/admin/exams/schedule';
 
   const orgForAuto=orgs.length===1?orgs[0]._id:'';
+  const planDraftId=contextPeriodId
+    ? `period:${contextPeriodId}`
+    : `scope:${orgForAuto||'current'}:${year||'year'}:${type||'exam'}`;
+  const planDraftStorageKey=`sahal:room-plan-draft:${planDraftId}`;
 
   if(loading)return <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
     <div className="mx-auto max-w-screen-2xl space-y-5">
@@ -1168,6 +1172,7 @@ export function ExamSeatingCenterV3() {
             planRows={planRows}
             schoolId={orgForAuto}
             hideExamSelectors={hasExamContext}
+            draftKey={planDraftId}
             setYear={setYear}
             setType={setType}
             setPlanRows={setPlanRows}
@@ -1311,7 +1316,15 @@ export function ExamSeatingCenterV3() {
         initialStudentRoomOverrides={autoDefaults?.studentRoomOverrides}
         initialCapacityOverrideRoomIds={autoDefaults?.capacityOverrideRoomIds}
         close={()=>{setModal(null);setAutoDefaults(null)}}
-        onGenerated={info=>{setYear(info.academicYear);setType(info.examType);setTab('seating');setMessage(info.message);setAutoDefaults(null);void loadSeating(info.academicYear,info.examType)}}
+        onGenerated={info=>{
+          try{window.localStorage.removeItem(planDraftStorageKey)}catch{}
+          setYear(info.academicYear);
+          setType(info.examType);
+          setTab('seating');
+          setMessage(info.message);
+          setAutoDefaults(null);
+          void loadSeating(info.academicYear,info.examType);
+        }}
       />}
       {modal==='room'&&<RoomModal room={editingRoom} close={()=>setModal(null)} onSaved={saved=>{setRooms(prev=>prev.some(r=>r._id===saved._id)?prev.map(r=>r._id===saved._id?saved:r):[...prev,saved]);setMessage('Room saved successfully.');void loadBase()}}/>}
       {modal==='room-import'&&<RoomImportModal close={()=>setModal(null)} onImported={m=>{setMessage(m);void loadBase()}}/>}
