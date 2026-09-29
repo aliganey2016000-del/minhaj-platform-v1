@@ -28,7 +28,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
     Course.find({ ...courseFilter, status: 'published' })
       .populate({ path: 'school', select: 'name slug' })
       .populate({ path: 'class', select: 'title section' })
-      .select('title slug description category level duration fee enrolledStudents maxStudents status thumbnail')
+      .select('title slug description category level duration fee enrolledStudents maxStudents status thumbnail class school')
       .lean(),
     Course.find({ ...courseFilter, status: 'draft' })
       .select('title slug status updatedAt')
@@ -41,7 +41,17 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
     status: 'submitted' as const,
   };
 
-  const [pendingCount, pendingSubmissions, enrolledStudents, performanceRows] = await Promise.all([
+  const assignedClassIds = [...new Set(
+    activeCourses
+      .map((course: any) => String(course.class?._id || course.class || ''))
+      .filter(Boolean)
+  )];
+
+  const studentScopeClauses: Record<string, unknown>[] = [];
+  if (allCourseIds.length) studentScopeClauses.push({ enrolledCourses: { $in: allCourseIds } });
+  if (assignedClassIds.length) studentScopeClauses.push({ class: { $in: assignedClassIds } });
+
+  const [pendingCount, pendingSubmissions, scopedStudents, performanceRows] = await Promise.all([
     AssignmentSubmission.countDocuments(submissionFilter),
     AssignmentSubmission.find(submissionFilter)
       .populate({ path: 'student', select: 'profile', populate: { path: 'profile', select: 'firstName lastName avatar' } })
@@ -50,7 +60,11 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
       .sort({ submittedAt: -1 })
       .limit(20)
       .lean(),
-    Student.countDocuments({ enrolledCourses: { $in: allCourseIds }, status: 'active' }),
+    studentScopeClauses.length
+      ? Student.find({ status: 'active', $or: studentScopeClauses })
+          .select('_id class enrolledCourses')
+          .lean()
+      : Promise.resolve([]),
     AssignmentSubmission.aggregate([
       {
         $match: {
@@ -83,11 +97,32 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
     ]),
   ]);
 
+  const courseStudentCounts = new Map<string, number>();
+  for (const course of activeCourses as any[]) {
+    const courseId = String(course._id);
+    const classId = String(course.class?._id || course.class || '');
+    const count = (scopedStudents as any[]).filter((student: any) => {
+      const sameClass = classId && String(student.class || '') === classId;
+      const enrolled = Array.isArray(student.enrolledCourses)
+        && student.enrolledCourses.some((id: any) => String(id) === courseId);
+      return sameClass || enrolled;
+    }).length;
+    courseStudentCounts.set(courseId, count);
+  }
+
+  const activeCoursesWithCounts = (activeCourses as any[]).map((course: any) => ({
+    ...course,
+    studentCount: courseStudentCounts.get(String(course._id)) || 0,
+  }));
+
+  const performanceSamples = Number(performanceRows[0]?.count || 0);
   const rawAverage = Number(performanceRows[0]?.average || 0);
-  const avgPerformance = Math.round(Math.max(0, Math.min(100, rawAverage)));
+  const avgPerformance = performanceSamples > 0
+    ? Math.round(Math.max(0, Math.min(100, rawAverage)))
+    : null;
 
   return ApiResponse.success(res, {
-    activeCourses,
+    activeCourses: activeCoursesWithCounts,
     draftCourses,
     pendingSubmissions: pendingSubmissions.map((submission: any) => ({
       _id: submission._id,
@@ -101,9 +136,10 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
     })),
     stats: {
       totalCourses: activeCourses.length,
-      totalStudents: enrolledStudents,
+      totalStudents: (scopedStudents as any[]).length,
       pendingSubmissions: pendingCount,
       avgPerformance,
+      performanceSamples,
     },
     teacher: {
       teacherId: teacher.teacherId,
