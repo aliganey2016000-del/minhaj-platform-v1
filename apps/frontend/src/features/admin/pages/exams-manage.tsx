@@ -5,7 +5,7 @@
 
 import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown, Printer, RotateCcw } from 'lucide-react';
+import { CalendarClock, CalendarDays, PlayCircle, CheckCircle2, MoreVertical, Pencil, Trash2, Eye, EyeOff, Search, LayoutGrid, List, Upload, Download, X, ShieldCheck, Building2, Clock3, ArrowLeft, ChevronRight, ChevronDown, Printer, RotateCcw } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { toTitleCase } from '../../../lib/format';
@@ -308,10 +308,16 @@ function CheckboxMultiFilter({
 }
 
 function AnnualExamActionsMenu({
+  status,
+  onPublish,
+  onDraft,
   onEdit,
   onDelete,
   disabled = false,
 }: {
+  status: ExamPeriod['status'];
+  onPublish: () => void;
+  onDraft: () => void;
   onEdit: () => void;
   onDelete: () => void;
   disabled?: boolean;
@@ -348,7 +354,17 @@ function AnnualExamActionsMenu({
         <MoreVertical className="h-5 w-5" />
       </button>
       {open && (
-        <div className="absolute right-0 top-11 z-[80] w-44 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-1 shadow-2xl">
+        <div className="absolute right-0 top-11 z-[80] w-48 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-1 shadow-2xl">
+          {status !== 'published' ? (
+            <button type="button" onClick={(event) => { event.stopPropagation(); run(onPublish); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/30">
+              <Eye className="h-4 w-4" /> Publish
+            </button>
+          ) : (
+            <button type="button" onClick={(event) => { event.stopPropagation(); run(onDraft); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30">
+              <EyeOff className="h-4 w-4" /> Move to Draft
+            </button>
+          )}
+          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button type="button" onClick={(event) => { event.stopPropagation(); run(onEdit); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
             <Pencil className="h-4 w-4" /> Edit
           </button>
@@ -4683,6 +4699,27 @@ export function ExamsManage() {
     }
   };
 
+  const updateAnnualPeriodStatus = async (period: ExamPeriod, status: 'draft' | 'published') => {
+    setPeriodRowBusy(period._id);
+    setPeriodsError('');
+    try {
+      const response = await api.patch(`/exams/periods/${period._id}`, {
+        school: pageSchoolId,
+        status,
+      });
+      const data = response.data?.data || {};
+      const updated: ExamPeriod = data.period || data;
+      setExamPeriods((current) => current.map((item) => item._id === updated._id ? updated : item));
+    } catch (err: any) {
+      setPeriodsError(
+        err.response?.data?.message
+        || (status === 'published' ? 'Failed to publish examination' : 'Failed to move examination to Draft')
+      );
+    } finally {
+      setPeriodRowBusy('');
+    }
+  };
+
   const deleteAnnualPeriod = async () => {
     if (!annualDeletePeriod) return;
     const period = annualDeletePeriod;
@@ -4883,7 +4920,10 @@ export function ExamsManage() {
                       </button>
 
                       <AnnualExamActionsMenu
+                        status={period.status}
                         disabled={periodRowBusy === period._id}
+                        onPublish={() => void updateAnnualPeriodStatus(period, 'published')}
+                        onDraft={() => void updateAnnualPeriodStatus(period, 'draft')}
                         onEdit={() => openAnnualEdit(period)}
                         onDelete={() => setAnnualDeletePeriod(period)}
                       />
