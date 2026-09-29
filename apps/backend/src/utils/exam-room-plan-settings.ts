@@ -14,6 +14,7 @@ export interface ExamRoomPlanSettings {
   smallClassThreshold: number;
   keepSmallClassesTogether: boolean;
   splitBalanceEqual: boolean;
+  spreadSameClassAcrossRooms: boolean;
   useMinimumRooms: boolean;
   minimumStudentsPerUsedRoom: number;
   reserveSeatsPerRoom: number;
@@ -37,6 +38,7 @@ export const DEFAULT_EXAM_ROOM_PLAN_SETTINGS: ExamRoomPlanSettings = {
   smallClassThreshold: 15,
   keepSmallClassesTogether: true,
   splitBalanceEqual: true,
+  spreadSameClassAcrossRooms: true,
   useMinimumRooms: true,
   minimumStudentsPerUsedRoom: 20,
   reserveSeatsPerRoom: 2,
@@ -138,6 +140,10 @@ export function normalizeExamRoomPlanSettings(value: any): ExamRoomPlanSettings 
     splitBalanceEqual: bool(
       value?.splitBalanceEqual,
       DEFAULT_EXAM_ROOM_PLAN_SETTINGS.splitBalanceEqual,
+    ),
+    spreadSameClassAcrossRooms: bool(
+      value?.spreadSameClassAcrossRooms,
+      DEFAULT_EXAM_ROOM_PLAN_SETTINGS.spreadSameClassAcrossRooms,
     ),
     useMinimumRooms: bool(
       value?.useMinimumRooms,
