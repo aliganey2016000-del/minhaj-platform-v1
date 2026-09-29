@@ -859,7 +859,6 @@ export function ExamSeatingCenterV3() {
   const [autoDefaults,setAutoDefaults]=useState<AutoDefaults|null>(null);
   const [selectedIds,setSelectedIds]=useState<string[]>([]);
   const [bulkBusy,setBulkBusy]=useState(false);
-  const [draggedId,setDraggedId]=useState('');
   const activeAllocationRooms=useMemo(
     ()=>rooms.filter(room=>room.allocationEnabled!==false),
     [rooms],
@@ -929,28 +928,6 @@ export function ExamSeatingCenterV3() {
     });
     return map;
   },[allocations,rooms]);
-
-  const roomBalance=useMemo(()=>{
-    const global=new Map<string,number>();
-    allocations.forEach(a=>{const label=a.student?.className||'Unclassified';global.set(label,(global.get(label)||0)+1)});
-    const total=Math.max(1,allocations.length);
-    const result=new Map<string,number>();
-    rooms.forEach(room=>{
-      const list=allocationsByRoom.get(room._id)||[];
-      if(!list.length){result.set(room._id,100);return}
-      const local=new Map<string,number>();
-      list.forEach(a=>{const label=a.student?.className||'Unclassified';local.set(label,(local.get(label)||0)+1)});
-      const labels=new Set([...global.keys(),...local.keys()]);
-      let tv=0;
-      labels.forEach(label=>{
-        const p=(local.get(label)||0)/list.length;
-        const q=(global.get(label)||0)/total;
-        tv+=Math.abs(p-q);
-      });
-      result.set(room._id,Math.max(0,Math.min(100,Math.round((1-tv/2)*100))));
-    });
-    return result;
-  },[allocations,allocationsByRoom,rooms,stats.unassigned]);
 
   const issues=useMemo(()=>{
     const list:string[]=[];
@@ -1302,54 +1279,6 @@ export function ExamSeatingCenterV3() {
             </div>)}
           </div>}
 
-          {year&&type&&allocations.length>0&&<div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {rooms.map(room=>{
-                const list=allocationsByRoom.get(room._id)||[];
-                const count=list.length;
-                const pct=Math.min(100,Math.round((count/Math.max(1,room.capacity))*100));
-                const score=roomBalance.get(room._id)||100;
-                const roomLocked=count>0&&list.every(a=>a.locked);
-                return <div
-                  key={room._id}
-                  onDragOver={e=>e.preventDefault()}
-                  onDrop={e=>{
-                    e.preventDefault();
-                    const id=e.dataTransfer.getData('text/plain')||draggedId;
-                    const allocation=allocations.find(a=>a._id===id);
-                    if(allocation&&allocation.room?._id!==room._id)void moveAllocation(allocation,room);
-                    setDraggedId('');
-                  }}
-                  className={`${card} p-4 transition ${draggedId?'ring-1 ring-primary-300':''}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div><p className="font-bold">{room.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{room.building||'Main'}</p></div>
-                    <button type="button" onClick={()=>void toggleRoomLock(room,!roomLocked)} className={`rounded-lg border p-2 ${roomLocked?'text-amber-700':''}`} title={roomLocked?'Unlock room':'Lock room'}>{roomLocked?<Lock size={15}/>:<Unlock size={15}/>}</button>
-                  </div>
-                  <div className="mt-4 flex items-end justify-between gap-3"><div><p className="text-2xl font-bold">{count}<span className="text-sm font-normal text-[var(--color-text-tertiary)]"> / {room.capacity}</span></p><p className="text-xs text-[var(--color-text-tertiary)]">{Math.max(0,room.capacity-count)} spaces free</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${score>=90?'bg-emerald-100 text-emerald-700':score>=75?'bg-amber-100 text-amber-700':'bg-red-100 text-red-700'}`}>{score}% balance</span></div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--color-surface-secondary)]"><div className={`h-full rounded-full ${pct>=100?'bg-red-500':pct>=85?'bg-amber-500':'bg-emerald-500'}`} style={{width:`${pct}%`}}/></div>
-                  <div className="mt-3 flex flex-wrap gap-1.5">{Array.from(new Map(list.map(a=>[a.student?.className||'Unclassified',0])).keys()).slice(0,4).map(label=>{
-                    const n=list.filter(a=>(a.student?.className||'Unclassified')===label).length;
-                    return <span key={label} className="rounded-full bg-[var(--color-surface-secondary)] px-2 py-1 text-[10px] font-semibold">{label}: {n}</span>
-                  })}</div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button type="button" onClick={()=>{setViewRoom(room);setModal('room-students')}} className="rounded-lg border px-3 py-2 text-xs font-semibold">View Students</button>
-                    <button type="button" onClick={()=>printRoom(room)} className="rounded-lg border p-2" title="Print room list"><Printer size={14}/></button>
-                    <button type="button" onClick={()=>exportRoom(room)} className="rounded-lg border p-2" title="Export room list"><Download size={14}/></button>
-                  </div>
-                </div>
-              })}
-            </div>
-
-            <div className={`${card} p-4`}>
-              <div className="flex items-center justify-between gap-3"><div><p className="font-bold">Allocation Health</p><p className="text-xs text-[var(--color-text-tertiary)]">Capacity and duplicate checks</p></div>{issues.length===0?<CheckCircle2 className="text-emerald-600" size={20}/>:<AlertTriangle className="text-red-600" size={20}/>}</div>
-              {issues.length===0
-                ?<div className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">No allocation issues detected.</div>
-                :<div className="mt-4 space-y-2">{issues.map(issue=><div key={issue} className="rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700 dark:bg-red-950/20 dark:text-red-300">{issue}</div>)}</div>}
-              <button type="button" onClick={()=>setModal('auto')} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white"><Zap size={16}/>Smart Rebalance</button>
-            </div>
-          </div>}
-
           {selectedIds.length>0&&<div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-[var(--color-surface-primary)] px-4 py-3">
             <p className="text-sm font-semibold">{selectedIds.length} assignment{selectedIds.length!==1?'s':''} selected</p>
             <div className="flex flex-wrap gap-2">
@@ -1381,8 +1310,7 @@ export function ExamSeatingCenterV3() {
                       key={a._id}
                       className="border-t"
                       draggable={!a.locked}
-                      onDragStart={e=>{if(a.locked)return;e.dataTransfer.setData('text/plain',a._id);setDraggedId(a._id)}}
-                      onDragEnd={()=>setDraggedId('')}
+                      onDragStart={e=>{if(a.locked)return;e.dataTransfer.setData('text/plain',a._id)}}
                     >
                       <td className="px-5 py-4 text-center"><input type="checkbox" checked={selectedIds.includes(a._id)} onChange={()=>toggleSelect(a._id)} className="h-4 w-4"/></td>
                       <td className="px-2 py-4 text-[var(--color-text-tertiary)]">{a.locked?<Lock size={14}/>:<GripVertical size={15}/>}</td>
