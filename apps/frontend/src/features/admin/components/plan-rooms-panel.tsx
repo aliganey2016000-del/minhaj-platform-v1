@@ -887,7 +887,12 @@ export function PlanRoomsPanel({
     return { cls, expected, assigned, remaining: expected - assigned };
   });
 
-  const unresolvedClassSummary = classSummary.filter(item => item.remaining > 0);
+  const unresolvedClassSummary = classSummary.filter(item =>
+    item.remaining > 0
+    || Object.entries(classExtraDrafts).some(([key, value]) =>
+      key.startsWith(item.cls._id + '::') && Number(value) > 0
+    )
+  );
 
   const updateClassExtra = (classId: string, roomId: string, requested: number) => {
     const key = classId + '::' + roomId;
@@ -1306,7 +1311,7 @@ export function PlanRoomsPanel({
                 </p>
               </div>
               <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
-                {unresolvedClassSummary.reduce((sum, item) => sum + item.remaining, 0)} remaining
+                {Math.max(0, unresolvedClassSummary.reduce((sum, item) => sum + item.remaining, 0))} remaining
               </span>
             </div>
           </div>
@@ -1378,8 +1383,8 @@ export function PlanRoomsPanel({
                       </div>
                     </td>
                     <td className="px-4 py-4 text-right">
-                      <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-sm font-bold text-amber-800">
-                        {item.remaining}
+                      <span className={'inline-flex rounded-full px-3 py-1 text-sm font-bold ' + (item.remaining === 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800')}>
+                        {item.remaining === 0 ? 'Resolved' : item.remaining}
                       </span>
                     </td>
                   </tr>
