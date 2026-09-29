@@ -180,7 +180,7 @@ export function PlanRoomsPanel({
   const [settingsMessage, setSettingsMessage] = useState('');
   const [capacityOverrideRoomIds, setCapacityOverrideRoomIds] = useState<string[]>([]);
   const [classExtraDrafts, setClassExtraDrafts] = useState<Record<string, number>>({});
-  const [resolutionTab, setResolutionTab] = useState<'class' | 'room'>('class');
+  const [resolutionTab, setResolutionTab] = useState<'plan' | 'room' | 'class'>('plan');
   const [actionsOpen, setActionsOpen] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const restoredDraftKey = useRef('');
@@ -751,7 +751,7 @@ export function PlanRoomsPanel({
     });
 
     setPlanRows(generatedRows);
-    setResolutionTab('class');
+    setResolutionTab('plan');
     setActionsOpen(false);
 
     const unresolvedTotal = Array.from(unresolvedByClass.values()).reduce((sum, count) => sum + count, 0);
@@ -1161,32 +1161,45 @@ export function PlanRoomsPanel({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 border-b bg-[var(--color-surface-secondary)]/50 p-2">
+        <div className="grid grid-cols-3 border-b bg-[var(--color-surface-secondary)]/50 p-2">
           <button
             type="button"
             disabled={!hasGeneratedPlan}
-            onClick={() => setResolutionTab('class')}
+            onClick={() => setResolutionTab('plan')}
             className={
-              'rounded-xl px-3 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ' +
-              (resolutionTab === 'class' && hasGeneratedPlan
+              'rounded-xl px-2 py-3 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 sm:text-sm ' +
+              (resolutionTab === 'plan' && hasGeneratedPlan
                 ? 'bg-[var(--color-surface-primary)] text-primary-700 shadow-sm dark:text-primary-300'
                 : 'text-[var(--color-text-secondary)]')
             }
           >
-            Class Resolution
+            Room Plan
           </button>
           <button
             type="button"
             disabled={!hasGeneratedPlan}
             onClick={() => setResolutionTab('room')}
             className={
-              'rounded-xl px-3 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ' +
+              'rounded-xl px-2 py-3 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 sm:text-sm ' +
               (resolutionTab === 'room' && hasGeneratedPlan
                 ? 'bg-[var(--color-surface-primary)] text-primary-700 shadow-sm dark:text-primary-300'
                 : 'text-[var(--color-text-secondary)]')
             }
           >
             Room Resolution
+          </button>
+          <button
+            type="button"
+            disabled={!hasGeneratedPlan}
+            onClick={() => setResolutionTab('class')}
+            className={
+              'rounded-xl px-2 py-3 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 sm:text-sm ' +
+              (resolutionTab === 'class' && hasGeneratedPlan
+                ? 'bg-[var(--color-surface-primary)] text-primary-700 shadow-sm dark:text-primary-300'
+                : 'text-[var(--color-text-secondary)]')
+            }
+          >
+            Class Resolution
           </button>
         </div>
 
@@ -1197,6 +1210,53 @@ export function PlanRoomsPanel({
             <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
               Use the three-dot menu above, then review the result by Class or by Room.
             </p>
+          </div>
+        ) : resolutionTab === 'plan' ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] text-sm">
+              <thead className="bg-[var(--color-surface-secondary)]">
+                <tr>
+                  <th className="px-4 py-3 text-left">Room</th>
+                  <th className="px-4 py-3 text-left">Capacity</th>
+                  <th className="px-4 py-3 text-left">Assigned Seats</th>
+                  <th className="px-4 py-3 text-left">Seat Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedRooms.map(room => {
+                  const capacity = Math.max(0, Number(room.capacity) || 0);
+                  const assigned = roomUsed(room._id);
+                  const balance = capacity - assigned;
+                  const overridden = capacityOverrideRoomIds.includes(room._id);
+
+                  return (
+                    <tr key={room._id} className="border-t">
+                      <td className="px-4 py-4">
+                        <p className="font-bold">{room.name}</p>
+                        <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{room.building || 'Main'}</p>
+                      </td>
+                      <td className="px-4 py-4 text-lg font-bold">{capacity}</td>
+                      <td className="px-4 py-4 text-lg font-bold">{assigned}</td>
+                      <td className="px-4 py-4">
+                        {balance > 0 ? (
+                          <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-700">
+                            {balance} Free
+                          </span>
+                        ) : balance === 0 ? (
+                          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-sm font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                            Full
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-sm font-bold text-amber-800">
+                            +{Math.abs(balance)} Extra{overridden ? ' · Approved' : ''}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         ) : resolutionTab === 'class' ? (
           <div className="overflow-x-auto">
