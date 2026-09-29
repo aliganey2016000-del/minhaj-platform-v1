@@ -1002,11 +1002,6 @@ export function PlanRoomsPanel({
         duplicateClasses.add(allocation.classId);
       }
 
-      const distinctGrades = new Set(positive.map(a => {
-        const cls = classById.get(a.classId);
-        return cls ? gradeKeyOf(cls) : '';
-      }).filter(Boolean));
-
       // Grade-mix counts are smart-planning preferences, not hard save blockers.
       // A complete capacity-safe plan may end with a fallback room that has fewer
       // or more grades than preferred.
