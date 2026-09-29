@@ -108,6 +108,7 @@ export function TeacherSchoolAttendance() {
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('all');
   const [subjectFilter, setSubjectFilter] = useState('all');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -232,13 +233,7 @@ export function TeacherSchoolAttendance() {
           <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Take attendance for your scheduled classes and track student participation.</p>
         </div>
 
-        <label className="w-full sm:w-auto">
-          <span className="sr-only">Date</span>
-          <div className="relative">
-            <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--color-text-tertiary)]"/>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="min-h-14 w-full rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2 pl-11 pr-4 text-sm font-bold sm:w-64"/>
-          </div>
-        </label>
+
       </header>
 
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
@@ -272,34 +267,107 @@ export function TeacherSchoolAttendance() {
         </div>
       </section>
 
-      <section className={card + ' p-3 sm:p-4'}>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[190px_1fr_1fr_1.2fr]">
-          <label className="relative">
-            <span className="mb-1 block text-[11px] font-bold text-[var(--color-text-secondary)]">Date</span>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-sm"/>
-          </label>
-          <label>
-            <span className="mb-1 block text-[11px] font-bold text-[var(--color-text-secondary)]">Class</span>
-            <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-sm">
-              <option value="all">All Classes</option>
-              {classOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label>
-            <span className="mb-1 block text-[11px] font-bold text-[var(--color-text-secondary)]">Subject</span>
-            <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-sm">
-              <option value="all">All Subjects</option>
-              {subjectOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-          <label>
-            <span className="mb-1 block text-[11px] font-bold text-[var(--color-text-secondary)]">Search</span>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]"/>
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search classes..." className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2 pl-9 pr-3 text-sm"/>
-            </div>
-          </label>
+      <section className="relative">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]"/>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search classes..."
+              className="min-h-12 w-full rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2.5 pl-10 pr-3 text-sm shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((open) => !open)}
+            aria-expanded={filtersOpen}
+            className={
+              'relative inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-2xl border px-3.5 text-sm font-black shadow-sm transition sm:px-4 ' +
+              (filtersOpen
+                ? 'border-emerald-500 bg-emerald-600 text-white'
+                : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] hover:bg-[var(--color-surface-secondary)]')
+            }
+          >
+            <SlidersHorizontal className="h-4 w-4"/>
+            <span className="hidden min-[390px]:inline">All Filters</span>
+            {(classFilter !== 'all' || subjectFilter !== 'all' || date !== localDate()) && (
+              <span className={
+                'flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-black ' +
+                (filtersOpen ? 'bg-white text-emerald-700' : 'bg-emerald-100 text-emerald-700')
+              }>
+                {(classFilter !== 'all' ? 1 : 0) + (subjectFilter !== 'all' ? 1 : 0) + (date !== localDate() ? 1 : 0)}
+              </span>
+            )}
+          </button>
         </div>
+
+        {filtersOpen && (
+          <div className={card + ' absolute right-0 top-[calc(100%+8px)] z-40 w-full p-4 sm:w-[520px]'}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-black text-[var(--color-text-primary)]">All Filters</h3>
+                <p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">Filter scheduled classes by date, class and subject.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDate(localDate());
+                  setClassFilter('all');
+                  setSubjectFilter('all');
+                }}
+                className="rounded-lg px-2.5 py-2 text-xs font-bold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+              >
+                Reset
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <label className="min-w-0">
+                <span className="mb-1.5 block text-[11px] font-bold text-[var(--color-text-secondary)]">Date</span>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-sm"
+                />
+              </label>
+
+              <label className="min-w-0">
+                <span className="mb-1.5 block text-[11px] font-bold text-[var(--color-text-secondary)]">Class</span>
+                <select
+                  value={classFilter}
+                  onChange={(e) => setClassFilter(e.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-sm"
+                >
+                  <option value="all">All Classes</option>
+                  {classOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+
+              <label className="min-w-0">
+                <span className="mb-1.5 block text-[11px] font-bold text-[var(--color-text-secondary)]">Subject</span>
+                <select
+                  value={subjectFilter}
+                  onChange={(e) => setSubjectFilter(e.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-sm"
+                >
+                  <option value="all">All Subjects</option>
+                  {subjectOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(false)}
+              className="mt-4 min-h-11 w-full rounded-xl bg-emerald-600 px-4 text-sm font-black text-white hover:bg-emerald-500"
+            >
+              Apply Filters
+            </button>
+          </div>
+        )}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
