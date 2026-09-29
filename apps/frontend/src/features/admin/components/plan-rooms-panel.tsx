@@ -99,7 +99,7 @@ type Props = {
   setYear: (value: string) => void;
   setType: (value: '' | 'mid' | 'final') => void;
   setPlanRows: (value: PlanRoomRow[]) => void;
-  onGenerate: (defaults: AutoDefaults) => void;
+  onGenerate: (defaults: AutoDefaults) => void | Promise<void>;
 };
 
 const DEFAULT_SETTINGS: RoomPlanSettings = {
@@ -182,6 +182,7 @@ export function PlanRoomsPanel({
   const [classExtraDrafts, setClassExtraDrafts] = useState<Record<string, number>>({});
   const [resolutionTab, setResolutionTab] = useState<'plan' | 'room' | 'class'>('plan');
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [confirmingPlan, setConfirmingPlan] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const restoredDraftKey = useRef('');
 
@@ -812,10 +813,15 @@ export function PlanRoomsPanel({
     return '';
   };
 
-  const confirmPlan = () => {
+  const confirmPlan = async () => {
     const validationError = validatePlan();
     if (validationError) {
       setLocalError(validationError);
+      return;
+    }
+
+    if (!year || !type) {
+      setLocalError('Academic Year and Exam Type are required before confirming the Room Plan.');
       return;
     }
 
@@ -839,15 +845,27 @@ export function PlanRoomsPanel({
     const roomIds = Array.from(new Set(roomPlan.flatMap(item => item.roomIds)));
     const classIds = roomPlan.map(item => item.classId);
 
-    onGenerate({
-      academicYear: year,
-      examType: type,
-      classIds,
-      roomIds,
-      roomPlan,
-      studentRoomOverrides: [],
-      capacityOverrideRoomIds,
-    });
+    setConfirmingPlan(true);
+    setLocalError('');
+    try {
+      await onGenerate({
+        academicYear: year,
+        examType: type,
+        classIds,
+        roomIds,
+        roomPlan,
+        studentRoomOverrides: [],
+        capacityOverrideRoomIds,
+      });
+    } catch (err: any) {
+      setLocalError(
+        err?.response?.data?.message
+        || err?.message
+        || 'Could not confirm and save the Room Plan.'
+      );
+    } finally {
+      setConfirmingPlan(false);
+    }
   };
 
   const classSummary = activeClasses.map(cls => {
@@ -1147,14 +1165,14 @@ export function PlanRoomsPanel({
                   type="button"
                   onClick={() => {
                     setActionsOpen(false);
-                    confirmPlan();
+                    void confirmPlan();
                   }}
-                  disabled={!hasGeneratedPlan}
-                  title={currentPlanError ? 'Tap to see the remaining validation issue.' : 'Confirm the reviewed Room Plan.'}
+                  disabled={!hasGeneratedPlan || confirmingPlan}
+                  title={currentPlanError ? 'Tap to see the remaining validation issue.' : 'Confirm, save, and open Room Allocation.'}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300 dark:hover:bg-emerald-950/20"
                 >
                   <CheckCircle2 size={16} />
-                  Confirm Plan
+                  {confirmingPlan ? 'Saving Plan...' : 'Confirm Plan'}
                 </button>
               </div>
             )}
