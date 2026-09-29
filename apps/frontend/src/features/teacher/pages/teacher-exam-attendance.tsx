@@ -57,7 +57,7 @@ const statusTone: Record<ViewStatus, string> = {
 export function TeacherExamAttendance() {
   const [assignments,setAssignments]=useState<Assignment[]>([]);
   const [query,setQuery]=useState('');
-  const [view,setView]=useState<ViewStatus>('active');
+  const [view,setView]=useState<ViewStatus>('upcoming');
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
 
@@ -81,16 +81,16 @@ export function TeacherExamAttendance() {
     completed:assignments.filter(a=>assignmentStatus(a)==='completed').length,
   }),[assignments]);
 
-  useEffect(()=>{
-    if(!loading&&counts.active===0&&counts.upcoming>0)setView('upcoming');
-  },[loading,counts.active,counts.upcoming]);
-
   const visible=useMemo(()=>{
     const q=query.trim().toLowerCase();
     return assignments
       .filter(a=>assignmentStatus(a)===view)
       .filter(a=>!q||`${a.period?.name||''} ${a.room?.name||''} ${a.room?.building||''} ${a.examDate}`.toLowerCase().includes(q))
-      .sort((a,b)=>new Date(a.examDate).getTime()-new Date(b.examDate).getTime()||a.startTime.localeCompare(b.startTime));
+      .sort((a,b)=>{
+        const direction=view==='completed'?-1:1;
+        return direction*(new Date(a.examDate).getTime()-new Date(b.examDate).getTime())
+          || direction*a.startTime.localeCompare(b.startTime);
+      });
   },[assignments,query,view]);
 
   return <div className="min-h-screen bg-[var(--color-surface-secondary)] p-3 pt-16 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
@@ -176,7 +176,7 @@ export function TeacherExamAttendance() {
           {visible.length===0&&<div className="md:col-span-2 xl:col-span-3 rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center">
             <Users className="mx-auto h-9 w-9 text-[var(--color-text-tertiary)]"/>
             <p className="mt-3 font-bold">No {view} invigilation duties.</p>
-            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{view==='upcoming'?'New room assignments will appear here automatically.':view==='active'?'There is no active assigned room right now.':'Completed duties will appear here after their shift ends.'}</p>
+            <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{view==='upcoming'?'Rooms assigned to you for exam shifts whose start time has not arrived yet will appear here.':view==='active'?'Rooms assigned to you whose exam shift is currently in progress will appear here.':'Your assigned rooms whose exam shift has ended will appear here.'}</p>
           </div>}
         </div>}
     </div>
