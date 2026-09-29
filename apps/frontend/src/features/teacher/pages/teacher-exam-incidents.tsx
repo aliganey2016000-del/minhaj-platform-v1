@@ -53,7 +53,7 @@ interface Incident {
 type ViewMode = 'table' | 'card';
 
 function titleCase(value: string) {
-  return value.replaceAll('_', ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (m: string) => m.toUpperCase());
 }
 
 function Badge({ value, tone }: { value: string; tone?: 'severity' | 'status' | 'type' }) {
@@ -217,7 +217,7 @@ export function TeacherExamIncidents() {
         titleCase(i.status),
       ]),
     ];
-    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n');
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
