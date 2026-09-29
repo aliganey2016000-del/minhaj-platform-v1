@@ -17,12 +17,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     { path: '/teacher/schedule', label: 'My Schedule', icon: '🕐' },
     { path: '/teacher/attendance', label: 'Attendance', icon: '🗓️' },
     { path: '/teacher/assignments', label: 'Assignments', icon: '📝' },
-    { key: 'group:exams', label: 'Exam Operations', icon: '🧪', children: [
-      { path: '/teacher/exams', label: 'Exam Workspace', icon: '🧭' },
-      { path: '/teacher/exam-attendance', label: 'Invigilation & Attendance', icon: '✅' },
-      { path: '/teacher/exam-papers', label: 'Exam Papers', icon: '📄' },
-      { path: '/teacher/exam-incidents', label: 'Incidents & Issues', icon: '⚠️' },
-    ] },
+    { path: '/teacher/exams', label: 'Exam Operations', icon: '🧪' },
     { key: 'group:quizzes', label: 'Quiz Builder', icon: '❓', children: [
       { path: '/teacher/quizzes', label: 'All Quizzes', icon: '📋' },
       { path: '/teacher/quizzes/create', label: 'Create Quiz', icon: '➕' },
@@ -71,8 +66,22 @@ export function TeacherSidebar() {
   )));
   // Pick the most specific matching link. Without this, both "All Quizzes"
   // and "Create Quiz" (and both gradebook links) appear active together.
+  const isExamOperationsRoute =
+    location.pathname === '/teacher/exams'
+    || location.pathname.startsWith('/teacher/exams/')
+    || location.pathname === '/teacher/exam-attendance'
+    || location.pathname.startsWith('/teacher/exam-attendance/')
+    || location.pathname === '/teacher/exam-papers'
+    || location.pathname.startsWith('/teacher/exam-papers/')
+    || location.pathname === '/teacher/exam-incidents'
+    || location.pathname.startsWith('/teacher/exam-incidents/');
+
   const activePath = leafPaths
-    .filter((path) => location.pathname === path || (path !== '/teacher' && location.pathname.startsWith(`${path}/`)))
+    .filter((path) =>
+      (path === '/teacher/exams' && isExamOperationsRoute)
+      || location.pathname === path
+      || (path !== '/teacher' && location.pathname.startsWith(`${path}/`))
+    )
     .sort((a, b) => b.length - a.length)[0];
   const isActive = (path: string) => activePath === path;
   const filtered = navSections.map((section) => ({ ...section, items: section.items.map((item) => {
