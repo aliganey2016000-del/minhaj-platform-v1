@@ -1101,6 +1101,59 @@ export function ExamSeatingCenterV3() {
     : `scope:${orgForAuto||'current'}:${year||'year'}:${type||'exam'}`;
   const planDraftStorageKey=`sahal:room-plan-draft:${planDraftId}`;
 
+  const confirmReviewedRoomPlan = async (defaults: AutoDefaults) => {
+    if (!defaults.academicYear || !defaults.examType) {
+      throw new Error('Academic Year and Exam Type are required.');
+    }
+    if (!defaults.classIds.length) {
+      throw new Error('No classes are included in this Room Plan.');
+    }
+    if (!defaults.roomIds.length) {
+      throw new Error('No Rooms are included in this Room Plan.');
+    }
+
+    const seed = String(Date.now());
+    const payload = {
+      academicYear: defaults.academicYear,
+      examType: defaults.examType,
+      organization: orgForAuto,
+      classIds: defaults.classIds,
+      roomIds: defaults.roomIds,
+      roomPlan: defaults.roomPlan,
+      studentRoomOverrides: defaults.studentRoomOverrides || [],
+      capacityOverrideRoomIds: defaults.capacityOverrideRoomIds || [],
+      overwrite: true,
+      seed,
+    };
+
+    setError('');
+    setMessage('');
+
+    // Validate the exact reviewed plan first, then save that same seeded plan.
+    await api.post('/exams/seating-plan/auto-generate', {
+      ...payload,
+      preview: true,
+    });
+    const response = await api.post('/exams/seating-plan/auto-generate', {
+      ...payload,
+      preview: false,
+    });
+
+    try {
+      window.localStorage.removeItem(planDraftStorageKey);
+    } catch {
+      // Allocation is already saved even if local draft cleanup is unavailable.
+    }
+
+    setYear(defaults.academicYear);
+    setType(defaults.examType as 'mid' | 'final');
+    setTab('seating');
+    setAutoDefaults(null);
+    setModal(null);
+    setMessage(response.data?.message || 'Room Plan confirmed and Room Allocation saved successfully.');
+    await loadSeating(defaults.academicYear, defaults.examType as 'mid' | 'final');
+  };
+
   if(loading)return <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
     <div className="mx-auto max-w-screen-2xl space-y-5">
       <BackButton fallback={scheduleFallback}/>
@@ -1176,7 +1229,7 @@ export function ExamSeatingCenterV3() {
             setYear={setYear}
             setType={setType}
             setPlanRows={setPlanRows}
-            onGenerate={defaults=>{setAutoDefaults(defaults);setModal('auto')}}
+            onGenerate={confirmReviewedRoomPlan}
           />
           :<>
           {!hasExamContext&&<div className={`${card} p-5`}>
