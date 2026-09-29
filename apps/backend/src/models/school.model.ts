@@ -89,6 +89,7 @@ export interface IExamRoomPlanSettings {
   smallClassThreshold: number;
   keepSmallClassesTogether: boolean;
   splitBalanceEqual: boolean;
+  spreadSameClassAcrossRooms: boolean;
   useMinimumRooms: boolean;
   minimumStudentsPerUsedRoom: number;
   reserveSeatsPerRoom: number;
@@ -226,6 +227,7 @@ const examRoomPlanSettingsSchema = new Schema<IExamRoomPlanSettings>(
     smallClassThreshold: { type: Number, default: 15, min: 1, max: 50 },
     keepSmallClassesTogether: { type: Boolean, default: true },
     splitBalanceEqual: { type: Boolean, default: true },
+    spreadSameClassAcrossRooms: { type: Boolean, default: true },
     useMinimumRooms: { type: Boolean, default: true },
     minimumStudentsPerUsedRoom: { type: Number, default: 20, min: 1, max: 100 },
     reserveSeatsPerRoom: { type: Number, default: 2, min: 0, max: 50 },
