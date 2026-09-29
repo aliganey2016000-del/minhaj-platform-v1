@@ -9,6 +9,8 @@ import ExamInvigilatorTeacherAttendance, { type ExamInvigilatorTeacherAttendance
 import ExamAttendance from '../models/exam-attendance.model';
 import ExamAttendanceLog from '../models/exam-attendance-log.model';
 import Teacher from '../models/teacher.model';
+import User from '../models/user.model';
+import Profile from '../models/profile.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import { assertOwnsOrg, getOwnTeacherRecord, resolveViewableOrgId } from '../utils/tenant-scope';
@@ -630,12 +632,42 @@ export const myAssignments = async (req: Request, res: Response): Promise<Respon
 
   const enriched = await Promise.all(rows.map(async row => {
     const roster = await buildRoomRoster(row);
-    const marked = roster.filter(item => item.attendance?.status).length;
+    const markedRows = roster.filter(item => item.attendance?.status);
+    const marked = markedRows.length;
+    const completed = roster.length > 0 && marked === roster.length;
+
+    let submittedBy: { name: string; role: string } | null = null;
+    if (completed) {
+      const markerIds = [...new Set(
+        markedRows
+          .map(item => String(item.attendance?.markedBy || ''))
+          .filter(Boolean)
+      )];
+
+      if (markerIds.length) {
+        const [users, profiles] = await Promise.all([
+          User.find({ _id: { $in: markerIds } }).select('email role').lean() as any,
+          Profile.find({ user: { $in: markerIds } }).select('user firstName lastName').lean() as any,
+        ]);
+        const firstId = markerIds[0];
+        const user = users.find((item: any) => String(item._id) === firstId);
+        const profile = profiles.find((item: any) => String(item.user) === firstId);
+        submittedBy = {
+          name: profile
+            ? [profile.firstName, profile.lastName].filter(Boolean).join(' ').trim()
+            : user?.email || 'User',
+          role: user?.role || '',
+        };
+      }
+    }
+
     return {
       ...row,
       studentCount: roster.length,
       markedCount: marked,
-      completed: roster.length > 0 && marked === roster.length,
+      completed,
+      submissionStatus: completed ? 'submitted' : 'missing',
+      submittedBy,
     };
   }));
 
