@@ -1,5 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarCheck, CheckCircle2, Clock3, Loader2, Search, ShieldCheck } from 'lucide-react';
+import {
+  ArrowRight,
+  BarChart3,
+  BookOpen,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  Clock3,
+  Loader2,
+  MapPin,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Users,
+  X,
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
 import api from '../../../lib/axios';
 
 type Status = 'present' | 'absent';
@@ -14,6 +30,8 @@ interface Session {
   isSubstitute?: boolean;
   startTime: string;
   endTime: string;
+  room?: { name?: string } | string | null;
+  roomName?: string;
   attendance: {
     present: number;
     absent: number;
@@ -28,7 +46,7 @@ interface RosterStudent {
   _id: string;
   studentId: string;
   name: string;
-  attendance?: { status: Status; notes?: string; reasonCode?: ReasonCode; arrivalTime?: string; departureTime?: string; locked?: boolean } | null;
+  attendance?: { status: Status; notes?: string; reasonCode?: ReasonCode; locked?: boolean } | null;
 }
 
 interface SessionDetail {
@@ -41,15 +59,8 @@ interface SessionDetail {
 interface Draft {
   status: Status;
   reasonCode: ReasonCode;
-  arrivalTime: string;
-  departureTime: string;
   notes: string;
 }
-
-const STATUS_OPTIONS: Array<{ value: Status; label: string; short: string; active: string }> = [
-  { value: 'present', label: 'Present', short: 'P', active: 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' },
-  { value: 'absent', label: 'Absent', short: 'A', active: 'border-red-500 bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' },
-];
 
 const REASONS: Array<{ value: ReasonCode; label: string }> = [
   { value: '', label: 'Reason (optional)' },
@@ -74,6 +85,18 @@ function subject(session: Session) {
   return session.course?.title?.en || session.course?.courseCode || 'Subject';
 }
 
+function roomLabel(session: Session) {
+  if (session.roomName) return session.roomName;
+  if (typeof session.room === 'string') return session.room;
+  return session.room?.name || '';
+}
+
+function prettyDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 export function TeacherSchoolAttendance() {
   const [date, setDate] = useState(localDate());
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -81,14 +104,18 @@ export function TeacherSchoolAttendance() {
   const [selectedId, setSelectedId] = useState('');
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [rosterSearch, setRosterSearch] = useState('');
   const [search, setSearch] = useState('');
+  const [classFilter, setClassFilter] = useState('all');
+  const [subjectFilter, setSubjectFilter] = useState('all');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
   const loadSessions = useCallback(async () => {
-    setLoading(true); setError('');
+    setLoading(true);
+    setError('');
     try {
       const response = await api.get('/attendance/school/sessions', { params: { date } });
       setSessions(response.data?.data?.sessions || []);
@@ -96,16 +123,22 @@ export function TeacherSchoolAttendance() {
       setSelectedId('');
       setDetail(null);
       setDrafts({});
+      setRosterSearch('');
     } catch (e: any) {
       setSessions([]);
       setError(e?.response?.data?.message || 'Could not load your school attendance sessions.');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }, [date]);
 
   useEffect(() => { void loadSessions(); }, [loadSessions]);
 
   const openSession = async (sessionId: string) => {
-    setSelectedId(sessionId); setLoading(true); setError(''); setMessage('');
+    setSelectedId(sessionId);
+    setLoading(true);
+    setError('');
+    setMessage('');
     try {
       const response = await api.get(`/attendance/school/session/${sessionId}`, { params: { date } });
       const next: SessionDetail = response.data?.data;
@@ -115,31 +148,52 @@ export function TeacherSchoolAttendance() {
         nextDrafts[student._id] = {
           status: student.attendance?.status === 'absent' ? 'absent' : 'present',
           reasonCode: student.attendance?.status === 'absent' ? (student.attendance?.reasonCode || '') : '',
-          arrivalTime: student.attendance?.arrivalTime || '',
-          departureTime: student.attendance?.departureTime || '',
           notes: student.attendance?.notes || '',
         };
       }
       setDrafts(nextDrafts);
+      requestAnimationFrame(() => document.getElementById('attendance-roster')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     } catch (e: any) {
       setDetail(null);
       setError(e?.response?.data?.message || 'Could not open this attendance session.');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const classOptions = useMemo(() => Array.from(new Set(sessions.map((s) => s.className))).sort(), [sessions]);
+  const subjectOptions = useMemo(() => Array.from(new Set(sessions.map(subject))).sort(), [sessions]);
+
+  const visibleSessions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return sessions.filter((session) => {
+      if (classFilter !== 'all' && session.className !== classFilter) return false;
+      if (subjectFilter !== 'all' && subject(session) !== subjectFilter) return false;
+      if (!q) return true;
+      return `${session.className} ${subject(session)} ${session.startTime} ${session.endTime} ${roomLabel(session)}`.toLowerCase().includes(q);
+    });
+  }, [sessions, search, classFilter, subjectFilter]);
 
   const visibleRoster = useMemo(() => {
     const rows = detail?.roster || [];
-    const q = search.trim().toLowerCase();
+    const q = rosterSearch.trim().toLowerCase();
     return q ? rows.filter((row) => row.name.toLowerCase().includes(q) || row.studentId.toLowerCase().includes(q)) : rows;
-  }, [detail, search]);
+  }, [detail, rosterSearch]);
+
+  const stats = useMemo(() => {
+    const completed = sessions.filter((s) => s.attendance.completionStatus === 'complete').length;
+    const pending = sessions.length - completed;
+    const students = sessions.reduce((sum, s) => sum + Math.max(0, Number(s.attendance.expectedStudents ?? s.attendance.recordedStudents ?? 0)), 0);
+    return { completed, pending, students, percent: sessions.length ? Math.round((completed / sessions.length) * 100) : 0 };
+  }, [sessions]);
 
   const markAll = (status: Status) => {
     if (!detail || detail.locked) return;
     setDrafts((current) => {
       const next = { ...current };
       for (const student of detail.roster) {
-        const previous = next[student._id] || { status: 'present' as Status, reasonCode: '' as ReasonCode, arrivalTime: '', departureTime: '', notes: '' };
-        next[student._id] = { ...previous, status, ...(status === 'present' ? { reasonCode: '' as ReasonCode, arrivalTime: '', departureTime: '' } : {}) };
+        const previous = next[student._id] || { status: 'present' as Status, reasonCode: '' as ReasonCode, notes: '' };
+        next[student._id] = { ...previous, status, ...(status === 'present' ? { reasonCode: '' as ReasonCode } : {}) };
       }
       return next;
     });
@@ -147,7 +201,9 @@ export function TeacherSchoolAttendance() {
 
   const save = async () => {
     if (!detail?.schedule?.course?._id || detail.locked || !detail.roster.length) return;
-    setSaving(true); setError(''); setMessage('');
+    setSaving(true);
+    setError('');
+    setMessage('');
     try {
       await api.post('/attendance', {
         course: detail.schedule.course._id,
@@ -160,31 +216,208 @@ export function TeacherSchoolAttendance() {
       await openSession(detail.schedule._id);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Could not submit attendance.');
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
+  const card = 'rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm';
+
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4 p-3 sm:p-4 md:p-6 lg:p-8">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div><div className="flex items-center gap-2 text-emerald-600"><CalendarCheck className="h-5 w-5"/><span className="text-xs font-bold uppercase tracking-wide">Teacher</span></div><h1 className="mt-1 text-2xl font-black text-[var(--color-text-primary)]">School Attendance</h1><p className="text-sm text-[var(--color-text-tertiary)]">Your scheduled lessons and substitute coverage appear automatically.</p></div>
-        <label><span className="mb-1 block text-xs font-semibold text-[var(--color-text-secondary)]">Date</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm"/></label>
+    <div className="mx-auto w-full max-w-7xl space-y-5 p-3 pt-4 sm:p-5 md:p-6 lg:p-8">
+      <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-emerald-600"><CalendarDays className="h-4 w-4"/><span className="text-xs font-black uppercase tracking-widest">Teacher</span></div>
+          <h1 className="mt-1 text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">School Attendance</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Take attendance for your scheduled classes and track student participation.</p>
+        </div>
+
+        <label className="w-full sm:w-auto">
+          <span className="sr-only">Date</span>
+          <div className="relative">
+            <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--color-text-tertiary)]"/>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="min-h-14 w-full rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2 pl-11 pr-4 text-sm font-bold sm:w-64"/>
+          </div>
+        </label>
       </header>
 
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
-      {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
-      {calendarDay?.isInstructional === false && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><strong>{calendarDay.name || 'Non-instructional day'}:</strong> attendance is closed.</div>}
+      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
+      {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">{message}</div>}
+      {calendarDay?.isInstructional === false && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"><strong>{calendarDay.name || 'Non-instructional day'}:</strong> attendance is closed.</div>}
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between"><h2 className="font-bold text-[var(--color-text-primary)]">Scheduled Classes</h2><span className="text-xs text-[var(--color-text-tertiary)]">{sessions.length} session{sessions.length === 1 ? '' : 's'}</span></div>
-        {loading && !detail ? <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin text-emerald-600"/></div> : sessions.length === 0 ? <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center text-sm text-[var(--color-text-tertiary)]">No assigned classes for this date.</div> : <div className="grid gap-3 md:grid-cols-2">{sessions.map((session) => <button key={session._id} type="button" onClick={() => openSession(session._id)} className={`rounded-2xl border p-4 text-left transition hover:border-emerald-400 ${selectedId === session._id ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)]'}`}><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-[var(--color-text-primary)]">{session.className}</p><p className="text-sm font-semibold text-emerald-600">{subject(session)}</p></div>{session.attendance.completionStatus === 'complete' ? (session.attendance.locked ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5"/>Complete</span> : <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">Reopened</span>) : <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">Not taken</span>}</div><div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-text-tertiary)]"><span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5"/>{session.startTime}–{session.endTime}</span>{session.isSubstitute && <span className="inline-flex items-center gap-1 font-semibold text-blue-600"><ShieldCheck className="h-3.5 w-3.5"/>Substitute coverage</span>}</div></button>)}</div>}
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className={card + ' p-4'}>
+          <div className="flex items-center gap-3">
+            <div className="rounded-full bg-emerald-50 p-3 text-emerald-600 dark:bg-emerald-950/30"><BookOpen className="h-6 w-6"/></div>
+            <div><p className="text-2xl font-black">{sessions.length}</p><p className="text-xs font-bold">Today's Classes</p><p className="hidden text-[11px] text-[var(--color-text-tertiary)] sm:block">Scheduled for this date</p></div>
+          </div>
+        </div>
+        <div className={card + ' p-4'}>
+          <div className="flex items-center gap-3">
+            <div className="rounded-full bg-amber-50 p-3 text-amber-600 dark:bg-amber-950/30"><Clock3 className="h-6 w-6"/></div>
+            <div><p className="text-2xl font-black">{stats.pending}</p><p className="text-xs font-bold">Pending</p><p className="hidden text-[11px] text-[var(--color-text-tertiary)] sm:block">Awaiting attendance</p></div>
+          </div>
+        </div>
+        <div className={card + ' p-4'}>
+          <div className="flex items-center gap-3">
+            <div className="rounded-full bg-emerald-50 p-3 text-emerald-600 dark:bg-emerald-950/30"><CheckCircle2 className="h-6 w-6"/></div>
+            <div><p className="text-2xl font-black">{stats.completed}</p><p className="text-xs font-bold">Completed</p><p className="hidden text-[11px] text-[var(--color-text-tertiary)] sm:block">Attendance taken</p></div>
+          </div>
+        </div>
+        <div className={card + ' p-4'}>
+          <div className="flex items-center gap-3">
+            <div className="rounded-full bg-violet-50 p-3 text-violet-600 dark:bg-violet-950/30"><Users className="h-6 w-6"/></div>
+            <div><p className="text-2xl font-black">{stats.students}</p><p className="text-xs font-bold">Total Students</p><p className="hidden text-[11px] text-[var(--color-text-tertiary)] sm:block">Across today's classes</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section className={card + ' p-3 sm:p-4'}>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[190px_1fr_1fr_1.2fr]">
+          <label className="relative">
+            <span className="mb-1 block text-[11px] font-bold text-[var(--color-text-secondary)]">Date</span>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-sm"/>
+          </label>
+          <label>
+            <span className="mb-1 block text-[11px] font-bold text-[var(--color-text-secondary)]">Class</span>
+            <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-sm">
+              <option value="all">All Classes</option>
+              {classOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="mb-1 block text-[11px] font-bold text-[var(--color-text-secondary)]">Subject</span>
+            <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-sm">
+              <option value="all">All Subjects</option>
+              {subjectOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="mb-1 block text-[11px] font-bold text-[var(--color-text-secondary)]">Search</span>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]"/>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search classes..." className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2 pl-9 pr-3 text-sm"/>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div><h2 className="text-lg font-black text-[var(--color-text-primary)]">Scheduled Classes ({visibleSessions.length})</h2><p className="text-xs text-[var(--color-text-tertiary)]">{prettyDate(date)}</p></div>
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-tertiary)]"><SlidersHorizontal className="h-3.5 w-3.5"/>Time</span>
+          </div>
+
+          {loading && !detail ? (
+            <div className={card + ' p-12 text-center'}><Loader2 className="mx-auto h-7 w-7 animate-spin text-emerald-600"/></div>
+          ) : visibleSessions.length === 0 ? (
+            <div className={card + ' p-12 text-center text-sm text-[var(--color-text-tertiary)]'}>No assigned classes match these filters.</div>
+          ) : (
+            <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-1">
+              {visibleSessions.map((session, index) => {
+                const complete = session.attendance.completionStatus === 'complete';
+                const students = Number(session.attendance.expectedStudents ?? session.attendance.recordedStudents ?? 0);
+                const room = roomLabel(session);
+                return (
+                  <article key={session._id} className={`${card} overflow-hidden transition hover:border-emerald-400 ${selectedId === session._id ? 'ring-1 ring-emerald-500/40' : ''}`}>
+                    <div className="p-4 sm:p-5">
+                      <div className="flex items-start gap-3">
+                        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${index % 3 === 0 ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30' : index % 3 === 1 ? 'bg-violet-50 text-violet-600 dark:bg-violet-950/30' : 'bg-blue-50 text-blue-600 dark:bg-blue-950/30'}`}>
+                          <BookOpen className="h-5 w-5"/>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div><h3 className="font-black text-[var(--color-text-primary)]">{session.className}</h3><p className="mt-0.5 text-sm font-bold text-emerald-600">{subject(session)}</p></div>
+                            {complete ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5"/>{session.attendance.locked ? 'Completed' : 'Reopened'}</span> : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">Not taken</span>}
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-[var(--color-text-tertiary)]">
+                            <span className="inline-flex items-center gap-1.5"><Clock3 className="h-3.5 w-3.5"/>{session.startTime}–{session.endTime}</span>
+                            {room && <span className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5"/>{room}</span>}
+                            {students > 0 && <span className="inline-flex items-center gap-1.5"><Users className="h-3.5 w-3.5"/>{students} students</span>}
+                            {session.isSubstitute && <span className="inline-flex items-center gap-1.5 font-semibold text-blue-600"><ShieldCheck className="h-3.5 w-3.5"/>Substitute</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)]/40 p-3 sm:px-5">
+                      <button type="button" onClick={() => void openSession(session._id)} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition ${complete ? 'border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-primary)]' : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'}`}>
+                        {complete ? <><BarChart3 className="h-4 w-4"/>View Attendance</> : <>Take Attendance<ArrowRight className="h-4 w-4"/></>}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <aside className="hidden space-y-4 xl:block">
+          <div className={card + ' p-5'}>
+            <h3 className="font-black">Today's Overview</h3>
+            <div className="mt-5 flex items-center gap-5">
+              <div className="relative flex h-28 w-28 shrink-0 items-center justify-center rounded-full" style={{ background: `conic-gradient(rgb(16 185 129) ${stats.percent}%, rgba(148,163,184,.18) 0)` }}>
+                <div className="flex h-20 w-20 flex-col items-center justify-center rounded-full bg-[var(--color-surface-primary)]"><span className="text-2xl font-black">{stats.percent}%</span><span className="text-[10px] text-[var(--color-text-tertiary)]">Completed</span></div>
+              </div>
+              <div className="space-y-2 text-xs">
+                <p><span className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-500"/>{stats.completed} Completed</p>
+                <p><span className="mr-2 inline-block h-2 w-2 rounded-full bg-amber-400"/>{stats.pending} Pending</p>
+              </div>
+            </div>
+            <div className="mt-5 border-t border-[var(--color-border-subtle)] pt-4">
+              <div className="flex items-center justify-between text-xs"><span className="font-bold">Today's Classes</span><span>{stats.completed} of {sessions.length} completed</span></div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--color-surface-secondary)]"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${stats.percent}%` }}/></div>
+            </div>
+          </div>
+
+          <div className={card + ' p-4'}>
+            <h3 className="font-black">Quick Actions</h3>
+            <div className="mt-3 space-y-2">
+              <Link to="/teacher/schedule" className="flex min-h-11 items-center justify-between rounded-xl border border-[var(--color-border-subtle)] px-3 text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"><span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4"/>View Full Schedule</span><ArrowRight className="h-4 w-4"/></Link>
+              <button type="button" onClick={() => window.print()} className="flex min-h-11 w-full items-center justify-between rounded-xl border border-[var(--color-border-subtle)] px-3 text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"><span className="inline-flex items-center gap-2"><BarChart3 className="h-4 w-4"/>Print Attendance Summary</span><ArrowRight className="h-4 w-4"/></button>
+            </div>
+          </div>
+        </aside>
       </section>
 
       {detail && (
-        <section className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]">
-          {detail.completionStatus === 'complete' && !detail.locked && <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">Attendance has been reopened by administration. Review the existing records, make the correction, then submit again to lock the session.</div>}
-          <div className="border-b border-[var(--color-border-default)] p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-lg font-bold text-[var(--color-text-primary)]">{detail.schedule.className} · {subject(detail.schedule)}</p><p className="text-xs text-[var(--color-text-tertiary)]">{detail.schedule.startTime}–{detail.schedule.endTime}{detail.schedule.isSubstitute ? ` · Covering for ${detail.schedule.regularTeacherName || 'regular teacher'}` : ''}</p></div><div className="relative sm:w-72"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search student..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2.5 pl-9 pr-3 text-sm"/></div></div><div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">{STATUS_OPTIONS.map((option) => <button key={option.value} type="button" disabled={detail.locked} onClick={() => markAll(option.value)} className="rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)] disabled:opacity-50">All {option.label}</button>)}</div></div>
-          <div className="divide-y divide-[var(--color-border-subtle)]">{visibleRoster.map((student) => { const draft = drafts[student._id] || { status: 'present' as Status, reasonCode: '' as ReasonCode, arrivalTime: '', departureTime: '', notes: '' }; return <div key={student._id} className="p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="font-semibold text-[var(--color-text-primary)]">{student.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId}</p></div><div className="grid grid-cols-2 gap-1 sm:flex">{STATUS_OPTIONS.map((option) => <button key={option.value} type="button" disabled={detail.locked} onClick={() => setDrafts((current) => ({ ...current, [student._id]: { ...draft, status: option.value, ...(option.value === 'present' ? { reasonCode: '' as ReasonCode, arrivalTime: '', departureTime: '' } : {}) } }))} className={`h-10 min-w-16 rounded-lg border px-3 text-xs font-black disabled:opacity-50 ${draft.status === option.value ? option.active : 'border-[var(--color-border-default)] text-[var(--color-text-tertiary)]'}`}>{option.label}</button>)}</div></div>{draft.status === 'absent' && <div className="mt-3 grid gap-2 sm:grid-cols-[auto_minmax(180px,1fr)_minmax(180px,1fr)] sm:items-center"><label className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[var(--color-border-default)] px-3 text-xs font-semibold text-[var(--color-text-secondary)]"><input type="checkbox" checked={!!draft.reasonCode} disabled={detail.locked} onChange={(e) => setDrafts((current) => ({ ...current, [student._id]: { ...draft, reasonCode: e.target.checked ? (draft.reasonCode || 'other') : '' } }))}/>Excused</label>{draft.reasonCode && <select value={draft.reasonCode} disabled={detail.locked} onChange={(e) => setDrafts((current) => ({ ...current, [student._id]: { ...draft, reasonCode: e.target.value as ReasonCode } }))} className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-2.5 text-xs">{REASONS.filter((reason) => reason.value).map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select>}<input value={draft.notes} disabled={detail.locked} onChange={(e) => setDrafts((current) => ({ ...current, [student._id]: { ...draft, notes: e.target.value } }))} placeholder="Note (optional)" className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 py-2.5 text-xs"/></div>}</div>; })}</div>
-          <div className="flex items-center justify-between gap-3 border-t border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">{detail.roster.length} active approved student{detail.roster.length === 1 ? '' : 's'} · full roster submission required</p><button type="button" onClick={save} disabled={saving || detail.locked || !detail.roster.length} className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{saving ? 'Submitting...' : detail.locked ? 'Submitted & Locked' : 'Submit Attendance'}</button></div>
+        <section id="attendance-roster" className={card + ' scroll-mt-4 overflow-hidden'}>
+          {detail.completionStatus === 'complete' && !detail.locked && <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">Attendance has been reopened by administration. Review the existing records, make the correction, then submit again.</div>}
+          <div className="border-b border-[var(--color-border-default)] p-4 sm:p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div><p className="text-lg font-black text-[var(--color-text-primary)]">{detail.schedule.className} · {subject(detail.schedule)}</p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{detail.schedule.startTime}–{detail.schedule.endTime}{detail.schedule.isSubstitute ? ` · Covering for ${detail.schedule.regularTeacherName || 'regular teacher'}` : ''}</p></div>
+              <div className="relative lg:w-72"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]"/><input value={rosterSearch} onChange={(e) => setRosterSearch(e.target.value)} placeholder="Search student..." className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-2.5 pl-9 pr-3 text-sm"/></div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" disabled={detail.locked} onClick={() => markAll('present')} className="min-h-10 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white disabled:opacity-50">All Present</button>
+              <button type="button" disabled={detail.locked} onClick={() => markAll('absent')} className="min-h-10 rounded-xl bg-red-600 px-4 text-xs font-bold text-white disabled:opacity-50">All Absent</button>
+            </div>
+          </div>
+
+          <div className="grid divide-y divide-[var(--color-border-subtle)] lg:grid-cols-2 lg:divide-y-0">
+            {visibleRoster.map((student) => {
+              const draft = drafts[student._id] || { status: 'present' as Status, reasonCode: '' as ReasonCode, notes: '' };
+              return <div key={student._id} className="border-b border-[var(--color-border-subtle)] p-4 lg:border-r">
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1"><p className="font-bold text-[var(--color-text-primary)]">{student.name}</p><p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId}</p></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" disabled={detail.locked} onClick={() => setDrafts((current) => ({ ...current, [student._id]: { ...draft, status: 'present', reasonCode: '' } }))} className={`inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border px-3 text-xs font-black disabled:opacity-50 ${draft.status === 'present' ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-[var(--color-border-default)]'}`}><Check className="h-3.5 w-3.5"/>Present</button>
+                    <button type="button" disabled={detail.locked} onClick={() => setDrafts((current) => ({ ...current, [student._id]: { ...draft, status: 'absent' } }))} className={`inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border px-3 text-xs font-black disabled:opacity-50 ${draft.status === 'absent' ? 'border-red-500 bg-red-500 text-white' : 'border-[var(--color-border-default)]'}`}><X className="h-3.5 w-3.5"/>Absent</button>
+                  </div>
+                </div>
+                {draft.status === 'absent' && <div className="mt-3 grid gap-2 sm:grid-cols-[auto_1fr_1fr]">
+                  <label className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[var(--color-border-default)] px-3 text-xs font-semibold"><input type="checkbox" checked={!!draft.reasonCode} disabled={detail.locked} onChange={(e) => setDrafts((current) => ({ ...current, [student._id]: { ...draft, reasonCode: e.target.checked ? (draft.reasonCode || 'other') : '' } }))}/>Excused</label>
+                  {draft.reasonCode ? <select value={draft.reasonCode} disabled={detail.locked} onChange={(e) => setDrafts((current) => ({ ...current, [student._id]: { ...draft, reasonCode: e.target.value as ReasonCode } }))} className="min-h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-2 text-xs">{REASONS.filter((reason) => reason.value).map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select> : <div/>}
+                  <input value={draft.notes} disabled={detail.locked} onChange={(e) => setDrafts((current) => ({ ...current, [student._id]: { ...draft, notes: e.target.value } }))} placeholder="Note (optional)" className="min-h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-xs"/>
+                </div>}
+              </div>;
+            })}
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-[var(--color-text-tertiary)]">{detail.roster.length} active student{detail.roster.length === 1 ? '' : 's'} · full roster submission required</p>
+            <button type="button" onClick={save} disabled={saving || detail.locked || !detail.roster.length} className="min-h-11 rounded-xl bg-emerald-600 px-5 text-sm font-black text-white disabled:opacity-50">{saving ? 'Submitting...' : detail.locked ? 'Submitted & Locked' : 'Submit Attendance'}</button>
+          </div>
         </section>
       )}
     </div>
