@@ -40,7 +40,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     ],
   },
   {
-    title: 'Academic',
+    title: 'Academic Management',
     items: [
       { path: '/admin/schedules', label: 'Class Schedules', icon: CalendarClock },
       { path: '/admin/attendance', label: 'Attendance', icon: CalendarCheck },
@@ -69,7 +69,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     ],
   },
   {
-    title: 'Payments',
+    title: 'Finance Management',
     items: [
       { path: '/admin/payments', label: 'Overview', icon: PieChart },
       { path: '/admin/payments/fee-structures', label: 'Fee Structures', icon: FileText },
