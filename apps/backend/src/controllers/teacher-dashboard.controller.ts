@@ -47,10 +47,9 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
       .filter(Boolean)
   )];
 
-  const studentScopeClauses: Record<string, unknown>[] = [];
-  if (allCourseIds.length) studentScopeClauses.push({ enrolledCourses: { $in: allCourseIds } });
-  if (assignedClassIds.length) studentScopeClauses.push({ class: { $in: assignedClassIds } });
-
+  // Dashboard student totals are class-based, not course-enrollment based.
+  // Any active student registered in a class taught by this teacher counts,
+  // even when the student has no enrolledCourses entries.
   const [pendingCount, pendingSubmissions, scopedStudents, performanceRows] = await Promise.all([
     AssignmentSubmission.countDocuments(submissionFilter),
     AssignmentSubmission.find(submissionFilter)
@@ -60,9 +59,9 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
       .sort({ submittedAt: -1 })
       .limit(20)
       .lean(),
-    studentScopeClauses.length
-      ? Student.find({ status: 'active', $or: studentScopeClauses })
-          .select('_id class enrolledCourses')
+    assignedClassIds.length
+      ? Student.find({ status: 'active', class: { $in: assignedClassIds } })
+          .select('_id class')
           .lean()
       : Promise.resolve([]),
     AssignmentSubmission.aggregate([
@@ -101,12 +100,9 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
   for (const course of activeCourses as any[]) {
     const courseId = String(course._id);
     const classId = String(course.class?._id || course.class || '');
-    const count = (scopedStudents as any[]).filter((student: any) => {
-      const sameClass = classId && String(student.class || '') === classId;
-      const enrolled = Array.isArray(student.enrolledCourses)
-        && student.enrolledCourses.some((id: any) => String(id) === courseId);
-      return sameClass || enrolled;
-    }).length;
+    const count = (scopedStudents as any[]).filter((student: any) =>
+      classId && String(student.class || '') === classId
+    ).length;
     courseStudentCounts.set(courseId, count);
   }
 
