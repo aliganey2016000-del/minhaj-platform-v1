@@ -424,14 +424,6 @@ export const generate = async (req: Request, res: Response) => {
   }
 
   const selectedStudentById = new Map(selected.map(student => [String(student._id), student]));
-  const manualOverrideCountByClassRoom = new Map<string, number>();
-  for (const item of normalizedStudentRoomOverrides) {
-    const student = selectedStudentById.get(item.studentId);
-    const classId = String(student?.class?._id || student?.class || '');
-    const keyValue = classId + '::' + item.roomId;
-    manualOverrideCountByClassRoom.set(keyValue, (manualOverrideCountByClassRoom.get(keyValue) || 0) + 1);
-  }
-
   if (normalizedRoomPlan.length) {
     const classesWithStudents = new Set(selected.map(s => String(s.class?._id || s.class || '')));
     for (const classId of classesWithStudents) {
@@ -489,34 +481,6 @@ export const generate = async (req: Request, res: Response) => {
           throw new BadRequestError(
             `${room.name} exceeds its approved capacity by ${planned - allowedCapacity} student(s). Physical capacity is ${room.capacity}; operational capacity is ${effectiveCapacity}.`
           );
-        }
-      }
-
-      const gradeKeyForClass = (cls: any) => {
-        const gradeLevel = Number(cls?.gradeLevel);
-        if (Number.isFinite(gradeLevel)) return `grade-${gradeLevel}`;
-        const match = norm(cls?.title).match(/\d+/);
-        return match ? `grade-${match[0]}` : key(cls?.title || cls?._id || '');
-      };
-
-      const classGradeMap = new Map(
-        targetClasses.map(cls => [String(cls._id), gradeKeyForClass(cls)])
-      );
-      const selectedGradeKeys = new Set(
-        Array.from(selectedCountByClass.keys())
-          .map(classId => classGradeMap.get(classId))
-          .filter(Boolean)
-      );
-      const roomGradeSets = new Map<string, Set<string>>();
-
-      for (const [classId, quotas] of quotaPlanMap.entries()) {
-        const gradeKey = classGradeMap.get(classId);
-        if (!gradeKey) continue;
-        for (const [roomId, count] of quotas.entries()) {
-          if (count <= 0) continue;
-          const grades = roomGradeSets.get(roomId) || new Set<string>();
-          grades.add(gradeKey);
-          roomGradeSets.set(roomId, grades);
         }
       }
 
