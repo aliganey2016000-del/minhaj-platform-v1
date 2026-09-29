@@ -20,7 +20,7 @@ import { getAutoScheduleWindow } from '../utils/exam-eligibility';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
-import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, assertOwnsExamIfTeacher, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, assertOwnsExamIfTeacher, resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import {
   getExamSchedulingRulesForSchool,
@@ -340,10 +340,16 @@ export const getExamPeriods = async (req: Request, res: Response): Promise<Respo
 
   if (teacherView) {
     const teacher = await getOwnTeacherRecord(req);
-    schoolId = String((teacher as any)?.school?._id || (teacher as any)?.school || '');
-    // A teacher without an organization/school record should see an empty
-    // workspace rather than being able to supply another tenant in the query.
-    if (!/^[a-f\\d]{24}$/i.test(schoolId)) return ApiResponse.success(res, []);
+    // The authenticated organization is the canonical tenant scope. Older
+    // Teacher records may not have school backfilled even though the user is
+    // correctly attached to an organization, so teacher.school is only a fallback.
+    schoolId = String(
+      resolveViewableOrgId(req)
+      || (teacher as any)?.school?._id
+      || (teacher as any)?.school
+      || ''
+    );
+    if (!/^[a-f\d]{24}$/i.test(schoolId)) return ApiResponse.success(res, []);
   } else {
     schoolId = scheduleRulesSchoolId(req);
   }
@@ -1327,7 +1333,12 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     const teacherCourseIds = teacher ? await Course.find({ teacher: teacher._id }).distinct('_id') : [];
     scopedFilter.course = { $in: teacherCourseIds };
 
-    const teacherSchoolId = String((teacher as any)?.school?._id || (teacher as any)?.school || '');
+    const teacherSchoolId = String(
+      resolveViewableOrgId(req)
+      || (teacher as any)?.school?._id
+      || (teacher as any)?.school
+      || ''
+    );
     const publishedPeriodIds = /^[a-f\d]{24}$/i.test(teacherSchoolId)
       ? await ExamPeriod.find({ school: teacherSchoolId, status: 'published' }).distinct('_id')
       : [];
