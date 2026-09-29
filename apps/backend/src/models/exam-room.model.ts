@@ -12,6 +12,7 @@ export interface IExamRoom extends Document {
   building: string;
   capacity: number;
   capacityMode: 'auto' | 'manual';
+  allocationEnabled: boolean;
   school?: mongoose.Types.ObjectId;
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
@@ -26,6 +27,7 @@ const examRoomSchema = new Schema<IExamRoom>(
     // Rooms are explicit organization-owned records. "auto" remains only for
     // legacy class-sync rows so they can be excluded from the current registry.
     capacityMode: { type: String, enum: ['auto', 'manual'], default: 'manual', index: true },
+    allocationEnabled: { type: Boolean, default: true, index: true },
     school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
