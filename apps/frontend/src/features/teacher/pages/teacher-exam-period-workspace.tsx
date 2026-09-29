@@ -10,8 +10,6 @@ import {
   ClipboardEdit,
   Clock3,
   GraduationCap,
-  RefreshCw,
-  ShieldCheck,
   Users,
 } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
@@ -112,11 +110,11 @@ const dutyTone: Record<DutyStatus, string> = {
   completed: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
 };
 
-const tabs: { key: WorkspaceTab; label: string; icon: typeof CalendarDays }[] = [
-  { key: 'schedule', label: 'Schedule', icon: CalendarDays },
-  { key: 'invigilation', label: 'Invigilation Rooms', icon: Building2 },
-  { key: 'attendance', label: 'Attendance', icon: ClipboardCheck },
-  { key: 'results', label: 'Result Entry', icon: ClipboardEdit },
+const tabs: { key: WorkspaceTab; label: string; shortLabel: string; icon: typeof CalendarDays }[] = [
+  { key: 'schedule', label: 'Schedule', shortLabel: 'Schedule', icon: CalendarDays },
+  { key: 'invigilation', label: 'Invigilation Rooms', shortLabel: 'Rooms', icon: Building2 },
+  { key: 'attendance', label: 'Attendance', shortLabel: 'Attendance', icon: ClipboardCheck },
+  { key: 'results', label: 'Result Entry', shortLabel: 'Results', icon: ClipboardEdit },
 ];
 
 export function TeacherExamPeriodWorkspace() {
@@ -186,42 +184,26 @@ export function TeacherExamPeriodWorkspace() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--color-surface-secondary)] p-3 pt-16 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
+    <div className="min-h-screen bg-[var(--color-surface-secondary)] p-3 pt-3 sm:p-5 sm:pt-4 lg:p-8 lg:pt-6">
       <main className="mx-auto max-w-7xl space-y-5">
         <header>
           <Link
             to="/teacher/exams"
-            className="mb-3 inline-flex items-center gap-2 text-xs font-bold text-[var(--color-text-secondary)] transition hover:text-primary-700"
+            className="mb-2 inline-flex items-center gap-2 text-xs font-bold text-[var(--color-text-secondary)] transition hover:text-primary-700"
           >
             <ArrowLeft className="h-4 w-4" />
             Exam Periods
           </Link>
 
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0">
-              <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-emerald-600">
-                <ShieldCheck className="h-4 w-4" />
-                Teacher Exam Operations
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">
+              {period?.name || (loading ? 'Loading exam…' : 'Exam Workspace')}
+            </h1>
+            {period && (
+              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+                {period.academicYear}{period.term ? ` · ${period.term}` : ''} · {formatRange(period)}
               </p>
-              <h1 className="mt-1 truncate text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">
-                {period?.name || (loading ? 'Loading exam…' : 'Exam Workspace')}
-              </h1>
-              {period && (
-                <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
-                  {period.academicYear}{period.term ? ` · ${period.term}` : ''} · {formatRange(period)}
-                </p>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => void load()}
-              disabled={loading}
-              className="inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] shadow-sm transition hover:bg-[var(--color-surface-secondary)] disabled:opacity-60"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
+            )}
           </div>
         </header>
 
@@ -239,7 +221,7 @@ export function TeacherExamPeriodWorkspace() {
         ) : (
           <>
             <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm">
-              <nav className="grid grid-cols-2 gap-1.5 rounded-xl bg-[var(--color-surface-secondary)] p-1 sm:grid-cols-4" aria-label="Teacher exam period sections">
+              <nav className="grid grid-cols-4 gap-1 rounded-xl bg-[var(--color-surface-secondary)] p-1" aria-label="Teacher exam period sections">
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
                   const selected = activeTab === tab.key;
@@ -248,21 +230,17 @@ export function TeacherExamPeriodWorkspace() {
                       key={tab.key}
                       type="button"
                       onClick={() => setTab(tab.key)}
-                      className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-xs font-bold transition sm:text-sm ${selected ? 'bg-emerald-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-primary)]'}`}
+                      className={`flex min-h-11 min-w-0 items-center justify-center gap-1 rounded-lg px-1.5 py-2 text-[10px] font-bold transition sm:gap-2 sm:px-2.5 sm:text-sm ${selected ? 'bg-emerald-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-primary)]'}`}
                       aria-current={selected ? 'page' : undefined}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
-                      <span>{tab.label}</span>
+                      <span className="truncate sm:hidden">{tab.shortLabel}</span>
+                      <span className="hidden truncate sm:inline">{tab.label}</span>
                     </button>
                   );
                 })}
               </nav>
             </section>
-
-            <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>This is the teacher view of the admin exam workflow. Schedule data is read-only and automatically limited to your courses and rooms assigned to you.</span>
-            </div>
 
             {loading ? (
               <div className="flex min-h-[320px] items-center justify-center">
@@ -428,7 +406,6 @@ export function TeacherExamPeriodWorkspace() {
               <section className="space-y-4">
                 <div>
                   <h2 className="text-xl font-black text-[var(--color-text-primary)]">Result Entry</h2>
-                  <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Enter results only for courses assigned to you in this exam period.</p>
                 </div>
 
                 {sortedExams.length === 0 ? emptyState('No courses available for results', 'Your assigned scheduled courses for this exam period will appear here.', GraduationCap) : (
