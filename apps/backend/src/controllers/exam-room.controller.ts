@@ -115,6 +115,7 @@ async function syncRoomsFromClassManagement(req: Request) {
         building: DEFAULT_BUILDING,
         capacity: item.capacity,
         capacityMode: 'auto',
+        allocationEnabled: true,
         school: item.school,
         createdBy: req.user!.userId,
       });
@@ -175,6 +176,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     building,
     capacity: requestedCapacity,
     capacityMode: 'manual',
+    allocationEnabled: true,
     school,
     createdBy: req.user!.userId,
   });
@@ -202,6 +204,12 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   }
   if (req.body?.name !== undefined) updates.name = name;
   if (req.body?.building !== undefined) updates.building = building;
+  if (req.body?.allocationEnabled !== undefined) {
+    if (typeof req.body.allocationEnabled !== 'boolean') {
+      throw new BadRequestError('allocationEnabled must be true or false');
+    }
+    updates.allocationEnabled = req.body.allocationEnabled;
+  }
 
   const duplicate = await ExamRoom.findOne({
     _id: { $ne: existing._id },
@@ -257,9 +265,10 @@ export const exportRooms = async (req: Request, res: Response): Promise<void> =>
     Room: r.name,
     Building: clean(r.building) || DEFAULT_BUILDING,
     Capacity: r.capacity,
+    Status: r.allocationEnabled === false ? 'Inactive' : 'Active',
   }));
 
-  const sheet = XLSX.utils.json_to_sheet(rows, { header: ['Room', 'Building', 'Capacity'] });
+  const sheet = XLSX.utils.json_to_sheet(rows, { header: ['Room', 'Building', 'Capacity', 'Status'] });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, 'Rooms');
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
@@ -292,6 +301,10 @@ export const importRooms = async (req: Request, res: Response): Promise<Response
     const name = clean(row.Room ?? row['Room Name']);
     const building = clean(row.Building) || DEFAULT_BUILDING;
     const capacity = Number(row.Capacity);
+    const statusRaw = clean(row.Status).toLowerCase();
+    const allocationEnabled = statusRaw
+      ? !['inactive', 'deactive', 'disabled', 'no', 'false', '0'].includes(statusRaw)
+      : true;
 
     if (!name) {
       errors.push(`Row ${rowNumber}: Room is required.`);
@@ -307,6 +320,7 @@ export const importRooms = async (req: Request, res: Response): Promise<Response
       existing.capacity = capacity;
       existing.capacityMode = 'manual';
       existing.building = building;
+      existing.allocationEnabled = allocationEnabled;
       await existing.save();
       await syncRoomEditsToClassManagement(school, clean(existing.name), clean(existing.name), capacity);
       updated += 1;
@@ -318,6 +332,7 @@ export const importRooms = async (req: Request, res: Response): Promise<Response
       building,
       capacity,
       capacityMode: 'manual',
+      allocationEnabled,
       school,
       createdBy: req.user!.userId,
     });
