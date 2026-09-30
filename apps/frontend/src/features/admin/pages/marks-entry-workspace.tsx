@@ -132,6 +132,12 @@ const isMarksSubmitted = (exam: Exam) => {
   return attendanceMarked > 0 && resultCount >= attendanceMarked;
 };
 
+const teacherLabel = (exam: Exam) => {
+  const profile = exam.course?.teacher?.profile;
+  const name = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
+  return name || 'Teacher not assigned';
+};
+
 const studentName = (row: AttendanceRosterRow) => {
   const profile = row.student?.profile;
   return [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim() || row.student?.studentId || 'Student';
