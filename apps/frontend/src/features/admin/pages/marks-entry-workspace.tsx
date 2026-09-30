@@ -594,32 +594,85 @@ export function MarksEntryWorkspace() {
         </section>
 
         <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_1.5fr_auto]">
-            <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 text-xs font-bold text-[var(--color-text-secondary)] outline-none">
-              <option value="all">All Classes</option>
-              {classes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-            <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)} className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 text-xs font-bold text-[var(--color-text-secondary)] outline-none">
-              <option value="all">All Courses</option>
-              {courses.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-            <select value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 text-xs font-bold text-[var(--color-text-secondary)] outline-none">
-              <option value="all">All Dates</option>
-              {dates.map((date) => <option key={date} value={date}>{formatDate(date)}</option>)}
-            </select>
-            <select value={attendanceFilter} onChange={(event) => setAttendanceFilter(event.target.value)} className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 text-xs font-bold text-[var(--color-text-secondary)] outline-none">
-              <option value="all">All Attendance</option>
-              <option value="complete">Attendance Complete</option>
-              <option value="pending">Attendance Pending</option>
-            </select>
-            <label className="relative">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <label className="relative min-w-0">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search course or class..." className="min-h-10 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] pl-9 pr-3 text-xs outline-none focus:border-emerald-500" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search course or class..."
+                className="min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] pl-9 pr-3 text-xs outline-none focus:border-emerald-500 sm:text-sm"
+              />
             </label>
-            <button type="button" onClick={resetFilters} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white hover:bg-emerald-700">
-              <RotateCcw className="h-4 w-4" /> Reset
+            <button
+              type="button"
+              onClick={() => setShowFilters((value) => !value)}
+              className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-black transition sm:px-4 ${
+                showFilters
+                  ? 'border-emerald-500 bg-emerald-600 text-white'
+                  : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)]'
+              }`}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              All Filters
             </button>
           </div>
+
+          {showFilters && (
+            <div className="mt-3 grid gap-2 border-t border-[var(--color-border-subtle)] pt-3 sm:grid-cols-2 lg:grid-cols-4">
+              <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 text-xs font-bold text-[var(--color-text-secondary)] outline-none">
+                <option value="all">All Classes</option>
+                {classes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+              <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)} className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 text-xs font-bold text-[var(--color-text-secondary)] outline-none">
+                <option value="all">All Courses</option>
+                {courses.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+              <select value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 text-xs font-bold text-[var(--color-text-secondary)] outline-none">
+                <option value="all">All Dates</option>
+                {dates.map((date) => <option key={date} value={date}>{formatDate(date)}</option>)}
+              </select>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <select value={attendanceFilter} onChange={(event) => setAttendanceFilter(event.target.value)} className="min-h-10 min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 text-xs font-bold text-[var(--color-text-secondary)] outline-none">
+                  <option value="all">All Attendance</option>
+                  <option value="complete">Attendance Complete</option>
+                  <option value="pending">Attendance Pending</option>
+                </select>
+                <button type="button" onClick={resetFilters} title="Reset filters" className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]">
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm">
+          <nav className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--color-surface-secondary)] p-1">
+            <button
+              type="button"
+              onClick={() => setSubmissionTab('pending')}
+              className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-xs font-black transition sm:text-sm ${
+                submissionTab === 'pending' ? 'bg-amber-500 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-primary)]'
+              }`}
+            >
+              Not Submitted
+              <span className={`rounded-full px-2 py-0.5 text-[10px] ${submissionTab === 'pending' ? 'bg-white/20 text-white' : 'bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)]'}`}>
+                {submissionCounts.pending}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubmissionTab('submitted')}
+              className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-xs font-black transition sm:text-sm ${
+                submissionTab === 'submitted' ? 'bg-emerald-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-primary)]'
+              }`}
+            >
+              Submitted
+              <span className={`rounded-full px-2 py-0.5 text-[10px] ${submissionTab === 'submitted' ? 'bg-white/20 text-white' : 'bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)]'}`}>
+                {submissionCounts.submitted}
+              </span>
+            </button>
+          </nav>
         </section>
 
         {loading ? (
