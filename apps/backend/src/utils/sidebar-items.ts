@@ -94,6 +94,7 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'group:hr-management', label: 'HR Management (entire menu)', section: 'HR' },
   { key: 'admin/hr', label: 'HR Dashboard', section: 'HR' },
   { key: 'admin/staff', label: 'Staff Directory', section: 'HR' },
+  { key: 'admin/hr?tab=attendance', label: 'Teacher & Staff Attendance', section: 'HR' },
   { key: 'admin/hr/access', label: 'Access & Permissions', section: 'HR' },
 
   { key: 'admin/roles', label: 'Roles & Permissions', section: 'System' },
@@ -113,7 +114,7 @@ export function moduleForSidebarKey(key: string): 'finance' | 'exams' | 'admissi
   if (key.startsWith('admin/exams') || key.startsWith('admin/results') || key === 'admin/certificates' || key === 'group:exam-management') return 'exams';
   if (key.startsWith('admin/students') || key === 'admin/activity') return 'admissions';
   if (key.startsWith('admin/courses') || key === 'group:learning-assessments' || key === 'admin/analytics' || key.startsWith('admin/analytics?tab=lessons') || key.startsWith('admin/analytics?tab=quizzes') || key.startsWith('admin/analytics?tab=questions') || key.startsWith('admin/analytics?tab=performance')) return 'courses';
-  if (['admin/parents', 'admin/teachers', 'admin/staff', 'admin/schools', 'admin/website', 'admin/users', 'admin/classes', 'admin/hr?tab=structure', 'admin/hr', 'admin/hr/access', 'group:hr-management'].includes(key)) return 'organization';
+  if (['admin/parents', 'admin/teachers', 'admin/staff', 'admin/schools', 'admin/website', 'admin/users', 'admin/classes', 'admin/hr?tab=structure', 'admin/hr?tab=attendance', 'admin/hr', 'admin/hr/access', 'group:hr-management'].includes(key)) return 'organization';
   if (['admin/schedules', 'admin/attendance', 'admin/assignments'].includes(key)) return 'academic';
   if (['admin/announcements', 'admin/news', 'admin/events', 'admin/gallery'].includes(key)) return 'content';
   if (['admin/forum', 'admin/whatsapp', 'admin/telegram'].includes(key)) return 'communication';
