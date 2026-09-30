@@ -20,6 +20,7 @@ type SmartAttendanceStatus = {
     enabled: boolean;
     radiusMeters: number;
     maxAccuracyMeters: number;
+    locationAccuracyMeters?: number;
     requireLiveness: boolean;
     enrollmentRequiresGeofence: boolean;
     checkOutEnabled: boolean;
@@ -124,22 +125,51 @@ function getPreciseLocation(): Promise<LocationProof> {
       reject(new Error('This device/browser does not support GPS location.'));
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      (position) => resolve({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy,
-      }),
-      (error) => {
-        const message =
-          error.code === error.PERMISSION_DENIED
-            ? 'Location permission is blocked. Allow precise location and try again.'
-            : error.code === error.TIMEOUT
-              ? 'GPS timed out. Move to an open area and try again.'
-              : 'Your current GPS location could not be read.';
-        reject(new Error(message));
+
+    let best: GeolocationPosition | null = null;
+    let finished = false;
+    let watchId: number | null = null;
+
+    const cleanup = () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    };
+
+    const finishWithBest = () => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      if (best) {
+        resolve({
+          latitude: best.coords.latitude,
+          longitude: best.coords.longitude,
+          accuracy: Math.max(0, Number(best.coords.accuracy || 0)),
+        });
+      } else {
+        reject(new Error('Your current GPS location could not be read.'));
+      }
+    };
+
+    const timer = window.setTimeout(finishWithBest, 6500);
+
+    watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        if (!best || position.coords.accuracy < best.coords.accuracy) best = position;
+        if (position.coords.accuracy <= 20) {
+          window.clearTimeout(timer);
+          finishWithBest();
+        }
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          window.clearTimeout(timer);
+          if (!finished) {
+            finished = true;
+            cleanup();
+            reject(new Error('Location permission is blocked. Allow location access and try again.'));
+          }
+        }
+      },
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 5000 }
     );
   });
 }

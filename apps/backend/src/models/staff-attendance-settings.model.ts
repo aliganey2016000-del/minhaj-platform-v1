@@ -5,6 +5,7 @@ export interface IStaffAttendanceSettings extends Document {
   enabled: boolean;
   latitude?: number;
   longitude?: number;
+  locationAccuracyMeters: number;
   radiusMeters: number;
   maxAccuracyMeters: number;
   faceMatchThreshold: number;
@@ -21,6 +22,7 @@ const staffAttendanceSettingsSchema = new Schema<IStaffAttendanceSettings>({
   enabled: { type: Boolean, default: true },
   latitude: { type: Number, min: -90, max: 90, default: undefined },
   longitude: { type: Number, min: -180, max: 180, default: undefined },
+  locationAccuracyMeters: { type: Number, min: 0, max: 5000, default: 0 },
   radiusMeters: { type: Number, min: 20, max: 5000, default: 150 },
   maxAccuracyMeters: { type: Number, min: 10, max: 1000, default: 100 },
   faceMatchThreshold: { type: Number, min: 0.3, max: 0.8, default: 0.52 },

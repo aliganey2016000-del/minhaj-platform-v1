@@ -238,6 +238,7 @@ export const getSettings = async (req: Request, res: Response): Promise<Response
     organizationId,
     enabled: true,
     radiusMeters: 150,
+    locationAccuracyMeters: 0,
     maxAccuracyMeters: 100,
     faceMatchThreshold: 0.52,
     requireLiveness: true,
@@ -270,6 +271,12 @@ export const updateSettings = async (req: Request, res: Response): Promise<Respo
   const current = await StaffAttendanceSettings.findOne({ organizationId }).lean();
   const latitude = finiteInRange(req.body?.latitude, -90, 90, 'Latitude');
   const longitude = finiteInRange(req.body?.longitude, -180, 180, 'Longitude');
+  const locationAccuracyMeters = finiteInRange(
+    req.body?.locationAccuracyMeters ?? current?.locationAccuracyMeters ?? 0,
+    0,
+    5000,
+    'School GPS accuracy'
+  );
   const radiusMeters = finiteInRange(
     req.body?.radiusMeters ?? current?.radiusMeters ?? 150,
     20,
@@ -298,6 +305,7 @@ export const updateSettings = async (req: Request, res: Response): Promise<Respo
         enabled: req.body?.enabled === undefined ? (current?.enabled ?? true) : Boolean(req.body.enabled),
         latitude,
         longitude,
+        locationAccuracyMeters,
         radiusMeters,
         maxAccuracyMeters,
         faceMatchThreshold,

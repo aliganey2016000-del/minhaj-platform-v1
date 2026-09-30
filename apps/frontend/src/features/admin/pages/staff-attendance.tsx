@@ -59,6 +59,7 @@ type SmartSettings = {
   enabled: boolean;
   latitude?: number;
   longitude?: number;
+  locationAccuracyMeters?: number;
   radiusMeters: number;
   maxAccuracyMeters: number;
   faceMatchThreshold: number;
@@ -460,7 +461,7 @@ export function StaffAttendance() {
                     step="0.0000001"
                     className={inputClass + ' mt-1 w-full'}
                     value={settings.latitude ?? ''}
-                    onChange={(event) => setSettings({ ...settings, latitude: event.target.value === '' ? undefined : Number(event.target.value) })}
+                    onChange={(event) => setSettings({ ...settings, latitude: event.target.value === '' ? undefined : Number(event.target.value), locationAccuracyMeters: 0 })}
                   />
                 </label>
                 <label className="text-xs font-bold text-[var(--color-text-secondary)]">
@@ -470,7 +471,7 @@ export function StaffAttendance() {
                     step="0.0000001"
                     className={inputClass + ' mt-1 w-full'}
                     value={settings.longitude ?? ''}
-                    onChange={(event) => setSettings({ ...settings, longitude: event.target.value === '' ? undefined : Number(event.target.value) })}
+                    onChange={(event) => setSettings({ ...settings, longitude: event.target.value === '' ? undefined : Number(event.target.value), locationAccuracyMeters: 0 })}
                   />
                 </label>
                 <label className="text-xs font-bold text-[var(--color-text-secondary)]">
@@ -519,7 +520,7 @@ export function StaffAttendance() {
                 </button>
                 {settings.configured && (
                   <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
-                    <MapPin className="h-3.5 w-3.5" /> School GPS configured
+                    <MapPin className="h-3.5 w-3.5" /> School GPS configured{settings.locationAccuracyMeters ? ' · ±' + Math.round(settings.locationAccuracyMeters) + ' m' : ''}
                   </span>
                 )}
               </div>

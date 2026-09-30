@@ -21,6 +21,7 @@ interface EffectiveSettings {
   enabled: boolean;
   latitude?: number;
   longitude?: number;
+  locationAccuracyMeters: number;
   radiusMeters: number;
   maxAccuracyMeters: number;
   faceMatchThreshold: number;
@@ -38,6 +39,7 @@ interface LocationInput {
 
 const DEFAULT_SETTINGS: EffectiveSettings = {
   enabled: true,
+  locationAccuracyMeters: 0,
   radiusMeters: 150,
   maxAccuracyMeters: 100,
   faceMatchThreshold: 0.52,
@@ -69,6 +71,9 @@ async function effectiveSettings(organizationId: string): Promise<EffectiveSetti
     enabled: stored.enabled,
     latitude: stored.latitude,
     longitude: stored.longitude,
+    locationAccuracyMeters: Number.isFinite(stored.locationAccuracyMeters)
+      ? stored.locationAccuracyMeters
+      : 25,
     radiusMeters: stored.radiusMeters,
     maxAccuracyMeters: stored.maxAccuracyMeters,
     faceMatchThreshold: stored.faceMatchThreshold,
@@ -125,7 +130,8 @@ function verifyLocation(settings: EffectiveSettings, raw: unknown): {
   // physically at the same place. Use a capped portion of the device-reported
   // accuracy as uncertainty instead of rejecting on raw centre-point distance.
   // The cap keeps the geofence meaningful even when a device reports poor GPS.
-  const accuracyAllowance = Math.min(location.accuracy, 50);
+  const schoolAccuracy = Math.max(0, Number(settings.locationAccuracyMeters || 0));
+  const accuracyAllowance = Math.min(location.accuracy + schoolAccuracy, 50);
   const accuracyAdjustedDistance = Math.max(0, distanceMeters - accuracyAllowance);
 
   if (accuracyAdjustedDistance > settings.radiusMeters) {
@@ -134,6 +140,8 @@ function verifyLocation(settings: EffectiveSettings, raw: unknown): {
       Math.round(distanceMeters) +
       ' m from the school location (accuracy ±' +
       Math.round(location.accuracy) +
+      ' m; school GPS accuracy ±' +
+      Math.round(schoolAccuracy) +
       ' m); allowed school radius is ' +
       settings.radiusMeters +
       ' m.'
@@ -250,6 +258,7 @@ export const getStatus = async (req: Request, res: Response): Promise<Response> 
       enabled: settings.enabled,
       radiusMeters: settings.radiusMeters,
       maxAccuracyMeters: settings.maxAccuracyMeters,
+      locationAccuracyMeters: settings.locationAccuracyMeters,
       requireLiveness: settings.requireLiveness,
       enrollmentRequiresGeofence: settings.enrollmentRequiresGeofence,
       checkOutEnabled: settings.checkOutEnabled,
