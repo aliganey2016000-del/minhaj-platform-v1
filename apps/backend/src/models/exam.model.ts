@@ -23,11 +23,6 @@ export interface IExam extends Document {
   // False keeps the exam/course record available for reassignment while its cell is blank.
   schedulePlaced: boolean;
   resultsPublished: boolean;
-  // Marks-entry workflow: saving scores keeps an exam pending; an explicit
-  // submit action moves the course exam into the Submitted tab.
-  resultsSubmitted: boolean;
-  resultsSubmittedAt?: Date | null;
-  resultsSubmittedBy?: mongoose.Types.ObjectId | null;
   // Per-student, progress-driven scheduling instead of a fixed calendar
   // window: each student gets their own personal exam window, computed from
   // the moment THEY finish every chapter tagged with this exam's milestone
@@ -64,9 +59,6 @@ const examSchema = new Schema<IExam>(
     status: { type: String, enum: ['scheduled', 'ongoing', 'completed', 'cancelled'], default: 'scheduled', index: true },
     schedulePlaced: { type: Boolean, default: true, index: true },
     resultsPublished: { type: Boolean, default: false },
-    resultsSubmitted: { type: Boolean, default: false, index: true },
-    resultsSubmittedAt: { type: Date, default: null },
-    resultsSubmittedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     autoSchedule: { type: Boolean, default: false },
     milestone: { type: String, enum: ['mid', 'final', null], default: null },
     autoScheduleDelayDays: { type: Number, default: 0, min: 0 },
