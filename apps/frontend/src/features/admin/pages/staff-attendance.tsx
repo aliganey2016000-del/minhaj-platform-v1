@@ -17,6 +17,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 
 type Status = 'present' | 'absent' | 'late' | 'excused';
 type OrgRef = { _id: string; name?: string };
@@ -102,6 +103,7 @@ function time(value?: string) {
 }
 
 export function StaffAttendance() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const settingsOnly = searchParams.get('view') === 'settings';
   const [date, setDate] = useState(today);
@@ -116,7 +118,7 @@ export function StaffAttendance() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState('');
-  const [selectedOrganization, setSelectedOrganization] = useState('');
+  const [selectedOrganization, setSelectedOrganization] = useState(() => user?.organizationId || '');
 
   const organizations = useMemo(() => {
     const map = new Map<string, string>();
@@ -175,8 +177,12 @@ export function StaffAttendance() {
   };
 
   useEffect(() => {
+    if (!selectedOrganization && user?.organizationId) {
+      setSelectedOrganization(user.organizationId);
+      return;
+    }
     void load();
-  }, [date, selectedOrganization]);
+  }, [date, selectedOrganization, user?.organizationId]);
 
   const summary = useMemo(
     () => ({

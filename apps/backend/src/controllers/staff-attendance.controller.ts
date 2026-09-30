@@ -26,7 +26,7 @@ function applyAttendanceOrgFilter(
 ): Record<string, unknown> {
   const scoped = applyOrgFilter(req, filter, 'organizationId');
   if (req.user?.role === 'admin') {
-    const requested = bodyOrganizationId || req.query.organizationId;
+    const requested = bodyOrganizationId || req.query.organizationId || req.user.organizationId;
     if (requested) scoped.organizationId = String(requested);
   }
   return scoped;
@@ -38,8 +38,8 @@ function resolveSettingsOrganization(req: Request, bodyOrganizationId?: unknown)
     return req.user.organizationId;
   }
   if (req.user?.role === 'admin') {
-    const requested = bodyOrganizationId || req.query.organizationId;
-    if (!requested) throw new BadRequestError('organizationId is required for platform administrators');
+    const requested = bodyOrganizationId || req.query.organizationId || req.user.organizationId;
+    if (!requested) throw new BadRequestError('Select an organization before configuring smart attendance');
     return String(requested);
   }
   throw new ForbiddenError('Administrator access is required');
