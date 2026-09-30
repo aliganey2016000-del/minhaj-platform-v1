@@ -3,12 +3,25 @@ import StaffAttendance, { StaffAttendanceStatus } from '../models/staff-attendan
 import StaffAttendanceSettings from '../models/staff-attendance-settings.model';
 import TeacherBiometric from '../models/teacher-biometric.model';
 import User from '../models/user.model';
+import Profile from '../models/profile.model';
 import School from '../models/school.model';
 import { BadRequestError, ForbiddenError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { isValidTimeZone } from '../utils/teacher-biometric';
 
 const VALID_STATUSES: StaffAttendanceStatus[] = ['present', 'absent', 'late', 'excused'];
+
+// Profiles reference User through Profile.user; User has no `profile` path
+// that Mongoose can populate. Join only the employees already in scope.
+async function profilesForUsers(userIds: unknown[]) {
+  const profiles = userIds.length
+    ? await Profile.find({ user: { $in: userIds } }).select('user firstName lastName').lean()
+    : [];
+  return new Map(profiles.map((profile) => [profile.user.toString(), {
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+  }]));
+}
 
 function dayRange(value?: string) {
   const date = value ? new Date(value + 'T00:00:00.000Z') : new Date();
@@ -118,13 +131,13 @@ export const getForDate = async (req: Request, res: Response): Promise<Response>
 
   const employees = await User.find(employeeFilter)
     .select('_id email phone title department organizationId role')
-    .populate('profile', 'firstName lastName')
     .populate('department', 'name')
     .populate('organizationId', 'name')
     .sort({ role: 1, createdAt: 1 })
     .limit(1000)
     .lean();
 
+  const profiles = await profilesForUsers(employees.map((member) => member._id));
   const records = await StaffAttendance.find(attendanceFilter).lean();
   const byUser = new Map(records.map((record) => [record.user.toString(), record]));
 
@@ -137,7 +150,7 @@ export const getForDate = async (req: Request, res: Response): Promise<Response>
   const enrolled = new Set(biometricRows.map((item) => item.user.toString()));
 
   const rows = employees.map((member: any) => ({
-    staff: member,
+    staff: { ...member, profile: profiles.get(member._id.toString()) || null },
     attendance: byUser.get(member._id.toString()) || null,
     biometricEnrolled: member.role === 'teacher' ? enrolled.has(member._id.toString()) : false,
   }));
@@ -196,16 +209,22 @@ export const history = async (req: Request, res: Response): Promise<Response> =>
     .populate({
       path: 'user',
       select: 'email phone title role organizationId',
-      populate: [
-        { path: 'profile', select: 'firstName lastName' },
-        { path: 'organizationId', select: 'name' },
-      ],
+      populate: { path: 'organizationId', select: 'name' },
     })
     .sort({ date: -1, markedAt: -1 })
     .limit(300)
     .lean();
 
-  return ApiResponse.success(res, records);
+  const profiles = await profilesForUsers(
+    records.flatMap((record: any) => record.user?._id ? [record.user._id] : [])
+  );
+  return ApiResponse.success(res, records.map((record: any) => ({
+    ...record,
+    user: record.user ? {
+      ...record.user,
+      profile: profiles.get(record.user._id.toString()) || null,
+    } : null,
+  })));
 };
 
 export const getSettings = async (req: Request, res: Response): Promise<Response> => {
