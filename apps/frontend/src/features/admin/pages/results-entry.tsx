@@ -176,6 +176,8 @@ interface ManualEntryRoster {
   students: ManualEntryRosterStudent[];
 }
 
+type ExamAttendanceStatus = 'present' | 'absent' | 'unmarked';
+
 interface ResultsEntryProps {
   /** BackButton's fallback route — defaults to the admin exams hub; the teacher portal passes '/teacher'. */
   backFallback?: string;
@@ -299,6 +301,7 @@ function SummaryBreakdownPanel({ tab, courses, onClose, onSelectCourse }: {
 export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProps) {
   const [searchParams] = useSearchParams();
   const requestedCourseId = searchParams.get('courseId') || '';
+  const requestedExamId = searchParams.get('examId') || '';
   const requestedCourseOpenedRef = useRef('');
   const [courses, setCourses] = useState<CourseBrief[]>([]);
   const [summary, setSummary] = useState<EntrySummary | null>(null);
@@ -307,6 +310,7 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
   const [classFilter, setClassFilter] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [roster, setRoster] = useState<ManualEntryRoster | null>(null);
+  const [examAttendanceByStudent, setExamAttendanceByStudent] = useState<Record<string, ExamAttendanceStatus>>({});
   const [entryValues, setEntryValues] = useState<Record<string, Record<ManualEntrySlot, string>>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, Partial<Record<ManualEntrySlot, string>>>>({});
   const [loading, setLoading] = useState(false);
@@ -395,9 +399,9 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
     });
   };
 
-  const handleOrgChange = (v: string) => { setOrgFilter(v); setDeptFilter(''); setClassFilter(''); setSelectedCourseId(''); setRoster(null); };
-  const handleDeptChange = (v: string) => { setDeptFilter(v); setClassFilter(''); setSelectedCourseId(''); setRoster(null); };
-  const handleClassChange = (v: string) => { setClassFilter(v); setSelectedCourseId(''); setRoster(null); };
+  const handleOrgChange = (v: string) => { setOrgFilter(v); setDeptFilter(''); setClassFilter(''); setSelectedCourseId(''); setRoster(null); setExamAttendanceByStudent({}); };
+  const handleDeptChange = (v: string) => { setDeptFilter(v); setClassFilter(''); setSelectedCourseId(''); setRoster(null); setExamAttendanceByStudent({}); };
+  const handleClassChange = (v: string) => { setClassFilter(v); setSelectedCourseId(''); setRoster(null); setExamAttendanceByStudent({}); };
 
   const loadCourse = async (courseId: string) => {
     setSelectedCourseId(courseId);
@@ -407,13 +411,39 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
     setSavingKeys(new Set());
     setSavedKeys(new Set());
     setErrorKeys(new Set());
-    if (!courseId) { setRoster(null); return; }
+    if (!courseId) { setRoster(null); setExamAttendanceByStudent({}); return; }
     setLoading(true);
     setError('');
     try {
       const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
       const r: ManualEntryRoster = data.data;
       setRoster(r);
+
+      const attendanceMap: Record<string, ExamAttendanceStatus> = {};
+      if (requestedExamId) {
+        try {
+          const attendanceResponse = await api.get(`/exams/${requestedExamId}/attendance`);
+          const attendanceData = attendanceResponse.data?.data;
+          const attendanceCourseId = String(attendanceData?.exam?.course?._id || '');
+          if (attendanceCourseId === courseId) {
+            for (const row of attendanceData?.roster || []) {
+              const studentId = String(row?.student?._id || '');
+              if (!studentId) continue;
+              const status = row?.attendance?.status;
+              attendanceMap[studentId] = status === 'present'
+                ? 'present'
+                : status === 'absent'
+                  ? 'absent'
+                  : 'unmarked';
+            }
+          }
+        } catch {
+          // Attendance is supplementary here; result entry must remain usable
+          // even if the exam attendance request is temporarily unavailable.
+        }
+      }
+      setExamAttendanceByStudent(attendanceMap);
+
       setFieldErrors({});
       const values: Record<string, Record<ManualEntrySlot, string>> = {};
       r.students.forEach((s) => {
@@ -577,6 +607,30 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
   const anySaving = savingKeys.size > 0;
   const anyError = errorKeys.size > 0;
   const anySaved = savedKeys.size > 0;
+  const showExamAttendance = Boolean(requestedExamId && Object.keys(examAttendanceByStudent).length);
+  const examAttendanceSummary = useMemo(() => {
+    if (!roster || !showExamAttendance) return { present: 0, absent: 0, unmarked: 0 };
+    return roster.students.reduce((acc, student) => {
+      const status = examAttendanceByStudent[student.studentId] || 'unmarked';
+      acc[status] += 1;
+      return acc;
+    }, { present: 0, absent: 0, unmarked: 0 });
+  }, [roster, showExamAttendance, examAttendanceByStudent]);
+
+  const renderAttendanceBadge = (studentId: string) => {
+    if (!showExamAttendance) return null;
+    const status = examAttendanceByStudent[studentId] || 'unmarked';
+    const tone = status === 'present'
+      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+      : status === 'absent'
+        ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
+    return (
+      <span className={`inline-flex shrink-0 rounded-full px-2 py-1 text-[10px] font-black capitalize ${tone}`}>
+        {status}
+      </span>
+    );
+  };
 
   // Shared between the desktop table's cells and the mobile card grid below
   // so both stay in sync (validation, auto-save status, styling) instead of
@@ -838,7 +892,13 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
             })()}
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-card">
             <div className="px-4 py-2.5 border-b border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] flex items-center justify-between">
-              <p className="text-xs text-[var(--color-text-tertiary)]">{roster.students.length} students · scores auto-save as you type</p>
+              <p className="text-xs text-[var(--color-text-tertiary)]">
+                {roster.students.length} students
+                {showExamAttendance && (
+                  <> · <span className="font-bold text-emerald-600 dark:text-emerald-400">Present {examAttendanceSummary.present}</span> · <span className="font-bold text-red-600 dark:text-red-400">Absent {examAttendanceSummary.absent}</span>{examAttendanceSummary.unmarked > 0 ? ` · Unmarked ${examAttendanceSummary.unmarked}` : ''}</>
+                )}
+                {' '}· scores auto-save as you type
+              </p>
               {anySaving ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                   <Loader2 className="h-3 w-3 animate-spin" /> Saving…
@@ -861,14 +921,17 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
             <div className="sm:hidden divide-y divide-[var(--color-border-subtle)]">
               {roster.students.map((s) => (
                 <div key={s.studentId} className="p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${avatarColor(s.studentId)}`}>
-                      {initials(s.studentName.split(' ')[0], s.studentName.split(' ').slice(1).join(' '))}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-bold truncate leading-tight text-sm text-[var(--color-text-primary)]">{s.studentName || 'Unknown Student'}</p>
-                      <code className="text-[10px] font-semibold text-[var(--color-text-secondary)]">{s.studentCode}</code>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${avatarColor(s.studentId)}`}>
+                        {initials(s.studentName.split(' ')[0], s.studentName.split(' ').slice(1).join(' '))}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-bold truncate leading-tight text-sm text-[var(--color-text-primary)]">{s.studentName || 'Unknown Student'}</p>
+                        <code className="text-[10px] font-semibold text-[var(--color-text-secondary)]">{s.studentCode}</code>
+                      </div>
                     </div>
+                    {renderAttendanceBadge(s.studentId)}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     {visibleSlots.map(({ slot, label }) => {
@@ -891,16 +954,18 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm table-fixed">
                 <colgroup>
-                  <col style={{ width: '26%' }} />
-                  <col style={{ width: '18%' }} />
+                  <col style={{ width: showExamAttendance ? '22%' : '26%' }} />
+                  <col style={{ width: showExamAttendance ? '16%' : '18%' }} />
+                  {showExamAttendance && <col style={{ width: '12%' }} />}
                   {visibleSlots.map(({ slot }) => (
-                    <col key={slot} style={{ width: `${56 / visibleSlots.length}%` }} />
+                    <col key={slot} style={{ width: `${(showExamAttendance ? 50 : 56) / visibleSlots.length}%` }} />
                   ))}
                 </colgroup>
                 <thead className="bg-[var(--color-surface-secondary)] border-b border-[var(--color-border-default)]">
                   <tr>
                     <th className="text-left px-4 py-2 font-semibold">Student Name / ID</th>
                     <th className="text-left px-4 py-2 font-semibold">Organization / Department</th>
+                    {showExamAttendance && <th className="text-left px-4 py-2 font-semibold">Attendance</th>}
                     {visibleSlots.map(({ slot, label }) => {
                       const zeroWeight = roster.slots[slot] && roster.slots[slot]!.weight === 0;
                       return (
@@ -935,6 +1000,11 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                       <td className="px-4 py-1.5 text-xs text-[var(--color-text-secondary)] truncate">
                         {roster.organization}{roster.organization && s.department ? ' · ' : ''}{s.department}
                       </td>
+                      {showExamAttendance && (
+                        <td className="px-4 py-1.5">
+                          {renderAttendanceBadge(s.studentId)}
+                        </td>
+                      )}
                       {visibleSlots.map(({ slot }, si) => (
                         <td className="px-4 py-1.5" key={slot}>
                           {renderScoreInput(s, slot, {
@@ -949,7 +1019,10 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
               </table>
             </div>
             <div className="p-4 border-t border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-[var(--color-text-tertiary)]">{roster.students.length} students</p>
+              <p className="text-xs text-[var(--color-text-tertiary)]">
+                {roster.students.length} students
+                {showExamAttendance && <> · Present {examAttendanceSummary.present} · Absent {examAttendanceSummary.absent}</>}
+              </p>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowImport(true)}
