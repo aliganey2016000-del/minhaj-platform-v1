@@ -2,9 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   BookOpenCheck,
-  CalendarDays,
   CheckCircle2,
-  ClipboardCheck,
   ClipboardEdit,
   Download,
   FileUp,
@@ -14,6 +12,8 @@ import {
   RotateCcw,
   Save,
   Search,
+  SlidersHorizontal,
+  UserRound,
   Users,
   XCircle,
 } from 'lucide-react';
