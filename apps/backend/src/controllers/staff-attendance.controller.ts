@@ -3,9 +3,9 @@ import StaffAttendance, { StaffAttendanceStatus } from '../models/staff-attendan
 import StaffAttendanceSettings from '../models/staff-attendance-settings.model';
 import TeacherBiometric from '../models/teacher-biometric.model';
 import User from '../models/user.model';
+import School from '../models/school.model';
 import { BadRequestError, ForbiddenError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
-import { applyOrgFilter } from '../utils/tenant-scope';
 import { isValidTimeZone } from '../utils/teacher-biometric';
 
 const VALID_STATUSES: StaffAttendanceStatus[] = ['present', 'absent', 'late', 'excused'];
@@ -19,40 +19,80 @@ function dayRange(value?: string) {
   return { start, end, date: start };
 }
 
-function applyAttendanceOrgFilter(
-  req: Request,
-  filter: Record<string, unknown>,
-  bodyOrganizationId?: unknown
-): Record<string, unknown> {
-  const scoped = applyOrgFilter(req, filter, 'organizationId');
-  if (req.user?.role === 'admin') {
-    const requested = bodyOrganizationId || req.query.organizationId || req.user.organizationId;
-    if (requested) scoped.organizationId = String(requested);
-  }
-  return scoped;
+function objectIdString(value: any): string | undefined {
+  if (!value) return undefined;
+  const raw = value?._id ?? value;
+  const text = String(raw || '').trim();
+  return /^[a-fA-F0-9]{24}$/.test(text) ? text : undefined;
 }
 
-function resolveSettingsOrganization(req: Request, bodyOrganizationId?: unknown): string {
-  if (req.user?.role === 'org_admin') {
-    if (!req.user.organizationId) throw new ForbiddenError('Your account is not assigned to an organization');
-    return req.user.organizationId;
+/**
+ * Resolve the organization from the authoritative User document instead of
+ * trusting only the JWT's organizationId. This matters for long-lived browser
+ * sessions: an org can be assigned/changed after the token was issued, while
+ * /auth/me already reflects the current database value.
+ *
+ * Platform admins may explicitly target another org through the request.
+ * Org admins are always pinned to their own current DB organization.
+ */
+async function resolveRequestOrganization(
+  req: Request,
+  explicitOrganizationId?: unknown
+): Promise<string | undefined> {
+  const role = req.user?.role;
+  if (!req.user?.userId) throw new ForbiddenError('Authentication is required');
+
+  const currentUser = await User.findById(req.user.userId).select('organizationId role isActive').lean();
+  if (!currentUser || currentUser.isActive === false) {
+    throw new ForbiddenError('Your account is inactive or no longer available');
   }
-  if (req.user?.role === 'admin') {
-    const requested = bodyOrganizationId || req.query.organizationId || req.user.organizationId;
-    if (!requested) throw new BadRequestError('Select an organization before configuring smart attendance');
-    return String(requested);
+
+  const databaseOrgId = objectIdString(currentUser.organizationId);
+  const tokenOrgId = objectIdString(req.user.organizationId);
+
+  if (role === 'org_admin') {
+    const organizationId = databaseOrgId || tokenOrgId;
+    if (!organizationId) {
+      throw new ForbiddenError('Your account is not assigned to an organization');
+    }
+    return organizationId;
   }
+
+  if (role === 'admin') {
+    const explicitId = objectIdString(explicitOrganizationId);
+    if (explicitOrganizationId && !explicitId) {
+      throw new BadRequestError('Invalid organizationId');
+    }
+    if (explicitId) return explicitId;
+
+    const ownOrganizationId = databaseOrgId || tokenOrgId;
+    if (ownOrganizationId) return ownOrganizationId;
+
+    // If the platform admin is visiting a tenant subdomain/custom domain,
+    // resolve that tenant as the current organization as a final fallback.
+    if (req.tenant?.slug) {
+      const tenantSchool = await School.findOne({ slug: req.tenant.slug, status: 'active' })
+        .select('_id')
+        .lean();
+      if (tenantSchool?._id) return tenantSchool._id.toString();
+    }
+
+    return undefined;
+  }
+
   throw new ForbiddenError('Administrator access is required');
 }
 
-async function ensureEmployee(req: Request, userId: string, organizationId?: unknown) {
+async function ensureEmployee(req: Request, userId: string, explicitOrganizationId?: unknown) {
+  const organizationId = await resolveRequestOrganization(req, explicitOrganizationId);
   const filter: Record<string, unknown> = {
     _id: userId,
     role: { $in: ['staff', 'teacher'] },
     isActive: true,
   };
-  const scoped = applyAttendanceOrgFilter(req, filter, organizationId);
-  const user = await User.findOne(scoped)
+  if (organizationId) filter.organizationId = organizationId;
+
+  const user = await User.findOne(filter)
     .select('_id organizationId email phone title department role')
     .lean();
   if (!user) throw new ForbiddenError('Teacher/staff member not found or outside your organization');
@@ -61,10 +101,21 @@ async function ensureEmployee(req: Request, userId: string, organizationId?: unk
 
 export const getForDate = async (req: Request, res: Response): Promise<Response> => {
   const { start, end } = dayRange(req.query.date as string | undefined);
-  const employeeFilter = applyAttendanceOrgFilter(req, {
+  const organizationId = await resolveRequestOrganization(req, req.query.organizationId);
+
+  const employeeFilter: Record<string, unknown> = {
     role: { $in: ['staff', 'teacher'] },
     isActive: true,
-  });
+  };
+  const attendanceFilter: Record<string, unknown> = {
+    date: { $gte: start, $lt: end },
+  };
+
+  if (organizationId) {
+    employeeFilter.organizationId = organizationId;
+    attendanceFilter.organizationId = organizationId;
+  }
+
   const employees = await User.find(employeeFilter)
     .select('_id email phone title department organizationId role')
     .populate('profile', 'firstName lastName')
@@ -74,9 +125,6 @@ export const getForDate = async (req: Request, res: Response): Promise<Response>
     .limit(1000)
     .lean();
 
-  const attendanceFilter = applyAttendanceOrgFilter(req, {
-    date: { $gte: start, $lt: end },
-  });
   const records = await StaffAttendance.find(attendanceFilter).lean();
   const byUser = new Map(records.map((record) => [record.user.toString(), record]));
 
@@ -93,7 +141,12 @@ export const getForDate = async (req: Request, res: Response): Promise<Response>
     attendance: byUser.get(member._id.toString()) || null,
     biometricEnrolled: member.role === 'teacher' ? enrolled.has(member._id.toString()) : false,
   }));
-  return ApiResponse.success(res, { date: start.toISOString().slice(0, 10), rows });
+
+  return ApiResponse.success(res, {
+    date: start.toISOString().slice(0, 10),
+    organizationId: organizationId || null,
+    rows,
+  });
 };
 
 export const mark = async (req: Request, res: Response): Promise<Response> => {
@@ -104,11 +157,14 @@ export const mark = async (req: Request, res: Response): Promise<Response> => {
     notes?: string;
     organizationId?: string;
   };
+
   if (!userId || !VALID_STATUSES.includes(status)) {
     throw new BadRequestError('userId and a valid status are required');
   }
+
   const employee = await ensureEmployee(req, userId, organizationId);
   if (!employee.organizationId) throw new BadRequestError('Employee is not assigned to an organization');
+
   const { date: day } = dayRange(date);
   const record = await StaffAttendance.findOneAndUpdate(
     { organizationId: employee.organizationId, user: employee._id, date: day },
@@ -123,15 +179,20 @@ export const mark = async (req: Request, res: Response): Promise<Response> => {
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   ).lean();
+
   return ApiResponse.success(res, record, 'Attendance saved');
 };
 
 export const history = async (req: Request, res: Response): Promise<Response> => {
   const userId = req.query.userId as string | undefined;
-  if (userId) await ensureEmployee(req, userId, req.query.organizationId);
+  const organizationId = await resolveRequestOrganization(req, req.query.organizationId);
+
+  if (userId) await ensureEmployee(req, userId, organizationId);
+
   const filter: Record<string, unknown> = userId ? { user: userId } : {};
-  const scoped = applyAttendanceOrgFilter(req, filter);
-  const records = await StaffAttendance.find(scoped)
+  if (organizationId) filter.organizationId = organizationId;
+
+  const records = await StaffAttendance.find(filter)
     .populate({
       path: 'user',
       select: 'email phone title role organizationId',
@@ -143,11 +204,16 @@ export const history = async (req: Request, res: Response): Promise<Response> =>
     .sort({ date: -1, markedAt: -1 })
     .limit(300)
     .lean();
+
   return ApiResponse.success(res, records);
 };
 
 export const getSettings = async (req: Request, res: Response): Promise<Response> => {
-  const organizationId = resolveSettingsOrganization(req);
+  const organizationId = await resolveRequestOrganization(req, req.query.organizationId);
+  if (!organizationId) {
+    throw new BadRequestError('Select an organization before configuring smart attendance');
+  }
+
   const settings = await StaffAttendanceSettings.findOne({ organizationId }).lean();
   const data = settings || {
     organizationId,
@@ -160,8 +226,10 @@ export const getSettings = async (req: Request, res: Response): Promise<Response
     checkOutEnabled: true,
     timezone: 'Africa/Mogadishu',
   };
+
   return ApiResponse.success(res, {
     ...data,
+    organizationId,
     configured: Number.isFinite((data as any).latitude) && Number.isFinite((data as any).longitude),
   });
 };
@@ -175,11 +243,20 @@ function finiteInRange(value: unknown, min: number, max: number, label: string):
 }
 
 export const updateSettings = async (req: Request, res: Response): Promise<Response> => {
-  const organizationId = resolveSettingsOrganization(req, req.body?.organizationId);
+  const organizationId = await resolveRequestOrganization(req, req.body?.organizationId);
+  if (!organizationId) {
+    throw new BadRequestError('Select an organization before configuring smart attendance');
+  }
+
   const current = await StaffAttendanceSettings.findOne({ organizationId }).lean();
   const latitude = finiteInRange(req.body?.latitude, -90, 90, 'Latitude');
   const longitude = finiteInRange(req.body?.longitude, -180, 180, 'Longitude');
-  const radiusMeters = finiteInRange(req.body?.radiusMeters ?? current?.radiusMeters ?? 150, 20, 5000, 'Radius');
+  const radiusMeters = finiteInRange(
+    req.body?.radiusMeters ?? current?.radiusMeters ?? 150,
+    20,
+    5000,
+    'Radius'
+  );
   const maxAccuracyMeters = finiteInRange(
     req.body?.maxAccuracyMeters ?? current?.maxAccuracyMeters ?? 100,
     10,
@@ -223,18 +300,28 @@ export const updateSettings = async (req: Request, res: Response): Promise<Respo
     { upsert: true, new: true, setDefaultsOnInsert: true }
   ).lean();
 
-  return ApiResponse.success(res, { ...settings, configured: true }, 'Smart attendance settings saved');
+  return ApiResponse.success(
+    res,
+    { ...settings, organizationId, configured: true },
+    'Smart attendance settings saved'
+  );
 };
 
 export const resetTeacherFace = async (req: Request, res: Response): Promise<Response> => {
-  const organizationId = resolveSettingsOrganization(req, req.body?.organizationId);
+  const organizationId = await resolveRequestOrganization(req, req.body?.organizationId);
+  if (!organizationId) {
+    throw new BadRequestError('Select an organization before resetting face enrollment');
+  }
+
   const teacher = await User.findOne({
     _id: req.params.userId,
     role: 'teacher',
     organizationId,
     isActive: true,
   }).select('_id').lean();
+
   if (!teacher) throw new ForbiddenError('Teacher not found in this organization');
+
   await TeacherBiometric.deleteOne({ user: teacher._id, organizationId });
   return ApiResponse.success(res, { reset: true }, 'Teacher face enrollment reset');
 };
