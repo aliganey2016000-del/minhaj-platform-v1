@@ -10,8 +10,42 @@ import School from '../models/school.model';
 import '../models/department.model';
 import StaffAttendance from '../models/staff-attendance.model';
 import routes from '../routes/v1/staff-attendance.routes';
+import {
+  adjustedGeofenceDistance,
+  createLivenessChallenge,
+  livenessFailure,
+  verifyLivenessChallenge,
+} from '../utils/teacher-biometric';
 
 async function main() {
+  process.env.JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'smart-attendance-test-secret';
+
+  assert.equal(adjustedGeofenceDistance(117, 20, 25), 72);
+  assert.equal(adjustedGeofenceDistance(117, 100, 100), 67);
+  assert.equal(adjustedGeofenceDistance(40, 10, 5), 25);
+
+  const challenge = createLivenessChallenge('teacher-test', 'org-test');
+  assert.deepEqual(challenge.actions, ['look_straight']);
+  const parsedChallenge = verifyLivenessChallenge(challenge.token, 'teacher-test', 'org-test');
+  assert.deepEqual(parsedChallenge.actions, ['look_straight']);
+  assert.equal(livenessFailure(['look_straight'], {
+    sampleCount: 2,
+    durationMs: 1200,
+    blinkScore: 0,
+    turnScore: 0,
+    facePresenceRatio: 0.5,
+  }), null);
+  assert.match(
+    livenessFailure(['look_straight'], {
+      sampleCount: 0,
+      durationMs: 1200,
+      blinkScore: 0,
+      turnScore: 0,
+      facePresenceRatio: 0,
+    }) || '',
+    /camera/i
+  );
+
   const mongo = await MongoMemoryServer.create();
   try {
     await mongoose.connect(mongo.getUri());
@@ -55,11 +89,20 @@ async function main() {
     assert.equal(history.body.data.length, 1);
     assert.deepEqual(history.body.data[0].user.profile, { firstName: 'Teacher', lastName: 'One' });
 
-    const saved = await request(app).put('/attendance/settings').send({ latitude: 2.04, longitude: 45.34, organizationId: otherOrg.toString() });
+    const saved = await request(app).put('/attendance/settings').send({
+      latitude: 2.04,
+      longitude: 45.34,
+      locationAccuracyMeters: 18,
+      organizationId: otherOrg.toString(),
+    });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     assert.equal(saved.body.data.organizationId, org.toString());
     assert.equal(saved.body.data.configured, true);
-    console.log('PASS: settings load/save, roster names, missing profiles, history and tenant isolation');
+    assert.equal(saved.body.data.locationAccuracyMeters, 18);
+    const reloadedSettings = await request(app).get('/attendance/settings');
+    assert.equal(reloadedSettings.status, 200, JSON.stringify(reloadedSettings.body));
+    assert.equal(reloadedSettings.body.data.locationAccuracyMeters, 18);
+    console.log('PASS: settings load/save, GPS accuracy, face presence, geofence math, roster names, history and tenant isolation');
   } finally {
     await mongoose.disconnect();
     await mongo.stop();

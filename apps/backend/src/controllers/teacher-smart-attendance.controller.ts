@@ -6,6 +6,7 @@ import User from '../models/user.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ConflictError, ForbiddenError } from '../utils/api-error';
 import {
+  adjustedGeofenceDistance,
   createLivenessChallenge,
   dateLabelInTimezone,
   decryptDescriptor,
@@ -131,8 +132,12 @@ function verifyLocation(settings: EffectiveSettings, raw: unknown): {
   // accuracy as uncertainty instead of rejecting on raw centre-point distance.
   // The cap keeps the geofence meaningful even when a device reports poor GPS.
   const schoolAccuracy = Math.max(0, Number(settings.locationAccuracyMeters || 0));
-  const accuracyAllowance = Math.min(location.accuracy + schoolAccuracy, 50);
-  const accuracyAdjustedDistance = Math.max(0, distanceMeters - accuracyAllowance);
+  const accuracyAdjustedDistance = adjustedGeofenceDistance(
+    distanceMeters,
+    location.accuracy,
+    schoolAccuracy,
+    50
+  );
 
   if (accuracyAdjustedDistance > settings.radiusMeters) {
     throw new BadRequestError(

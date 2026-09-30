@@ -99,6 +99,20 @@ export function euclideanDistance(a: number[], b: number[]): number {
   return Math.sqrt(sum);
 }
 
+export function adjustedGeofenceDistance(
+  distanceMeters: number,
+  teacherAccuracyMeters: number,
+  schoolAccuracyMeters: number,
+  maxAllowanceMeters = 50
+): number {
+  const distance = Math.max(0, Number(distanceMeters) || 0);
+  const teacherAccuracy = Math.max(0, Number(teacherAccuracyMeters) || 0);
+  const schoolAccuracy = Math.max(0, Number(schoolAccuracyMeters) || 0);
+  const maxAllowance = Math.max(0, Number(maxAllowanceMeters) || 0);
+  const allowance = Math.min(teacherAccuracy + schoolAccuracy, maxAllowance);
+  return Math.max(0, distance - allowance);
+}
+
 export function haversineDistanceMeters(
   latitude1: number,
   longitude1: number,
