@@ -634,6 +634,8 @@ export const myAssignments = async (req: Request, res: Response): Promise<Respon
     const roster = await buildRoomRoster(row);
     const markedRows = roster.filter(item => item.attendance?.status);
     const marked = markedRows.length;
+    const presentCount = roster.filter(item => item.attendance?.status === 'present').length;
+    const absentCount = roster.filter(item => item.attendance?.status === 'absent').length;
     const completed = roster.length > 0 && marked === roster.length;
 
     let submittedBy: { name: string; role: string } | null = null;
@@ -695,6 +697,8 @@ export const myAssignments = async (req: Request, res: Response): Promise<Respon
       ...row,
       studentCount: roster.length,
       markedCount: marked,
+      presentCount,
+      absentCount,
       completed,
       submissionStatus: completed ? 'submitted' : 'missing',
       submittedBy,
