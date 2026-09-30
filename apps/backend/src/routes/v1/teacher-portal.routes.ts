@@ -7,6 +7,7 @@
  */
 
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -15,6 +16,7 @@ import { validateTeacherAssessment } from '../../middleware/teacher-assessment-v
 import * as teacherPortalController from '../../controllers/teacher-portal.controller';
 import * as teacherDashboardController from '../../controllers/teacher-dashboard.controller';
 import * as teacherAttendanceController from '../../controllers/teacher-attendance.controller';
+import * as teacherSmartAttendanceController from '../../controllers/teacher-smart-attendance.controller';
 import * as teacherStudentController from '../../controllers/teacher-student.controller';
 import * as teacherAnalyticsController from '../../controllers/teacher-analytics.controller';
 import * as performanceInsightsController from '../../controllers/performance-insights.controller';
@@ -24,11 +26,30 @@ const router = Router();
 router.use(authMiddleware);
 router.use(roleMiddleware(['teacher']));
 
+const biometricLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    statusCode: 429,
+    message: 'Too many biometric verification attempts. Please try again shortly.',
+    data: null,
+    errors: null,
+  },
+});
+
 // ── Dashboard ──
 router.get('/dashboard', asyncHandler(teacherDashboardController.getDashboard));
 router.get('/dashboard/gamification', asyncHandler(teacherPortalController.getGamificationOverview));
 
 // ── Attendance ──
+router.get('/smart-attendance/status', asyncHandler(teacherSmartAttendanceController.getStatus));
+router.get('/smart-attendance/challenge', biometricLimiter, asyncHandler(teacherSmartAttendanceController.getChallenge));
+router.post('/smart-attendance/enroll', biometricLimiter, asyncHandler(teacherSmartAttendanceController.enrollFace));
+router.post('/smart-attendance/check-in', biometricLimiter, asyncHandler(teacherSmartAttendanceController.checkIn));
+router.post('/smart-attendance/check-out', biometricLimiter, asyncHandler(teacherSmartAttendanceController.checkOut));
 router.get('/courses/:courseId/attendance-roster', asyncHandler(teacherAttendanceController.getRoster));
 
 // ── Student Profile & Progress ──
