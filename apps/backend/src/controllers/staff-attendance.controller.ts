@@ -249,6 +249,9 @@ export const getSettings = async (req: Request, res: Response): Promise<Response
 
   return ApiResponse.success(res, {
     ...data,
+    locationAccuracyMeters: Number.isFinite((data as any).locationAccuracyMeters)
+      ? Number((data as any).locationAccuracyMeters)
+      : 25,
     organizationId,
     configured: Number.isFinite((data as any).latitude) && Number.isFinite((data as any).longitude),
   });
@@ -272,7 +275,7 @@ export const updateSettings = async (req: Request, res: Response): Promise<Respo
   const latitude = finiteInRange(req.body?.latitude, -90, 90, 'Latitude');
   const longitude = finiteInRange(req.body?.longitude, -180, 180, 'Longitude');
   const locationAccuracyMeters = finiteInRange(
-    req.body?.locationAccuracyMeters ?? current?.locationAccuracyMeters ?? 0,
+    req.body?.locationAccuracyMeters ?? current?.locationAccuracyMeters ?? 25,
     0,
     5000,
     'School GPS accuracy'

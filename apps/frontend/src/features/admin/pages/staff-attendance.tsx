@@ -528,7 +528,7 @@ export function StaffAttendance() {
               <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                 {[
                   ['enabled', 'Enable smart attendance'],
-                  ['requireLiveness', 'Require live face challenge'],
+                  ['requireLiveness', 'Require face presence check'],
                   ['enrollmentRequiresGeofence', 'Enroll only inside school'],
                   ['checkOutEnabled', 'Enable verified check-out'],
                 ].map(([key, label]) => (
@@ -622,7 +622,7 @@ export function StaffAttendance() {
                         {attendance.checkOutAt && <span>Out {time(attendance.checkOutAt)}</span>}
                         {attendance.verification?.distanceMeters !== undefined && <span>GPS {Math.round(attendance.verification.distanceMeters)} m</span>}
                         {attendance.verification?.faceVerified && <span>Face ✓</span>}
-                        {attendance.verification?.livenessVerified && <span>Live ✓</span>}
+                        {attendance.verification?.livenessVerified && <span>Face presence ✓</span>}
                       </div>
                     )}
                   </div>

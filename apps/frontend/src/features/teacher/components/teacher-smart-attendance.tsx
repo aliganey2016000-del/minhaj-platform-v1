@@ -385,7 +385,15 @@ export function TeacherSmartAttendance() {
       video.srcObject = stream;
       await video.play();
 
-      const liveness = await runLiveness(faceapi, video, challenge);
+      const liveness = status?.settings.requireLiveness
+        ? await runLiveness(faceapi, video, challenge)
+        : {
+            sampleCount: 0,
+            durationMs: 0,
+            blinkScore: 0,
+            turnScore: 0,
+            facePresenceRatio: 1,
+          };
       const descriptor = await captureStraightDescriptor(faceapi, video);
 
       const payload = {
@@ -483,7 +491,7 @@ export function TeacherSmartAttendance() {
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-default)] p-3.5">
                 <Camera className="h-5 w-5 text-cyan-600" />
-                <div><p className="text-xs text-[var(--color-text-tertiary)]">Face check</p><p className="text-sm font-bold">{status.settings.requireLiveness ? 'Look straight at camera' : 'Face match only'}</p></div>
+                <div><p className="text-xs text-[var(--color-text-tertiary)]">Face check</p><p className="text-sm font-bold">{status.settings.requireLiveness ? 'Face presence + match' : 'Face match only'}</p></div>
               </div>
             </div>
 
