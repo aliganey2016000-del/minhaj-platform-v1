@@ -505,10 +505,6 @@ export function MarksEntryWorkspace() {
     }
   };
 
-  const attendanceHref = period
-    ? `/admin/exams/attendance?periodId=${encodeURIComponent(period._id)}&examName=${encodeURIComponent(period.name)}&academicYear=${encodeURIComponent(period.academicYear)}&startDate=${encodeURIComponent(period.startDate || '')}&endDate=${encodeURIComponent(period.endDate || '')}`
-    : '/admin/exams/attendance';
-
   const exportSummary = () => {
     const rows = [
       ['Course', 'Class', 'Date', 'Students', 'Present', 'Absent', 'Results Entered'],
