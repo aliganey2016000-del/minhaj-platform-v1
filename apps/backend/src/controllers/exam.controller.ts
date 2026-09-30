@@ -1392,12 +1392,44 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   // Attach each exam's paper status (draft/submitted/approved/rejected, or
   // null if no paper exists yet) in one batched lookup — lets callers like
   // Papers & Approval filter/tab by review status without an N+1 fetch.
-  const papers = await ExamPaper.find({ exam: { $in: result.map((e: any) => e._id) } })
-    .select('exam status')
-    .lean();
+  const resultExamIds = result.map((e: any) => e._id);
+  const [papers, attendanceCounts] = await Promise.all([
+    ExamPaper.find({ exam: { $in: resultExamIds } })
+      .select('exam status')
+      .lean(),
+    ExamAttendance.aggregate([
+      { $match: { exam: { $in: resultExamIds } } },
+      {
+        $group: {
+          _id: '$exam',
+          present: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
+          absent: { $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] } },
+        },
+      },
+    ]),
+  ]);
   const paperStatusByExam: Record<string, string> = {};
   for (const p of papers) paperStatusByExam[p.exam.toString()] = p.status;
-  result = result.map((e: any) => ({ ...e, paperStatus: paperStatusByExam[e._id.toString()] || null }));
+  const attendanceByExam = new Map(
+    attendanceCounts.map((row: any) => [
+      row._id.toString(),
+      {
+        present: Number(row.present || 0),
+        absent: Number(row.absent || 0),
+      },
+    ])
+  );
+  result = result.map((e: any) => {
+    const attendance = attendanceByExam.get(e._id.toString()) || { present: 0, absent: 0 };
+    return {
+      ...e,
+      paperStatus: paperStatusByExam[e._id.toString()] || null,
+      attendanceSummary: {
+        ...attendance,
+        totalMarked: attendance.present + attendance.absent,
+      },
+    };
+  });
 
   return ApiResponse.paginated(res, result, {
     page: pageNum,
