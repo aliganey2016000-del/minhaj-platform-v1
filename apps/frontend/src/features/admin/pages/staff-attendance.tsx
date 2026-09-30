@@ -118,6 +118,8 @@ export function StaffAttendance() {
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState('');
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [gpsMessage, setGpsMessage] = useState('');
   const [selectedOrganization, setSelectedOrganization] = useState(() => user?.organizationId || '');
 
   const organizations = useMemo(() => {
@@ -250,38 +252,74 @@ export function StaffAttendance() {
 
   const useCurrentLocation = () => {
     setSettingsError('');
+    setGpsMessage('');
+    setGpsAccuracy(null);
+
     if (!navigator.geolocation) {
       setSettingsError('This browser does not support GPS location.');
       return;
     }
+
     setSettingsLoading(true);
+
+    const applyPosition = (position: GeolocationPosition) => {
+      const accuracy = Math.max(0, Number(position.coords.accuracy || 0));
+      setSettings((current) => ({
+        ...(current || {
+          enabled: true,
+          radiusMeters: 150,
+          maxAccuracyMeters: 100,
+          faceMatchThreshold: 0.52,
+          requireLiveness: true,
+          enrollmentRequiresGeofence: true,
+          checkOutEnabled: true,
+          timezone: 'Africa/Mogadishu',
+        }),
+        latitude: Number(position.coords.latitude.toFixed(7)),
+        longitude: Number(position.coords.longitude.toFixed(7)),
+      }));
+      setGpsAccuracy(accuracy);
+      setGpsMessage(
+        accuracy > 0
+          ? 'Location captured successfully · accuracy ±' + Math.round(accuracy) + ' m'
+          : 'Location captured successfully'
+      );
+      setSettingsError('');
+      setSettingsLoading(false);
+    };
+
+    const fail = (gpsError: GeolocationPositionError) => {
+      setSettingsLoading(false);
+      setGpsMessage('');
+      setGpsAccuracy(null);
+      if (gpsError.code === gpsError.PERMISSION_DENIED) {
+        setSettingsError('Location permission is blocked. Allow location access for this site and try again.');
+        return;
+      }
+      setSettingsError(
+        settings?.latitude !== undefined && settings?.longitude !== undefined
+          ? 'This device could not refresh GPS right now. The existing coordinates are still available; verify them before saving.'
+          : 'Current GPS location could not be read. Try again, move near a window/open area, or enter the coordinates manually.'
+      );
+    };
+
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setSettings((current) => ({
-          ...(current || {
-            enabled: true,
-            radiusMeters: 150,
-            maxAccuracyMeters: 100,
-            faceMatchThreshold: 0.52,
-            requireLiveness: true,
-            enrollmentRequiresGeofence: true,
-            checkOutEnabled: true,
-            timezone: 'Africa/Mogadishu',
-          }),
-          latitude: Number(position.coords.latitude.toFixed(7)),
-          longitude: Number(position.coords.longitude.toFixed(7)),
-        }));
-        setSettingsLoading(false);
-      },
-      (gpsError) => {
-        setSettingsError(
-          gpsError.code === gpsError.PERMISSION_DENIED
-            ? 'Location permission is blocked. Allow precise location and try again.'
-            : 'Current GPS location could not be read.'
+      applyPosition,
+      (firstError) => {
+        if (firstError.code === firstError.PERMISSION_DENIED) {
+          fail(firstError);
+          return;
+        }
+        // Desktop browsers can fail high-accuracy Wi-Fi/GPS lookup while a
+        // normal network-backed location still works. Retry once with a
+        // slightly longer timeout before showing an error.
+        navigator.geolocation.getCurrentPosition(
+          applyPosition,
+          fail,
+          { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 }
         );
-        setSettingsLoading(false);
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
   };
 
@@ -513,6 +551,12 @@ export function StaffAttendance() {
                 />
               </label>
 
+              {gpsMessage && (
+                <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>{gpsMessage}{gpsAccuracy !== null && gpsAccuracy > settings.maxAccuracyMeters ? ' · Warning: accuracy is above your allowed GPS error.' : ''}</span>
+                </div>
+              )}
               {settingsError && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{settingsError}</div>}
 
               <button
