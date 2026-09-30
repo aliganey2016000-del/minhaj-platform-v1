@@ -46,6 +46,7 @@ type SmartAttendanceStatus = {
       distanceMeters?: number;
       accuracyMeters?: number;
       faceDistance?: number;
+      challenge?: string[];
     };
   } | null;
   canCheckIn: boolean;
@@ -104,6 +105,9 @@ function loadFaceApiScript(): Promise<any> {
     document.head.appendChild(script);
   });
 
+  faceApiPromise.catch(() => {
+    faceApiPromise = null;
+  });
   return faceApiPromise;
 }
 
@@ -114,7 +118,12 @@ async function loadFaceModels() {
       faceapi.nets.tinyFaceDetector.loadFromUri('/biometrics/models'),
       faceapi.nets.faceLandmark68TinyNet.loadFromUri('/biometrics/models'),
       faceapi.nets.faceRecognitionNet.loadFromUri('/biometrics/models'),
-    ]).then(() => faceapi);
+    ])
+      .then(() => faceapi)
+      .catch((error) => {
+        faceModelsPromise = null;
+        throw error;
+      });
   }
   return faceModelsPromise;
 }
@@ -256,6 +265,7 @@ export function TeacherSmartAttendance() {
 
   const loadStatus = async () => {
     setLoading(true);
+    setError('');
     try {
       const response = await api.get('/teacher-portal/smart-attendance/status');
       setStatus(response.data.data);
@@ -363,13 +373,19 @@ export function TeacherSmartAttendance() {
     let stream: MediaStream | null = null;
 
     try {
-      setInstruction('Checking GPS and preparing secure face verification...');
+      setInstruction('Preparing secure face verification...');
+      const needsLocation =
+        mode !== 'enroll' || Boolean(status?.settings.enrollmentRequiresGeofence);
+      const needsChallenge = Boolean(status?.settings.requireLiveness);
+
       const [location, challengeResponse, faceapi] = await Promise.all([
-        getPreciseLocation(),
-        api.get('/teacher-portal/smart-attendance/challenge'),
+        needsLocation ? getPreciseLocation() : Promise.resolve(undefined),
+        needsChallenge
+          ? api.get('/teacher-portal/smart-attendance/challenge')
+          : Promise.resolve(null),
         loadFaceModels(),
       ]);
-      const challenge = challengeResponse.data.data as Challenge;
+      const challenge = challengeResponse?.data?.data as Challenge | undefined;
 
       setCameraOpen(true);
       const video = await waitForVideo();
@@ -385,7 +401,7 @@ export function TeacherSmartAttendance() {
       video.srcObject = stream;
       await video.play();
 
-      const liveness = status?.settings.requireLiveness
+      const liveness = status?.settings.requireLiveness && challenge
         ? await runLiveness(faceapi, video, challenge)
         : {
             sampleCount: 0,
@@ -398,7 +414,7 @@ export function TeacherSmartAttendance() {
 
       const payload = {
         location,
-        challengeToken: challenge.token,
+        challengeToken: challenge?.token,
         liveness,
         descriptor,
         device: navigator.userAgent,
@@ -572,7 +588,9 @@ export function TeacherSmartAttendance() {
               <div className="flex flex-wrap gap-2 text-xs font-bold">
                 <span className="rounded-full bg-emerald-100 px-3 py-1.5 text-emerald-800">GPS ✓{verified.distanceMeters !== undefined ? ' · ' + Math.round(verified.distanceMeters) + ' m' : ''}</span>
                 <span className="rounded-full bg-violet-100 px-3 py-1.5 text-violet-800">Face ✓</span>
-                <span className="rounded-full bg-cyan-100 px-3 py-1.5 text-cyan-800">Face presence ✓</span>
+                {verified.challenge?.length ? (
+                  <span className="rounded-full bg-cyan-100 px-3 py-1.5 text-cyan-800">Face presence ✓</span>
+                ) : null}
               </div>
             )}
           </>

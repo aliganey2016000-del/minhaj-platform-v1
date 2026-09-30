@@ -216,10 +216,17 @@ async function verifyFace(
     throw new BadRequestError('Face verification failed. Make sure the enrolled teacher is in front of the camera and try again.');
   }
 
-  biometric.lastVerifiedAt = new Date();
-  biometric.verificationCount += 1;
-  await biometric.save();
   return faceDistance;
+}
+
+async function recordSuccessfulFaceVerification(userId: string, organizationId: string): Promise<void> {
+  await TeacherBiometric.updateOne(
+    { user: userId, organizationId },
+    {
+      $set: { lastVerifiedAt: new Date() },
+      $inc: { verificationCount: 1 },
+    }
+  );
 }
 
 function verificationAudit(
@@ -347,6 +354,14 @@ export const checkIn = async (req: Request, res: Response): Promise<Response> =>
   const settings = await effectiveSettings(context.organizationId);
   requireConfigured(settings);
 
+  const { date } = currentAttendanceDay(settings);
+  const existing = await StaffAttendance.findOne({
+    organizationId: context.organizationId,
+    user: context.userId,
+    date,
+  }).select('_id checkInAt').lean();
+  if (existing?.checkInAt) throw new ConflictError('You are already checked in today');
+
   const location = verifyLocation(settings, req.body?.location);
   const actions = verifyLiveness(
     settings,
@@ -362,14 +377,6 @@ export const checkIn = async (req: Request, res: Response): Promise<Response> =>
     settings.faceMatchThreshold
   );
 
-  const { date } = currentAttendanceDay(settings);
-  const existing = await StaffAttendance.findOne({
-    organizationId: context.organizationId,
-    user: context.userId,
-    date,
-  });
-  if (existing?.checkInAt) throw new ConflictError('You are already checked in today');
-
   const now = new Date();
   const audit = verificationAudit(
     location,
@@ -379,21 +386,35 @@ export const checkIn = async (req: Request, res: Response): Promise<Response> =>
     settings.requireLiveness
   );
 
-  const record = await StaffAttendance.findOneAndUpdate(
-    { organizationId: context.organizationId, user: context.userId, date },
-    {
-      $set: {
-        status: 'present',
-        source: 'smart_self',
-        checkInAt: now,
-        verification: audit,
-        markedBy: context.userId,
-        markedAt: now,
-        notes: '',
+  let record;
+  try {
+    record = await StaffAttendance.findOneAndUpdate(
+      {
+        organizationId: context.organizationId,
+        user: context.userId,
+        date,
+        $or: [{ checkInAt: { $exists: false } }, { checkInAt: null }],
       },
-    },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  ).lean();
+      {
+        $set: {
+          status: 'present',
+          source: 'smart_self',
+          checkInAt: now,
+          verification: audit,
+          markedBy: context.userId,
+          markedAt: now,
+          notes: '',
+        },
+      },
+      { upsert: !existing, new: true, setDefaultsOnInsert: true }
+    ).lean();
+  } catch (error: any) {
+    if (error?.code === 11000) throw new ConflictError('You are already checked in today');
+    throw error;
+  }
+
+  if (!record) throw new ConflictError('You are already checked in today');
+  await recordSuccessfulFaceVerification(context.userId, context.organizationId);
 
   return ApiResponse.success(res, record, 'Attendance check-in verified and recorded');
 };
@@ -428,16 +449,27 @@ export const checkOut = async (req: Request, res: Response): Promise<Response> =
     settings.faceMatchThreshold
   );
 
-  record.checkOutAt = new Date();
-  record.checkOutVerification = verificationAudit(
-    location,
-    faceDistance,
-    actions,
-    req.body?.device,
-    settings.requireLiveness
-  );
-  record.markedAt = new Date();
-  await record.save();
+  const now = new Date();
+  const updated = await StaffAttendance.findOneAndUpdate(
+    { _id: record._id, $or: [{ checkOutAt: { $exists: false } }, { checkOutAt: null }] },
+    {
+      $set: {
+        checkOutAt: now,
+        checkOutVerification: verificationAudit(
+          location,
+          faceDistance,
+          actions,
+          req.body?.device,
+          settings.requireLiveness
+        ),
+        markedAt: now,
+      },
+    },
+    { new: true }
+  ).lean();
 
-  return ApiResponse.success(res, record.toJSON(), 'Attendance check-out verified and recorded');
+  if (!updated) throw new ConflictError('You are already checked out today');
+  await recordSuccessfulFaceVerification(context.userId, context.organizationId);
+
+  return ApiResponse.success(res, updated, 'Attendance check-out verified and recorded');
 };

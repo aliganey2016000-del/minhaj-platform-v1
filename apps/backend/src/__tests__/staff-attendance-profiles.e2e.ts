@@ -83,6 +83,30 @@ async function main() {
 
     const marked = await request(app).post('/attendance').send({ userId: teacher._id.toString(), date: '2026-09-30', status: 'present' });
     assert.equal(marked.status, 200, JSON.stringify(marked.body));
+
+    await StaffAttendance.updateOne(
+      { organizationId: org, user: teacher._id, date: new Date('2026-09-30') },
+      {
+        $set: {
+          source: 'smart_self',
+          checkInAt: new Date('2026-09-30T07:00:00.000Z'),
+          checkOutAt: new Date('2026-09-30T14:00:00.000Z'),
+          verification: { gpsVerified: true, faceVerified: true, livenessVerified: true },
+          checkOutVerification: { gpsVerified: true, faceVerified: true, livenessVerified: true },
+        },
+      }
+    );
+    const manualOverride = await request(app)
+      .post('/attendance')
+      .send({ userId: teacher._id.toString(), date: '2026-09-30', status: 'absent' });
+    assert.equal(manualOverride.status, 200, JSON.stringify(manualOverride.body));
+    const overridden = await StaffAttendance.findOne({ organizationId: org, user: teacher._id, date: new Date('2026-09-30') }).lean();
+    assert.equal(overridden?.status, 'absent');
+    assert.equal(overridden?.source, 'admin');
+    assert.equal(overridden?.checkInAt, undefined);
+    assert.equal(overridden?.checkOutAt, undefined);
+    assert.equal(overridden?.verification, undefined);
+    assert.equal(overridden?.checkOutVerification, undefined);
     await StaffAttendance.create({ user: outsider._id, organizationId: otherOrg, date: new Date('2026-09-30'), markedBy: admin._id });
     const history = await request(app).get('/attendance/history');
     assert.equal(history.status, 200, JSON.stringify(history.body));
@@ -102,7 +126,7 @@ async function main() {
     const reloadedSettings = await request(app).get('/attendance/settings');
     assert.equal(reloadedSettings.status, 200, JSON.stringify(reloadedSettings.body));
     assert.equal(reloadedSettings.body.data.locationAccuracyMeters, 18);
-    console.log('PASS: settings load/save, GPS accuracy, face presence, geofence math, roster names, history and tenant isolation');
+    console.log('PASS: settings, GPS accuracy, face presence, geofence math, manual override cleanup, roster names, history and tenant isolation');
   } finally {
     await mongoose.disconnect();
     await mongo.stop();

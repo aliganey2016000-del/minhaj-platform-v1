@@ -189,6 +189,12 @@ export const mark = async (req: Request, res: Response): Promise<Response> => {
         markedBy: req.user!.userId,
         markedAt: new Date(),
       },
+      $unset: {
+        checkInAt: '',
+        checkOutAt: '',
+        verification: '',
+        checkOutVerification: '',
+      },
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   ).lean();

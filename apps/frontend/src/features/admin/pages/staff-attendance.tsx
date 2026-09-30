@@ -435,6 +435,7 @@ export function StaffAttendance() {
         </div>
       )}
 
+      {settingsOnly && (
       <section className="overflow-hidden rounded-3xl border border-cyan-200 bg-[var(--color-surface-primary)] shadow-sm">
         <div className="border-b border-cyan-100 bg-cyan-50/60 p-5 dark:bg-cyan-950/15">
           <div className="flex items-start gap-3">
@@ -461,7 +462,11 @@ export function StaffAttendance() {
                     step="0.0000001"
                     className={inputClass + ' mt-1 w-full'}
                     value={settings.latitude ?? ''}
-                    onChange={(event) => setSettings({ ...settings, latitude: event.target.value === '' ? undefined : Number(event.target.value), locationAccuracyMeters: 0 })}
+                    onChange={(event) => {
+                      setGpsMessage('');
+                      setGpsAccuracy(null);
+                      setSettings({ ...settings, latitude: event.target.value === '' ? undefined : Number(event.target.value), locationAccuracyMeters: 0 });
+                    }}
                   />
                 </label>
                 <label className="text-xs font-bold text-[var(--color-text-secondary)]">
@@ -471,7 +476,11 @@ export function StaffAttendance() {
                     step="0.0000001"
                     className={inputClass + ' mt-1 w-full'}
                     value={settings.longitude ?? ''}
-                    onChange={(event) => setSettings({ ...settings, longitude: event.target.value === '' ? undefined : Number(event.target.value), locationAccuracyMeters: 0 })}
+                    onChange={(event) => {
+                      setGpsMessage('');
+                      setGpsAccuracy(null);
+                      setSettings({ ...settings, longitude: event.target.value === '' ? undefined : Number(event.target.value), locationAccuracyMeters: 0 });
+                    }}
                   />
                 </label>
                 <label className="text-xs font-bold text-[var(--color-text-secondary)]">
@@ -577,6 +586,7 @@ export function StaffAttendance() {
           )}
         </div>
       </section>
+      )}
 
       {!settingsOnly && (
       <div className="overflow-hidden rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]">

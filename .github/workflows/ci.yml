@@ -45,6 +45,9 @@ jobs:
       - name: Smart staff attendance profiles and settings regression
         run: npx ts-node --files src/__tests__/staff-attendance-profiles.e2e.ts
 
+      - name: Smart teacher attendance verification regression
+        run: npx ts-node --files src/__tests__/teacher-smart-attendance-flow.e2e.ts
+
       - name: Promotion tests
         run: npm run test:promotion
 

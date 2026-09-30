@@ -29,6 +29,7 @@ router.use(roleMiddleware(['teacher']));
 const biometricLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
+  keyGenerator: (req) => String(req.user?.userId || 'authenticated-teacher'),
   standardHeaders: true,
   legacyHeaders: false,
   message: {
