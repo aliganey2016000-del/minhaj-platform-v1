@@ -715,6 +715,10 @@ export function MarksEntryWorkspace() {
                     <div className="min-w-0 flex-1">
                       <h3 className="truncate font-black text-[var(--color-text-primary)]">{exam.course?.title?.en || 'Course'}</h3>
                       <p className="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{classLabel(exam)} · {formatDate(exam.examDate)}</p>
+                      <p className="mt-1 flex items-center gap-1.5 text-[10px] font-bold text-[var(--color-text-secondary)]">
+                        <UserRound className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-tertiary)]" />
+                        <span className="truncate">{teacherLabel(exam)}</span>
+                      </p>
                     </div>
                   </div>
 
