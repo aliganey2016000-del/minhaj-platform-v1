@@ -103,7 +103,7 @@ function time(value?: string) {
 }
 
 export function StaffAttendance() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const [searchParams] = useSearchParams();
   const settingsOnly = searchParams.get('view') === 'settings';
   const [date, setDate] = useState(today);
@@ -115,7 +115,7 @@ export function StaffAttendance() {
   const [history, setHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [settings, setSettings] = useState<SmartSettings | null>(null);
-  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState('');
   const [selectedOrganization, setSelectedOrganization] = useState(() => user?.organizationId || '');
@@ -151,6 +151,13 @@ export function StaffAttendance() {
   const load = async () => {
     setLoading(true);
     setError('');
+    // Configuring an organization's GPS must not depend on loading its roster.
+    if (settingsOnly && selectedOrganization) {
+      await loadSettings(selectedOrganization);
+      setLoading(false);
+      return;
+    }
+    let orgForSettings = selectedOrganization;
     try {
       const response = await api.get('/hr/staff-attendance', {
         params: {
@@ -160,7 +167,6 @@ export function StaffAttendance() {
       });
       const nextRows = response.data.data?.rows || [];
       setRows(nextRows);
-      let orgForSettings = selectedOrganization;
       if (!orgForSettings) {
         const unique = Array.from(new Set(nextRows.map((row: Row) => orgIdOf(row)).filter(Boolean)));
         if (unique.length === 1) {
@@ -168,21 +174,24 @@ export function StaffAttendance() {
           setSelectedOrganization(unique[0]);
         }
       }
-      await loadSettings(orgForSettings || undefined);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load teacher/staff attendance.');
     } finally {
       setLoading(false);
     }
+    // Still request settings if the roster failed, so its actual response is
+    // shown instead of a misleading "select organization" placeholder.
+    await loadSettings(orgForSettings || undefined);
   };
 
   useEffect(() => {
+    if (authLoading) return;
     if (!selectedOrganization && user?.organizationId) {
       setSelectedOrganization(user.organizationId);
       return;
     }
     void load();
-  }, [date, selectedOrganization, user?.organizationId]);
+  }, [date, selectedOrganization, user?.organizationId, settingsOnly, authLoading]);
 
   const summary = useMemo(
     () => ({
