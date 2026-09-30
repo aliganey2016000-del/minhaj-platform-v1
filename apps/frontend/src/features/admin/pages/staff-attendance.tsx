@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   CalendarDays,
   Check,
@@ -101,6 +102,8 @@ function time(value?: string) {
 }
 
 export function StaffAttendance() {
+  const [searchParams] = useSearchParams();
+  const settingsOnly = searchParams.get('view') === 'settings';
   const [date, setDate] = useState(today);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -321,9 +324,11 @@ export function StaffAttendance() {
               <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--color-text-tertiary)]">
                 Human Resources
               </p>
-              <h1 className="mt-1 text-2xl font-black">Teacher & Staff Attendance</h1>
+              <h1 className="mt-1 text-2xl font-black">{settingsOnly ? 'Smart Attendance Settings' : 'Teacher & Staff Attendance'}</h1>
               <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-                GPS + face verified teacher check-in, manual overrides and attendance history.
+                {settingsOnly
+                  ? 'Configure GPS geofence, face matching, liveness and verified check-out.'
+                  : 'GPS + face verified teacher check-in, manual overrides and attendance history.'}
               </p>
             </div>
           </div>
@@ -340,18 +345,22 @@ export function StaffAttendance() {
                 ))}
               </select>
             )}
-            <label className="inline-flex items-center gap-2">
-              <CalendarDays className="h-4 w-4 text-[var(--color-text-tertiary)]" />
-              <input
-                className={inputClass}
-                type="date"
-                value={date}
-                onChange={(event) => setDate(event.target.value)}
-              />
-            </label>
-            <button onClick={() => void loadHistory()} className={inputClass + ' inline-flex items-center gap-2 font-bold'}>
-              <History className="h-4 w-4" /> History
-            </button>
+            {!settingsOnly && (
+              <>
+                <label className="inline-flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4 text-[var(--color-text-tertiary)]" />
+                  <input
+                    className={inputClass}
+                    type="date"
+                    value={date}
+                    onChange={(event) => setDate(event.target.value)}
+                  />
+                </label>
+                <button onClick={() => void loadHistory()} className={inputClass + ' inline-flex items-center gap-2 font-bold'}>
+                  <History className="h-4 w-4" /> History
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -363,12 +372,14 @@ export function StaffAttendance() {
       )}
       {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-2xl border bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Teachers & staff</p><p className="mt-1 text-2xl font-black">{summary.total}</p></div>
-        <div className="rounded-2xl border bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Present</p><p className="mt-1 text-2xl font-black">{summary.present}</p></div>
-        <div className="rounded-2xl border bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Smart verified</p><p className="mt-1 text-2xl font-black">{summary.smart}</p></div>
-        <div className="rounded-2xl border bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Not marked</p><p className="mt-1 text-2xl font-black">{summary.missing}</p></div>
-      </div>
+      {!settingsOnly && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="rounded-2xl border bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Teachers & staff</p><p className="mt-1 text-2xl font-black">{summary.total}</p></div>
+          <div className="rounded-2xl border bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Present</p><p className="mt-1 text-2xl font-black">{summary.present}</p></div>
+          <div className="rounded-2xl border bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Smart verified</p><p className="mt-1 text-2xl font-black">{summary.smart}</p></div>
+          <div className="rounded-2xl border bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Not marked</p><p className="mt-1 text-2xl font-black">{summary.missing}</p></div>
+        </div>
+      )}
 
       <section className="overflow-hidden rounded-3xl border border-cyan-200 bg-[var(--color-surface-primary)] shadow-sm">
         <div className="border-b border-cyan-100 bg-cyan-50/60 p-5 dark:bg-cyan-950/15">
@@ -507,6 +518,7 @@ export function StaffAttendance() {
         </div>
       </section>
 
+      {!settingsOnly && (
       <div className="overflow-hidden rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]">
         {loading ? (
           <div className="py-16 text-center text-sm text-[var(--color-text-tertiary)]">Loading teachers and staff...</div>
@@ -585,8 +597,9 @@ export function StaffAttendance() {
           </div>
         )}
       </div>
+      )}
 
-      {showHistory && (
+      {!settingsOnly && showHistory && (
         <div className="rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div><h2 className="font-black">Recent history</h2><p className="text-xs text-[var(--color-text-tertiary)]">Latest attendance records with verification source.</p></div>

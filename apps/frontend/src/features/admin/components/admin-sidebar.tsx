@@ -103,7 +103,13 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     title: 'HR Management',
     items: [
       { path: '/admin/staff', label: 'Staff Directory', icon: UserRound },
-      { path: '/admin/hr?tab=attendance', label: 'Teacher & Staff Attendance', icon: CalendarCheck },
+      {
+        key: 'group:hr-staff-attendance', label: 'HR Staff Attendance', icon: CalendarCheck,
+        children: [
+          { path: '/admin/hr?tab=attendance', label: 'Attendance Records', icon: Users },
+          { path: '/admin/hr?tab=attendance&view=settings', label: 'Smart Attendance Settings', icon: Settings },
+        ],
+      },
       { path: '/admin/hr/access', label: 'Access & Permissions', icon: ShieldCheck },
     ],
   },
