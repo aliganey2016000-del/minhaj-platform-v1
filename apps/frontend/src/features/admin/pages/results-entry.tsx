@@ -464,15 +464,16 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
 
   /** Jumping in from a quick-metric tab's course list bypasses the cascading filters entirely (a course from "Pending" might not match whatever Org/Dept/Class is currently picked), so those reset here to guarantee the target course shows up in the Course picker. */
   useEffect(() => {
-    if (!requestedCourseId || requestedCourseOpenedRef.current === requestedCourseId) return;
+    const requestedContextKey = requestedCourseId ? `${requestedCourseId}::${requestedExamId}` : '';
+    if (!requestedCourseId || requestedCourseOpenedRef.current === requestedContextKey) return;
     if (!courses.some((course) => course._id === requestedCourseId)) return;
-    requestedCourseOpenedRef.current = requestedCourseId;
+    requestedCourseOpenedRef.current = requestedContextKey;
     setOrgFilter('');
     setDeptFilter('');
     setClassFilter('');
     setActiveSummaryTab(null);
     void loadCourse(requestedCourseId);
-  }, [courses, requestedCourseId]);
+  }, [courses, requestedCourseId, requestedExamId]);
 
   const jumpToCourse = (courseId: string) => {
     setOrgFilter('');
