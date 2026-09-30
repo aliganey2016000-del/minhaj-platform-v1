@@ -324,6 +324,8 @@ export function TeacherExamPeriodWorkspace() {
               </section>
             ) : period && activeTab === 'invigilation' ? (
               <section className="space-y-3">
+                <h2 className="text-xl font-black text-[var(--color-text-primary)]">My Invigilation Rooms</h2>
+
                 <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm">
                   <nav className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--color-surface-secondary)] p-1" aria-label="Invigilation room status">
                     {([
