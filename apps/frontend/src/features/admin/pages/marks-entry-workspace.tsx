@@ -567,14 +567,6 @@ export function MarksEntryWorkspace() {
               </p>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={exportSummary} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white hover:bg-blue-700">
-              <Download className="h-4 w-4" /> Export
-            </button>
-            <button type="button" onClick={() => window.print()} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-700">
-              <Printer className="h-4 w-4" /> Print
-            </button>
-          </div>
         </header>
 
         <nav className="grid grid-cols-4 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm">
