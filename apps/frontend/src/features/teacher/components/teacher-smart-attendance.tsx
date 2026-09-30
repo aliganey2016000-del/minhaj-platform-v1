@@ -177,7 +177,7 @@ async function detectFace(faceapi: any, video: HTMLVideoElement) {
   return faceapi
     .detectSingleFace(
       video,
-      new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.55 })
+      new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 })
     )
     .withFaceLandmarks(true)
     .withFaceDescriptor();
@@ -193,8 +193,9 @@ function averageDescriptors(values: Float32Array[]): number[] {
 }
 
 function actionLabel(actions: Challenge['actions']) {
-  const turn = actions.includes('turn_left') ? 'left' : 'right';
-  return 'Blink naturally, then slowly turn your head ' + turn + ', then look straight.';
+  if (actions.includes('blink')) return 'Blink once naturally, then look straight at the camera.';
+  if (actions.includes('turn_left')) return 'Slowly turn your head left, then look straight at the camera.';
+  return 'Slowly turn your head right, then look straight at the camera.';
 }
 
 function formatTime(value?: string) {
@@ -259,7 +260,7 @@ export function TeacherSmartAttendance() {
   ): Promise<LivenessMetrics> => {
     setInstruction(actionLabel(challenge.actions));
     const startedAt = Date.now();
-    const deadline = startedAt + 5500;
+    const deadline = startedAt + 4000;
     let attempts = 0;
     let samples = 0;
     let minEar = Number.POSITIVE_INFINITY;
@@ -290,17 +291,17 @@ export function TeacherSmartAttendance() {
       facePresenceRatio: attempts ? samples / attempts : 0,
     };
 
-    if (metrics.sampleCount < 8 || metrics.facePresenceRatio < 0.65) {
-      throw new Error('Keep your face fully visible in the camera and try again.');
+    if (metrics.sampleCount < 5 || metrics.facePresenceRatio < 0.5) {
+      throw new Error('Keep your face visible in the camera and try again.');
     }
-    if (challenge.actions.includes('blink') && metrics.blinkScore < 0.025) {
-      throw new Error('Blink was not detected. Blink naturally and try again.');
+    if (challenge.actions.includes('blink') && metrics.blinkScore < 0.018) {
+      throw new Error('Blink was not detected. Blink once naturally and try again.');
     }
     if (
       (challenge.actions.includes('turn_left') || challenge.actions.includes('turn_right')) &&
-      metrics.turnScore < 0.07
+      metrics.turnScore < 0.05
     ) {
-      throw new Error('Head movement was not detected. Follow the turn instruction and try again.');
+      throw new Error('Head movement was not detected. Turn your head slowly and try again.');
     }
 
     return metrics;
@@ -308,9 +309,9 @@ export function TeacherSmartAttendance() {
 
   const captureStraightDescriptor = async (faceapi: any, video: HTMLVideoElement) => {
     setInstruction('Look straight at the camera and hold still.');
-    await sleep(650);
+    await sleep(850);
     const descriptors: Float32Array[] = [];
-    for (let attempt = 0; attempt < 6 && descriptors.length < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 10 && descriptors.length < 3; attempt += 1) {
       const result = await detectFace(faceapi, video);
       if (result?.descriptor) descriptors.push(result.descriptor as Float32Array);
       await sleep(260);
@@ -446,7 +447,7 @@ export function TeacherSmartAttendance() {
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-default)] p-3.5">
                 <MapPin className="h-5 w-5 text-emerald-600" />
-                <div><p className="text-xs text-[var(--color-text-tertiary)]">GPS area</p><p className="text-sm font-bold">{status.settings.locationConfigured ? status.settings.radiusMeters + ' m radius' : 'Not configured'}</p></div>
+                <div><p className="text-xs text-[var(--color-text-tertiary)]">GPS area</p><p className="text-sm font-bold">{status.settings.locationConfigured ? status.settings.radiusMeters + ' m school radius' : 'Not configured'}</p><p className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">GPS accuracy is considered automatically</p></div>
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-default)] p-3.5">
                 <ScanFace className="h-5 w-5 text-violet-600" />

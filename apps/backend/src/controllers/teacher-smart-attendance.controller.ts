@@ -120,11 +120,21 @@ function verifyLocation(settings: EffectiveSettings, raw: unknown): {
     location.latitude,
     location.longitude
   );
-  if (distanceMeters > settings.radiusMeters) {
+
+  // Consumer phone GPS can drift by tens of metres even when two devices are
+  // physically at the same place. Use a capped portion of the device-reported
+  // accuracy as uncertainty instead of rejecting on raw centre-point distance.
+  // The cap keeps the geofence meaningful even when a device reports poor GPS.
+  const accuracyAllowance = Math.min(location.accuracy, 50);
+  const accuracyAdjustedDistance = Math.max(0, distanceMeters - accuracyAllowance);
+
+  if (accuracyAdjustedDistance > settings.radiusMeters) {
     throw new BadRequestError(
-      'You are outside the attendance area. You are about ' +
+      'You are outside the attendance area. GPS shows about ' +
       Math.round(distanceMeters) +
-      ' m from the configured school location; allowed radius is ' +
+      ' m from the school location (accuracy ±' +
+      Math.round(location.accuracy) +
+      ' m); allowed school radius is ' +
       settings.radiusMeters +
       ' m.'
     );

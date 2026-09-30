@@ -122,8 +122,8 @@ export function createLivenessChallenge(userId: string, organizationId: string):
   actions: LivenessAction[];
   expiresInSeconds: number;
 } {
-  const turn: LivenessAction = crypto.randomInt(0, 2) === 0 ? 'turn_left' : 'turn_right';
-  const actions: LivenessAction[] = ['blink', turn];
+  const options: LivenessAction[] = ['blink', 'turn_left', 'turn_right'];
+  const actions: LivenessAction[] = [options[crypto.randomInt(0, options.length)]];
   const payload: ChallengePayload = {
     userId,
     organizationId,
@@ -162,7 +162,7 @@ export function verifyLivenessChallenge(
   if (payload.userId !== userId || payload.organizationId !== organizationId) {
     throw new Error('Liveness challenge belongs to another account');
   }
-  if (!Array.isArray(payload.actions) || payload.actions.length < 2) {
+  if (!Array.isArray(payload.actions) || payload.actions.length < 1) {
     throw new Error('Liveness challenge actions are invalid');
   }
   if (!Number.isFinite(payload.expiresAt) || payload.expiresAt < Date.now()) {
@@ -182,19 +182,19 @@ export function livenessFailure(
   const turnScore = Number(metrics.turnScore);
   const facePresenceRatio = metrics.facePresenceRatio === undefined ? 1 : Number(metrics.facePresenceRatio);
 
-  if (!Number.isFinite(sampleCount) || sampleCount < 8) return 'Keep your face visible in the camera and try again';
-  if (!Number.isFinite(durationMs) || durationMs < 1200 || durationMs > 20000) return 'Liveness scan duration was invalid';
-  if (!Number.isFinite(facePresenceRatio) || facePresenceRatio < 0.65 || facePresenceRatio > 1.01) {
-    return 'Your face was not continuously visible during verification';
+  if (!Number.isFinite(sampleCount) || sampleCount < 5) return 'Keep your face visible in the camera and try again';
+  if (!Number.isFinite(durationMs) || durationMs < 1000 || durationMs > 20000) return 'Liveness scan duration was invalid';
+  if (!Number.isFinite(facePresenceRatio) || facePresenceRatio < 0.5 || facePresenceRatio > 1.01) {
+    return 'Keep your face visible in the camera and try again';
   }
-  if (actions.includes('blink') && (!Number.isFinite(blinkScore) || blinkScore < 0.025)) {
-    return 'Blink was not detected. Blink naturally and try again';
+  if (actions.includes('blink') && (!Number.isFinite(blinkScore) || blinkScore < 0.018)) {
+    return 'Blink was not detected. Blink once naturally and try again';
   }
   if (
     (actions.includes('turn_left') || actions.includes('turn_right')) &&
-    (!Number.isFinite(turnScore) || turnScore < 0.07)
+    (!Number.isFinite(turnScore) || turnScore < 0.05)
   ) {
-    return 'Head movement was not detected. Follow the turn instruction and try again';
+    return 'Head movement was not detected. Turn your head slowly and try again';
   }
   return null;
 }
