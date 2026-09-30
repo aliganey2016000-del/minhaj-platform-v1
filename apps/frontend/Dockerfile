@@ -7,12 +7,10 @@ RUN npm ci --no-audit --no-fund
 
 COPY . .
 
-# Face recognition runs locally in the user's browser. Pin the upstream
-# face-api.js runtime/models at build time, then serve them from our own
-# frontend so production check-in makes no third-party API/runtime request.
+# Frontend prebuild pins and downloads the self-hosted face runtime/models.
+# No face API or third-party network call is required from the production browser.
 ARG FACE_API_COMMIT=a86f011d72124e5fb93e59d5c4ab98f699dd5c9c
 ENV FACE_API_COMMIT=$FACE_API_COMMIT
-RUN node scripts/fetch-biometrics-assets.mjs
 
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
