@@ -197,7 +197,7 @@ export function TeacherAttendance() {
           <CalendarCheck className="h-5 w-5" />
           <span className="text-xs font-bold uppercase tracking-wide">Teacher</span>
         </div>
-        <h1 className="mt-1 text-2xl font-black text-[var(--color-text-primary)]">Attendance</h1>
+        <h1 className="mt-1 text-2xl font-black text-[var(--color-text-primary)]">Student Attendance</h1>
         <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Take today’s attendance, review records, or view reports.</p>
       </header>
 

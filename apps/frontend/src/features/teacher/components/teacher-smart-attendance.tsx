@@ -408,7 +408,7 @@ export function TeacherSmartAttendance() {
             </div>
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">
-                Teacher Smart Attendance
+                My Attendance
               </p>
               <h2 className="mt-1 text-xl font-black text-[var(--color-text-primary)] sm:text-2xl">
                 Verify your presence

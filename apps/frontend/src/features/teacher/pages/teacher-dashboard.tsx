@@ -214,7 +214,7 @@ export function TeacherDashboard() {
   ];
 
   const quickActions = [
-    { label: isSo ? 'Qaado xaadirinta' : 'Take Attendance', href: '/teacher/attendance', icon: ClipboardCheck, tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' },
+    { label: isSo ? 'Xaadirinta ardayda' : 'Student Attendance', href: '/teacher/attendance', icon: ClipboardCheck, tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' },
     { label: isSo ? 'Imtixaannada' : 'Exam Workspace', href: '/teacher/exams', icon: FileText, tone: 'bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300' },
     { label: isSo ? 'Qiimee shaqada' : 'Review Work', href: '/teacher/gradebook', icon: ClipboardList, tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300' },
     { label: isSo ? 'Natiijooyinka' : 'Enter Results', href: '/teacher/results/enter', icon: GraduationCap, tone: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300' },

@@ -120,7 +120,7 @@ export function TeacherSchoolAttendance() {
     <div className="mx-auto w-full max-w-7xl space-y-5 p-3 pt-4 sm:p-5 md:p-6 lg:p-8">
       <header>
         <div className="flex items-center gap-2 text-emerald-600"><CalendarDays className="h-4 w-4"/><span className="text-xs font-black uppercase tracking-widest">Teacher</span></div>
-        <h1 className="mt-1 text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">School Attendance</h1>
+        <h1 className="mt-1 text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Student Attendance</h1>
         <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Take attendance for your scheduled classes and track student participation.</p>
       </header>
 

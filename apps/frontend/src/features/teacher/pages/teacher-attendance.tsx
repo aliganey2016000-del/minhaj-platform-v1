@@ -3,7 +3,6 @@ import { Loader2 } from 'lucide-react';
 import api from '../../../lib/axios';
 import TeacherAttendanceLegacy from './teacher-attendance-legacy';
 import TeacherSchoolAttendance from './teacher-school-attendance';
-import TeacherSmartAttendance from '../components/teacher-smart-attendance';
 
 function localDate() {
   const d = new Date();
@@ -13,11 +12,7 @@ function localDate() {
   return y + '-' + m + '-' + day;
 }
 
-/**
- * The top card records the teacher's own workplace attendance using GPS +
- * encrypted face verification. The existing content below it remains the
- * teacher's student/course attendance workspace.
- */
+/** Student attendance only; personal check-in has its own My Attendance route. */
 export function TeacherAttendance() {
   const [schoolMode, setSchoolMode] = useState<boolean | null>(null);
 
@@ -40,7 +35,6 @@ export function TeacherAttendance() {
 
   return (
     <>
-      <TeacherSmartAttendance />
       {schoolMode === null ? (
         <div className="flex min-h-[35vh] items-center justify-center">
           <Loader2 className="h-7 w-7 animate-spin text-emerald-600" />
