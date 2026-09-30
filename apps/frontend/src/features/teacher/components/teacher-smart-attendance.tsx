@@ -192,10 +192,8 @@ function averageDescriptors(values: Float32Array[]): number[] {
   return result.map((value) => value / values.length);
 }
 
-function actionLabel(actions: Challenge['actions']) {
-  if (actions.includes('blink')) return 'Blink once naturally, then look straight at the camera.';
-  if (actions.includes('turn_left')) return 'Slowly turn your head left, then look straight at the camera.';
-  return 'Slowly turn your head right, then look straight at the camera.';
+function actionLabel(_actions: Challenge['actions']) {
+  return 'Look to your right once, then look straight at the camera.';
 }
 
 function formatTime(value?: string) {
@@ -260,7 +258,7 @@ export function TeacherSmartAttendance() {
   ): Promise<LivenessMetrics> => {
     setInstruction(actionLabel(challenge.actions));
     const startedAt = Date.now();
-    const deadline = startedAt + 4000;
+    const deadline = startedAt + 3000;
     let attempts = 0;
     let samples = 0;
     let minEar = Number.POSITIVE_INFINITY;
@@ -291,7 +289,7 @@ export function TeacherSmartAttendance() {
       facePresenceRatio: attempts ? samples / attempts : 0,
     };
 
-    if (metrics.sampleCount < 5 || metrics.facePresenceRatio < 0.5) {
+    if (metrics.sampleCount < 4 || metrics.facePresenceRatio < 0.4) {
       throw new Error('Keep your face visible in the camera and try again.');
     }
     if (challenge.actions.includes('blink') && metrics.blinkScore < 0.018) {
@@ -299,9 +297,9 @@ export function TeacherSmartAttendance() {
     }
     if (
       (challenge.actions.includes('turn_left') || challenge.actions.includes('turn_right')) &&
-      metrics.turnScore < 0.05
+      metrics.turnScore < 0.03
     ) {
-      throw new Error('Head movement was not detected. Turn your head slowly and try again.');
+      throw new Error('Look to your right once, then look back at the camera and try again.');
     }
 
     return metrics;
@@ -309,15 +307,15 @@ export function TeacherSmartAttendance() {
 
   const captureStraightDescriptor = async (faceapi: any, video: HTMLVideoElement) => {
     setInstruction('Look straight at the camera and hold still.');
-    await sleep(850);
+    await sleep(600);
     const descriptors: Float32Array[] = [];
-    for (let attempt = 0; attempt < 10 && descriptors.length < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 10 && descriptors.length < 2; attempt += 1) {
       const result = await detectFace(faceapi, video);
       if (result?.descriptor) descriptors.push(result.descriptor as Float32Array);
       await sleep(260);
     }
-    if (descriptors.length < 2) {
-      throw new Error('A clear front-facing face could not be captured. Improve lighting and try again.');
+    if (descriptors.length < 1) {
+      throw new Error('Look straight at the camera for a moment and try again.');
     }
     return averageDescriptors(descriptors);
   };
@@ -455,7 +453,7 @@ export function TeacherSmartAttendance() {
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-default)] p-3.5">
                 <Camera className="h-5 w-5 text-cyan-600" />
-                <div><p className="text-xs text-[var(--color-text-tertiary)]">Liveness</p><p className="text-sm font-bold">{status.settings.requireLiveness ? 'Required' : 'Not required'}</p></div>
+                <div><p className="text-xs text-[var(--color-text-tertiary)]">Liveness</p><p className="text-sm font-bold">{status.settings.requireLiveness ? 'Look right → Camera' : 'Not required'}</p></div>
               </div>
             </div>
 
