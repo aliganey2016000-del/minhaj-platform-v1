@@ -274,7 +274,7 @@ export function MarksEntryWorkspace() {
     }).filter(Boolean)
   )).sort(), [uniqueExams]);
 
-  const filteredExams = useMemo(() => {
+  const baseFilteredExams = useMemo(() => {
     const text = query.trim().toLowerCase();
     return uniqueExams.filter((exam) => {
       const courseId = String(exam.course?._id || '');
@@ -293,6 +293,16 @@ export function MarksEntryWorkspace() {
       return true;
     });
   }, [uniqueExams, classFilter, courseFilter, dateFilter, attendanceFilter, query, totalStudentsByCourse]);
+
+  const submissionCounts = useMemo(() => ({
+    pending: baseFilteredExams.filter((exam) => !isMarksSubmitted(exam)).length,
+    submitted: baseFilteredExams.filter((exam) => isMarksSubmitted(exam)).length,
+  }), [baseFilteredExams]);
+
+  const filteredExams = useMemo(
+    () => baseFilteredExams.filter((exam) => submissionTab === 'submitted' ? isMarksSubmitted(exam) : !isMarksSubmitted(exam)),
+    [baseFilteredExams, submissionTab],
+  );
 
   const totals = useMemo(() => uniqueExams.reduce((acc, exam) => {
     const courseId = String(exam.course?._id || '');
