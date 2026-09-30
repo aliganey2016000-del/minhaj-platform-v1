@@ -439,50 +439,40 @@ export function TeacherExamPeriodWorkspace() {
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {sortedAssignments.map((assignment) => {
                       const status = dutyStatus(assignment);
-                      const total = assignment.studentCount || 0;
-                      const marked = Math.min(assignment.markedCount || 0, total);
-                      const pct = total ? Math.round((marked / total) * 100) : 0;
                       return (
                         <Link
                           key={assignment._id}
                           to={`/teacher/exam-attendance/${assignment._id}`}
-                          className="group overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400"
+                          className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400"
                         >
                           <div className="p-4 sm:p-5">
                             <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <h3 className="truncate font-black text-[var(--color-text-primary)]">{assignment.room?.name || 'Exam Room'}</h3>
-                                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{formatDate(assignment.examDate, true)} · {assignment.startTime}–{assignment.endTime}</p>
+                              <div className="flex min-w-0 items-start gap-3">
+                                <span className="rounded-xl bg-emerald-50 p-3 text-emerald-600 dark:bg-emerald-950/30">
+                                  <Building2 className="h-5 w-5" />
+                                </span>
+                                <div className="min-w-0">
+                                  <h3 className="truncate font-black text-[var(--color-text-primary)]">{assignment.room?.name || 'Exam Room'}</h3>
+                                  <p className="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{assignment.room?.building || 'Main Campus'}</p>
+                                </div>
                               </div>
                               <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold capitalize ${dutyTone[status]}`}>{status}</span>
                             </div>
 
-                            <div className="mt-4 rounded-xl bg-[var(--color-surface-secondary)] p-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="inline-flex items-center gap-1.5 text-xs font-semibold"><Users className="h-4 w-4" />{total} students</span>
-                                <span className="text-xs font-bold text-emerald-600">{marked}/{total} marked</span>
-                              </div>
-                              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--color-border-subtle)]">
-                                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, pct)}%` }} />
-                              </div>
+                            <div className="mt-4 space-y-2 text-xs text-[var(--color-text-secondary)]">
+                              <p className="flex items-center gap-2">
+                                <CalendarDays className="h-4 w-4 text-[var(--color-text-tertiary)]" />
+                                {formatDate(assignment.examDate, true)}
+                              </p>
+                              <p className="flex items-center gap-2">
+                                <Clock3 className="h-4 w-4 text-[var(--color-text-tertiary)]" />
+                                {assignment.startTime}–{assignment.endTime}
+                              </p>
+                              <p className="flex items-center gap-2">
+                                <Users className="h-4 w-4 text-[var(--color-text-tertiary)]" />
+                                {assignment.studentCount || 0} students
+                              </p>
                             </div>
-
-                            {status === 'completed' && (
-                              <div className="mt-3">
-                                {assignment.submissionStatus === 'submitted' ? (
-                                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                    Submitted by {assignment.submittedBy?.name || 'User'}
-                                  </span>
-                                ) : (
-                                  <span className="rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700 dark:bg-red-950/30 dark:text-red-300">Missing</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex items-center justify-between border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)]/60 px-4 py-3 text-xs font-bold text-emerald-700 dark:text-emerald-300 sm:px-5">
-                            <span>{status === 'completed' ? 'Review Attendance' : 'Open Attendance'}</span>
-                            <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                           </div>
                         </Link>
                       );
