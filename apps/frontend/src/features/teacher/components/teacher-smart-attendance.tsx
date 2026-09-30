@@ -53,7 +53,7 @@ type SmartAttendanceStatus = {
 
 type Challenge = {
   token: string;
-  actions: Array<'blink' | 'turn_left' | 'turn_right'>;
+  actions: Array<'blink' | 'turn_left' | 'turn_right' | 'look_straight'>;
   expiresInSeconds: number;
 };
 
@@ -193,7 +193,7 @@ function averageDescriptors(values: Float32Array[]): number[] {
 }
 
 function actionLabel(_actions: Challenge['actions']) {
-  return 'Look to your right once, then look straight at the camera.';
+  return 'Look straight at the phone camera for a moment.';
 }
 
 function formatTime(value?: string) {
@@ -258,7 +258,7 @@ export function TeacherSmartAttendance() {
   ): Promise<LivenessMetrics> => {
     setInstruction(actionLabel(challenge.actions));
     const startedAt = Date.now();
-    const deadline = startedAt + 3000;
+    const deadline = startedAt + 1500;
     let attempts = 0;
     let samples = 0;
     let minEar = Number.POSITIVE_INFINITY;
@@ -289,8 +289,8 @@ export function TeacherSmartAttendance() {
       facePresenceRatio: attempts ? samples / attempts : 0,
     };
 
-    if (metrics.sampleCount < 4 || metrics.facePresenceRatio < 0.4) {
-      throw new Error('Keep your face visible in the camera and try again.');
+    if (metrics.sampleCount < 2 || metrics.facePresenceRatio < 0.25) {
+      throw new Error('Look straight at the camera for a moment and try again.');
     }
     if (challenge.actions.includes('blink') && metrics.blinkScore < 0.018) {
       throw new Error('Blink was not detected. Blink once naturally and try again.');
@@ -413,7 +413,7 @@ export function TeacherSmartAttendance() {
                 Verify your presence
               </h2>
               <p className="mt-1 max-w-2xl text-sm text-[var(--color-text-secondary)]">
-                GPS geofence, live face challenge and encrypted face matching must all pass before attendance is recorded.
+                GPS geofence and encrypted face matching must pass before attendance is recorded. Just look straight at the phone camera.
               </p>
             </div>
           </div>
@@ -453,7 +453,7 @@ export function TeacherSmartAttendance() {
               </div>
               <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-default)] p-3.5">
                 <Camera className="h-5 w-5 text-cyan-600" />
-                <div><p className="text-xs text-[var(--color-text-tertiary)]">Liveness</p><p className="text-sm font-bold">{status.settings.requireLiveness ? 'Look right → Camera' : 'Not required'}</p></div>
+                <div><p className="text-xs text-[var(--color-text-tertiary)]">Face check</p><p className="text-sm font-bold">{status.settings.requireLiveness ? 'Look straight at camera' : 'Face match only'}</p></div>
               </div>
             </div>
 
@@ -534,7 +534,7 @@ export function TeacherSmartAttendance() {
               <div className="flex flex-wrap gap-2 text-xs font-bold">
                 <span className="rounded-full bg-emerald-100 px-3 py-1.5 text-emerald-800">GPS ✓{verified.distanceMeters !== undefined ? ' · ' + Math.round(verified.distanceMeters) + ' m' : ''}</span>
                 <span className="rounded-full bg-violet-100 px-3 py-1.5 text-violet-800">Face ✓</span>
-                <span className="rounded-full bg-cyan-100 px-3 py-1.5 text-cyan-800">Liveness ✓</span>
+                <span className="rounded-full bg-cyan-100 px-3 py-1.5 text-cyan-800">Face presence ✓</span>
               </div>
             )}
           </>

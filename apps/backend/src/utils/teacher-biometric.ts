@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 
-export type LivenessAction = 'blink' | 'turn_left' | 'turn_right';
+export type LivenessAction = 'blink' | 'turn_left' | 'turn_right' | 'look_straight';
 
 export interface LivenessMetrics {
   sampleCount: number;
@@ -122,9 +122,8 @@ export function createLivenessChallenge(userId: string, organizationId: string):
   actions: LivenessAction[];
   expiresInSeconds: number;
 } {
-  // Keep the teacher flow simple and consistent on every device:
-  // look right once, then return to the camera for face matching.
-  const actions: LivenessAction[] = ['turn_right'];
+  // Simplest teacher flow: keep the face visible and look straight at the phone camera.
+  const actions: LivenessAction[] = ['look_straight'];
   const payload: ChallengePayload = {
     userId,
     organizationId,
@@ -183,10 +182,10 @@ export function livenessFailure(
   const turnScore = Number(metrics.turnScore);
   const facePresenceRatio = metrics.facePresenceRatio === undefined ? 1 : Number(metrics.facePresenceRatio);
 
-  if (!Number.isFinite(sampleCount) || sampleCount < 4) return 'Keep your face visible in the camera and try again';
-  if (!Number.isFinite(durationMs) || durationMs < 800 || durationMs > 20000) return 'Liveness scan duration was invalid';
-  if (!Number.isFinite(facePresenceRatio) || facePresenceRatio < 0.4 || facePresenceRatio > 1.01) {
-    return 'Keep your face visible in the camera and try again';
+  if (!Number.isFinite(sampleCount) || sampleCount < 2) return 'Look straight at the camera for a moment and try again';
+  if (!Number.isFinite(durationMs) || durationMs < 400 || durationMs > 20000) return 'Face scan duration was invalid';
+  if (!Number.isFinite(facePresenceRatio) || facePresenceRatio < 0.25 || facePresenceRatio > 1.01) {
+    return 'Look straight at the camera for a moment and try again';
   }
   if (actions.includes('blink') && (!Number.isFinite(blinkScore) || blinkScore < 0.018)) {
     return 'Blink was not detected. Blink once naturally and try again';
@@ -195,7 +194,7 @@ export function livenessFailure(
     (actions.includes('turn_left') || actions.includes('turn_right')) &&
     (!Number.isFinite(turnScore) || turnScore < 0.03)
   ) {
-    return 'Look to your right once, then look back at the camera and try again';
+    return 'Turn your head slightly and try again';
   }
   return null;
 }
