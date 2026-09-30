@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   BookOpenCheck,
@@ -8,16 +8,18 @@ import {
   ClipboardCheck,
   ClipboardEdit,
   Download,
+  FileUp,
   GraduationCap,
+  Loader2,
   Printer,
   RotateCcw,
+  Save,
   Search,
   Users,
   XCircle,
 } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
-import { ResultsEntry } from './results-entry';
 
 interface ExamPeriod {
   _id: string;
@@ -35,7 +37,10 @@ interface Exam {
   examDate?: string;
   startTime?: string;
   endTime?: string;
+  totalMarks?: number;
+  passingMarks?: number;
   status?: string;
+  resultCount?: number;
   attendanceSummary?: {
     present?: number;
     absent?: number;
@@ -51,12 +56,49 @@ interface Exam {
 interface EntrySummaryCourse {
   _id: string;
   totalStudents: number;
-  gradedStudents: number;
-  completed: boolean;
 }
 
 interface EntrySummary {
   courses?: EntrySummaryCourse[];
+}
+
+interface AttendanceRosterRow {
+  student?: {
+    _id?: string;
+    studentId?: string;
+    profile?: { firstName?: string; lastName?: string };
+    class?: { title?: string; section?: string };
+  };
+  attendance?: { status?: string } | null;
+}
+
+interface ResultRow {
+  _id: string;
+  marksObtained: number;
+  totalMarks: number;
+  percentage: number;
+  grade: string;
+  status: string;
+  remarks?: string;
+  student?: {
+    _id?: string;
+    studentId?: string;
+    profile?: { firstName?: string; lastName?: string };
+  };
+}
+
+type SheetAttendance = 'present' | 'absent' | 'unmarked';
+
+interface SheetRow {
+  studentId: string;
+  studentCode: string;
+  studentName: string;
+  attendance: SheetAttendance;
+  marks: string;
+  remarks: string;
+  resultId?: string;
+  savedGrade?: string;
+  savedPercentage?: number;
 }
 
 const formatDate = (value?: string, withYear = false) => {
@@ -84,11 +126,48 @@ const classLabel = (exam: Exam) => {
   return cls.section ? `${cls.title} - ${cls.section}` : cls.title;
 };
 
+const studentName = (row: AttendanceRosterRow) => {
+  const profile = row.student?.profile;
+  return [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim() || row.student?.studentId || 'Student';
+};
+
+const gradeFor = (marks: number, total: number, absent = false) => {
+  if (absent) return { percentage: 0, grade: 'N/A', status: 'Absent' };
+  const percentage = total > 0 ? Math.round((marks / total) * 100) : 0;
+  const grade = percentage >= 90 ? 'A+' : percentage >= 80 ? 'A' : percentage >= 70 ? 'B' : percentage >= 60 ? 'C' : percentage >= 50 ? 'D' : 'F';
+  return { percentage, grade, status: percentage >= 50 ? 'Passed' : 'Failed' };
+};
+
+const parseCsvLine = (line: string) => {
+  const cells: string[] = [];
+  let value = '';
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"') {
+      if (quoted && line[index + 1] === '"') {
+        value += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === ',' && !quoted) {
+      cells.push(value.trim());
+      value = '';
+    } else {
+      value += char;
+    }
+  }
+  cells.push(value.trim());
+  return cells;
+};
+
 export function MarksEntryWorkspace() {
   const { periodId = '' } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedExamId = searchParams.get('examId') || '';
   const selectedCourseId = searchParams.get('courseId') || '';
+  const importRef = useRef<HTMLInputElement | null>(null);
 
   const [periods, setPeriods] = useState<ExamPeriod[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
@@ -100,6 +179,12 @@ export function MarksEntryWorkspace() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [sheetRows, setSheetRows] = useState<SheetRow[]>([]);
+  const [sheetLoading, setSheetLoading] = useState(false);
+  const [sheetSaving, setSheetSaving] = useState(false);
+  const [sheetError, setSheetError] = useState('');
+  const [sheetMessage, setSheetMessage] = useState('');
 
   const load = async () => {
     if (!periodId) return;
@@ -125,9 +210,9 @@ export function MarksEntryWorkspace() {
 
   const period = useMemo(() => periods.find((item) => item._id === periodId), [periodId, periods]);
 
-  const progressByCourse = useMemo(() => {
-    const map = new Map<string, EntrySummaryCourse>();
-    (summary?.courses || []).forEach((item) => map.set(String(item._id), item));
+  const totalStudentsByCourse = useMemo(() => {
+    const map = new Map<string, number>();
+    (summary?.courses || []).forEach((item) => map.set(String(item._id), Number(item.totalStudents || 0)));
     return map;
   }, [summary]);
 
@@ -151,6 +236,11 @@ export function MarksEntryWorkspace() {
     );
   }, [exams]);
 
+  const selectedExam = useMemo(
+    () => uniqueExams.find((exam) => exam._id === selectedExamId) || null,
+    [uniqueExams, selectedExamId],
+  );
+
   const classes = useMemo(() => {
     const map = new Map<string, string>();
     uniqueExams.forEach((exam) => {
@@ -170,7 +260,11 @@ export function MarksEntryWorkspace() {
     .sort((a, b) => a.label.localeCompare(b.label)), [uniqueExams]);
 
   const dates = useMemo(() => Array.from(new Set(
-    uniqueExams.map((exam) => exam.examDate ? new Date(exam.examDate).toISOString().slice(0, 10) : '').filter(Boolean)
+    uniqueExams.map((exam) => {
+      if (!exam.examDate) return '';
+      const date = new Date(exam.examDate);
+      return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+    }).filter(Boolean)
   )).sort(), [uniqueExams]);
 
   const filteredExams = useMemo(() => {
@@ -178,11 +272,10 @@ export function MarksEntryWorkspace() {
     return uniqueExams.filter((exam) => {
       const courseId = String(exam.course?._id || '');
       const classId = String(exam.course?.class?._id || '');
-      const date = exam.examDate ? new Date(exam.examDate).toISOString().slice(0, 10) : '';
-      const present = Number(exam.attendanceSummary?.present || 0);
-      const absent = Number(exam.attendanceSummary?.absent || 0);
+      const rawDate = exam.examDate ? new Date(exam.examDate) : null;
+      const date = rawDate && !Number.isNaN(rawDate.getTime()) ? rawDate.toISOString().slice(0, 10) : '';
       const marked = Number(exam.attendanceSummary?.totalMarked || 0);
-      const total = progressByCourse.get(courseId)?.totalStudents || marked;
+      const total = totalStudentsByCourse.get(courseId) || marked;
 
       if (classFilter !== 'all' && classId !== classFilter) return false;
       if (courseFilter !== 'all' && courseId !== courseFilter) return false;
@@ -190,20 +283,20 @@ export function MarksEntryWorkspace() {
       if (attendanceFilter === 'complete' && !(total > 0 && marked >= total)) return false;
       if (attendanceFilter === 'pending' && total > 0 && marked >= total) return false;
       if (text && ![exam.course?.title?.en, classLabel(exam), exam.title].some((value) => String(value || '').toLowerCase().includes(text))) return false;
-      return present >= 0 && absent >= 0;
+      return true;
     });
-  }, [uniqueExams, classFilter, courseFilter, dateFilter, attendanceFilter, query, progressByCourse]);
+  }, [uniqueExams, classFilter, courseFilter, dateFilter, attendanceFilter, query, totalStudentsByCourse]);
 
   const totals = useMemo(() => uniqueExams.reduce((acc, exam) => {
     const courseId = String(exam.course?._id || '');
     const attendance = exam.attendanceSummary || {};
     const marked = Number(attendance.totalMarked || 0);
     acc.courses += 1;
-    acc.students += progressByCourse.get(courseId)?.totalStudents || marked;
+    acc.students += totalStudentsByCourse.get(courseId) || marked;
     acc.present += Number(attendance.present || 0);
     acc.absent += Number(attendance.absent || 0);
     return acc;
-  }, { courses: 0, students: 0, present: 0, absent: 0 }), [uniqueExams, progressByCourse]);
+  }, { courses: 0, students: 0, present: 0, absent: 0 }), [uniqueExams, totalStudentsByCourse]);
 
   const resetFilters = () => {
     setClassFilter('all');
@@ -223,7 +316,177 @@ export function MarksEntryWorkspace() {
     window.setTimeout(() => document.getElementById('marks-sheet')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   };
 
-  const selectedExam = uniqueExams.find((exam) => exam._id === selectedExamId) || null;
+  const loadSheet = async (examId: string) => {
+    if (!examId) {
+      setSheetRows([]);
+      return;
+    }
+    setSheetLoading(true);
+    setSheetError('');
+    setSheetMessage('');
+    try {
+      const [attendanceResponse, resultsResponse] = await Promise.all([
+        api.get(`/exams/${examId}/attendance`),
+        api.get('/results', { params: { examId, limit: 200 } }),
+      ]);
+      const roster: AttendanceRosterRow[] = attendanceResponse.data?.data?.roster || [];
+      const existing: ResultRow[] = resultsResponse.data?.data || [];
+      const resultByStudent = new Map(
+        existing.map((result) => [String(result.student?._id || ''), result])
+      );
+
+      setSheetRows(roster.map((row) => {
+        const studentId = String(row.student?._id || '');
+        const result = resultByStudent.get(studentId);
+        const rawStatus = row.attendance?.status;
+        const attendance: SheetAttendance = rawStatus === 'present'
+          ? 'present'
+          : rawStatus === 'absent'
+            ? 'absent'
+            : 'unmarked';
+        return {
+          studentId,
+          studentCode: row.student?.studentId || '',
+          studentName: studentName(row),
+          attendance,
+          marks: attendance === 'absent' ? '0' : result ? String(result.marksObtained ?? '') : '',
+          remarks: result?.remarks || '',
+          resultId: result?._id,
+          savedGrade: result?.grade,
+          savedPercentage: result?.percentage,
+        };
+      }));
+    } catch (err: any) {
+      setSheetError(err?.response?.data?.message || 'Could not load the student marks sheet.');
+      setSheetRows([]);
+    } finally {
+      setSheetLoading(false);
+    }
+  };
+
+  useEffect(() => { void loadSheet(selectedExamId); }, [selectedExamId]);
+
+  const maxMarks = Number(selectedExam?.totalMarks || 100);
+
+  const updateMarks = (studentId: string, value: string) => {
+    const cleaned = value.replace(/[^0-9.]/g, '');
+    const firstDot = cleaned.indexOf('.');
+    const safe = firstDot === -1 ? cleaned : cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+    setSheetRows((rows) => rows.map((row) => row.studentId === studentId ? { ...row, marks: safe } : row));
+    setSheetMessage('');
+  };
+
+  const updateRemarks = (studentId: string, value: string) => {
+    setSheetRows((rows) => rows.map((row) => row.studentId === studentId ? { ...row, remarks: value } : row));
+    setSheetMessage('');
+  };
+
+  const saveSheet = async () => {
+    if (!selectedExam) return;
+    const invalid = sheetRows.find((row) => row.attendance === 'present' && row.marks !== '' && (Number(row.marks) < 0 || Number(row.marks) > maxMarks));
+    if (invalid) {
+      setSheetError(`Marks must be between 0 and ${maxMarks}.`);
+      return;
+    }
+
+    const results = sheetRows.flatMap((row) => {
+      if (!row.studentId || row.attendance === 'unmarked') return [];
+      if (row.attendance === 'present' && row.marks === '') return [];
+      return [{
+        student: row.studentId,
+        marksObtained: row.attendance === 'absent' ? 0 : Number(row.marks),
+        totalMarks: maxMarks,
+        remarks: row.remarks,
+        ...(row.attendance === 'absent' ? { status: 'absent' } : {}),
+      }];
+    });
+
+    if (!results.length) {
+      setSheetError('No marks are ready to save. Mark exam attendance first, then enter scores for present students.');
+      return;
+    }
+
+    setSheetSaving(true);
+    setSheetError('');
+    setSheetMessage('');
+    try {
+      await api.post('/results/bulk', { exam: selectedExam._id, results });
+      setSheetMessage(`Saved ${results.length} student result${results.length === 1 ? '' : 's'}.`);
+      await Promise.all([loadSheet(selectedExam._id), load()]);
+    } catch (err: any) {
+      setSheetError(err?.response?.data?.message || 'Failed to save marks.');
+    } finally {
+      setSheetSaving(false);
+    }
+  };
+
+  const exportSheet = () => {
+    if (!selectedExam || !sheetRows.length) return;
+    const rows = [
+      ['Student ID', 'Student Name', 'Attendance', 'Score', 'Total Marks', 'Grade', 'Remark'],
+      ...sheetRows.map((row) => {
+        const marks = row.attendance === 'absent' ? 0 : Number(row.marks || 0);
+        const preview = gradeFor(marks, maxMarks, row.attendance === 'absent');
+        return [
+          row.studentCode,
+          row.studentName,
+          row.attendance,
+          row.marks,
+          String(maxMarks),
+          row.marks === '' && row.attendance === 'present' ? '' : preview.grade,
+          row.remarks,
+        ];
+      }),
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${selectedExam.course?.title?.en || 'marks'}-${period?.name || 'exam'}.csv`.replace(/\s+/g, '-').toLowerCase();
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importSheet = async (file?: File) => {
+    if (!file) return;
+    setSheetError('');
+    setSheetMessage('');
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter((line) => line.trim());
+      if (lines.length < 2) throw new Error('CSV has no student rows.');
+      const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase().trim());
+      const idIndex = headers.findIndex((header) => ['student id', 'studentid', 'id'].includes(header));
+      const scoreIndex = headers.findIndex((header) => ['score', 'marks', 'marks obtained'].includes(header));
+      const remarkIndex = headers.findIndex((header) => ['remark', 'remarks'].includes(header));
+      if (idIndex < 0 || scoreIndex < 0) throw new Error('CSV must contain Student ID and Score columns.');
+
+      const imported = new Map<string, { marks: string; remarks?: string }>();
+      for (const line of lines.slice(1)) {
+        const cells = parseCsvLine(line);
+        const code = String(cells[idIndex] || '').trim();
+        const score = String(cells[scoreIndex] || '').trim();
+        if (!code || score === '') continue;
+        const numeric = Number(score);
+        if (Number.isNaN(numeric) || numeric < 0 || numeric > maxMarks) continue;
+        imported.set(code, { marks: String(numeric), remarks: remarkIndex >= 0 ? String(cells[remarkIndex] || '') : undefined });
+      }
+
+      let matched = 0;
+      setSheetRows((rows) => rows.map((row) => {
+        const value = imported.get(row.studentCode);
+        if (!value || row.attendance !== 'present') return row;
+        matched += 1;
+        return { ...row, marks: value.marks, remarks: value.remarks ?? row.remarks };
+      }));
+      setSheetMessage(`Imported marks for ${matched} present student${matched === 1 ? '' : 's'}. Review them, then click Save All.`);
+    } catch (err: any) {
+      setSheetError(err?.message || 'Could not import the CSV file.');
+    } finally {
+      if (importRef.current) importRef.current.value = '';
+    }
+  };
 
   const attendanceHref = period
     ? `/admin/exams/attendance?periodId=${encodeURIComponent(period._id)}&examName=${encodeURIComponent(period.name)}&academicYear=${encodeURIComponent(period.academicYear)}&startDate=${encodeURIComponent(period.startDate || '')}&endDate=${encodeURIComponent(period.endDate || '')}`
@@ -231,7 +494,7 @@ export function MarksEntryWorkspace() {
 
   const exportSummary = () => {
     const rows = [
-      ['Course', 'Class', 'Date', 'Students', 'Present', 'Absent'],
+      ['Course', 'Class', 'Date', 'Students', 'Present', 'Absent', 'Results Entered'],
       ...filteredExams.map((exam) => {
         const courseId = String(exam.course?._id || '');
         const attendance = exam.attendanceSummary || {};
@@ -239,9 +502,10 @@ export function MarksEntryWorkspace() {
           exam.course?.title?.en || 'Course',
           classLabel(exam),
           formatDate(exam.examDate),
-          String(progressByCourse.get(courseId)?.totalStudents || attendance.totalMarked || 0),
+          String(totalStudentsByCourse.get(courseId) || attendance.totalMarked || 0),
           String(attendance.present || 0),
           String(attendance.absent || 0),
+          String(exam.resultCount || 0),
         ];
       }),
     ];
@@ -384,8 +648,8 @@ export function MarksEntryWorkspace() {
               const courseId = String(exam.course?._id || '');
               const attendance = exam.attendanceSummary || {};
               const marked = Number(attendance.totalMarked || 0);
-              const total = progressByCourse.get(courseId)?.totalStudents || marked;
-              const graded = progressByCourse.get(courseId)?.gradedStudents || 0;
+              const total = totalStudentsByCourse.get(courseId) || marked;
+              const graded = Number(exam.resultCount || 0);
               const tone = index % 4 === 0
                 ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30'
                 : index % 4 === 1
@@ -420,7 +684,7 @@ export function MarksEntryWorkspace() {
                   </div>
 
                   <div className="mt-2 flex items-center justify-between text-[10px] font-bold text-[var(--color-text-tertiary)]">
-                    <span>{graded}/{total} graded</span>
+                    <span>{graded}/{total} results</span>
                     <span>{total ? Math.round((graded / total) * 100) : 0}%</span>
                   </div>
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-secondary)]">
@@ -433,7 +697,7 @@ export function MarksEntryWorkspace() {
                     className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white hover:bg-emerald-700"
                   >
                     <ClipboardEdit className="h-4 w-4" />
-                    Enter Results
+                    Enter Marks
                   </button>
                 </article>
               );
@@ -444,30 +708,158 @@ export function MarksEntryWorkspace() {
         {selectedCourseId && selectedExamId && selectedExam && (
           <section id="marks-sheet" className="scroll-mt-4 space-y-3 pt-2">
             <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h2 className="font-black text-[var(--color-text-primary)]">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <h2 className="truncate font-black text-[var(--color-text-primary)]">
                     {selectedExam.course?.title?.en || 'Course'} — {classLabel(selectedExam)}
                   </h2>
                   <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">
-                    {formatDate(selectedExam.examDate, true)} · Present {selectedExam.attendanceSummary?.present || 0} · Absent {selectedExam.attendanceSummary?.absent || 0}
+                    {formatDate(selectedExam.examDate, true)} · Total Marks {maxMarks} · Present {selectedExam.attendanceSummary?.present || 0} · Absent {selectedExam.attendanceSummary?.absent || 0}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = new URLSearchParams(searchParams);
-                    next.delete('courseId');
-                    next.delete('examId');
-                    setSearchParams(next, { replace: true });
-                  }}
-                  className="rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-black text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]"
-                >
-                  Close Sheet
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <input ref={importRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => void importSheet(event.target.files?.[0])} />
+                  <button type="button" onClick={() => importRef.current?.click()} className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-xs font-black text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
+                    <FileUp className="h-4 w-4" /> Import CSV
+                  </button>
+                  <button type="button" onClick={exportSheet} className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-xs font-black text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
+                    <Download className="h-4 w-4" /> Export
+                  </button>
+                  <button type="button" onClick={() => window.print()} className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 text-xs font-black text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
+                    <Printer className="h-4 w-4" /> Print
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = new URLSearchParams(searchParams);
+                      next.delete('courseId');
+                      next.delete('examId');
+                      setSearchParams(next, { replace: true });
+                    }}
+                    className="min-h-9 rounded-xl border border-[var(--color-border-default)] px-3 text-xs font-black text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
-            <ResultsEntry embedded backFallback={`/admin/results/enter/${periodId}`} />
+
+            {sheetError && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{sheetError}</div>}
+            {sheetMessage && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">{sheetMessage}</div>}
+
+            {sheetLoading ? (
+              <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]">
+                <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+              </div>
+            ) : sheetRows.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-center text-sm text-[var(--color-text-tertiary)]">
+                No students are available for this exam.
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+                <div className="border-b border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-2.5 text-xs font-bold text-[var(--color-text-tertiary)]">
+                  {sheetRows.length} students · Present {sheetRows.filter((row) => row.attendance === 'present').length} · Absent {sheetRows.filter((row) => row.attendance === 'absent').length} · Attendance missing {sheetRows.filter((row) => row.attendance === 'unmarked').length}
+                </div>
+
+                <div className="divide-y divide-[var(--color-border-subtle)] sm:hidden">
+                  {sheetRows.map((row) => {
+                    const numericMarks = Number(row.marks || 0);
+                    const preview = gradeFor(numericMarks, maxMarks, row.attendance === 'absent');
+                    const invalid = row.attendance === 'present' && row.marks !== '' && (numericMarks < 0 || numericMarks > maxMarks);
+                    const badgeTone = row.attendance === 'present'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : row.attendance === 'absent'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-amber-100 text-amber-800';
+                    return (
+                      <div key={row.studentId} className="space-y-3 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-black text-[var(--color-text-primary)]">{row.studentName}</p>
+                            <p className="text-[10px] font-bold text-[var(--color-text-tertiary)]">{row.studentCode}</p>
+                          </div>
+                          <span className={`rounded-full px-2.5 py-1 text-[10px] font-black capitalize ${badgeTone}`}>{row.attendance}</span>
+                        </div>
+                        <div className="grid grid-cols-[1fr_auto] gap-2">
+                          <div>
+                            <label className="mb-1 block text-[10px] font-bold text-[var(--color-text-tertiary)]">Score / {maxMarks}</label>
+                            <input
+                              value={row.marks}
+                              onChange={(event) => updateMarks(row.studentId, event.target.value)}
+                              disabled={row.attendance !== 'present'}
+                              placeholder={row.attendance === 'unmarked' ? 'Attendance first' : '0'}
+                              className={`min-h-10 w-full rounded-xl border bg-[var(--color-surface-secondary)] px-3 text-sm font-black outline-none disabled:opacity-60 ${invalid ? 'border-red-400' : 'border-[var(--color-border-default)] focus:border-emerald-500'}`}
+                            />
+                          </div>
+                          <div className="min-w-20 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2 text-center">
+                            <p className="text-[10px] font-bold text-[var(--color-text-tertiary)]">Grade</p>
+                            <p className="text-sm font-black text-[var(--color-text-primary)]">{row.attendance === 'unmarked' || (row.attendance === 'present' && row.marks === '') ? '—' : preview.grade}</p>
+                          </div>
+                        </div>
+                        <input value={row.remarks} onChange={(event) => updateRemarks(row.studentId, event.target.value)} placeholder="Remark (optional)" className="min-h-10 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 text-xs outline-none focus:border-emerald-500" />
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="hidden overflow-x-auto sm:block">
+                  <table className="w-full min-w-[850px] text-left text-sm">
+                    <thead className="bg-[var(--color-surface-secondary)] text-[10px] font-black uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                      <tr>
+                        <th className="px-4 py-3">#</th>
+                        <th className="px-4 py-3">Student ID</th>
+                        <th className="px-4 py-3">Student Name</th>
+                        <th className="px-4 py-3">Attendance</th>
+                        <th className="px-4 py-3">Score ({maxMarks})</th>
+                        <th className="px-4 py-3">Grade</th>
+                        <th className="px-4 py-3">Remark</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--color-border-subtle)]">
+                      {sheetRows.map((row, index) => {
+                        const numericMarks = Number(row.marks || 0);
+                        const preview = gradeFor(numericMarks, maxMarks, row.attendance === 'absent');
+                        const invalid = row.attendance === 'present' && row.marks !== '' && (numericMarks < 0 || numericMarks > maxMarks);
+                        const badgeTone = row.attendance === 'present'
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                          : row.attendance === 'absent'
+                            ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300';
+                        return (
+                          <tr key={row.studentId}>
+                            <td className="px-4 py-2.5 text-xs text-[var(--color-text-tertiary)]">{index + 1}</td>
+                            <td className="px-4 py-2.5 text-xs font-bold text-[var(--color-text-secondary)]">{row.studentCode}</td>
+                            <td className="px-4 py-2.5 font-bold text-[var(--color-text-primary)]">{row.studentName}</td>
+                            <td className="px-4 py-2.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-black capitalize ${badgeTone}`}>{row.attendance}</span></td>
+                            <td className="px-4 py-2.5">
+                              <input
+                                value={row.marks}
+                                onChange={(event) => updateMarks(row.studentId, event.target.value)}
+                                disabled={row.attendance !== 'present'}
+                                placeholder={row.attendance === 'unmarked' ? 'Attendance first' : '0'}
+                                className={`w-28 rounded-lg border bg-[var(--color-surface-secondary)] px-2.5 py-1.5 text-xs font-black outline-none disabled:opacity-60 ${invalid ? 'border-red-400' : 'border-[var(--color-border-default)] focus:border-emerald-500'}`}
+                              />
+                            </td>
+                            <td className="px-4 py-2.5 font-black text-[var(--color-text-primary)]">{row.attendance === 'unmarked' || (row.attendance === 'present' && row.marks === '') ? '—' : preview.grade}</td>
+                            <td className="px-4 py-2.5">
+                              <input value={row.remarks} onChange={(event) => updateRemarks(row.studentId, event.target.value)} placeholder="Optional" className="w-full min-w-40 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-2.5 py-1.5 text-xs outline-none focus:border-emerald-500" />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-3">
+                  <p className="text-xs text-[var(--color-text-tertiary)]">Absent students are automatically saved as 0 / N/A. Students with unmarked attendance cannot receive marks yet.</p>
+                  <button type="button" onClick={() => void saveSheet()} disabled={sheetSaving} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-600 px-5 text-xs font-black text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60">
+                    {sheetSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {sheetSaving ? 'Saving...' : 'Save All'}
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
         )}
       </main>
