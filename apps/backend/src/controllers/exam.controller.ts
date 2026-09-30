@@ -1393,7 +1393,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   // null if no paper exists yet) in one batched lookup — lets callers like
   // Papers & Approval filter/tab by review status without an N+1 fetch.
   const resultExamIds = result.map((e: any) => e._id);
-  const [papers, attendanceCounts] = await Promise.all([
+  const [papers, attendanceCounts, resultCounts] = await Promise.all([
     ExamPaper.find({ exam: { $in: resultExamIds } })
       .select('exam status')
       .lean(),
@@ -1407,6 +1407,10 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
         },
       },
     ]),
+    Result.aggregate([
+      { $match: { exam: { $in: resultExamIds } } },
+      { $group: { _id: '$exam', count: { $sum: 1 } } },
+    ]),
   ]);
   const paperStatusByExam: Record<string, string> = {};
   for (const p of papers) paperStatusByExam[p.exam.toString()] = p.status;
@@ -1419,11 +1423,16 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
       },
     ])
   );
+  const resultCountByExam = new Map(
+    resultCounts.map((row: any) => [row._id.toString(), Number(row.count || 0)])
+  );
   result = result.map((e: any) => {
-    const attendance = attendanceByExam.get(e._id.toString()) || { present: 0, absent: 0 };
+    const examId = e._id.toString();
+    const attendance = attendanceByExam.get(examId) || { present: 0, absent: 0 };
     return {
       ...e,
-      paperStatus: paperStatusByExam[e._id.toString()] || null,
+      paperStatus: paperStatusByExam[examId] || null,
+      resultCount: resultCountByExam.get(examId) || 0,
       attendanceSummary: {
         ...attendance,
         totalMarked: attendance.present + attendance.absent,
