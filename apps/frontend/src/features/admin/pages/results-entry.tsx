@@ -41,7 +41,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ClipboardEdit, Save, Loader2, AlertTriangle, CheckCircle2, UploadCloud, GraduationCap, Users, Clock, SlidersHorizontal, ArrowRight, BookOpen } from 'lucide-react';
+import { ClipboardEdit, Save, Loader2, AlertTriangle, CheckCircle2, UploadCloud, GraduationCap, Users, Clock, SlidersHorizontal, ArrowRight, BookOpen, Download } from 'lucide-react';
 import api from '../../../lib/axios';
 import { BackButton } from '../../shared/components/back-button';
 import { SearchableSelect, type SearchableSelectOption } from '../../shared/components/searchable-select';
@@ -181,6 +181,8 @@ type ExamAttendanceStatus = 'present' | 'absent' | 'unmarked';
 interface ResultsEntryProps {
   /** BackButton's fallback route — defaults to the admin exams hub; the teacher portal passes '/teacher'. */
   backFallback?: string;
+  /** Render only the selected course marks sheet inside another exam workspace. */
+  embedded?: boolean;
 }
 
 /** A slot's point cap for entry purposes — its category's weight, or 100 when the weight is 0 (nothing meaningful to cap against). */
@@ -298,7 +300,7 @@ function SummaryBreakdownPanel({ tab, courses, onClose, onSelectCourse }: {
   );
 }
 
-export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProps) {
+export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }: ResultsEntryProps) {
   const [searchParams] = useSearchParams();
   const requestedCourseId = searchParams.get('courseId') || '';
   const requestedExamId = searchParams.get('examId') || '';
@@ -639,6 +641,34 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
   // only meaningful for the desktop table's Excel-style arrow-key
   // navigation — omitted on mobile, where a plain per-field Tab order is
   // the natural, expected behavior for a touch keyboard.
+  const exportRoster = () => {
+    if (!roster || roster.students.length === 0) return;
+    const headers = [
+      'Student ID',
+      'Student Name',
+      'Department',
+      ...(showExamAttendance ? ['Attendance'] : []),
+      ...visibleSlots.map(({ label }) => label),
+    ];
+    const rows = roster.students.map((student) => [
+      student.studentCode,
+      student.studentName,
+      student.department,
+      ...(showExamAttendance ? [examAttendanceByStudent[student.studentId] || 'unmarked'] : []),
+      ...visibleSlots.map(({ slot }) => entryValues[student.studentId]?.[slot] || ''),
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'marks-entry.csv';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   const renderScoreInput = (
     s: ManualEntryRosterStudent,
     slot: ManualEntrySlot,
@@ -687,9 +717,9 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
   };
 
   return (
-    <div className="p-6 lg:p-8 pt-20 lg:pt-6">
+    <div className={embedded ? '' : 'p-6 lg:p-8 pt-20 lg:pt-6'}>
       <div className="mx-auto max-w-none space-y-4">
-        <div>
+        {!embedded && <div>
           <BackButton fallback={backFallback} />
           <div className="mt-1 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -712,9 +742,9 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
               <ColumnVisibilityMenu hidden={hiddenColumns} onToggle={toggleColumn} />
             </div>
           </div>
-        </div>
+        </div>}
 
-        <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 space-y-3">
+        {!embedded && <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1.5 block">Organization</label>
@@ -743,7 +773,20 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
           {courses.length === 0 && (
             <p className="text-xs text-[var(--color-text-tertiary)]">No courses found.</p>
           )}
-        </div>
+        </div>}
+
+        {embedded && selectedCourseId && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link
+              to="/admin/exams/grading-rules"
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-secondary)]"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Grading Rules
+            </Link>
+            <ColumnVisibilityMenu hidden={hiddenColumns} onToggle={toggleColumn} />
+          </div>
+        )}
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
         {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 dark:text-green-400">{message}</div>}
@@ -754,7 +797,7 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
           </div>
         )}
 
-        {!loading && !selectedCourseId && (
+        {!embedded && !loading && !selectedCourseId && (
           <div className="space-y-4">
             <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] overflow-hidden shadow-sm">
               <div className="flex flex-col gap-1 border-b border-[var(--color-border-default)] px-4 py-4 sm:px-5">
@@ -1031,6 +1074,14 @@ export function ResultsEntry({ backFallback = '/admin/exams' }: ResultsEntryProp
                 >
                   <UploadCloud className="h-4 w-4" strokeWidth={2} />
                   Bulk Import
+                </button>
+                <button
+                  type="button"
+                  onClick={exportRoster}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
+                >
+                  <Download className="h-4 w-4" strokeWidth={2} />
+                  Export
                 </button>
                 <button
                   onClick={handleSubmit}
