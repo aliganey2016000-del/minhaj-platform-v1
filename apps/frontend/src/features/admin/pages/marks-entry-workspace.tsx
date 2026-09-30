@@ -569,21 +569,6 @@ export function MarksEntryWorkspace() {
           </div>
         </header>
 
-        <nav className="grid grid-cols-4 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm">
-          <Link to={`/admin/exams/schedule?periodId=${encodeURIComponent(periodId)}`} className="flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-black text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
-            <CalendarDays className="h-4 w-4 shrink-0" /><span className="truncate">Schedule</span>
-          </Link>
-          <Link to={`/admin/exams/rooms?periodId=${encodeURIComponent(periodId)}`} className="flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-black text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
-            <Building2 className="h-4 w-4 shrink-0" /><span className="truncate">Rooms</span>
-          </Link>
-          <Link to={attendanceHref} className="flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-black text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]">
-            <ClipboardCheck className="h-4 w-4 shrink-0" /><span className="truncate">Attendance</span>
-          </Link>
-          <div className="flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-2 text-xs font-black text-white shadow-sm">
-            <ClipboardEdit className="h-4 w-4 shrink-0" /><span className="truncate">Results</span>
-          </div>
-        </nav>
-
         {error && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
             {error}
