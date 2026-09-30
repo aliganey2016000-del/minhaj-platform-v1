@@ -125,6 +125,12 @@ const classLabel = (exam: Exam) => {
   return cls.section ? `${cls.title} - ${cls.section}` : cls.title;
 };
 
+const isMarksSubmitted = (exam: Exam) => {
+  const attendanceMarked = Number(exam.attendanceSummary?.totalMarked || 0);
+  const resultCount = Number(exam.resultCount || 0);
+  return attendanceMarked > 0 && resultCount >= attendanceMarked;
+};
+
 const studentName = (row: AttendanceRosterRow) => {
   const profile = row.student?.profile;
   return [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim() || row.student?.studentId || 'Student';
@@ -176,6 +182,8 @@ export function MarksEntryWorkspace() {
   const [dateFilter, setDateFilter] = useState('all');
   const [attendanceFilter, setAttendanceFilter] = useState('all');
   const [query, setQuery] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [submissionTab, setSubmissionTab] = useState<'pending' | 'submitted'>('pending');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
