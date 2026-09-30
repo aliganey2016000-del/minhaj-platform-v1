@@ -49,6 +49,7 @@ interface Exam {
     _id?: string;
     title?: { en?: string };
     class?: { _id?: string; title?: string; section?: string };
+    teacher?: any;
   };
 }
 
