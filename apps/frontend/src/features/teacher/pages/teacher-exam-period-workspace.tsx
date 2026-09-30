@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
-  ArrowRight,
   BookOpenCheck,
   Building2,
   CalendarDays,
-  CheckCircle2,
   ClipboardCheck,
   ClipboardEdit,
   Clock3,
@@ -35,6 +33,11 @@ interface Exam {
   endTime?: string;
   room?: string;
   totalMarks?: number;
+  attendanceSummary?: {
+    present?: number;
+    absent?: number;
+    totalMarked?: number;
+  };
   course?: {
     _id?: string;
     title?: { en?: string };
@@ -49,6 +52,8 @@ interface Assignment {
   endTime: string;
   studentCount?: number;
   markedCount?: number;
+  presentCount?: number;
+  absentCount?: number;
   completed?: boolean;
   submissionStatus?: 'submitted' | 'missing';
   submittedBy?: { name?: string; role?: string } | null;
@@ -473,6 +478,17 @@ export function TeacherExamPeriodWorkspace() {
                                 {assignment.studentCount || 0} students
                               </p>
                             </div>
+
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                              <div className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-emerald-950/25">
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Present</p>
+                                <p className="mt-0.5 text-base font-black text-emerald-700 dark:text-emerald-300">{assignment.presentCount || 0}</p>
+                              </div>
+                              <div className="rounded-xl bg-red-50 px-3 py-2 dark:bg-red-950/25">
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-red-700 dark:text-red-300">Absent</p>
+                                <p className="mt-0.5 text-base font-black text-red-700 dark:text-red-300">{assignment.absentCount || 0}</p>
+                              </div>
+                            </div>
                           </div>
                         </Link>
                       );
@@ -499,8 +515,20 @@ export function TeacherExamPeriodWorkspace() {
                               <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{classLabel(exam)} · {formatDate(exam.examDate)}</p>
                             </div>
                           </div>
+
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+                            <div className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-emerald-950/25">
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Present</p>
+                              <p className="mt-0.5 text-base font-black text-emerald-700 dark:text-emerald-300">{exam.attendanceSummary?.present || 0}</p>
+                            </div>
+                            <div className="rounded-xl bg-red-50 px-3 py-2 dark:bg-red-950/25">
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-red-700 dark:text-red-300">Absent</p>
+                              <p className="mt-0.5 text-base font-black text-red-700 dark:text-red-300">{exam.attendanceSummary?.absent || 0}</p>
+                            </div>
+                          </div>
+
                           <Link
-                            to={courseId ? `/teacher/results/enter?courseId=${encodeURIComponent(courseId)}` : '/teacher/results/enter'}
+                            to={courseId ? `/teacher/results/enter?courseId=${encodeURIComponent(courseId)}&examId=${encodeURIComponent(exam._id)}` : '/teacher/results/enter'}
                             className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white transition hover:bg-emerald-500"
                           >
                             <ClipboardEdit className="h-4 w-4" />
