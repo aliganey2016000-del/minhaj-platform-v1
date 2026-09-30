@@ -661,6 +661,36 @@ export const myAssignments = async (req: Request, res: Response): Promise<Respon
       }
     }
 
+    const classBreakdownMap = new Map<string, {
+      classId: string;
+      className: string;
+      subject: string;
+      students: number;
+    }>();
+
+    for (const item of roster) {
+      const classRef = item.student?.class;
+      const classId = String(classRef?._id || classRef || '');
+      if (!classId) continue;
+
+      const className = [classRef?.title, classRef?.section].filter(Boolean).join(' ').trim() || 'Class';
+      const subject = item.exam?.course?.title?.en || item.exam?.title || 'Exam';
+      const key = `${classId}::${subject}`;
+      const current = classBreakdownMap.get(key) || {
+        classId,
+        className,
+        subject,
+        students: 0,
+      };
+      current.students += 1;
+      classBreakdownMap.set(key, current);
+    }
+
+    const classBreakdown = Array.from(classBreakdownMap.values()).sort((a, b) =>
+      a.className.localeCompare(b.className, undefined, { numeric: true })
+      || a.subject.localeCompare(b.subject)
+    );
+
     return {
       ...row,
       studentCount: roster.length,
@@ -668,6 +698,7 @@ export const myAssignments = async (req: Request, res: Response): Promise<Respon
       completed,
       submissionStatus: completed ? 'submitted' : 'missing',
       submittedBy,
+      classBreakdown,
     };
   }));
 
