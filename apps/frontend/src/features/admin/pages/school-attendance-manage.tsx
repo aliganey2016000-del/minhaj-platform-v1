@@ -14,8 +14,8 @@ export function SchoolAttendanceManage() {
   ] as const;
 
   return (
-    <div className="min-w-0 space-y-4">
-      <div className="sticky top-0 z-20 -mx-1 px-1 pt-1">
+    <div className="min-w-0 w-full space-y-4 p-3 pt-20 sm:p-6 lg:pt-6">
+      <div className="sticky top-0 z-20 min-w-0 w-full">
         <div className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
           {tabs.map(([key, label, Icon]) => (
             <button

@@ -426,9 +426,9 @@ export function SchoolAttendanceManage() {
 
 
   return (
-    <div className="space-y-5 pb-10">
+    <div className="min-w-0 w-full space-y-5 pb-10">
       <div className="flex items-center gap-3">
-        <CalendarCheck className="h-8 w-8 text-emerald-600" />
+        <CalendarCheck className="h-8 w-8 shrink-0 text-emerald-600" />
         <div>
           <h1 className="text-2xl font-bold text-[var(--color-text-primary)] sm:text-3xl">Attendance Control Center</h1>
           <p className="text-sm text-[var(--color-text-tertiary)]">Take attendance, review records, and generate simple class reports.</p>
@@ -452,7 +452,7 @@ export function SchoolAttendanceManage() {
       {tab === 'take' && (
         <>
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-3 [&>label]:min-w-0 [&_input]:min-w-0 [&_select]:min-w-0">
               <label>
                 <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Attendance Date</span>
                 <input

@@ -676,7 +676,7 @@ export function SchedulesTimetable({
       : `Teacher Schedule - ${selectedTeacher?.label || 'Teacher'}`;
 
   return (
-    <div className="min-h-full min-w-0 w-full bg-[var(--color-surface-primary)] p-3 pt-20 sm:p-6 lg:pt-8">
+    <div className="min-h-full min-w-0 w-full bg-[var(--color-surface-primary)] p-3 pt-20 sm:p-6 lg:pt-6">
       <style>{`
         .schedule-print-header,
         .schedule-print-footer {
@@ -1035,7 +1035,7 @@ export function SchedulesTimetable({
           }
         }
       `}</style>
-      <div className="mx-auto w-full max-w-screen-2xl space-y-4">
+      <div className="min-w-0 w-full space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30"><CalendarDays className="h-5 w-5" /></div>
