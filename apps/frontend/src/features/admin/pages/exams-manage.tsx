@@ -2713,6 +2713,7 @@ function ExamTimetable({
   const [rulesLoading, setRulesLoading] = useState(Boolean(effectiveSchoolId));
   const [perspective, setPerspective] = useState<ExamTimetablePerspective>('day');
   const [selectedDate, setSelectedDate] = useState('');
+  const [dayClassFilters, setDayClassFilters] = useState<string[] | null>(null);
   const [selectedClassId, setSelectedClassId] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [classResetConfirmOpen, setClassResetConfirmOpen] = useState(false);
@@ -2971,13 +2972,55 @@ function ExamTimetable({
     );
   }, [periodExams, rules.examShifts, selectedDate, selectedPeriodId]);
 
-  const dayRows = useMemo(
+  const dayClassOptions = useMemo(
     () => periodClasses.map((cls) => ({
+      value: cls._id,
+      label: classBriefLabel(cls),
+      count: periodExams.filter(
+        (exam) => examDateKey(exam) === selectedDate && exam.course?.class?._id === cls._id,
+      ).length,
+    })),
+    [periodClasses, periodExams, selectedDate],
+  );
+
+  const classesWithExamOnSelectedDay = useMemo(() => {
+    const scheduled = new Set(
+      periodExams
+        .filter((exam) => examDateKey(exam) === selectedDate)
+        .map((exam) => exam.course?.class?._id || '')
+        .filter(Boolean),
+    );
+    return periodClasses.filter((cls) => scheduled.has(cls._id)).map((cls) => cls._id);
+  }, [periodClasses, periodExams, selectedDate]);
+
+  useEffect(() => {
+    if (!selectedPeriodId || !selectedDate) {
+      setDayClassFilters(null);
+      return;
+    }
+    // Every time the exam day changes, show only classes that actually have
+    // an exam on that day. Empty classes remain available in the dropdown so
+    // the admin can manually check them when editing or reviewing blanks.
+    setDayClassFilters(
+      classesWithExamOnSelectedDay.length === periodClasses.length
+        ? null
+        : classesWithExamOnSelectedDay,
+    );
+  }, [classesWithExamOnSelectedDay, periodClasses.length, selectedDate, selectedPeriodId]);
+
+  const visibleDayClasses = useMemo(() => {
+    if (dayClassFilters === null) return periodClasses;
+    const selected = new Set(dayClassFilters);
+    return periodClasses.filter((cls) => selected.has(cls._id));
+  }, [dayClassFilters, periodClasses]);
+
+  const dayRows = useMemo(
+    () => visibleDayClasses.map((cls) => ({
       id: cls._id,
       label: classBriefLabel(cls),
       slots: rules.examShifts.map((_, index) => cellExams(cls._id, index)),
     })),
-    [periodClasses, rules.examShifts, cellExams],
+    [visibleDayClasses, rules.examShifts, cellExams],
   );
 
   const classRows = useMemo(() => {
@@ -3854,19 +3897,32 @@ function ExamTimetable({
 
           <div className="mt-3 grid gap-2 md:grid-cols-[minmax(220px,1fr)_auto] md:items-center">
             <div>
-              <select
-                value={selectedPeriodId}
-                onChange={(e) => changePeriod(e.target.value)}
-                disabled={editMode}
-                className="w-full min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold disabled:opacity-60"
-              >
-                <option value="">Select Exam...</option>
-                {periods.map((period) => (
-                  <option key={period._id} value={period._id}>
-                    {period.name} · {period.academicYear}{period.term ? ` · ${period.term}` : ''}
-                  </option>
-                ))}
-              </select>
+              {focusedPeriodId && selectedPeriod && (perspective === 'day' || editMode) ? (
+                <CheckboxMultiFilter
+                  label="Classes"
+                  options={dayClassOptions}
+                  selected={dayClassFilters}
+                  onChange={setDayClassFilters}
+                />
+              ) : focusedPeriodId && selectedPeriod ? (
+                <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)]">
+                  {selectedPeriod.name} · {selectedPeriod.academicYear}
+                </div>
+              ) : (
+                <select
+                  value={selectedPeriodId}
+                  onChange={(e) => changePeriod(e.target.value)}
+                  disabled={editMode}
+                  className="w-full min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold disabled:opacity-60"
+                >
+                  <option value="">Select Exam...</option>
+                  {periods.map((period) => (
+                    <option key={period._id} value={period._id}>
+                      {period.name} · {period.academicYear}{period.term ? ` · ${period.term}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {selectedPeriod && (perspective === 'day' || editMode) && selectedDate && (
