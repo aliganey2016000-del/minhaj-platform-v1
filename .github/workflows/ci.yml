@@ -45,8 +45,15 @@ jobs:
       - name: Smart staff attendance profiles and settings regression
         run: npx ts-node --files src/__tests__/staff-attendance-profiles.e2e.ts
 
-      - name: Smart teacher attendance verification regression
+      - name: Teacher biometric encryption key rotation regression
+        run: npx ts-node --files src/__tests__/teacher-biometric-key-rotation.regression.ts
+
+      - name: Smart teacher attendance end-to-end regression
         run: npx ts-node --files src/__tests__/teacher-smart-attendance-flow.e2e.ts
+
+      - name: Teacher smart attendance workflow regressions
+        run: npx ts-node --files src/__tests__/teacher-smart-attendance.e2e.ts
+
 
       - name: Promotion tests
         run: npm run test:promotion
@@ -109,6 +116,9 @@ jobs:
       # Keep frontend installation deterministic from package-lock.json.
       - name: Install dependencies
         run: npx --yes npm@11.13.0 ci
+
+      - name: Attendance GPS regressions
+        run: node scripts/test-attendance-location.mjs && node scripts/test-attendance-settings.mjs
 
       - name: Build
         run: npm run build

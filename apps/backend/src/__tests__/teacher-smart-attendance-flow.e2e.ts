@@ -9,7 +9,7 @@ import StaffAttendanceSettings from '../models/staff-attendance-settings.model';
 import StaffAttendance from '../models/staff-attendance.model';
 import TeacherBiometric from '../models/teacher-biometric.model';
 import * as controller from '../controllers/teacher-smart-attendance.controller';
-import { encryptDescriptor } from '../utils/teacher-biometric';
+import { createLivenessChallenge, encryptDescriptor } from '../utils/teacher-biometric';
 
 function mountTeacherApp(userId: string, organizationId: string) {
   const app = express();
@@ -128,22 +128,27 @@ async function main() {
     biometric = await TeacherBiometric.findOne({ user: teacher._id, organizationId }).lean();
     assert.equal(biometric?.verificationCount, 1);
 
+    const originalBiometricUpdate = (TeacherBiometric as any).updateOne;
+    (TeacherBiometric as any).updateOne = async () => {
+      throw new Error('simulated metadata write failure');
+    };
     const checkOutToken = await challenge(app);
     const checkOut = await request(app)
       .post('/check-out')
       .send({ ...payloadBase, challengeToken: checkOutToken });
+    (TeacherBiometric as any).updateOne = originalBiometricUpdate;
     assert.equal(checkOut.status, 200, JSON.stringify(checkOut.body));
     assert.ok(checkOut.body.data.checkOutAt);
 
     biometric = await TeacherBiometric.findOne({ user: teacher._id, organizationId }).lean();
-    assert.equal(biometric?.verificationCount, 2);
+    assert.equal(biometric?.verificationCount, 1);
 
     const duplicateCheckOut = await request(app)
       .post('/check-out')
       .send({ ...payloadBase, challengeToken: checkOutToken });
     assert.equal(duplicateCheckOut.status, 409, JSON.stringify(duplicateCheckOut.body));
     biometric = await TeacherBiometric.findOne({ user: teacher._id, organizationId }).lean();
-    assert.equal(biometric?.verificationCount, 2);
+    assert.equal(biometric?.verificationCount, 1);
 
     const attendanceRows = await StaffAttendance.find({
       user: teacher._id,
@@ -176,8 +181,26 @@ async function main() {
     assert.equal(enroll.body.data.enrolled, true);
     assert.equal(enroll.body.data.geofenceVerified, false);
 
+    const thirdTeacher = await User.create({
+      email: 'concurrent.enroll@test.local',
+      password: 'test',
+      role: 'teacher',
+      organizationId,
+    });
+    const thirdApp = mountTeacherApp(thirdTeacher._id.toString(), organizationId.toString());
+    const concurrentEnrollment = () => request(thirdApp).post('/enroll').send({
+      consent: true,
+      challengeToken: createLivenessChallenge(thirdTeacher.id, organizationId.toString()).token,
+      liveness: payloadBase.liveness,
+      descriptor,
+      device: 'regression-test',
+    });
+    const enrollmentResponses = await Promise.all([concurrentEnrollment(), concurrentEnrollment()]);
+    assert.deepEqual(enrollmentResponses.map((response) => response.status).sort(), [200, 409]);
+    assert.equal(await TeacherBiometric.countDocuments({ user: thirdTeacher._id, organizationId }), 1);
+
     console.log(
-      'PASS: smart teacher check-in/out dedupe, verification counters and off-site enrollment setting'
+      'PASS: smart teacher dedupe, metadata failure safety, concurrent enrollment and off-site enrollment setting'
     );
   } finally {
     await mongoose.disconnect();

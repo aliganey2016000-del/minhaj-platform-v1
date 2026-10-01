@@ -27,8 +27,20 @@ function secretMaterial(): string {
   return value;
 }
 
-function encryptionKey(): Buffer {
-  return crypto.createHash('sha256').update(secretMaterial()).digest();
+function decryptionSecretMaterials(): string[] {
+  const previous = String(process.env.BIOMETRIC_PREVIOUS_ENCRYPTION_KEYS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return Array.from(new Set([
+    secretMaterial(),
+    ...previous,
+    ...(process.env.JWT_ACCESS_SECRET ? [process.env.JWT_ACCESS_SECRET] : []),
+  ]));
+}
+
+function encryptionKey(material = secretMaterial()): Buffer {
+  return crypto.createHash('sha256').update(material).digest();
 }
 
 function challengeKey(): Buffer {
@@ -47,7 +59,8 @@ export function validateDescriptor(value: unknown): number[] {
   if (!Array.isArray(value) || value.length !== FACE_DESCRIPTOR_LENGTH) {
     throw new Error('Face descriptor must contain exactly 128 values');
   }
-  const descriptor = value.map(Number);
+  if (value.some(item => typeof item !== 'number')) throw new Error('Face descriptor contains invalid values');
+  const descriptor = value as number[];
   if (descriptor.some((item) => !Number.isFinite(item) || Math.abs(item) > 10)) {
     throw new Error('Face descriptor contains invalid values');
   }
@@ -76,17 +89,37 @@ export function decryptDescriptor(record: {
   descriptorIv: string;
   descriptorAuthTag: string;
 }): number[] {
-  const decipher = crypto.createDecipheriv(
-    'aes-256-gcm',
-    encryptionKey(),
-    Buffer.from(record.descriptorIv, 'base64')
-  );
-  decipher.setAuthTag(Buffer.from(record.descriptorAuthTag, 'base64'));
-  const plaintext = Buffer.concat([
-    decipher.update(Buffer.from(record.descriptorCiphertext, 'base64')),
-    decipher.final(),
-  ]).toString('utf8');
-  return validateDescriptor(JSON.parse(plaintext));
+  return decryptDescriptorWithMetadata(record).descriptor;
+}
+
+export function decryptDescriptorWithMetadata(record: {
+  descriptorCiphertext: string;
+  descriptorIv: string;
+  descriptorAuthTag: string;
+}): { descriptor: number[]; needsReencryption: boolean } {
+  const secrets = decryptionSecretMaterials();
+  let lastError: unknown;
+  for (let index = 0; index < secrets.length; index += 1) {
+    try {
+      const decipher = crypto.createDecipheriv(
+        'aes-256-gcm',
+        encryptionKey(secrets[index]),
+        Buffer.from(record.descriptorIv, 'base64')
+      );
+      decipher.setAuthTag(Buffer.from(record.descriptorAuthTag, 'base64'));
+      const plaintext = Buffer.concat([
+        decipher.update(Buffer.from(record.descriptorCiphertext, 'base64')),
+        decipher.final(),
+      ]).toString('utf8');
+      return {
+        descriptor: validateDescriptor(JSON.parse(plaintext)),
+        needsReencryption: index !== 0,
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Face descriptor could not be decrypted');
 }
 
 export function euclideanDistance(a: number[], b: number[]): number {

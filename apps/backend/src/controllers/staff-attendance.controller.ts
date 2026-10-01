@@ -145,14 +145,24 @@ export const getForDate = async (req: Request, res: Response): Promise<Response>
     .filter((member: any) => member.role === 'teacher')
     .map((member: any) => member._id);
   const biometricRows = teacherIds.length
-    ? await TeacherBiometric.find({ user: { $in: teacherIds } }).select('user').lean()
+    ? await TeacherBiometric.find({ user: { $in: teacherIds } })
+        .select('user organizationId')
+        .lean()
     : [];
-  const enrolled = new Set(biometricRows.map((item) => item.user.toString()));
+  // A teacher can be transferred to another organization while the old
+  // tenant's encrypted template remains until it is cleaned up. Enrollment
+  // status must match both the user and the organization currently displayed.
+  const enrolled = new Set(
+    biometricRows.map((item) => item.organizationId.toString() + ':' + item.user.toString())
+  );
 
   const rows = employees.map((member: any) => ({
     staff: { ...member, profile: profiles.get(member._id.toString()) || null },
     attendance: byUser.get(member._id.toString()) || null,
-    biometricEnrolled: member.role === 'teacher' ? enrolled.has(member._id.toString()) : false,
+    biometricEnrolled:
+      member.role === 'teacher'
+        ? enrolled.has((objectIdString(member.organizationId) || '') + ':' + member._id.toString())
+        : false,
   }));
 
   return ApiResponse.success(res, {
@@ -196,7 +206,7 @@ export const mark = async (req: Request, res: Response): Promise<Response> => {
         checkOutVerification: '',
       },
     },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
   ).lean();
 
   return ApiResponse.success(res, record, 'Attendance saved');
@@ -264,6 +274,9 @@ export const getSettings = async (req: Request, res: Response): Promise<Response
 };
 
 function finiteInRange(value: unknown, min: number, max: number, label: string): number {
+  if (value === null || value === undefined || typeof value === 'boolean' || (typeof value === 'string' && !value.trim())) {
+    throw new BadRequestError(label + ' is required');
+  }
   const number = Number(value);
   if (!Number.isFinite(number) || number < min || number > max) {
     throw new BadRequestError(label + ' must be between ' + min + ' and ' + max);
@@ -277,9 +290,12 @@ export const updateSettings = async (req: Request, res: Response): Promise<Respo
     throw new BadRequestError('Select an organization before configuring smart attendance');
   }
 
+  for (const key of ['enabled', 'requireLiveness', 'enrollmentRequiresGeofence', 'checkOutEnabled']) {
+    if (req.body?.[key] !== undefined && typeof req.body[key] !== 'boolean') throw new BadRequestError(key + ' must be true or false');
+  }
   const current = await StaffAttendanceSettings.findOne({ organizationId }).lean();
-  const latitude = finiteInRange(req.body?.latitude, -90, 90, 'Latitude');
-  const longitude = finiteInRange(req.body?.longitude, -180, 180, 'Longitude');
+  const latitude = finiteInRange(req.body?.latitude === undefined ? current?.latitude : req.body.latitude, -90, 90, 'Latitude');
+  const longitude = finiteInRange(req.body?.longitude === undefined ? current?.longitude : req.body.longitude, -180, 180, 'Longitude');
   const locationAccuracyMeters = finiteInRange(
     req.body?.locationAccuracyMeters ?? current?.locationAccuracyMeters ?? 25,
     0,
@@ -333,7 +349,7 @@ export const updateSettings = async (req: Request, res: Response): Promise<Respo
         timezone,
       },
     },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
   ).lean();
 
   return ApiResponse.success(

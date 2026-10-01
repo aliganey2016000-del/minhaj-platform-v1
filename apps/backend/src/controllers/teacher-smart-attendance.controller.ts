@@ -9,7 +9,7 @@ import {
   adjustedGeofenceDistance,
   createLivenessChallenge,
   dateLabelInTimezone,
-  decryptDescriptor,
+  decryptDescriptorWithMetadata,
   encryptDescriptor,
   euclideanDistance,
   haversineDistanceMeters,
@@ -94,6 +94,9 @@ function requireConfigured(settings: EffectiveSettings): void {
 
 function readLocation(raw: unknown): LocationInput {
   const value = (raw || {}) as Partial<LocationInput>;
+  if (['latitude', 'longitude', 'accuracy'].some(key => typeof (value as any)[key] !== 'number')) {
+    throw new BadRequestError('GPS latitude, longitude and accuracy must be numbers');
+  }
   const latitude = Number(value.latitude);
   const longitude = Number(value.longitude);
   const accuracy = Number(value.accuracy);
@@ -205,8 +208,11 @@ async function verifyFace(
   }
 
   let storedDescriptor: number[];
+  let needsReencryption = false;
   try {
-    storedDescriptor = decryptDescriptor(biometric);
+    const decrypted = decryptDescriptorWithMetadata(biometric);
+    storedDescriptor = decrypted.descriptor;
+    needsReencryption = decrypted.needsReencryption;
   } catch {
     throw new BadRequestError('Your stored face template could not be read. Ask an administrator to reset it and enroll again.');
   }
@@ -216,17 +222,43 @@ async function verifyFace(
     throw new BadRequestError('Face verification failed. Make sure the enrolled teacher is in front of the camera and try again.');
   }
 
+  if (needsReencryption) {
+    try {
+      Object.assign(biometric, encryptDescriptor(storedDescriptor));
+      await biometric.save();
+    } catch (error) {
+      // The identity match succeeded. Keep attendance usable and retry the
+      // transparent key migration on the next verification.
+      console.error('[smart-attendance] Failed to migrate biometric encryption key', {
+        userId,
+        organizationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   return faceDistance;
 }
 
 async function recordSuccessfulFaceVerification(userId: string, organizationId: string): Promise<void> {
-  await TeacherBiometric.updateOne(
-    { user: userId, organizationId },
-    {
-      $set: { lastVerifiedAt: new Date() },
-      $inc: { verificationCount: 1 },
-    }
-  );
+  try {
+    await TeacherBiometric.updateOne(
+      { user: userId, organizationId },
+      {
+        $set: { lastVerifiedAt: new Date() },
+        $inc: { verificationCount: 1 },
+      }
+    );
+  } catch (error) {
+    // Attendance has already been committed at this point. A secondary
+    // verification-counter failure must not tell the teacher that check-in or
+    // check-out failed and encourage a duplicate retry.
+    console.error('[smart-attendance] Failed to update biometric verification metadata', {
+      userId,
+      organizationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function verificationAudit(
@@ -239,7 +271,7 @@ function verificationAudit(
   return {
     gpsVerified: true,
     faceVerified: true,
-    livenessVerified: requireLiveness ? actions.length > 0 : true,
+    livenessVerified: requireLiveness && actions.length > 0,
     distanceMeters: Math.round(location.distanceMeters * 10) / 10,
     accuracyMeters: Math.round(location.accuracyMeters * 10) / 10,
     faceDistance: Math.round(faceDistance * 10000) / 10000,
@@ -330,21 +362,29 @@ export const enrollFace = async (req: Request, res: Response): Promise<Response>
   }
 
   const encrypted = encryptDescriptor(descriptor);
-  const biometric = await TeacherBiometric.create({
-    user: context.userId,
-    organizationId: context.organizationId,
-    ...encrypted,
-    modelVersion: 'face-api-0.22.2-128d',
-    enrolledAt: new Date(),
-    enrolledBy: context.userId,
-    consentedAt: new Date(),
-    verificationCount: 0,
-  });
+  let biometric;
+  try {
+    biometric = await TeacherBiometric.create({
+      user: context.userId,
+      organizationId: context.organizationId,
+      ...encrypted,
+      modelVersion: 'face-api-0.22.2-128d',
+      enrolledAt: new Date(),
+      enrolledBy: context.userId,
+      consentedAt: new Date(),
+      verificationCount: 0,
+    });
+  } catch (error: any) {
+    if (error?.code === 11000) {
+      throw new ConflictError('A face template is already enrolled. Ask an administrator to reset it first.');
+    }
+    throw error;
+  }
 
   return ApiResponse.success(res, {
     enrolled: true,
     enrolledAt: biometric.enrolledAt,
-    livenessVerified: settings.requireLiveness ? actions.length > 0 : true,
+    livenessVerified: settings.requireLiveness && actions.length > 0,
     geofenceVerified: settings.enrollmentRequiresGeofence,
   }, 'Face enrollment completed. No face photo was stored.');
 };
@@ -406,7 +446,7 @@ export const checkIn = async (req: Request, res: Response): Promise<Response> =>
           notes: '',
         },
       },
-      { upsert: !existing, new: true, setDefaultsOnInsert: true }
+      { upsert: !existing, new: true, setDefaultsOnInsert: true, runValidators: true }
     ).lean();
   } catch (error: any) {
     if (error?.code === 11000) throw new ConflictError('You are already checked in today');
@@ -465,7 +505,7 @@ export const checkOut = async (req: Request, res: Response): Promise<Response> =
         markedAt: now,
       },
     },
-    { new: true }
+    { new: true, runValidators: true }
   ).lean();
 
   if (!updated) throw new ConflictError('You are already checked out today');

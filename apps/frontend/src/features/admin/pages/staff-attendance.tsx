@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   CalendarDays,
@@ -17,6 +17,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { getAttendanceLocation } from '../../../lib/attendance-location';
 import { useAuth } from '../../../store/auth-context';
 
 type Status = 'present' | 'absent' | 'late' | 'excused';
@@ -80,7 +81,7 @@ const inputClass =
   'min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm outline-none focus:border-emerald-400';
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Mogadishu', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
 
 function orgIdOf(row: Row): string {
@@ -119,9 +120,14 @@ export function StaffAttendance() {
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState('');
+  const gpsRequest = useRef<AbortController | null>(null);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [gpsMessage, setGpsMessage] = useState('');
   const [selectedOrganization, setSelectedOrganization] = useState(() => user?.organizationId || '');
+
+  const activeOrganization = useRef(selectedOrganization);
+  activeOrganization.current = selectedOrganization;
+  useEffect(() => () => gpsRequest.current?.abort(), [selectedOrganization]);
 
   const organizations = useMemo(() => {
     const map = new Map<string, string>();
@@ -132,32 +138,36 @@ export function StaffAttendance() {
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [rows]);
 
-  const loadSettings = async (organizationId?: string) => {
+  const loadSettings = async (organizationId: string | undefined, signal: AbortSignal) => {
+    if (signal.aborted) return;
     setSettingsLoading(true);
     setSettingsError('');
     try {
       const response = await api.get('/hr/staff-attendance/settings', {
         params: organizationId ? { organizationId } : undefined,
+        signal,
       });
+      if (signal.aborted) return;
       setSettings(response.data.data);
     } catch (err: any) {
+      if (signal.aborted) return;
       setSettings(null);
       setSettingsError(
         err.response?.data?.message ||
           'Smart attendance settings could not be loaded for this organization.'
       );
     } finally {
-      setSettingsLoading(false);
+      if (!signal.aborted) setSettingsLoading(false);
     }
   };
 
-  const load = async () => {
+  const load = async (signal: AbortSignal) => {
     setLoading(true);
     setError('');
     // Configuring an organization's GPS must not depend on loading its roster.
     if (settingsOnly && selectedOrganization) {
-      await loadSettings(selectedOrganization);
-      setLoading(false);
+      await loadSettings(selectedOrganization, signal);
+      if (!signal.aborted) setLoading(false);
       return;
     }
     let orgForSettings = selectedOrganization;
@@ -167,7 +177,9 @@ export function StaffAttendance() {
           date,
           ...(selectedOrganization ? { organizationId: selectedOrganization } : {}),
         },
+        signal,
       });
+      if (signal.aborted) return;
       const nextRows = response.data.data?.rows || [];
       setRows(nextRows);
       if (!orgForSettings) {
@@ -178,13 +190,13 @@ export function StaffAttendance() {
         }
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load teacher/staff attendance.');
+      if (!signal.aborted) setError(err.response?.data?.message || 'Failed to load teacher/staff attendance.');
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
     // Still request settings if the roster failed, so its actual response is
     // shown instead of a misleading "select organization" placeholder.
-    await loadSettings(orgForSettings || undefined);
+    await loadSettings(orgForSettings || undefined, signal);
   };
 
   useEffect(() => {
@@ -193,7 +205,9 @@ export function StaffAttendance() {
       setSelectedOrganization(user.organizationId);
       return;
     }
-    void load();
+    const request = new AbortController();
+    void load(request.signal);
+    return () => request.abort();
   }, [date, selectedOrganization, user?.organizationId, settingsOnly, authLoading]);
 
   const summary = useMemo(
@@ -251,92 +265,54 @@ export function StaffAttendance() {
     }
   };
 
-  const useCurrentLocation = () => {
+  const useCurrentLocation = async () => {
+    if (!settings) return;
+    gpsRequest.current?.abort();
+    const request = new AbortController();
+    gpsRequest.current = request;
     setSettingsError('');
-    setGpsMessage('');
+    setGpsMessage('Finding an accurate school GPS location...');
     setGpsAccuracy(null);
-
-    if (!navigator.geolocation) {
-      setSettingsError('This browser does not support GPS location.');
-      return;
-    }
-
     setSettingsLoading(true);
-
-    const applyPosition = (position: GeolocationPosition) => {
-      const accuracy = Math.max(0, Number(position.coords.accuracy || 0));
-      setSettings((current) => ({
-        ...(current || {
-          enabled: true,
-          radiusMeters: 150,
-          maxAccuracyMeters: 100,
-          faceMatchThreshold: 0.52,
-          requireLiveness: true,
-          enrollmentRequiresGeofence: true,
-          checkOutEnabled: true,
-          timezone: 'Africa/Mogadishu',
-        }),
-        latitude: Number(position.coords.latitude.toFixed(7)),
-        longitude: Number(position.coords.longitude.toFixed(7)),
-      }));
-      setGpsAccuracy(accuracy);
-      setGpsMessage(
-        accuracy > 0
-          ? 'Location captured successfully · accuracy ±' + Math.round(accuracy) + ' m'
-          : 'Location captured successfully'
-      );
-      setSettingsError('');
-      setSettingsLoading(false);
-    };
-
-    const fail = (gpsError: GeolocationPositionError) => {
-      setSettingsLoading(false);
-      setGpsMessage('');
-      setGpsAccuracy(null);
-      if (gpsError.code === gpsError.PERMISSION_DENIED) {
-        setSettingsError('Location permission is blocked. Allow location access for this site and try again.');
-        return;
+    try {
+      const location = await getAttendanceLocation(settings.maxAccuracyMeters, request.signal);
+      if (request.signal.aborted) return;
+      setSettings(current => current ? { ...current,
+        latitude: location.latitude, longitude: location.longitude,
+        locationAccuracyMeters: location.accuracy,
+      } : current);
+      setGpsAccuracy(location.accuracy);
+      setGpsMessage('Location captured · accuracy ±' + Math.round(location.accuracy) + ' m. Save settings to apply.');
+    } catch (err: any) {
+      if (!request.signal.aborted) {
+        setGpsMessage('');
+        setSettingsError((err?.message || 'GPS could not be read.') + ' Existing school coordinates have been kept.');
       }
-      setSettingsError(
-        settings?.latitude !== undefined && settings?.longitude !== undefined
-          ? 'This device could not refresh GPS right now. The existing coordinates are still available; verify them before saving.'
-          : 'Current GPS location could not be read. Try again, move near a window/open area, or enter the coordinates manually.'
-      );
-    };
-
-    navigator.geolocation.getCurrentPosition(
-      applyPosition,
-      (firstError) => {
-        if (firstError.code === firstError.PERMISSION_DENIED) {
-          fail(firstError);
-          return;
-        }
-        // Desktop browsers can fail high-accuracy Wi-Fi/GPS lookup while a
-        // normal network-backed location still works. Retry once with a
-        // slightly longer timeout before showing an error.
-        navigator.geolocation.getCurrentPosition(
-          applyPosition,
-          fail,
-          { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 }
-        );
-      },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-    );
+    } finally {
+      if (!request.signal.aborted) setSettingsLoading(false);
+    }
   };
 
   const saveSettings = async () => {
-    if (!settings) return;
+    if (!settings || settingsLoading || settingsSaving) return;
+    if (selectedOrganization && settings.organizationId !== selectedOrganization) {
+      setSettingsError('Wait for this organization settings to load before saving.');
+      return;
+    }
+    const organizationAtSave = selectedOrganization;
     setSettingsSaving(true);
     setSettingsError('');
     setMessage('');
     try {
       const response = await api.put('/hr/staff-attendance/settings', {
         ...settings,
-        organizationId: selectedOrganization || settings.organizationId || undefined,
+        organizationId: settings.organizationId || undefined,
       });
+      if (activeOrganization.current !== organizationAtSave) return;
       setSettings(response.data.data);
       setMessage('Smart attendance settings saved.');
     } catch (err: any) {
+      if (activeOrganization.current !== organizationAtSave) return;
       setSettingsError(err.response?.data?.message || 'Failed to save smart attendance settings.');
     } finally {
       setSettingsSaving(false);
@@ -571,7 +547,7 @@ export function StaffAttendance() {
 
               <button
                 type="button"
-                disabled={settingsSaving}
+                disabled={settingsSaving || settingsLoading || Boolean(selectedOrganization && settings?.organizationId !== selectedOrganization)}
                 onClick={() => void saveSettings()}
                 className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"
               >

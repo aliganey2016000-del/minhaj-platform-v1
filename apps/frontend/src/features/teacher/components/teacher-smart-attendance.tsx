@@ -11,6 +11,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { getAttendanceLocation } from '../../../lib/attendance-location';
 
 type VerificationMode = 'enroll' | 'check-in' | 'check-out';
 
@@ -46,7 +47,6 @@ type SmartAttendanceStatus = {
       distanceMeters?: number;
       accuracyMeters?: number;
       faceDistance?: number;
-      challenge?: string[];
     };
   } | null;
   canCheckIn: boolean;
@@ -57,12 +57,6 @@ type Challenge = {
   token: string;
   actions: Array<'blink' | 'turn_left' | 'turn_right' | 'look_straight'>;
   expiresInSeconds: number;
-};
-
-type LocationProof = {
-  latitude: number;
-  longitude: number;
-  accuracy: number;
 };
 
 type LivenessMetrics = {
@@ -85,7 +79,10 @@ function loadFaceApiScript(): Promise<any> {
   if (faceApiPromise) return faceApiPromise;
 
   faceApiPromise = new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('Face engine download timed out. Please retry.')), 30000);
+    const fail = () => { window.clearTimeout(timer); reject(new Error('Face verification engine failed to load.')); };
     const finish = () => {
+      window.clearTimeout(timer);
       const loaded = (window as any).faceapi;
       if (loaded) resolve(loaded);
       else reject(new Error('Face verification engine did not load.'));
@@ -93,7 +90,7 @@ function loadFaceApiScript(): Promise<any> {
     const existing = document.querySelector<HTMLScriptElement>('script[data-sahal-face-api="true"]');
     if (existing) {
       existing.addEventListener('load', finish, { once: true });
-      existing.addEventListener('error', () => reject(new Error('Face verification engine failed to load.')), { once: true });
+      existing.addEventListener('error', fail, { once: true });
       return;
     }
     const script = document.createElement('script');
@@ -101,86 +98,28 @@ function loadFaceApiScript(): Promise<any> {
     script.async = true;
     script.dataset.sahalFaceApi = 'true';
     script.onload = finish;
-    script.onerror = () => reject(new Error('Face verification engine failed to load.'));
+    script.onerror = fail;
     document.head.appendChild(script);
+  }).catch((error) => {
+    faceApiPromise = null;
+    document.querySelector('script[data-sahal-face-api="true"]')?.remove();
+    throw error;
   });
 
-  faceApiPromise.catch(() => {
-    faceApiPromise = null;
-  });
   return faceApiPromise;
 }
 
 async function loadFaceModels() {
   const faceapi = await loadFaceApiScript();
   if (!faceModelsPromise) {
-    faceModelsPromise = Promise.all([
+    let timeout: number;
+    faceModelsPromise = Promise.race([Promise.all([
       faceapi.nets.tinyFaceDetector.loadFromUri('/biometrics/models'),
       faceapi.nets.faceLandmark68TinyNet.loadFromUri('/biometrics/models'),
       faceapi.nets.faceRecognitionNet.loadFromUri('/biometrics/models'),
-    ])
-      .then(() => faceapi)
-      .catch((error) => {
-        faceModelsPromise = null;
-        throw error;
-      });
+    ]), new Promise((_, reject) => { timeout = window.setTimeout(() => reject(new Error('Face models could not download. Check your connection and retry.')), 60000); })]).then(() => faceapi).catch((error) => { faceModelsPromise = null; throw error; }).finally(() => window.clearTimeout(timeout));
   }
   return faceModelsPromise;
-}
-
-function getPreciseLocation(): Promise<LocationProof> {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('This device/browser does not support GPS location.'));
-      return;
-    }
-
-    let best: GeolocationPosition | null = null;
-    let finished = false;
-    let watchId: number | null = null;
-
-    const cleanup = () => {
-      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-    };
-
-    const finishWithBest = () => {
-      if (finished) return;
-      finished = true;
-      cleanup();
-      if (best) {
-        resolve({
-          latitude: best.coords.latitude,
-          longitude: best.coords.longitude,
-          accuracy: Math.max(0, Number(best.coords.accuracy || 0)),
-        });
-      } else {
-        reject(new Error('Your current GPS location could not be read.'));
-      }
-    };
-
-    const timer = window.setTimeout(finishWithBest, 6500);
-
-    watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        if (!best || position.coords.accuracy < best.coords.accuracy) best = position;
-        if (position.coords.accuracy <= 20) {
-          window.clearTimeout(timer);
-          finishWithBest();
-        }
-      },
-      (error) => {
-        if (error.code === error.PERMISSION_DENIED) {
-          window.clearTimeout(timer);
-          if (!finished) {
-            finished = true;
-            cleanup();
-            reject(new Error('Location permission is blocked. Allow location access and try again.'));
-          }
-        }
-      },
-      { enableHighAccuracy: true, timeout: 6000, maximumAge: 5000 }
-    );
-  });
 }
 
 function distance(a: any, b: any) {
@@ -213,13 +152,15 @@ function normalizedTurn(points: any[]) {
 }
 
 async function detectFace(faceapi: any, video: HTMLVideoElement) {
-  return faceapi
-    .detectSingleFace(
+  const results = await faceapi
+    .detectAllFaces(
       video,
       new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 })
     )
     .withFaceLandmarks(true)
-    .withFaceDescriptor();
+    .withFaceDescriptors();
+  if (results.length > 1) throw new Error('Only one person should be visible in the camera.');
+  return results[0];
 }
 
 function averageDescriptors(values: Float32Array[]): number[] {
@@ -253,6 +194,7 @@ export function TeacherSmartAttendance() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const stopCamera = () => {
@@ -278,7 +220,11 @@ export function TeacherSmartAttendance() {
 
   useEffect(() => {
     void loadStatus();
+    const refresh = () => { if (!requestRef.current) void loadStatus(); };
+    window.addEventListener('focus', refresh);
     return () => {
+      window.removeEventListener('focus', refresh);
+      requestRef.current?.abort();
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
@@ -298,7 +244,7 @@ export function TeacherSmartAttendance() {
   ): Promise<LivenessMetrics> => {
     setInstruction(actionLabel(challenge.actions));
     const startedAt = Date.now();
-    const deadline = startedAt + 1500;
+    const deadline = startedAt + 12000;
     let attempts = 0;
     let samples = 0;
     let minEar = Number.POSITIVE_INFINITY;
@@ -306,6 +252,7 @@ export function TeacherSmartAttendance() {
     let maxTurn = 0;
 
     while (Date.now() < deadline) {
+      if (requestRef.current?.signal.aborted) throw new Error('Verification cancelled.');
       attempts += 1;
       const result = await detectFace(faceapi, video);
       if (result) {
@@ -318,6 +265,8 @@ export function TeacherSmartAttendance() {
         }
         maxTurn = Math.max(maxTurn, normalizedTurn(points));
       }
+      if (samples >= 3 && samples / attempts >= 0.25 && Date.now() - startedAt >= 600) break;
+      setInstruction(samples ? 'Face detected. Hold still for a moment.' : 'Position your face in the camera with good lighting.');
       await sleep(220);
     }
 
@@ -349,43 +298,41 @@ export function TeacherSmartAttendance() {
     setInstruction('Look straight at the camera and hold still.');
     await sleep(600);
     const descriptors: Float32Array[] = [];
-    for (let attempt = 0; attempt < 10 && descriptors.length < 2; attempt += 1) {
+    for (let attempt = 0; attempt < 10 && descriptors.length < 3; attempt += 1) {
+      if (requestRef.current?.signal.aborted) throw new Error('Verification cancelled.');
       const result = await detectFace(faceapi, video);
-      if (result?.descriptor) descriptors.push(result.descriptor as Float32Array);
+      if (result?.descriptor) {
+        const descriptor = result.descriptor as Float32Array;
+        const first = descriptors[0];
+        if (!first || Math.sqrt(Array.from(descriptor).reduce((sum, value, index) => sum + (value - first[index]) ** 2, 0)) <= 0.45) descriptors.push(descriptor);
+      }
       await sleep(260);
     }
-    if (descriptors.length < 1) {
+    if (descriptors.length < 2) {
       throw new Error('Look straight at the camera for a moment and try again.');
     }
     return averageDescriptors(descriptors);
   };
 
   const verify = async (mode: VerificationMode) => {
-    if (busy) return;
+    if (requestRef.current) return;
     if (mode === 'enroll' && !consent) {
       setError('Please confirm biometric consent before enrolling your face.');
       return;
     }
 
+    const request = new AbortController();
+    requestRef.current = request;
     setBusy(mode);
     setError('');
     setMessage('');
     let stream: MediaStream | null = null;
 
     try {
-      setInstruction('Preparing secure face verification...');
-      const needsLocation =
-        mode !== 'enroll' || Boolean(status?.settings.enrollmentRequiresGeofence);
-      const needsChallenge = Boolean(status?.settings.requireLiveness);
-
-      const [location, challengeResponse, faceapi] = await Promise.all([
-        needsLocation ? getPreciseLocation() : Promise.resolve(undefined),
-        needsChallenge
-          ? api.get('/teacher-portal/smart-attendance/challenge')
-          : Promise.resolve(null),
-        loadFaceModels(),
-      ]);
-      const challenge = challengeResponse?.data?.data as Challenge | undefined;
+      setInstruction('Checking GPS and preparing secure face verification...');
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access requires HTTPS and a supported browser.');
+      const faceapi = await loadFaceModels();
+      if (request.signal.aborted) return;
 
       setCameraOpen(true);
       const video = await waitForVideo();
@@ -397,9 +344,25 @@ export function TeacherSmartAttendance() {
           height: { ideal: 480 },
         },
       });
+      if (request.signal.aborted) return;
       streamRef.current = stream;
       video.srcObject = stream;
       await video.play();
+      for (let attempt = 0; video.readyState < 2 && attempt < 100; attempt += 1) {
+        if (request.signal.aborted) return;
+        await sleep(50);
+      }
+      if (video.readyState < 2) throw new Error('Camera did not become ready. Close other camera apps and retry.');
+      const [location, challengeResponse] = await Promise.all([
+        mode === 'enroll' && !status?.settings.enrollmentRequiresGeofence
+          ? Promise.resolve(undefined)
+          : getAttendanceLocation(status?.settings.maxAccuracyMeters, request.signal),
+        status?.settings.requireLiveness
+          ? api.get('/teacher-portal/smart-attendance/challenge', { signal: request.signal })
+          : Promise.resolve(null),
+      ]);
+      const challenge = challengeResponse?.data?.data as Challenge | undefined;
+      if (request.signal.aborted) return;
 
       const liveness = status?.settings.requireLiveness && challenge
         ? await runLiveness(faceapi, video, challenge)
@@ -428,7 +391,9 @@ export function TeacherSmartAttendance() {
             ? '/teacher-portal/smart-attendance/check-in'
             : '/teacher-portal/smart-attendance/check-out';
 
-      const response = await api.post(endpoint, payload);
+      if (request.signal.aborted) return;
+      setInstruction('Saving verified attendance...');
+      const response = await api.post(endpoint, payload, { signal: request.signal });
       setMessage(
         response.data?.message ||
           (mode === 'enroll'
@@ -440,8 +405,11 @@ export function TeacherSmartAttendance() {
       if (mode === 'enroll') setConsent(false);
       await loadStatus();
     } catch (err: any) {
-      setError(err.response?.data?.message || err?.message || 'Verification failed. Please try again.');
+      if (!request.signal.aborted && err.response?.status === 409) await loadStatus();
+      if (!request.signal.aborted) setError(err.response?.data?.message || (err?.name === 'NotAllowedError' ? 'Camera permission is blocked. Allow camera access for this site and try again.' : err?.message) || 'Verification failed. Please try again.');
     } finally {
+      request.abort();
+      requestRef.current = null;
       stream?.getTracks().forEach((track) => track.stop());
       stopCamera();
       setBusy(null);
@@ -588,14 +556,14 @@ export function TeacherSmartAttendance() {
               <div className="flex flex-wrap gap-2 text-xs font-bold">
                 <span className="rounded-full bg-emerald-100 px-3 py-1.5 text-emerald-800">GPS ✓{verified.distanceMeters !== undefined ? ' · ' + Math.round(verified.distanceMeters) + ' m' : ''}</span>
                 <span className="rounded-full bg-violet-100 px-3 py-1.5 text-violet-800">Face ✓</span>
-                {verified.challenge?.length ? (
-                  <span className="rounded-full bg-cyan-100 px-3 py-1.5 text-cyan-800">Face presence ✓</span>
-                ) : null}
+                {verified.livenessVerified && <span className="rounded-full bg-cyan-100 px-3 py-1.5 text-cyan-800">Face presence ✓</span>}
               </div>
             )}
           </>
         )}
 
+        {busy && !cameraOpen && <p role="status" className="text-sm text-cyan-700">{instruction}</p>}
+        {busy && <button type="button" onClick={() => { requestRef.current?.abort(); stopCamera(); }} className="min-h-10 rounded-xl border px-4 text-sm">Cancel verification</button>}
         {cameraOpen && (
           <div className="rounded-2xl border border-cyan-200 bg-slate-950 p-3 text-white">
             <div className="relative mx-auto aspect-[4/3] max-w-lg overflow-hidden rounded-xl bg-black">

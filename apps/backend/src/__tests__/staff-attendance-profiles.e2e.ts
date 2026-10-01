@@ -9,6 +9,7 @@ import Profile from '../models/profile.model';
 import School from '../models/school.model';
 import '../models/department.model';
 import StaffAttendance from '../models/staff-attendance.model';
+import TeacherBiometric from '../models/teacher-biometric.model';
 import routes from '../routes/v1/staff-attendance.routes';
 import {
   adjustedGeofenceDistance,
@@ -58,6 +59,17 @@ async function main() {
     const outsider = await User.create({ email: 'other@test.local', password: 'test', role: 'teacher', organizationId: otherOrg });
     await Profile.create({ user: teacher._id, firstName: 'Teacher', lastName: 'One', gender: 'male' });
     await Profile.create({ user: outsider._id, firstName: 'Other', lastName: 'School', gender: 'male' });
+    // A stale template from a teacher's former organization must not be shown
+    // as enrolled in their current organization's roster.
+    await TeacherBiometric.create({
+      user: teacher._id,
+      organizationId: otherOrg,
+      descriptorCiphertext: 'stale-ciphertext',
+      descriptorIv: 'stale-iv',
+      descriptorAuthTag: 'stale-tag',
+      enrolledBy: teacher._id,
+      consentedAt: new Date(),
+    });
     const app = express();
     app.use(express.json());
     app.use((req, _res, next) => {
@@ -78,6 +90,7 @@ async function main() {
     assert.equal(list.body.data.rows.length, 2);
     const teacherRow = list.body.data.rows.find((row: any) => row.staff._id === teacher._id.toString());
     assert.deepEqual(teacherRow.staff.profile, { firstName: 'Teacher', lastName: 'One' });
+    assert.equal(teacherRow.biometricEnrolled, false);
     const staffRow = list.body.data.rows.find((row: any) => row.staff._id === staff._id.toString());
     assert.equal(staffRow.staff.profile, null);
 
