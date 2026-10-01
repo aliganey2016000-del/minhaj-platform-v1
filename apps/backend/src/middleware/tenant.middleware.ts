@@ -47,13 +47,18 @@ export async function tenantMiddleware(
   next: NextFunction
 ): Promise<void> {
   try {
-    // The frontend's nginx proxies /api/ to this backend's public URL (they
-    // are separate Coolify apps with no shared Docker network), which means
-    // the Host header nginx sends must stay api.sahaledu.com so Coolify's
-    // edge proxy routes the request here. The real host the visitor
-    // requested (their org's subdomain, or a fully custom domain they
-    // pointed at the platform) travels in X-Forwarded-Host instead.
-    const host = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
+    // The frontend proxies API requests through the backend's public host,
+    // so the visitor-facing organization hostname must survive every proxy
+    // hop. X-Tenant-Host is our stable application header; X-Forwarded-Host
+    // remains a compatibility fallback for older deployments/direct proxies.
+    // This is intentionally generic: any school subdomain (foo.<base-domain>)
+    // or exact custom domain can resolve without school-specific code.
+    const host = (
+      req.get('x-tenant-host') ||
+      req.get('x-forwarded-host') ||
+      req.get('host') ||
+      ''
+    ).split(',')[0].trim();
     const hostname = host.replace(/:\d+$/, '').toLowerCase();
 
     // Fast-path: localhost or IP → main site (no tenant lookup)
