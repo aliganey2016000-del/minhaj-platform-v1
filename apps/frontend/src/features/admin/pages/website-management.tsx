@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, ChevronRight, Copy, Eye, FileText, Globe2,
-  Image as ImageIcon, LayoutTemplate, Loader2, Monitor, MoreVertical, Palette,
-  Plus, Save, Search, Settings2, Smartphone, Trash2, UploadCloud,
+  ArrowDown, ArrowUp, Check, ChevronRight, Copy, Eye, EyeOff, FileText, Globe2,
+  Image as ImageIcon, LayoutTemplate, Loader2, MoreVertical, Palette,
+  PanelsTopLeft, Plus, Save, Search, Trash2, UploadCloud,
   Video, X,
 } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -25,7 +25,7 @@ import {
   type AdvancedWebsiteTab,
 } from './website-management-advanced';
 
-type TabKey = 'pages' | 'header' | 'sections' | 'media' | 'theme' | 'footer' | 'seo' | 'preview' | AdvancedWebsiteTab;
+type TabKey = 'pages' | 'header' | 'sections' | 'media' | 'theme' | 'seo' | 'preview' | AdvancedWebsiteTab;
 
 interface SchoolOption extends WebsiteOrganization {
   _id: string;
@@ -42,17 +42,35 @@ interface ConfigResponse {
   storage?: { provider: 'r2' | 'local'; durable: boolean };
 }
 
-const TABS: Array<{ key: TabKey; label: string; icon: any }> = [
+const MAIN_TABS: Array<{ key: TabKey; label: string; icon: any }> = [
+  { key: 'sections', label: 'Content', icon: LayoutTemplate },
+  { key: 'theme', label: 'Design', icon: Palette },
+  { key: 'header', label: 'Header & Footer', icon: PanelsTopLeft },
   { key: 'pages', label: 'Pages', icon: FileText },
-  { key: 'header', label: 'Header', icon: LayoutTemplate },
-  { key: 'sections', label: 'Sections', icon: Settings2 },
   { key: 'media', label: 'Media', icon: ImageIcon },
-  { key: 'theme', label: 'Theme', icon: Palette },
-  { key: 'footer', label: 'Footer', icon: LayoutTemplate },
+];
+
+const MANAGE_TABS: Array<{ key: TabKey; label: string; icon: any }> = [
   { key: 'seo', label: 'SEO', icon: Search },
   ...ADVANCED_WEBSITE_TABS,
-  { key: 'preview', label: 'Preview', icon: Eye },
 ];
+
+// Tabs whose edits change the page itself; these get the live side preview on wide screens.
+const LIVE_PREVIEW_TABS: TabKey[] = ['sections', 'theme', 'header', 'pages'];
+
+const THEME_PRESETS = [
+  { name: 'Emerald', primaryColor: '#0f766e', secondaryColor: '#082f49', accentColor: '#f59e0b' },
+  { name: 'Ocean', primaryColor: '#2563eb', secondaryColor: '#0b1b3f', accentColor: '#06b6d4' },
+  { name: 'Sunrise', primaryColor: '#ea580c', secondaryColor: '#431407', accentColor: '#facc15' },
+  { name: 'Royal', primaryColor: '#7c3aed', secondaryColor: '#1e1b4b', accentColor: '#ec4899' },
+  { name: 'Forest', primaryColor: '#15803d', secondaryColor: '#052e16', accentColor: '#eab308' },
+  { name: 'Berry', primaryColor: '#db2777', secondaryColor: '#3b0764', accentColor: '#f97316' },
+];
+
+const SECTION_COLORS: Partial<Record<WebsiteSectionType, string>> = {
+  hero: '#2563eb', stats: '#0d9488', programs: '#f59e0b', about: '#8b5cf6', services: '#ec4899',
+  gallery: '#16a34a', news: '#ea580c', testimonials: '#7c3aed', faq: '#0891b2', contact: '#0f172a',
+};
 
 const SECTION_PRESETS: Array<{ type: WebsiteSectionType; label: string; description: string }> = [
   { type: 'hero', label: 'Hero', description: 'Main headline, image and call-to-action' },
@@ -73,6 +91,8 @@ const SECTION_PRESETS: Array<{ type: WebsiteSectionType; label: string; descript
 
 const FONT_OPTIONS = [
   'Inter, ui-sans-serif, system-ui, sans-serif',
+  'DM Sans, ui-sans-serif, system-ui, sans-serif',
+  'Fraunces, Georgia, serif',
   'Arial, Helvetica, sans-serif',
   'Georgia, Times New Roman, serif',
   'Trebuchet MS, Arial, sans-serif',
@@ -259,7 +279,8 @@ export function WebsiteManagement() {
   const [selectedSchoolId, setSelectedSchoolId] = useState(user?.role === 'org_admin' ? user.organizationId || '' : '');
   const [organization, setOrganization] = useState<SchoolOption | null>(null);
   const [site, setSite] = useState<WebsiteSiteDocument | null>(null);
-  const [tab, setTab] = useState<TabKey>('pages');
+  const [tab, setTab] = useState<TabKey>('sections');
+  const [livePreview, setLivePreview] = useState(true);
   const [activePageId, setActivePageId] = useState('');
   const [activeSectionId, setActiveSectionId] = useState('');
   const [isPublished, setIsPublished] = useState(false);
@@ -513,6 +534,8 @@ export function WebsiteManagement() {
     }).catch(() => undefined);
   };
 
+  const showSidePreview = livePreview && LIVE_PREVIEW_TABS.includes(tab);
+
   const domain = organization
     ? organization.customDomain || `${organization.subdomain || organization.slug}.${import.meta.env.VITE_BASE_DOMAIN || 'sahaledu.com'}`
     : '';
@@ -555,14 +578,25 @@ export function WebsiteManagement() {
         {notice && <div className={`mb-5 flex items-start justify-between gap-3 rounded-xl border p-3.5 text-sm ${notice.type === 'success' ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/50 dark:bg-green-950/20 dark:text-green-300' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300'}`}><span>{notice.text}</span><button onClick={() => setNotice(null)}><X className="h-4 w-4" /></button></div>}
 
         {site && organization && <fieldset disabled={saving || publishing || uploading} className="min-w-0">
-          <div className="mb-5 overflow-x-auto">
-            <div className="inline-flex min-w-full gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 sm:min-w-0">
-              {TABS.map((item) => <button key={item.key} type="button" onClick={() => setTab(item.key)} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition ${tab === item.key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}><item.icon className="h-4 w-4" />{item.label}</button>)}
+          <div className="mb-5 space-y-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5">
+                {MAIN_TABS.map((item) => <button key={item.key} type="button" onClick={() => setTab(item.key)} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition ${tab === item.key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}><item.icon className="h-4 w-4" />{item.label}</button>)}
+              </div>
+              <button type="button" onClick={() => setLivePreview((value) => !value)} className="hidden items-center gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm font-bold xl:inline-flex">{livePreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}{livePreview ? 'Hide preview' : 'Show preview'}</button>
+              <button type="button" onClick={() => setTab('preview')} className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold xl:hidden ${tab === 'preview' ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)]'}`}><Eye className="h-4 w-4" />Preview</button>
+            </div>
+            <div className="flex items-center gap-1 overflow-x-auto">
+              <span className="mr-1 shrink-0 text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-tertiary)]">Manage</span>
+              {MANAGE_TABS.map((item) => <button key={item.key} type="button" onClick={() => setTab(item.key)} className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${tab === item.key ? 'bg-[var(--color-text-primary)] text-[var(--color-surface-primary)]' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}><item.icon className="h-3.5 w-3.5" />{item.label}</button>)}
             </div>
           </div>
 
+          <div className={showSidePreview ? 'xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,46%)] xl:items-start xl:gap-5' : ''}>
+          <div className="min-w-0">
+
           {tab === 'pages' && (
-            <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
+            <div className={`grid gap-5 ${showSidePreview ? '' : 'xl:grid-cols-[360px_1fr]'}`}>
               <div className={`${panelClass} p-4`}>
                 <div className="mb-3 flex items-center justify-between gap-2"><h2 className="font-bold">Pages</h2><div className="flex gap-1"><button type="button" onClick={syncNavigation} className="rounded-lg border border-[var(--color-border-default)] px-2.5 py-1.5 text-[11px] font-semibold">Sync Menu</button><button type="button" onClick={addPage} className="inline-flex items-center gap-1 rounded-lg bg-primary-50 px-2.5 py-1.5 text-xs font-semibold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"><Plus className="h-3.5 w-3.5" />New Page</button></div></div>
                 <div className="space-y-2">{site.pages.map((page) => <button key={page.id} type="button" onClick={() => { setActivePageId(page.id); setActiveSectionId(page.sections[0]?.id || ''); }} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${activePage?.id === page.id ? 'border-primary-300 bg-primary-50 dark:border-primary-800 dark:bg-primary-950/20' : 'border-[var(--color-border-subtle)]'}`}><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{page.title}</p><p className="truncate text-xs text-[var(--color-text-tertiary)]">/{page.slug}</p></div><ChevronRight className="h-4 w-4 text-[var(--color-text-tertiary)]" /></button>)}</div>
@@ -575,7 +609,7 @@ export function WebsiteManagement() {
                   <div className="md:col-span-2"><label className={labelClass}>SEO title</label><input className={fieldClass} value={activePage.seoTitle} onChange={(e) => updatePage({ seoTitle: e.target.value })} placeholder="Title shown in browser/search results" /></div>
                   <div className="md:col-span-2"><label className={labelClass}>SEO description</label><textarea className={fieldClass} rows={3} value={activePage.seoDescription} onChange={(e) => updatePage({ seoDescription: e.target.value })} /></div>
                   <label className="flex items-center gap-3 rounded-xl border border-[var(--color-border-subtle)] p-3 text-sm font-medium"><input type="checkbox" checked={activePage.showInNavigation} onChange={(e) => updatePage({ showInNavigation: e.target.checked })} className="h-4 w-4 rounded" />Available for navigation menus</label>
-                  <button type="button" onClick={() => setTab('sections')} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white"><Settings2 className="h-4 w-4" />Edit this page sections</button>
+                  <button type="button" onClick={() => setTab('sections')} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white"><LayoutTemplate className="h-4 w-4" />Edit this page content</button>
                 </div>
               </div>}
             </div>
@@ -596,12 +630,22 @@ export function WebsiteManagement() {
           )}
 
           {tab === 'sections' && activePage && (
-            <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
+            <div className={`grid gap-5 ${showSidePreview ? '' : 'xl:grid-cols-[380px_1fr]'}`}>
               <div className={`${panelClass} p-4`}>
                 <div className="mb-3"><label className={labelClass}>Editing page</label><select className={fieldClass} value={activePage.id} onChange={(e) => { const page = site.pages.find((item) => item.id === e.target.value); setActivePageId(e.target.value); setActiveSectionId(page?.sections[0]?.id || ''); }}>{site.pages.map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}</select></div>
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Sections</p>
-                <div className="space-y-2">{activePage.sections.map((section, index) => <button key={section.id} type="button" onClick={() => setActiveSectionId(section.id)} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${activeSection?.id === section.id ? 'border-primary-300 bg-primary-50 dark:border-primary-800 dark:bg-primary-950/20' : 'border-[var(--color-border-subtle)]'}`}><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-surface-tertiary)] text-xs font-bold">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{section.title || SECTION_PRESETS.find((x) => x.type === section.type)?.label}</p><p className="text-[11px] capitalize text-[var(--color-text-tertiary)]">{section.type} · {section.visible ? 'Visible' : 'Hidden'}</p></div></button>)}</div>
-                <div className="mt-4 border-t border-[var(--color-border-subtle)] pt-4"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Add Section</p><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">{SECTION_PRESETS.map((preset) => <button key={preset.type} type="button" onClick={() => addSection(preset.type)} className="rounded-xl border border-[var(--color-border-subtle)] p-3 text-left hover:border-primary-300 hover:bg-primary-50/50 dark:hover:bg-primary-950/10"><p className="text-sm font-semibold">{preset.label}</p><p className="mt-0.5 text-[11px] leading-4 text-[var(--color-text-tertiary)]">{preset.description}</p></button>)}</div></div>
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Sections · click one to edit</p>
+                <div className={`grid gap-2 ${showSidePreview ? 'sm:grid-cols-2' : ''}`}>{activePage.sections.map((section, index) => {
+                  const color = SECTION_COLORS[section.type] || '#64748b';
+                  return <button key={section.id} type="button" onClick={() => setActiveSectionId(section.id)} className={`flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition ${activeSection?.id === section.id ? 'border-primary-400 bg-primary-50 ring-2 ring-primary-500/15 dark:border-primary-700 dark:bg-primary-950/20' : 'border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)]'} ${section.visible ? '' : 'opacity-55'}`}>
+                    <span style={{ backgroundColor: color }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-black text-white">{index + 1}</span>
+                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{section.title || SECTION_PRESETS.find((x) => x.type === section.type)?.label}</p><p className="text-[11px] text-[var(--color-text-tertiary)]">{SECTION_PRESETS.find((x) => x.type === section.type)?.label || section.type} · {section.visible ? 'Shown' : 'Hidden'}</p></div>
+                    {!section.visible && <EyeOff className="h-4 w-4 shrink-0 text-[var(--color-text-tertiary)]" />}
+                  </button>;
+                })}</div>
+                <details className="group mt-4 border-t border-[var(--color-border-subtle)] pt-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-dashed border-primary-300 px-3 py-2.5 text-sm font-bold text-primary-700 hover:bg-primary-50/60 dark:text-primary-300 dark:hover:bg-primary-950/10 [&::-webkit-details-marker]:hidden"><Plus className="h-4 w-4 transition group-open:rotate-45" />Add a section</summary>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">{SECTION_PRESETS.map((preset) => <button key={preset.type} type="button" onClick={() => addSection(preset.type)} className="rounded-xl border border-[var(--color-border-subtle)] p-3 text-left hover:border-primary-300 hover:bg-primary-50/50 dark:hover:bg-primary-950/10"><p className="flex items-center gap-2 text-sm font-semibold"><span style={{ backgroundColor: SECTION_COLORS[preset.type] || '#64748b' }} className="h-2.5 w-2.5 rounded-full" />{preset.label}</p><p className="mt-0.5 text-[11px] leading-4 text-[var(--color-text-tertiary)]">{preset.description}</p></button>)}</div>
+                </details>
               </div>
               {activeSection ? <div className={`${panelClass} p-5 sm:p-6`}>
                 <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><span className="rounded-lg bg-primary-50 px-2 py-1 text-[11px] font-bold uppercase text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{activeSection.type}</span><h2 className="text-lg font-bold">{activeSection.title || 'Untitled section'}</h2></div><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Edit content, media, layout and visibility.</p></div><div className="flex gap-1"><button type="button" onClick={() => moveSection(-1)} className="rounded-lg border border-[var(--color-border-default)] p-2"><ArrowUp className="h-4 w-4" /></button><button type="button" onClick={() => moveSection(1)} className="rounded-lg border border-[var(--color-border-default)] p-2"><ArrowDown className="h-4 w-4" /></button><button type="button" onClick={() => updateSection({ visible: !activeSection.visible })} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${activeSection.visible ? 'border-green-200 text-green-700' : 'border-[var(--color-border-default)] text-[var(--color-text-tertiary)]'}`}>{activeSection.visible ? 'Visible' : 'Hidden'}</button><button type="button" onClick={removeSection} className="rounded-lg border border-red-200 p-2 text-red-500"><Trash2 className="h-4 w-4" /></button></div></div>
@@ -628,19 +672,27 @@ export function WebsiteManagement() {
           )}
 
           {tab === 'theme' && (
-            <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
-              <div className={`${panelClass} p-5 sm:p-6`}><h2 className="text-lg font-bold">Theme & Branding</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">These settings apply across every page.</p><div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className={`grid gap-5 ${showSidePreview ? '' : 'lg:grid-cols-[1fr_420px]'}`}>
+              <div className={`${panelClass} p-5 sm:p-6`}><h2 className="text-lg font-bold">Design</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Pick a colour palette in one click, then fine-tune. These settings apply across every page.</p>
+                <div className="mt-6"><p className={labelClass}>Colour palettes</p><div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{THEME_PRESETS.map((preset) => {
+                  const active = (['primaryColor', 'secondaryColor', 'accentColor'] as const).every((key) => (site.theme[key] || '').toLowerCase() === preset[key]);
+                  return <button key={preset.name} type="button" onClick={() => updateSite((s) => ({ ...s, theme: { ...s.theme, primaryColor: preset.primaryColor, secondaryColor: preset.secondaryColor, accentColor: preset.accentColor } }))} className={`flex items-center gap-3 rounded-xl border p-3 text-left text-sm font-bold transition ${active ? 'border-primary-500 ring-2 ring-primary-500/20' : 'border-[var(--color-border-subtle)] hover:border-[var(--color-border-default)]'}`}>
+                    <span className="flex -space-x-1.5">{[preset.primaryColor, preset.accentColor, preset.secondaryColor].map((color) => <span key={color} style={{ backgroundColor: color }} className="h-6 w-6 rounded-full ring-2 ring-[var(--color-surface-primary)]" />)}</span>
+                    <span className="flex-1">{preset.name}</span>{active && <Check className="h-4 w-4 text-primary-600" />}
+                  </button>;
+                })}</div></div>
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
                 {[['Primary color', 'primaryColor'], ['Secondary color', 'secondaryColor'], ['Accent color', 'accentColor']].map(([label, key]) => <div key={key}><label className={labelClass}>{label}</label><div className="flex gap-2"><input type="color" value={(site.theme as any)[key]} onChange={(e) => updateSite((s) => ({ ...s, theme: { ...s.theme, [key]: e.target.value } }))} className="h-11 w-14 rounded-lg border border-[var(--color-border-default)] bg-transparent p-1" /><input className={fieldClass} value={(site.theme as any)[key]} onChange={(e) => updateSite((s) => ({ ...s, theme: { ...s.theme, [key]: e.target.value } }))} /></div></div>)}
                 <div className="sm:col-span-2"><label className={labelClass}>Font</label><select className={fieldClass} value={site.theme.fontFamily} onChange={(e) => updateSite((s) => ({ ...s, theme: { ...s.theme, fontFamily: e.target.value } }))}>{FONT_OPTIONS.map((font) => <option key={font} value={font}>{font.split(',')[0]}</option>)}</select></div>
                 <div><label className={labelClass}>Button style</label><select className={fieldClass} value={site.theme.buttonStyle} onChange={(e) => updateSite((s) => ({ ...s, theme: { ...s.theme, buttonStyle: e.target.value as WebsiteSiteDocument['theme']['buttonStyle'] } }))}><option value="rounded">Rounded</option><option value="pill">Pill</option><option value="square">Square</option></select></div>
                 <div><label className={labelClass}>Card style</label><select className={fieldClass} value={site.theme.cardStyle} onChange={(e) => updateSite((s) => ({ ...s, theme: { ...s.theme, cardStyle: e.target.value as WebsiteSiteDocument['theme']['cardStyle'] } }))}><option value="soft">Soft shadow</option><option value="bordered">Bordered</option><option value="flat">Flat</option></select></div>
               </div></div>
-              <div className={`${panelClass} overflow-hidden`}><div className="border-b border-[var(--color-border-subtle)] px-4 py-3 text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Brand preview</div><div style={{ backgroundColor: site.theme.secondaryColor }} className="p-6 text-white"><div style={{ backgroundColor: site.theme.primaryColor }} className="h-14 w-14 rounded-2xl" /><h3 style={{ fontFamily: site.theme.fontFamily }} className="mt-5 text-2xl font-bold">{organization.name}</h3><p className="mt-2 text-sm text-white/70">Primary, secondary and typography preview.</p><button style={{ backgroundColor: site.theme.primaryColor, borderRadius: site.theme.buttonStyle === 'pill' ? 999 : site.theme.buttonStyle === 'square' ? 4 : 12 }} className="mt-5 px-4 py-2.5 text-sm font-semibold">Example Button</button></div></div>
+              {!showSidePreview && <div className={`${panelClass} overflow-hidden`}><div className="border-b border-[var(--color-border-subtle)] px-4 py-3 text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Brand preview</div><div style={{ backgroundColor: site.theme.secondaryColor }} className="p-6 text-white"><div style={{ backgroundColor: site.theme.primaryColor }} className="h-14 w-14 rounded-2xl" /><h3 style={{ fontFamily: site.theme.fontFamily }} className="mt-5 text-2xl font-bold">{organization.name}</h3><p className="mt-2 text-sm text-white/70">Primary, secondary and typography preview.</p><button style={{ backgroundColor: site.theme.primaryColor, borderRadius: site.theme.buttonStyle === 'pill' ? 999 : site.theme.buttonStyle === 'square' ? 4 : 12 }} className="mt-5 px-4 py-2.5 text-sm font-semibold">Example Button</button></div></div>}
             </div>
           )}
 
-          {tab === 'footer' && (
-            <div className={`${panelClass} p-5 sm:p-6`}><h2 className="text-lg font-bold">Footer</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Manage contact information, quick links, social links and copyright.</p><div className="mt-6 grid gap-4 md:grid-cols-2">
+          {tab === 'header' && (
+            <div className={`${panelClass} mt-5 p-5 sm:p-6`}><h2 className="text-lg font-bold">Footer</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Manage contact information, quick links, social links and copyright.</p><div className="mt-6 grid gap-4 md:grid-cols-2">
               <div className="md:col-span-2"><label className={labelClass}>Description</label><textarea className={fieldClass} rows={4} value={site.footer.description} onChange={(e) => updateSite((s) => ({ ...s, footer: { ...s.footer, description: e.target.value } }))} /></div>
               <div><label className={labelClass}>Address</label><input className={fieldClass} value={site.footer.address} onChange={(e) => updateSite((s) => ({ ...s, footer: { ...s.footer, address: e.target.value } }))} /></div>
               <div><label className={labelClass}>Phone</label><input className={fieldClass} value={site.footer.phone} onChange={(e) => updateSite((s) => ({ ...s, footer: { ...s.footer, phone: e.target.value } }))} /></div>
@@ -671,6 +723,9 @@ export function WebsiteManagement() {
           )}
 
           {tab === 'preview' && <WebsitePreview site={site} organization={organization} initialPageSlug={activePage?.slug || ''} />}
+          </div>
+          {showSidePreview && <div className="hidden xl:sticky xl:top-4 xl:block"><WebsitePreview site={site} organization={organization} initialPageSlug={activePage?.slug || ''} /></div>}
+          </div>
         </fieldset>}
       </div>
     </div>
