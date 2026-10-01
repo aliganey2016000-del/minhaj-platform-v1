@@ -28,7 +28,7 @@ export const getBrandingBySlug = async (req: Request, res: Response): Promise<Re
   }
 
   const school = await School.findOne({ slug, status: 'active' })
-    .select('slug name institutionType organizationType branding')
+    .select('slug subdomain customDomain name institutionType organizationType branding')
     .lean();
 
   if (!school) {
@@ -42,7 +42,9 @@ export const getBrandingBySlug = async (req: Request, res: Response): Promise<Re
     // @deprecated kept for API back-compat — use institutionType
     organizationType: school.organizationType,
     branding: school.branding || {},
-    portalUrl: `${school.slug}.${process.env.BASE_DOMAIN || 'sahaledu.com'}`,
+    portalUrl: school.customDomain
+      ? `https://${school.customDomain}`
+      : `https://${school.subdomain || school.slug}.${process.env.BASE_DOMAIN || 'sahaledu.com'}`,
   });
 };
 
@@ -63,10 +65,13 @@ export const getCurrentBranding = async (req: Request, res: Response): Promise<R
     });
   }
 
+  const baseDomain = process.env.BASE_DOMAIN || 'sahaledu.com';
   return ApiResponse.success(res, {
     isMainSite: false,
     ...req.tenant,
-    portalUrl: `${process.env.BASE_DOMAIN || 'sahaledu.com'}`,
+    portalUrl: req.tenant.customDomain
+      ? `https://${req.tenant.customDomain}`
+      : `https://${req.tenant.subdomain || req.tenant.slug}.${baseDomain}`,
   });
 };
 

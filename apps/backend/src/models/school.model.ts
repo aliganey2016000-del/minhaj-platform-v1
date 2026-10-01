@@ -321,9 +321,15 @@ const schoolSchema = new Schema<ISchool>(
       type: String,
       trim: true,
       lowercase: true,
+      unique: true,
+      sparse: true,
       minlength: [3, 'Subdomain must be at least 3 characters'],
       maxlength: [63, 'Subdomain cannot exceed 63 characters'],
       match: [/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Subdomain may only contain lowercase letters, numbers, and hyphens'],
+      validate: {
+        validator(v: string) { return !v || !RESERVED_SLUGS.has(v); },
+        message: 'This subdomain is reserved for system use and cannot be assigned to an organization.',
+      },
     },
     customDomain: {
       type: String,
@@ -336,6 +342,20 @@ const schoolSchema = new Schema<ISchool>(
         /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/,
         'Enter a plain domain name, e.g. "yourschool.edu" (no https:// or trailing slash)',
       ],
+      validate: {
+        validator(v?: string) {
+          if (!v) return true;
+          const base = String(process.env.BASE_DOMAIN || 'sahaledu.com')
+            .trim()
+            .toLowerCase()
+            .replace(/^https?:\/\//, '')
+            .replace(/^www\./, '')
+            .replace(/:\d+$/, '')
+            .replace(/\/$/, '');
+          return v !== base && v !== `www.${base}` && !v.endsWith(`.${base}`);
+        },
+        message: 'Use the Subdomain field for sahaledu.com addresses; Custom Domain is only for external domains.',
+      },
     },
     branding: { type: brandingSchema, default: () => ({}) },
     examSchedulingRules: { type: examSchedulingRulesSchema, default: () => ({}) },
@@ -517,6 +537,8 @@ schoolSchema.index({ createdBy: 1 });
 
 export interface TenantBranding {
   slug: string;
+  subdomain?: string;
+  customDomain?: string;
   name: string;
   institutionType: string;
   /** @deprecated mirrors institutionType for API back-compat */
@@ -553,24 +575,34 @@ schoolSchema.statics.findByHost = async function (
     customDomain: hostname,
     status: 'active',
   })
-    .select('slug name institutionType organizationType branding')
+    .select('slug subdomain customDomain name institutionType organizationType branding')
     .lean();
 
   if (byCustomDomain) {
     return { ...byCustomDomain, institutionType: resolveInstitutionType(byCustomDomain) } as TenantBranding;
   }
 
-  const parts = hostname.split('.');
+  const configuredBaseDomain = String(process.env.BASE_DOMAIN || 'sahaledu.com')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/:\d+$/, '')
+    .replace(/\/$/, '');
 
-  // Fewer than 3 labels (e.g. "sahaledu.com") → no room for a subdomain.
-  if (parts.length < 3) {
+  const suffix = '.' + configuredBaseDomain;
+  if (!hostname.endsWith(suffix)) {
     return null;
   }
 
-  const subdomain = parts[0];
+  const subdomain = hostname.slice(0, -suffix.length);
 
-  // Ignore root / www — those are the main marketing site
-  if (subdomain === 'www' || subdomain === parts[parts.length - 1]) {
+  if (
+    !subdomain ||
+    subdomain === 'www' ||
+    subdomain.includes('.') ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(subdomain)
+  ) {
     return null;
   }
 

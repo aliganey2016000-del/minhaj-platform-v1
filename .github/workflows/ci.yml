@@ -76,6 +76,9 @@ jobs:
       - name: Tenant data integrity tests
         run: npm run test:tenant-data-integrity
 
+      - name: Wildcard tenant routing regression
+        run: npx ts-node --files src/__tests__/tenant-wildcard-routing.e2e.ts
+
       - name: User Management orphan cleanup tests
         run: npm run test:user-orphan-cleanup
 

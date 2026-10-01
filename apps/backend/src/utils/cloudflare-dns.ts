@@ -67,6 +67,16 @@ export function cloudflareProxyEnabled(): boolean {
   return process.env.CLOUDFLARE_DNS_PROXIED !== 'false';
 }
 
+export function managedWildcardEnabled(): boolean {
+  return String(process.env.CLOUDFLARE_MANAGED_SUBDOMAIN_MODE || 'wildcard')
+    .trim()
+    .toLowerCase() !== 'per_school';
+}
+
+export function managedWildcardHostname(): string {
+  return '*.' + baseDomain();
+}
+
 export function expectedTargetForSchool(school: SchoolDomainLike, kind: 'managed' | 'custom'): string {
   const managed = managedHostnameForSchool(school);
   const origin = cleanHost(process.env.CLOUDFLARE_ORIGIN_HOST);
@@ -270,7 +280,9 @@ export async function provisionSchoolDomains(
 ): Promise<SchoolDnsProvisionResult> {
   const configured = cloudflareDnsConfigured();
   const autoProvisionEnabled = cloudflareAutoProvisionEnabled();
-  const managedHostname = managedHostnameForSchool(school);
+  const managedHostname = managedWildcardEnabled()
+    ? managedWildcardHostname()
+    : managedHostnameForSchool(school);
   const managedTarget = expectedTargetForSchool(school, 'managed');
 
   if (!configured) {
@@ -335,10 +347,12 @@ export async function syncSchoolDomains(
   current: SchoolDomainLike,
 ): Promise<SchoolDnsProvisionResult> {
   if (previous && cloudflareDnsConfigured() && cloudflareAutoProvisionEnabled()) {
-    const oldManaged = managedHostnameForSchool(previous);
-    const nextManaged = managedHostnameForSchool(current);
-    if (oldManaged !== nextManaged) {
-      await deleteManagedCname(oldManaged, expectedTargetForSchool(previous, 'managed'), true).catch(() => undefined);
+    if (!managedWildcardEnabled()) {
+      const oldManaged = managedHostnameForSchool(previous);
+      const nextManaged = managedHostnameForSchool(current);
+      if (oldManaged !== nextManaged) {
+        await deleteManagedCname(oldManaged, expectedTargetForSchool(previous, 'managed'), true).catch(() => undefined);
+      }
     }
 
     const oldCustom = customHostnameForSchool(previous);

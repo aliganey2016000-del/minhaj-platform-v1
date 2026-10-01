@@ -231,7 +231,9 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     .lean();
 
   const baseDomain = process.env.BASE_DOMAIN || 'sahaledu.com';
-  const portalUrl = `https://${school.slug}.${baseDomain}`;
+  const portalUrl = school.customDomain
+    ? `https://${school.customDomain}`
+    : `https://${school.subdomain || school.slug}.${baseDomain}`;
 
   return ApiResponse.created(
     res,
