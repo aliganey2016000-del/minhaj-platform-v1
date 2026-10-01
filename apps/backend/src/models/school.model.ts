@@ -610,7 +610,7 @@ schoolSchema.statics.findByHost = async function (
     $or: [{ slug: subdomain }, { subdomain }],
     status: 'active',
   })
-    .select('slug name institutionType organizationType branding')
+    .select('slug subdomain customDomain name institutionType organizationType branding')
     .lean();
 
   if (!school) return null;
