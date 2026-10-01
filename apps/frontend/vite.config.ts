@@ -19,13 +19,16 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,json}'],
-        // Large marketing/landing photos (e.g. public/images/*) aren't part
-        // of the app shell and shouldn't bloat the service worker's
-        // precache for every user — they load fine on demand instead.
-        globIgnores: ['images/**'],
+        // Keep the install payload intentionally small. JS chunks are excluded
+        // from precache and are cached on demand by src/sw.ts when a user
+        // actually opens the related page. This avoids downloading every
+        // Admin/Teacher/Student route after each deployment.
+        globPatterns: ['**/*.{html,css,ico,png,svg,woff2,json}'],
+        // Large marketing/landing photos aren't part of the app shell and
+        // should never be downloaded just because a service worker installs.
+        globIgnores: ['images/**', 'screenshots/**'],
       },
-      includeAssets: ['favicon.svg', 'icons/*.png', 'screenshots/*.png', 'offline.html'],
+      includeAssets: ['favicon.svg', 'icons/*.png', 'offline.html'],
       // The manifest is served dynamically by the backend
       // (/api/v1/tenant/manifest.webmanifest, linked from index.html) so
       // each org's subdomain gets its own name/logo on "Add to Home
