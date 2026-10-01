@@ -270,6 +270,11 @@ async function computeStudentStats(req: Request): Promise<StudentStatsResult> {
   trendStart.setDate(1);
   trendStart.setHours(0, 0, 0, 0);
 
+  // Enrollment trends are historical. Exclude impossible/corrupt future
+  // dates before $dateToString so one legacy bad value cannot crash stats.
+  const trendEnd = new Date();
+  trendEnd.setHours(23, 59, 59, 999);
+
   const [
     statusCounts,
     genderCounts,
@@ -315,7 +320,7 @@ async function computeStudentStats(req: Request): Promise<StudentStatsResult> {
       { $sort: { count: -1 } },
     ]),
     Student.aggregate([
-      { $match: { ...aggregateMatch, enrollmentDate: { $gte: trendStart } } },
+      { $match: { ...aggregateMatch, enrollmentDate: { $gte: trendStart, $lte: trendEnd } } },
       { $group: { _id: { $dateToString: { format: '%Y-%m', date: '$enrollmentDate' } }, count: { $sum: 1 } } },
     ]),
     Student.countDocuments(scopedFilter),
