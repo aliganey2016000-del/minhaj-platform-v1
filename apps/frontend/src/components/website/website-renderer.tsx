@@ -1,6 +1,6 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import {
-  ArrowRight, Award, BookOpen, Briefcase, Building2, CalendarDays, Camera,
+  ArrowRight, Award, BookOpen, Briefcase, Building2, CalendarDays, Camera, ChevronLeft, ChevronRight,
   CheckCircle2, Dumbbell, FlaskConical, Globe2, GraduationCap, Heart, Loader2, Mail, MapPin, Menu,
   Palette, Phone, PlayCircle, Quote, School, Send, ShieldCheck, Sparkles, Star, Trophy, Users, X,
 } from 'lucide-react';
@@ -265,6 +265,199 @@ function ContactForm({ primary, sourcePage, preview, sessionId, tr }: {
         {preview ? tr('contact.preview', 'Contact form preview') : tr('contact.send', 'Send Message')}
       </button>
     </form>
+  );
+}
+
+
+function SchoolHomeLayout({ page, site, organization, tr, preview, sessionId, onTrack }: {
+  page: WebsitePage;
+  site: WebsiteSiteDocument;
+  organization: WebsiteOrganization;
+  tr: Translate;
+  preview: boolean;
+  sessionId?: string;
+  onTrack?: (event: 'cta', page: string) => void;
+}) {
+  const sections = page.sections.filter((section) => section.visible);
+  const byId = (id: string) => sections.find((section) => section.id === id);
+  const firstType = (type: WebsiteSectionType) => sections.find((section) => section.type === type);
+  const hero = byId('hero') || firstType('hero');
+  const stats = byId('stats') || firstType('stats');
+  const programs = byId('programs') || firstType('programs');
+  const about = byId('about') || firstType('about');
+  const values = byId('values') || sections.find((section) => section.type === 'services');
+  const gallery = byId('gallery') || firstType('gallery');
+  const news = byId('news') || firstType('news');
+  const testimonials = byId('testimonials') || firstType('testimonials');
+  const partners = byId('partners') || firstType('partners');
+  const video = byId('video') || firstType('video');
+  const contact = byId('contact') || firstType('contact');
+  const primary = site.theme.primaryColor || organization.branding?.themeColor || '#0f766e';
+  const secondary = site.theme.secondaryColor || '#082f49';
+  const accent = site.theme.accentColor || '#f59e0b';
+  const radius = site.theme.buttonStyle === 'square' ? '8px' : '999px';
+
+  const sectionTitle = (section: WebsiteSection | undefined) => section ? tr(`section.${section.id}.title`, section.title) : '';
+  const sectionSubtitle = (section: WebsiteSection | undefined) => section ? tr(`section.${section.id}.subtitle`, section.subtitle) : '';
+  const sectionBody = (section: WebsiteSection | undefined) => section ? tr(`section.${section.id}.body`, section.body) : '';
+  const cardTitle = (card: WebsiteCard) => tr(`card.${card.id}.title`, card.title);
+  const cardText = (card: WebsiteCard) => tr(`card.${card.id}.text`, card.text);
+  const consumed = new Set([hero?.id, stats?.id, programs?.id, about?.id, values?.id, gallery?.id, news?.id, testimonials?.id, partners?.id, video?.id, contact?.id].filter(Boolean));
+  const extras = sections.filter((section) => !consumed.has(section.id));
+
+  return (
+    <>
+      {hero && (
+        <section id={hero.id} className="relative scroll-mt-24 overflow-hidden bg-white">
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -left-24 top-10 h-80 w-80 rounded-full bg-sky-200/45 blur-3xl" />
+            <div className="absolute right-[36%] top-8 h-48 w-48 rounded-full bg-amber-200/40 blur-3xl" />
+            <div className="absolute -right-20 bottom-0 h-72 w-72 rounded-full bg-emerald-200/40 blur-3xl" />
+          </div>
+          <div className="relative mx-auto grid max-w-[1320px] items-center gap-10 px-4 pb-20 pt-10 sm:px-6 sm:pb-24 sm:pt-14 lg:min-h-[610px] lg:grid-cols-[.9fr_1.1fr] lg:gap-12 lg:px-8 lg:pb-28 lg:pt-16">
+            <div className="relative z-10">
+              {sectionSubtitle(hero) && <p style={{ color: primary }} className="mb-5 flex items-center gap-2 text-xs font-black uppercase tracking-[.22em] sm:text-sm"><Sparkles className="h-4 w-4" />{sectionSubtitle(hero)}</p>}
+              <h1 className="max-w-3xl text-4xl font-black leading-[.98] tracking-[-.045em] text-slate-950 sm:text-6xl lg:text-[4.55rem]">{sectionTitle(hero) || organization.name}</h1>
+              {sectionBody(hero) && <p className="mt-6 max-w-2xl text-base leading-8 text-slate-600 sm:text-lg">{sectionBody(hero)}</p>}
+              <div className="mt-8 flex flex-wrap gap-3">
+                {hero.buttonText && <a onClick={() => onTrack?.('cta', '/')} href={hero.buttonUrl || '#programs'} style={{ backgroundColor: primary, borderRadius: radius }} className="inline-flex items-center gap-2 px-6 py-3.5 text-sm font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl">{tr(`section.${hero.id}.buttonText`, hero.buttonText)}<ArrowRight className="h-4 w-4" /></a>}
+                {site.header.ctaText && <a href={site.header.ctaUrl || '/auth/login'} style={{ borderRadius: radius }} className="inline-flex items-center gap-2 border border-slate-200 bg-white px-6 py-3.5 text-sm font-black text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><School className="h-4 w-4" />{tr('header.ctaText', site.header.ctaText)}</a>}
+              </div>
+            </div>
+
+            <div className="relative">
+              <div className="absolute -left-5 -top-5 h-24 w-24 rounded-[2rem] bg-amber-300/70 blur-[1px]" />
+              <div className="absolute -bottom-5 -right-5 h-32 w-32 rounded-full bg-emerald-300/55" />
+              <div className="relative overflow-hidden rounded-[2.4rem] border-[10px] border-white bg-gradient-to-br from-sky-100 via-white to-emerald-100 shadow-[0_34px_90px_-38px_rgba(15,23,42,.5)]">
+                {hero.imageUrl ? <img src={hero.imageUrl} alt={sectionTitle(hero) || organization.name} fetchPriority="high" className="aspect-[7/5] w-full object-cover" /> : (
+                  <div className="flex aspect-[7/5] w-full items-center justify-center bg-[radial-gradient(circle_at_70%_25%,#fde68a_0,transparent_25%),radial-gradient(circle_at_20%_80%,#a7f3d0_0,transparent_30%),linear-gradient(135deg,#e0f2fe,#ffffff_52%,#dcfce7)]">
+                    <div className="text-center">
+                      <div style={{ background: `linear-gradient(135deg,${primary},${accent})` }} className="mx-auto flex h-24 w-24 items-center justify-center rounded-[2rem] text-white shadow-xl"><School className="h-12 w-12" /></div>
+                      <p className="mt-5 text-lg font-black text-slate-800">{organization.name}</p>
+                      <p className="mt-1 text-sm font-bold text-slate-500">Add a hero photo from Website Management</p>
+                    </div>
+                  </div>
+                )}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/55 to-transparent p-6 pt-20 text-white">
+                  <p className="text-xs font-black uppercase tracking-[.18em] text-white/75">Happy students • brighter futures</p>
+                </div>
+              </div>
+              <div className="absolute -bottom-6 left-6 hidden rounded-2xl border border-white/80 bg-white/95 px-5 py-4 shadow-xl backdrop-blur sm:block">
+                <div className="flex items-center gap-3"><div style={{ backgroundColor: `${primary}16`, color: primary }} className="flex h-10 w-10 items-center justify-center rounded-xl"><PlayCircle className="h-5 w-5" /></div><div><p className="text-xs font-black text-slate-900">Discover our school</p><p className="mt-0.5 text-[11px] font-semibold text-slate-500">A place to learn, grow and belong</p></div></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {stats && stats.cards.length > 0 && (
+        <section id={stats.id} className="relative z-20 -mt-10 px-4 sm:-mt-12 sm:px-6 lg:px-8">
+          <div className="mx-auto grid max-w-[1180px] grid-cols-2 overflow-hidden rounded-[1.75rem] border border-slate-100 bg-white shadow-[0_22px_65px_-28px_rgba(15,23,42,.3)] sm:grid-cols-4">
+            {stats.cards.slice(0, 4).map((card, index) => {
+              const color = SCHOOL_ACCENTS[index % SCHOOL_ACCENTS.length];
+              return <div key={card.id} className="flex items-center gap-3 border-b border-r border-slate-100 p-4 last:border-r-0 sm:p-5">
+                <div style={{ backgroundColor: `${color}16`, color }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl"><Icon name={card.icon || ['Users','GraduationCap','BookOpen','Trophy'][index]} /></div>
+                <div><p className="text-xl font-black leading-none text-slate-950 sm:text-2xl">{card.value || cardTitle(card)}</p><p className="mt-1 text-[11px] font-bold leading-4 text-slate-500 sm:text-xs">{card.value ? cardTitle(card) : cardText(card)}</p></div>
+              </div>;
+            })}
+          </div>
+        </section>
+      )}
+
+      {programs && (
+        <section id={programs.id} className="scroll-mt-24 bg-white px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+          <div className="mx-auto max-w-[1320px]">
+            <div className="flex items-end justify-between gap-6">
+              <div className="max-w-3xl">
+                {sectionSubtitle(programs) && <p style={{ color: primary }} className="text-xs font-black uppercase tracking-[.2em] sm:text-sm">{sectionSubtitle(programs)}</p>}
+                <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-.03em] text-slate-950 sm:text-4xl lg:text-5xl">{sectionTitle(programs)}</h2>
+                {sectionBody(programs) && <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">{sectionBody(programs)}</p>}
+              </div>
+              <div className="hidden items-center gap-2 sm:flex"><button className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white"><ChevronLeft className="h-4 w-4" /></button><button className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white"><ChevronRight className="h-4 w-4" /></button></div>
+            </div>
+            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              {programs.cards.map((card, index) => {
+                const color = SCHOOL_ACCENTS[index % SCHOOL_ACCENTS.length];
+                return <a key={card.id} href={card.link || undefined} className="group overflow-hidden rounded-[1.55rem] border border-slate-100 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
+                  {card.imageUrl ? <img loading="lazy" src={card.imageUrl} alt={cardTitle(card)} className="aspect-[5/3] w-full object-cover transition duration-500 group-hover:scale-[1.03]" /> : <div style={{ background: `linear-gradient(135deg,${color}20,#ffffff)` }} className="flex aspect-[5/3] items-center justify-center"><Icon name={card.icon || programs.icon} className="h-9 w-9" /></div>}
+                  <div className="relative p-5 pt-7">
+                    <div style={{ backgroundColor: color, boxShadow: `0 8px 22px ${color}33` }} className="absolute -top-5 left-5 flex h-10 w-10 items-center justify-center rounded-xl text-white"><Icon name={card.icon || programs.icon} className="h-5 w-5" /></div>
+                    <h3 className="text-base font-black leading-snug text-slate-950">{cardTitle(card)}</h3>
+                    {cardText(card) && <p className="mt-2 text-xs leading-5 text-slate-600">{cardText(card)}</p>}
+                    <span style={{ color }} className="mt-4 inline-flex items-center gap-1 text-xs font-black">Learn More <ArrowRight className="h-3.5 w-3.5" /></span>
+                  </div>
+                </a>;
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {about && (
+        <section id={about.id} className="scroll-mt-24 overflow-hidden bg-[linear-gradient(135deg,#f0fdfa_0%,#ffffff_48%,#eff6ff_100%)] px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+          <div className="mx-auto grid max-w-[1320px] items-center gap-10 lg:grid-cols-[.85fr_1.15fr_.65fr] lg:gap-12">
+            <div>
+              {sectionSubtitle(about) && <p style={{ color: primary }} className="text-xs font-black uppercase tracking-[.2em]">{sectionSubtitle(about)}</p>}
+              <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-.03em] text-slate-950 sm:text-4xl">{sectionTitle(about)}</h2>
+              {sectionBody(about) && <p className="mt-5 text-sm leading-7 text-slate-600 sm:text-base">{sectionBody(about)}</p>}
+              {about.buttonText && <a href={about.buttonUrl || '#contact'} style={{ backgroundColor: primary, borderRadius: radius }} className="mt-6 inline-flex items-center gap-2 px-5 py-3 text-sm font-black text-white shadow-lg">{tr(`section.${about.id}.buttonText`, about.buttonText)}<ArrowRight className="h-4 w-4" /></a>}
+            </div>
+            <div className="relative">
+              {about.imageUrl ? <img loading="lazy" src={about.imageUrl} alt={sectionTitle(about)} className="aspect-[16/10] w-full rounded-[2rem] object-cover shadow-[0_26px_70px_-35px_rgba(15,23,42,.4)]" /> : <div className="flex aspect-[16/10] items-center justify-center rounded-[2rem] bg-[linear-gradient(135deg,#dbeafe,#ecfeff_45%,#dcfce7)] shadow-sm"><Building2 style={{ color: primary }} className="h-16 w-16" /></div>}
+              <div className="absolute inset-0 flex items-center justify-center"><div className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-white/95 text-slate-800 shadow-xl"><PlayCircle className="h-7 w-7" /></div></div>
+            </div>
+            <div className="grid gap-3">
+              {(values?.cards || []).slice(0,4).map((card, index) => {
+                const color = SCHOOL_ACCENTS[(index + 2) % SCHOOL_ACCENTS.length];
+                return <div key={card.id} className="flex items-start gap-3 rounded-2xl bg-white/75 p-3 shadow-sm ring-1 ring-white"><div style={{ backgroundColor: `${color}16`, color }} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"><Icon name={card.icon || values?.icon} /></div><div><p className="text-sm font-black text-slate-900">{cardTitle(card)}</p>{cardText(card) && <p className="mt-1 text-xs leading-5 text-slate-500">{cardText(card)}</p>}</div></div>;
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {(gallery || news) && (
+        <section className="bg-white px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+          <div className="mx-auto grid max-w-[1320px] gap-10 lg:grid-cols-[1.45fr_.55fr]">
+            {gallery && <div id={gallery.id} className="scroll-mt-24">
+              {sectionSubtitle(gallery) && <p style={{ color: primary }} className="text-xs font-black uppercase tracking-[.2em]">{sectionSubtitle(gallery)}</p>}
+              <h2 className="mt-2 text-3xl font-black tracking-[-.03em] text-slate-950 sm:text-4xl">{sectionTitle(gallery)}</h2>
+              <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {gallery.cards.filter((card) => card.imageUrl).slice(0,6).map((card) => <figure key={card.id} className="group relative overflow-hidden rounded-[1.4rem] bg-slate-100"><img loading="lazy" src={card.imageUrl} alt={cardTitle(card)} className="aspect-[4/3] w-full object-cover transition duration-500 group-hover:scale-105" /><figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-3 pt-10 text-xs font-black text-white">{cardTitle(card)}</figcaption></figure>)}
+                {gallery.cards.filter((card) => card.imageUrl).length === 0 && [0,1,2,3,4,5].map((n) => <div key={n} className="flex aspect-[4/3] items-center justify-center rounded-[1.4rem] bg-gradient-to-br from-sky-50 via-white to-emerald-50"><Camera className="h-7 w-7 text-slate-300" /></div>)}
+              </div>
+            </div>}
+            {news && <div id={news.id} className="scroll-mt-24">
+              <div className="flex items-end justify-between gap-4"><div>{sectionSubtitle(news) && <p style={{ color: accent }} className="text-xs font-black uppercase tracking-[.2em]">{sectionSubtitle(news)}</p>}<h2 className="mt-2 text-3xl font-black tracking-[-.03em] text-slate-950">{sectionTitle(news)}</h2></div></div>
+              <div className="mt-7 space-y-3">
+                {news.cards.slice(0,4).map((card, index) => {
+                  const color = SCHOOL_ACCENTS[index % SCHOOL_ACCENTS.length];
+                  return <a key={card.id} href={card.link || undefined} className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm transition hover:shadow-md">
+                    <div style={{ backgroundColor: color }} className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl text-white"><CalendarDays className="h-5 w-5" /><span className="mt-1 text-[9px] font-black">{card.date || 'EVENT'}</span></div>
+                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-black text-slate-900">{cardTitle(card)}</p>{cardText(card) && <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{cardText(card)}</p>}</div><ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                  </a>;
+                })}
+                {news.cards.length === 0 && <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-semibold text-slate-400">Add school news and events from Website Management.</div>}
+              </div>
+            </div>}
+          </div>
+        </section>
+      )}
+
+      {testimonials && testimonials.cards.length > 0 && (
+        <WebsiteSectionView section={testimonials} site={site} organization={organization} tr={tr} pageSlug="" preview={preview} sessionId={sessionId} onTrack={onTrack} />
+      )}
+      {partners && partners.cards.length > 0 && (
+        <WebsiteSectionView section={partners} site={site} organization={organization} tr={tr} pageSlug="" preview={preview} sessionId={sessionId} onTrack={onTrack} />
+      )}
+      {video && video.videoUrl && (
+        <WebsiteSectionView section={video} site={site} organization={organization} tr={tr} pageSlug="" preview={preview} sessionId={sessionId} onTrack={onTrack} />
+      )}
+      {extras.map((section) => <WebsiteSectionView key={section.id} section={section} site={site} organization={organization} tr={tr} pageSlug="" preview={preview} sessionId={sessionId} onTrack={onTrack} />)}
+      {contact && (
+        <WebsiteSectionView section={contact} site={site} organization={organization} tr={tr} pageSlug="" preview={preview} sessionId={sessionId} onTrack={onTrack} />
+      )}
+    </>
   );
 }
 
@@ -613,7 +806,11 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
       </header>
 
       <main>
-        {page ? page.sections.filter((section) => section.visible).map((section) => <WebsiteSectionView key={section.id} section={section} site={site} organization={organization} tr={tr} pageSlug={pageSlug} preview={preview} sessionId={sessionId} onTrack={onTrack} />) : (
+        {page ? (
+          normalizedSlug === ''
+            ? <SchoolHomeLayout page={page} site={site} organization={organization} tr={tr} preview={preview} sessionId={sessionId} onTrack={onTrack} />
+            : page.sections.filter((section) => section.visible).map((section) => <WebsiteSectionView key={section.id} section={section} site={site} organization={organization} tr={tr} pageSlug={pageSlug} preview={preview} sessionId={sessionId} onTrack={onTrack} />)
+        ) : (
           <section className="flex min-h-[55vh] items-center justify-center px-6 text-center">
             <div><p className="text-sm font-semibold uppercase tracking-wider text-slate-400">404</p><h1 className="mt-2 text-3xl font-bold">{tr('notFound.title', 'Page not found')}</h1><a href="/" style={{ color: primary }} className="mt-4 inline-block font-semibold">{tr('notFound.home', 'Return home')}</a></div>
           </section>
