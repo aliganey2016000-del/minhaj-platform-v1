@@ -51,6 +51,12 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
   sixMonthsAgo.setDate(1);
   sixMonthsAgo.setHours(0, 0, 0, 0);
 
+  // Historical dashboard trends must never include impossible/corrupt future
+  // dates. A legacy bad enrollmentDate with a year outside MongoDB's
+  // dateToString range used to crash the whole dashboard aggregation.
+  const dashboardDateCeiling = new Date();
+  dashboardDateCeiling.setHours(23, 59, 59, 999);
+
   const [
     totalStudents,
     activeStudents,
@@ -73,7 +79,13 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
     User.countDocuments({ ...userFilter, role: 'teacher' }),
     User.countDocuments({ ...userFilter, role: 'parent' }),
     // Registration means a student registration, not creation of any User account.
-    Student.countDocuments({ ...studentFilter, enrollmentDate: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }),
+    Student.countDocuments({
+      ...studentFilter,
+      enrollmentDate: {
+        $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        $lte: dashboardDateCeiling,
+      },
+    }),
     Payment.aggregate([
       ...revenuePaymentPipeline,
       { $group: { _id: null, total: { $sum: { $max: [0, { $subtract: ['$amount', { $ifNull: ['$discount', 0] }] }] } } } },
@@ -91,7 +103,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
     ]),
     // Use Student.enrollmentDate because this is the actual registration event.
     Student.aggregate([
-      { $match: { ...studentFilter, enrollmentDate: { $gte: sixMonthsAgo } } },
+      { $match: { ...studentFilter, enrollmentDate: { $gte: sixMonthsAgo, $lte: dashboardDateCeiling } } },
       { $group: { _id: { $dateToString: { format: '%Y-%m', date: '$enrollmentDate' } }, count: { $sum: 1 } } },
       { $sort: { _id: 1 } },
     ]),
