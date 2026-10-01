@@ -312,6 +312,7 @@ function AnnualExamActionsMenu({
   onPublish,
   onDraft,
   onEdit,
+  onRules,
   onDelete,
   disabled = false,
 }: {
@@ -319,6 +320,7 @@ function AnnualExamActionsMenu({
   onPublish: () => void;
   onDraft: () => void;
   onEdit: () => void;
+  onRules: () => void;
   onDelete: () => void;
   disabled?: boolean;
 }) {
@@ -367,6 +369,9 @@ function AnnualExamActionsMenu({
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button type="button" onClick={(event) => { event.stopPropagation(); run(onEdit); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
             <Pencil className="h-4 w-4" /> Edit
+          </button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); run(onRules); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
+            <ShieldCheck className="h-4 w-4" /> Scheduling Rules
           </button>
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button type="button" onClick={(event) => { event.stopPropagation(); run(onDelete); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">
@@ -1282,7 +1287,6 @@ function ExamsActionsMenu({
   onByDepartment,
   departmentViewActive,
   scheduleContext,
-  onRules,
   onImport,
   onExport,
   exporting,
@@ -1304,7 +1308,6 @@ function ExamsActionsMenu({
     perspective: 'day' | 'class';
     busy: boolean;
   };
-  onRules: () => void;
   onImport: () => void;
   onExport: () => void;
   exporting: boolean;
@@ -1370,9 +1373,6 @@ function ExamsActionsMenu({
           </button>
 
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-          <button onClick={() => { setOpen(false); onRules(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
-            <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} /> Scheduling Rules
-          </button>
           <button onClick={() => { setOpen(false); onImport(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
             <Upload className="h-3.5 w-3.5" strokeWidth={1.75} /> Import Exams
           </button>
@@ -4899,7 +4899,6 @@ export function ExamsManage() {
                     }}
                     departmentViewActive={viewMode === 'department'}
                     scheduleContext={scheduleMenuContext}
-                    onRules={() => setShowRulesModal(true)}
                     onImport={() => setShowImportModal(true)}
                     onExport={handleExport}
                     exporting={exporting}
@@ -4981,6 +4980,10 @@ export function ExamsManage() {
                         onPublish={() => void updateAnnualPeriodStatus(period, 'published')}
                         onDraft={() => void updateAnnualPeriodStatus(period, 'draft')}
                         onEdit={() => openAnnualEdit(period)}
+                        onRules={() => {
+                          setSelectedExamPeriodId(period._id);
+                          setShowRulesModal(true);
+                        }}
                         onDelete={() => setAnnualDeletePeriod(period)}
                       />
                     </div>
@@ -5123,7 +5126,6 @@ export function ExamsManage() {
                     }}
                     departmentViewActive={viewMode === 'department'}
                     scheduleContext={scheduleMenuContext}
-                    onRules={() => setShowRulesModal(true)}
                     onImport={() => setShowImportModal(true)}
                     onExport={handleExport}
                     exporting={exporting}
