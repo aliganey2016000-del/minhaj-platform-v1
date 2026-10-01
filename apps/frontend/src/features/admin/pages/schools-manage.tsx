@@ -759,6 +759,17 @@ export function SchoolsManage() {
       };
       if (!editingSchool || adminPassword) payload.adminPassword = adminPassword;
 
+      // Org admins may edit their own organization details, including its
+      // subdomain/custom domain, but institution classification and status
+      // are platform-governed fields. Do not submit unchanged locked fields:
+      // the backend correctly rejects their presence with 403 even when the
+      // visible select is disabled.
+      if (editingSchool && !isSuperAdmin) {
+        delete payload.institutionType;
+        delete payload.organizationType;
+        delete payload.status;
+      }
+
       if (editingSchool) {
         // Update — the school identity/classification fields go through
         // PATCH /schools/:id; academic system config is a separate
