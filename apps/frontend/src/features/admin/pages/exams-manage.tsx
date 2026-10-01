@@ -313,6 +313,9 @@ function AnnualExamActionsMenu({
   onDraft,
   onEdit,
   onRules,
+  onImport,
+  onExport,
+  exporting,
   onDelete,
   disabled = false,
 }: {
@@ -321,6 +324,9 @@ function AnnualExamActionsMenu({
   onDraft: () => void;
   onEdit: () => void;
   onRules: () => void;
+  onImport: () => void;
+  onExport: () => void;
+  exporting: boolean;
   onDelete: () => void;
   disabled?: boolean;
 }) {
@@ -372,6 +378,12 @@ function AnnualExamActionsMenu({
           </button>
           <button type="button" onClick={(event) => { event.stopPropagation(); run(onRules); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
             <ShieldCheck className="h-4 w-4" /> Scheduling Rules
+          </button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); run(onImport); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)]">
+            <Upload className="h-4 w-4" /> Import Exams
+          </button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); run(onExport); }} disabled={exporting} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:cursor-not-allowed disabled:opacity-50">
+            <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export Exams'}
           </button>
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button type="button" onClick={(event) => { event.stopPropagation(); run(onDelete); }} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">
@@ -1287,9 +1299,6 @@ function ExamsActionsMenu({
   onByDepartment,
   departmentViewActive,
   scheduleContext,
-  onImport,
-  onExport,
-  exporting,
   onBulkDelete,
   selectedCount,
 }: {
@@ -1308,9 +1317,6 @@ function ExamsActionsMenu({
     perspective: 'day' | 'class';
     busy: boolean;
   };
-  onImport: () => void;
-  onExport: () => void;
-  exporting: boolean;
   onBulkDelete: () => void;
   selectedCount: number;
 }) {
@@ -1372,13 +1378,6 @@ function ExamsActionsMenu({
             <Building2 className="h-3.5 w-3.5" strokeWidth={1.75} /> View By Department
           </button>
 
-          <div className="my-1 border-t border-[var(--color-border-subtle)]" />
-          <button onClick={() => { setOpen(false); onImport(); }} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors">
-            <Upload className="h-3.5 w-3.5" strokeWidth={1.75} /> Import Exams
-          </button>
-          <button onClick={() => { setOpen(false); onExport(); }} disabled={exporting} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50 transition-colors">
-            <Download className="h-3.5 w-3.5" strokeWidth={1.75} /> {exporting ? 'Exporting...' : 'Export Data'}
-          </button>
           <div className="my-1 border-t border-[var(--color-border-subtle)]" />
           <button onClick={() => { setOpen(false); onBulkDelete(); }} disabled={selectedCount === 0} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
             <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Bulk Delete{selectedCount > 0 ? ` (${selectedCount})` : ''}
@@ -2252,7 +2251,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 interface ImportResult { totalRows: number; created: number; failed: number; errors: { row: number; message: string }[]; }
 
-function ExamsImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+function ExamsImportModal({ period, onClose, onImported }: { period: ExamPeriod; onClose: () => void; onImported: () => void }) {
   const [mode, setMode] = useState<'upload' | 'paste'>('upload');
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -2296,7 +2295,10 @@ function ExamsImportModal({ onClose, onImported }: { onClose: () => void; onImpo
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const { data } = await api.post('/exams/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const { data } = await api.post('/exams/import', formData, {
+        params: { period: period._id },
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
       setResult(data.data);
       if (data.data?.created > 0) {
         onImported();
@@ -2335,8 +2337,10 @@ function ExamsImportModal({ onClose, onImported }: { onClose: () => void; onImpo
         <div className="border-b border-[var(--color-border-subtle)] px-6 py-5">
           <div className="flex items-start justify-between">
             <div>
-              <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Import Exams</h2>
-              <p className="text-sm text-[var(--color-text-tertiary)] mt-1">Import period-aware schedules into the same records used by List and Table Grid.</p>
+              <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Import {period.name}</h2>
+              <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
+                Imported rows will be assigned to {period.name} · {period.academicYear}.
+              </p>
             </div>
             <button onClick={onClose} disabled={importing} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors">
               <X className="h-5 w-5" strokeWidth={2} />
@@ -4402,7 +4406,7 @@ export function ExamsManage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
+  const [importPeriod, setImportPeriod] = useState<ExamPeriod | null>(null);
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -4607,17 +4611,21 @@ export function ExamsManage() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = async (period: ExamPeriod) => {
     setExporting(true);
     try {
       const token = localStorage.getItem('accessToken') || '';
-      const response = await fetch(api.defaults.baseURL + '/exams/export', { headers: { Authorization: 'Bearer ' + token } });
+      const params = new URLSearchParams({ period: period._id });
+      const response = await fetch(api.defaults.baseURL + '/exams/export?' + params.toString(), {
+        headers: { Authorization: 'Bearer ' + token },
+      });
       if (!response.ok) throw new Error('Export failed');
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
+      const safeName = period.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'exam';
       link.href = url;
-      link.download = 'exams-export-' + new Date().toISOString().slice(0, 10) + '.xlsx';
+      link.download = safeName + '-' + period.academicYear.replace(/\//g, '-') + '-export-' + new Date().toISOString().slice(0, 10) + '.xlsx';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -4899,9 +4907,6 @@ export function ExamsManage() {
                     }}
                     departmentViewActive={viewMode === 'department'}
                     scheduleContext={scheduleMenuContext}
-                    onImport={() => setShowImportModal(true)}
-                    onExport={handleExport}
-                    exporting={exporting}
                     onBulkDelete={() => setShowBulkDeleteModal(true)}
                     selectedCount={selected.size}
                   />
@@ -4984,6 +4989,9 @@ export function ExamsManage() {
                           setSelectedExamPeriodId(period._id);
                           setShowRulesModal(true);
                         }}
+                        onImport={() => setImportPeriod(period)}
+                        onExport={() => void handleExport(period)}
+                        exporting={exporting}
                         onDelete={() => setAnnualDeletePeriod(period)}
                       />
                     </div>
@@ -5072,7 +5080,7 @@ export function ExamsManage() {
           </div>
         )}
 
-        {showImportModal && <ExamsImportModal onClose={() => setShowImportModal(false)} onImported={() => {
+        {importPeriod && <ExamsImportModal period={importPeriod} onClose={() => setImportPeriod(null)} onImported={() => {
           void fetchData();
           void fetchExamPeriods();
           setScheduleContextRefreshKey((value) => value + 1);
@@ -5126,9 +5134,6 @@ export function ExamsManage() {
                     }}
                     departmentViewActive={viewMode === 'department'}
                     scheduleContext={scheduleMenuContext}
-                    onImport={() => setShowImportModal(true)}
-                    onExport={handleExport}
-                    exporting={exporting}
                     onBulkDelete={() => setShowBulkDeleteModal(true)}
                     selectedCount={selected.size}
                   />
@@ -5307,7 +5312,7 @@ export function ExamsManage() {
       {showCreate && <ExamModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); fetchData(); }} />}
       {editingExam && <ExamModal exam={editingExam} onClose={() => setEditingExam(undefined)} onSaved={() => { setEditingExam(undefined); fetchData(); }} />}
       {viewingExam && <ViewModal exam={viewingExam} onClose={() => setViewingExam(undefined)} />}
-      {showImportModal && <ExamsImportModal onClose={() => setShowImportModal(false)} onImported={() => {
+      {importPeriod && <ExamsImportModal period={importPeriod} onClose={() => setImportPeriod(null)} onImported={() => {
         void fetchData();
         void fetchExamPeriods();
         setScheduleContextRefreshKey((value) => value + 1);

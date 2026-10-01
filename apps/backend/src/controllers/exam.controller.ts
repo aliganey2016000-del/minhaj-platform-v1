@@ -2054,6 +2054,10 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
   const ownOrgId = resolveOrgIdForCreate(req) as string | undefined;
   const createdBy = req.user!.userId;
+  const requestedPeriodRaw = String(req.query?.period || '').trim();
+  if (requestedPeriodRaw && !/^[a-f\d]{24}$/i.test(requestedPeriodRaw)) {
+    throw new BadRequestError('Invalid exam period');
+  }
 
   let schoolIdByName: Map<string, string> | null = null;
   if (!ownOrgId) {
@@ -2111,6 +2115,14 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       period
     );
     periodsById.set(String(period._id), period);
+  }
+
+  const forcedPeriodDoc = requestedPeriodRaw ? periodsById.get(requestedPeriodRaw) || null : null;
+  if (requestedPeriodRaw && !forcedPeriodDoc) {
+    throw new BadRequestError('The selected exam period was not found for this organization');
+  }
+  if (forcedPeriodDoc?.status === 'closed') {
+    throw new BadRequestError('The selected exam period is closed and cannot be imported into');
   }
 
   const existingExams = await Exam.find(
@@ -2192,15 +2204,26 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
       if (!courseTitle) throw new Error('Course Title is required');
       if (!examDateRaw) throw new Error('Exam Date is required');
-      if (!!periodName !== !!academicYear) {
+      if (!forcedPeriodDoc && !!periodName !== !!academicYear) {
         throw new Error('Exam Period and Academic Year must be provided together');
       }
 
-      let schoolId: string | undefined = ownOrgId;
+      let schoolId: string | undefined = forcedPeriodDoc
+        ? String(forcedPeriodDoc.school)
+        : ownOrgId;
       if (!schoolId) {
         if (!schoolName) throw new Error('Organization is required');
         schoolId = schoolIdByName!.get(normalizeImportText(schoolName));
         if (!schoolId) throw new Error(`Organization "${schoolName}" not found`);
+      }
+
+      if (forcedPeriodDoc) {
+        if (periodName && normalizeImportText(periodName) !== normalizeImportText(forcedPeriodDoc.name)) {
+          throw new Error(`This import is for "${forcedPeriodDoc.name}", but the row says "${periodName}"`);
+        }
+        if (academicYear && normalizeImportText(academicYear) !== normalizeImportText(forcedPeriodDoc.academicYear)) {
+          throw new Error(`This import is for academic year "${forcedPeriodDoc.academicYear}", but the row says "${academicYear}"`);
+        }
       }
 
       let classId = '';
@@ -2270,15 +2293,15 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const passingMarks = Number(passingMarksRaw);
       if (!passingMarks || passingMarks <= 0) throw new Error('Passing Marks must be a positive number');
 
-      let periodDoc: any = null;
-      if (periodName && academicYear) {
+      let periodDoc: any = forcedPeriodDoc || null;
+      if (!periodDoc && periodName && academicYear) {
         periodDoc = periodsByKey.get(importPeriodKey(String(schoolId), periodName, academicYear, term)) || null;
         if (periodDoc?.status === 'closed') {
           throw new Error(`Exam Period "${periodName}" is closed and cannot be imported into`);
         }
       }
 
-      const examTitle = examTitleRaw || periodName;
+      const examTitle = examTitleRaw || periodDoc?.name || periodName;
       if (!examTitle) throw new Error('Exam Title is required');
 
       if (periodDoc) {
@@ -2328,7 +2351,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
         pending: pendingSchedules,
       });
 
-      if (periodName && academicYear && !periodDoc) {
+      if (!forcedPeriodDoc && periodName && academicYear && !periodDoc) {
         if (req.user?.role === 'teacher') {
           throw new Error(`Exam Period "${periodName}" does not exist. Ask an administrator to create it first`);
         }
