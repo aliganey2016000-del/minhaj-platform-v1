@@ -606,15 +606,31 @@ schoolSchema.statics.findByHost = async function (
     return null;
   }
 
-  const school = await this.findOne({
-    $or: [{ slug: subdomain }, { subdomain }],
+  // Resolve managed platform hostnames deterministically:
+  // customDomain (above) -> explicit subdomain -> legacy/generated slug.
+  // Do not use one $or query here: two different organizations may
+  // legitimately have A.subdomain === B.slug, and MongoDB does not define
+  // which matching document an unordered findOne($or) should return.
+  const bySubdomain = await this.findOne({
+    subdomain,
     status: 'active',
   })
     .select('slug subdomain customDomain name institutionType organizationType branding')
     .lean();
 
-  if (!school) return null;
-  return { ...school, institutionType: resolveInstitutionType(school) } as TenantBranding;
+  if (bySubdomain) {
+    return { ...bySubdomain, institutionType: resolveInstitutionType(bySubdomain) } as TenantBranding;
+  }
+
+  const bySlug = await this.findOne({
+    slug: subdomain,
+    status: 'active',
+  })
+    .select('slug subdomain customDomain name institutionType organizationType branding')
+    .lean();
+
+  if (!bySlug) return null;
+  return { ...bySlug, institutionType: resolveInstitutionType(bySlug) } as TenantBranding;
 };
 
 // ---------------------------------------------------------------------------

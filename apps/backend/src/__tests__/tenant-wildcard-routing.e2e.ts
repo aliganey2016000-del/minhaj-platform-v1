@@ -37,6 +37,33 @@ async function main() {
     assert.equal((await School.findByHost('balcad.sahaledu.com'))?.slug, 'balcad-school');
     assert.equal((await School.findByHost('balcad-school.sahaledu.com'))?.slug, 'balcad-school');
 
+    // Explicit subdomain must win over another organization's slug when the
+    // same label exists in both fields.
+    await School.collection.insertMany([
+      {
+        _id: new mongoose.Types.ObjectId(),
+        name: 'Explicit Subdomain School',
+        slug: 'explicit-subdomain-school',
+        subdomain: 'priority-host',
+        status: 'active',
+        institutionType: 'school',
+        branding: {},
+      },
+      {
+        _id: new mongoose.Types.ObjectId(),
+        name: 'Legacy Slug School',
+        slug: 'priority-host',
+        subdomain: 'legacy-slug-school',
+        status: 'active',
+        institutionType: 'school',
+        branding: {},
+      },
+    ] as any[]);
+    assert.equal(
+      (await School.findByHost('priority-host.sahaledu.com'))?.slug,
+      'explicit-subdomain-school',
+    );
+
     // Managed slugs must never resolve on an unrelated or nested hostname.
     assert.equal(await School.findByHost('balcad.attacker.example'), null);
     assert.equal(await School.findByHost('x.balcad.sahaledu.com'), null);
@@ -87,7 +114,7 @@ async function main() {
     assert.equal(root.status, 200, JSON.stringify(root.body));
     assert.equal(root.body.slug, null);
 
-    console.log('PASS: wildcard tenant routing, custom domains, host isolation and DNS mode');
+    console.log('PASS: wildcard tenant routing, customDomain -> subdomain -> slug precedence, host isolation and DNS mode');
   } finally {
     await mongoose.disconnect();
     await mongo.stop();
