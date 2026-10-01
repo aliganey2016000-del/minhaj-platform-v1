@@ -89,6 +89,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState(false);
+  const [sessionAttempt, setSessionAttempt] = useState(0);
 
   // Expose only the current authenticated role to the document so global
   // UI guards can make security-sensitive controls read-only without
@@ -134,7 +136,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.role]);
 
   useEffect(() => {
+    const controller = new AbortController();
     const checkAuth = async () => {
+      setIsLoading(true);
+      setSessionError(false);
       const token = localStorage.getItem('accessToken');
       if (!token) {
         setIsLoading(false);
@@ -142,18 +147,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const { data } = await api.get('/auth/me');
+        const { data } = await api.get('/auth/me', { timeout: 15_000, signal: controller.signal });
+        if (controller.signal.aborted) return;
         if (!localStorage.getItem('loginSessionId')) localStorage.setItem('loginSessionId', newLoginSessionId());
         setUser(normalizeUser(data.data?.user));
-      } catch {
-        clearAuthStorage();
+      } catch (err: any) {
+        if (controller.signal.aborted) return;
+        if (err?.response?.status === 401) {
+          clearAuthStorage();
+          setUser(null);
+        } else {
+          setSessionError(true);
+        }
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     };
 
-    checkAuth();
-  }, []);
+    void checkAuth();
+    return () => controller.abort();
+  }, [sessionAttempt]);
 
   const login = useCallback(async (email: string, password: string) => {
     setError(null);
@@ -161,6 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data } = await api.post('/auth/login', { email, password }, {
         headers: { 'X-Login-Session-Id': loginSessionId },
+        timeout: 30_000,
       });
 
       if (data.success) {
@@ -191,6 +205,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         preferredLanguage: formData.preferredLanguage || 'en',
       }, {
         headers: { 'X-Login-Session-Id': loginSessionId },
+        timeout: 30_000,
       });
 
       if (data.success) {
@@ -245,7 +260,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearError,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{sessionError ? (
+    <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-primary)] p-6">
+      <div role="alert" className="max-w-sm rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-6 text-center shadow-sm">
+        <h1 className="text-lg font-bold">Unable to verify your session</h1>
+        <p className="mt-2 text-sm text-[var(--color-text-secondary)]">The connection is taking longer than expected. Please check your internet connection and try again.</p>
+        <button type="button" onClick={() => setSessionAttempt(attempt => attempt + 1)} className="mt-5 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white">Try again</button>
+      </div>
+    </div>
+  ) : children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

@@ -15,6 +15,9 @@ let cachedDepartmentsKey = '';
 let cachedDepartmentsArray: unknown[] | null = null;
 
 api.interceptors.request.use((config) => {
+  // Bound read requests so a stalled server cannot leave pages loading forever.
+  // Keep long-running writes/imports on their existing timeout policy.
+  if (config.method?.toLowerCase() === 'get' && !config.timeout) config.timeout = 30_000;
   const token = localStorage.getItem('accessToken');
   if (token) config.headers.Authorization = `Bearer ${token}`;
 
@@ -43,7 +46,7 @@ let refreshPromise: Promise<string | null> | null = null;
 function refreshAccessToken(): Promise<string | null> {
   if (!refreshPromise) {
     refreshPromise = axios
-      .post(`${API_URL}/auth/refresh-token`, {}, { withCredentials: true })
+      .post(`${API_URL}/auth/refresh-token`, {}, { withCredentials: true, timeout: 15_000 })
       .then(({ data }) => data.data?.accessToken || null)
       .finally(() => { refreshPromise = null; });
   }
@@ -68,8 +71,14 @@ api.interceptors.response.use(
     const originalRequest = error.config;
     const isAuthEndpoint = AUTH_ENDPOINTS_EXEMPT_FROM_REFRESH.some((path) => originalRequest?.url?.includes(path));
 
-    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
+      // A late 401 may belong to the token another request already refreshed.
+      const currentToken = localStorage.getItem('accessToken');
+      if (currentToken && originalRequest.headers?.Authorization !== `Bearer ${currentToken}`) {
+        originalRequest.headers.Authorization = `Bearer ${currentToken}`;
+        return api(originalRequest);
+      }
       try {
         const newToken = await refreshAccessToken();
         if (newToken) {
@@ -78,6 +87,10 @@ api.interceptors.response.use(
           return api(originalRequest);
         }
       } catch (refreshError) {
+        // Network failures, rate limits and server errors do not invalidate a session.
+        if (!axios.isAxiosError(refreshError) || refreshError.response?.status !== 401) {
+          return Promise.reject(refreshError);
+        }
         localStorage.removeItem('accessToken');
         localStorage.removeItem('loginSessionId');
         const from = window.location.pathname + window.location.search;
