@@ -95,6 +95,22 @@ registerRoute(({ url }) => url.pathname.startsWith('/socket.io/'), new NetworkOn
 
 registerRoute(({ url }) => /\/api\//i.test(url.pathname), new NetworkOnly());
 
+// Cache application code only after it is actually requested. Build output uses
+// content-hashed filenames, so CacheFirst is safe across deployments while
+// avoiding the previous install-time download of every route chunk.
+registerRoute(
+  ({ request, url }) =>
+    url.origin === self.location.origin &&
+    (request.destination === 'script' || request.destination === 'style'),
+  new CacheFirst({
+    cacheName: 'app-code-runtime',
+    plugins: [
+      new ExpirationPlugin({ maxEntries: 120, maxAgeSeconds: 60 * 60 * 24 * 30 }),
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
+    ],
+  })
+);
+
 registerRoute(
   ({ url }) => /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(url.pathname),
   new CacheFirst({
