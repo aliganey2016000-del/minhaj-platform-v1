@@ -79,6 +79,9 @@ jobs:
       - name: Wildcard tenant routing regression
         run: npx ts-node --files src/__tests__/tenant-wildcard-routing.e2e.ts
 
+      - name: Organization custom domain clearing regression
+        run: npx ts-node --files src/__tests__/school-custom-domain-clear.e2e.ts
+
       - name: User Management orphan cleanup tests
         run: npm run test:user-orphan-cleanup
 

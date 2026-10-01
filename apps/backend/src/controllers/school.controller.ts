@@ -355,6 +355,19 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const adminPassword = updates.adminPassword as string | undefined;
   delete updates.adminPassword;
 
+  // An empty Custom Domain from the edit form means "remove the custom
+  // domain and use the managed <subdomain>.sahaledu.com hostname again".
+  // Do not write an empty string into a sparse unique field: it both fails
+  // the domain validator and can create uniqueness conflicts across orgs.
+  const clearCustomDomain =
+    Object.prototype.hasOwnProperty.call(updates, 'customDomain') &&
+    !String(updates.customDomain ?? '').trim();
+  if (clearCustomDomain) {
+    delete updates.customDomain;
+  } else if (Object.prototype.hasOwnProperty.call(updates, 'customDomain')) {
+    updates.customDomain = String(updates.customDomain).trim().toLowerCase();
+  }
+
   if (req.user?.role === 'org_admin') {
     if (req.params.id !== req.user.organizationId) {
       throw new ForbiddenError("You do not have permission to update another organization.");
@@ -448,9 +461,14 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     }
   }
 
+  const updateOperation: Record<string, unknown> = { $set: updates };
+  if (clearCustomDomain) {
+    updateOperation.$unset = { customDomain: 1 };
+  }
+
   const school = await School.findByIdAndUpdate(
     req.params.id,
-    updates,
+    updateOperation,
     { new: true, runValidators: true }
   )
     .populate('createdBy', 'email')

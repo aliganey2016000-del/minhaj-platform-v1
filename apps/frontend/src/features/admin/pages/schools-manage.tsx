@@ -164,7 +164,7 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
 
   return (
     <div
-      className={`fixed top-4 right-4 z-50 flex items-center gap-3 rounded-xl px-5 py-3 text-sm font-medium shadow-lg animate-slide-in ${
+      className={`fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+1rem)] z-[100] flex items-center gap-3 rounded-xl px-5 py-3 text-sm font-medium shadow-lg animate-slide-in sm:left-auto sm:right-4 sm:max-w-md ${
         type === 'success'
           ? 'bg-green-50 text-green-800 border border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800'
           : 'bg-red-50 text-red-800 border border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800'
@@ -568,8 +568,16 @@ export function SchoolsManage() {
 
     if (include('customDomain') && form.customDomain.trim()) {
       const domain = form.customDomain.trim().toLowerCase();
+      const baseDomain = String(import.meta.env.VITE_BASE_DOMAIN || 'sahaledu.com')
+        .replace(/^https?:\/\//, '')
+        .replace(/:\d+$/, '')
+        .replace(/^www\./, '')
+        .replace(/\/$/, '')
+        .toLowerCase();
       if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)) {
         errors.customDomain = 'Enter a plain domain, e.g. yourschool.edu (no https:// or trailing slash)';
+      } else if (domain === baseDomain || domain === `www.${baseDomain}` || domain.endsWith(`.${baseDomain}`)) {
+        errors.customDomain = `Use Subdomain / Slug for ${baseDomain} addresses and leave Custom Domain blank`;
       }
     }
 
@@ -638,7 +646,18 @@ export function SchoolsManage() {
   const validate = (): boolean => {
     const errors = collectErrors();
     setFormErrors(errors);
-    return Object.keys(errors).length === 0;
+    const fields = Object.keys(errors) as (keyof SchoolFormData)[];
+    if (fields.length > 0) {
+      const firstField = fields[0];
+      showToast(String(errors[firstField] || 'Please correct the highlighted fields'), 'error');
+      window.requestAnimationFrame(() => {
+        const element = document.querySelector(`[name="${String(firstField)}"]`) as HTMLElement | null;
+        element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element?.focus();
+      });
+      return false;
+    }
+    return true;
   };
 
   // ── Field change handler ──
@@ -776,6 +795,7 @@ export function SchoolsManage() {
         // document (AcademicStructure) updated through its own endpoint.
         const { data } = await api.patch(`/schools/${editingSchool._id}`, payload);
         if (data.success) {
+          let structureWarning = '';
           try {
             await api.patch('/classes/academic-structure', {
               schoolId: editingSchool._id,
@@ -784,9 +804,14 @@ export function SchoolsManage() {
               usesFaculty,
             });
           } catch (structureErr: any) {
-            showToast(structureErr.response?.data?.message || 'Organization updated, but academic setup could not be saved', 'error');
+            structureWarning =
+              structureErr.response?.data?.message ||
+              'Organization updated, but academic setup could not be saved';
           }
-          showToast(data.message || 'Organization updated successfully', 'success');
+          showToast(
+            structureWarning || data.message || 'Organization updated successfully',
+            structureWarning ? 'error' : 'success',
+          );
           setModalOpen(false);
           fetchSchools();
         } else {
@@ -1155,7 +1180,7 @@ export function SchoolsManage() {
                     maxLength={255}
                   />
                   <p className="-mt-2 text-xs text-[var(--color-text-tertiary)]">
-                    Point this domain's DNS at the platform first — ask an administrator to add it in the hosting dashboard so a certificate can be issued. Once that's done, the portal (and "Add to Home Screen" on mobile) will use this domain instead of the subdomain above.
+                    For Sahal subdomains such as <strong>balcad.sahaledu.com</strong>, use <strong>Subdomain / Slug</strong> above and leave this field blank. Use Custom Domain only for an external domain such as <strong>yourSchool.edu</strong>.
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormInput label="Country" name="country" value={form.country} error={formErrors.country} onChange={handleChange} placeholder="e.g., Somalia" required />
