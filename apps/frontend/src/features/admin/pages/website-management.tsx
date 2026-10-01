@@ -6,6 +6,7 @@ import {
   Video, X,
 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { WebsitePreview } from '../../../components/website/website-preview';
 import { useAuth } from '../../../store/auth-context';
 import {
   WebsiteRenderer,
@@ -58,6 +59,9 @@ const SECTION_PRESETS: Array<{ type: WebsiteSectionType; label: string; descript
   { type: 'about', label: 'About', description: 'Institution story and supporting image' },
   { type: 'services', label: 'Services', description: 'Service cards with icons and links' },
   { type: 'programs', label: 'Programs', description: 'Courses, programmes or departments' },
+  { type: 'news', label: 'News & Events', description: 'Dated updates, announcements and events' },
+  { type: 'staff', label: 'Staff', description: 'People, photos, roles and biographies' },
+  { type: 'partners', label: 'Partners', description: 'Partner names and logos' },
   { type: 'stats', label: 'Statistics', description: 'Numbers and impact indicators' },
   { type: 'gallery', label: 'Gallery', description: 'Responsive image gallery' },
   { type: 'video', label: 'Video', description: 'Uploaded or YouTube/Vimeo video' },
@@ -107,6 +111,7 @@ function defaultSection(type: WebsiteSectionType): WebsiteSection {
     faq: 'Frequently Asked Questions',
     contact: 'Contact Us',
     custom: 'New Section',
+    news: 'News & Events', staff: 'Our Team', partners: 'Our Partners',
   };
   const section: WebsiteSection = {
     id: makeId(type),
@@ -124,7 +129,7 @@ function defaultSection(type: WebsiteSectionType): WebsiteSection {
     visible: true,
     cards: [],
   };
-  if (['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq'].includes(type)) {
+  if (['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'staff', 'partners'].includes(type)) {
     section.cards = [defaultCard(type), defaultCard(type), defaultCard(type)];
   }
   return section;
@@ -202,7 +207,18 @@ function LinkEditor({ items, onChange, title }: { items: WebsiteLink[]; onChange
   );
 }
 
-function CardEditor({ section, onChange }: { section: WebsiteSection; onChange: (cards: WebsiteCard[]) => void }) {
+function ImageField({ value, onChange, media }: { value: string; onChange: (url: string) => void; media: WebsiteMediaItem[] }) {
+  return <div className="space-y-2">
+    <input aria-label="Image URL" className={fieldClass} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Image URL or choose uploaded media" />
+    <select aria-label="Choose uploaded image" className={fieldClass} value="" onChange={(e) => { if (e.target.value) onChange(e.target.value); }}>
+      <option value="">Choose from uploaded images…</option>
+      {media.filter((item) => item.type === 'image').map((item) => <option key={item.id} value={item.url}>{item.name}</option>)}
+    </select>
+    {value && <img src={value} alt="Selected image" className="h-20 max-w-full rounded-lg object-contain" />}
+  </div>;
+}
+
+function CardEditor({ section, onChange, media }: { section: WebsiteSection; onChange: (cards: WebsiteCard[]) => void; media: WebsiteMediaItem[] }) {
   const update = (index: number, patch: Partial<WebsiteCard>) => onChange(section.cards.map((card, i) => i === index ? { ...card, ...patch } : card));
   const add = () => onChange([...section.cards, defaultCard(section.type)]);
   return (
@@ -220,11 +236,13 @@ function CardEditor({ section, onChange }: { section: WebsiteSection; onChange: 
             ) : (
               <div className="grid gap-2 sm:grid-cols-2">
                 <input className={fieldClass} value={card.title} onChange={(e) => update(index, { title: e.target.value })} placeholder={section.type === 'testimonials' ? 'Person name' : 'Title'} />
+                {section.type === 'news' && <input aria-label="Date" type="date" className={fieldClass} value={card.date || ''} onChange={(e) => update(index, { date: e.target.value })} />}
+                {['staff', 'testimonials'].includes(section.type) && <input className={fieldClass} value={card.role || ''} onChange={(e) => update(index, { role: e.target.value })} placeholder="Role or organization" />}
                 {section.type === 'stats' && <input className={fieldClass} value={card.value || ''} onChange={(e) => update(index, { value: e.target.value })} placeholder="Value e.g. 2,500+" />}
                 {!['gallery', 'stats'].includes(section.type) && <input className={fieldClass} value={card.icon || ''} onChange={(e) => update(index, { icon: e.target.value })} placeholder="Icon: BookOpen, Users..." />}
-                {['gallery', 'services', 'programs', 'testimonials'].includes(section.type) && <input className={fieldClass} value={card.imageUrl || ''} onChange={(e) => update(index, { imageUrl: e.target.value })} placeholder="Image URL" />}
+                {['gallery', 'services', 'programs', 'testimonials', 'news', 'staff', 'partners'].includes(section.type) && <ImageField value={card.imageUrl || ''} onChange={(imageUrl) => update(index, { imageUrl })} media={media} />}
                 {section.type !== 'gallery' && <textarea className={`${fieldClass} sm:col-span-2`} rows={2} value={card.text} onChange={(e) => update(index, { text: e.target.value })} placeholder="Description" />}
-                {['services', 'programs'].includes(section.type) && <input className={`${fieldClass} sm:col-span-2`} value={card.link || ''} onChange={(e) => update(index, { link: e.target.value })} placeholder="Optional link" />}
+                {['services', 'programs', 'news', 'staff', 'partners'].includes(section.type) && <input className={`${fieldClass} sm:col-span-2`} value={card.link || ''} onChange={(e) => update(index, { link: e.target.value })} placeholder="Optional link" />}
               </div>
             )}
           </div>
@@ -254,6 +272,14 @@ export function WebsiteManagement() {
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const loadSequence = useRef(0);
+  const [savedContent, setSavedContent] = useState('');
+  const dirty = !!site && JSON.stringify(site) !== savedContent;
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
 
   useEffect(() => {
     if (!isSuperAdmin) return;
@@ -274,14 +300,19 @@ export function WebsiteManagement() {
   }, [user]);
 
   const loadConfig = useCallback(async () => {
-    if (!selectedSchoolId) return;
+    const sequence = ++loadSequence.current;
+    setSite(null);
+    setOrganization(null);
+    if (!selectedSchoolId) { setLoading(false); return; }
     setLoading(true);
     setNotice(null);
     try {
       const { data } = await api.get('/website-management', { params: { schoolId: selectedSchoolId } });
+      if (sequence !== loadSequence.current) return;
       const config = data.data as ConfigResponse;
       setOrganization(config.school);
       setSite(config.draft);
+      setSavedContent(JSON.stringify(config.draft));
       setIsPublished(config.isPublished);
       setPublishedAt(config.publishedAt || null);
       setVersion(config.version || 1);
@@ -289,9 +320,9 @@ export function WebsiteManagement() {
       setActivePageId(config.draft.pages[0]?.id || '');
       setActiveSectionId(config.draft.pages[0]?.sections[0]?.id || '');
     } catch (err: any) {
-      setNotice({ type: 'error', text: err.response?.data?.message || 'Failed to load website configuration.' });
+      if (sequence === loadSequence.current) setNotice({ type: 'error', text: err.response?.data?.message || 'Failed to load website configuration.' });
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, [selectedSchoolId]);
 
@@ -318,6 +349,7 @@ export function WebsiteManagement() {
       const { data } = await api.put('/website-management', { schoolId: selectedSchoolId, site });
       const config = data.data as ConfigResponse;
       setSite(config.draft);
+      setSavedContent(JSON.stringify(config.draft));
       setVersion(config.version || version + 1);
       if (!silent) setNotice({ type: 'success', text: 'Draft saved successfully.' });
       return true;
@@ -364,6 +396,8 @@ export function WebsiteManagement() {
     try {
       const { data } = await api.post('/website-management/reset', { schoolId: selectedSchoolId });
       setSite(data.data.draft);
+      setSavedContent(JSON.stringify(data.data.draft));
+      setVersion(data.data.version);
       setActivePageId(data.data.draft.pages[0]?.id || '');
       setActiveSectionId(data.data.draft.pages[0]?.sections[0]?.id || '');
       setNotice({ type: 'success', text: 'Draft reset to the starter template.' });
@@ -447,7 +481,7 @@ export function WebsiteManagement() {
       const item = data.data as WebsiteMediaItem;
       updateSite((current) => ({ ...current, media: [item, ...current.media] }));
       const optimizedNote = optimized.size < file.size ? ` Image optimized from ${Math.round(file.size / 1024)} KB to ${Math.round(optimized.size / 1024)} KB.` : '';
-      setNotice({ type: 'success', text: `Media uploaded to ${item.storageProvider === 'r2' ? 'Cloudflare R2' : 'storage'}.${optimizedNote} Save Draft to keep the library reference.` });
+      setNotice({ type: 'success', text: `Media uploaded to ${item.storageProvider === 'r2' ? 'Cloudflare R2' : 'storage'}.${optimizedNote} Choose it from any image field.` });
     } catch (err: any) {
       setNotice({ type: 'error', text: err.response?.data?.message || 'Media upload failed.' });
     } finally {
@@ -470,9 +504,13 @@ export function WebsiteManagement() {
 
   const replaceDraft = (draft: WebsiteSiteDocument, nextVersion?: number) => {
     setSite(draft);
+    setSavedContent(JSON.stringify(draft));
     setActivePageId(draft.pages[0]?.id || '');
     setActiveSectionId(draft.pages[0]?.sections[0]?.id || '');
     if (nextVersion) setVersion(nextVersion);
+    api.get('/website-management', { params: { schoolId: selectedSchoolId } }).then(({ data }) => {
+      setIsPublished(data.data.isPublished); setPublishedAt(data.data.publishedAt || null);
+    }).catch(() => undefined);
   };
 
   const domain = organization
@@ -491,8 +529,8 @@ export function WebsiteManagement() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {isPublished && domain && <a href={`https://${domain}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2.5 text-sm font-semibold"><Eye className="h-4 w-4" />View live</a>}
-            <button type="button" onClick={() => saveDraft()} disabled={!site || saving} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2.5 text-sm font-semibold disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save Draft</button>
-            <button type="button" onClick={publish} disabled={!site || publishing} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 disabled:opacity-50">{publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe2 className="h-4 w-4" />}Publish</button>
+            <button type="button" onClick={() => saveDraft()} disabled={!site || saving || publishing || uploading} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2.5 text-sm font-semibold disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save Draft</button>
+            <button type="button" onClick={publish} disabled={!site || publishing || saving || uploading} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 disabled:opacity-50">{publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe2 className="h-4 w-4" />}Publish</button>
             <div className="relative group"><button type="button" className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-2.5"><MoreVertical className="h-4 w-4" /></button><div className="invisible absolute right-0 top-full z-30 mt-1 w-44 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-1 opacity-0 shadow-lg transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">{isPublished && <button type="button" onClick={unpublish} className="block w-full px-3 py-2 text-left text-xs font-medium hover:bg-[var(--color-surface-tertiary)]">Unpublish website</button>}<button type="button" onClick={resetDraft} className="block w-full px-3 py-2 text-left text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20">Reset draft</button></div></div>
           </div>
         </div>
@@ -502,21 +540,21 @@ export function WebsiteManagement() {
             <div>
               <label className={labelClass}>Organization</label>
               {isSuperAdmin ? (
-                <select value={selectedSchoolId} onChange={(e) => setSelectedSchoolId(e.target.value)} className={fieldClass}>
+                <select value={selectedSchoolId} disabled={saving || publishing || uploading} onChange={(e) => { if (!dirty || window.confirm('Discard unsaved website changes?')) setSelectedSchoolId(e.target.value); }} className={fieldClass}>
                   <option value="">Select organization...</option>
                   {schools.map((school) => <option key={school._id} value={school._id}>{school.name}</option>)}
                 </select>
               ) : <div className={`${fieldClass} bg-[var(--color-surface-tertiary)]`}>{organization?.name || user?.organizationName || 'Your organization'}</div>}
             </div>
             <div><label className={labelClass}>Domain</label><div className={`${fieldClass} flex items-center gap-2 overflow-hidden bg-[var(--color-surface-tertiary)]`}><Globe2 className="h-4 w-4 shrink-0" /><span className="truncate">{domain || 'No domain assigned'}</span></div></div>
-            <div className="flex items-center gap-2 pb-1"><span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${isPublished ? 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'}`}><span className={`h-2 w-2 rounded-full ${isPublished ? 'bg-green-500' : 'bg-amber-500'}`} />{isPublished ? 'Published' : 'Draft only'}</span><span className="text-xs text-[var(--color-text-tertiary)]">v{version}</span></div>
+            <div className="flex items-center gap-2 pb-1"><span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${isPublished ? 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'}`}><span className={`h-2 w-2 rounded-full ${isPublished ? 'bg-green-500' : 'bg-amber-500'}`} />{dirty ? 'Unsaved changes' : isPublished ? 'Published · draft editable' : 'Draft only'}</span><span className="text-xs text-[var(--color-text-tertiary)]">v{version}</span></div>
           </div>
           {publishedAt && <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">Last published {new Date(publishedAt).toLocaleString()}</p>}
         </div>
 
         {notice && <div className={`mb-5 flex items-start justify-between gap-3 rounded-xl border p-3.5 text-sm ${notice.type === 'success' ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/50 dark:bg-green-950/20 dark:text-green-300' : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300'}`}><span>{notice.text}</span><button onClick={() => setNotice(null)}><X className="h-4 w-4" /></button></div>}
 
-        {site && organization && <>
+        {site && organization && <fieldset disabled={saving || publishing || uploading} className="min-w-0">
           <div className="mb-5 overflow-x-auto">
             <div className="inline-flex min-w-full gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 sm:min-w-0">
               {TABS.map((item) => <button key={item.key} type="button" onClick={() => setTab(item.key)} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition ${tab === item.key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}><item.icon className="h-4 w-4" />{item.label}</button>)}
@@ -547,7 +585,8 @@ export function WebsiteManagement() {
             <div className={`${panelClass} p-5 sm:p-6`}>
               <div className="mb-6"><h2 className="text-lg font-bold">Header & Navigation</h2><p className="text-xs text-[var(--color-text-tertiary)]">Manage logo, organization name, menus and the main action button.</p></div>
               <div className="grid gap-4 md:grid-cols-2">
-                <div><label className={labelClass}>Organization logo</label><input className={fieldClass} value={organization?.branding?.logo || ''} readOnly placeholder="Upload once in Settings → Organization Branding" /><p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Managed centrally in Organization Branding and reused automatically on the website.</p></div>
+                <div><label className={labelClass}>Organization logo</label><ImageField value={site.header.logoUrl} onChange={(logoUrl) => updateSite((s) => ({ ...s, header: { ...s.header, logoUrl } }))} media={site.media} /><p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Leave empty to use Organization Branding.</p></div>
+                <div><label className={labelClass}>Website display name</label><input className={fieldClass} value={site.header.displayName || ''} placeholder={organization.name} onChange={(e) => updateSite((s) => ({ ...s, header: { ...s.header, displayName: e.target.value } }))} /></div>
                 <div><label className={labelClass}>CTA text</label><input className={fieldClass} value={site.header.ctaText} onChange={(e) => updateSite((s) => ({ ...s, header: { ...s.header, ctaText: e.target.value } }))} /></div>
                 <div><label className={labelClass}>CTA URL</label><input className={fieldClass} value={site.header.ctaUrl} onChange={(e) => updateSite((s) => ({ ...s, header: { ...s.header, ctaUrl: e.target.value } }))} /></div>
                 <div className="flex flex-wrap gap-3 pt-5"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={site.header.showOrganizationName} onChange={(e) => updateSite((s) => ({ ...s, header: { ...s.header, showOrganizationName: e.target.checked } }))} />Show organization name</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={site.header.sticky} onChange={(e) => updateSite((s) => ({ ...s, header: { ...s.header, sticky: e.target.checked } }))} />Sticky header</label></div>
@@ -570,13 +609,13 @@ export function WebsiteManagement() {
                   <div className="md:col-span-2"><label className={labelClass}>Title</label><input className={fieldClass} value={activeSection.title} onChange={(e) => updateSection({ title: e.target.value })} /></div>
                   <div className="md:col-span-2"><label className={labelClass}>Subtitle</label><input className={fieldClass} value={activeSection.subtitle} onChange={(e) => updateSection({ subtitle: e.target.value })} /></div>
                   <div className="md:col-span-2"><label className={labelClass}>Body text</label><textarea className={fieldClass} rows={5} value={activeSection.body} onChange={(e) => updateSection({ body: e.target.value })} /></div>
-                  {activeSection.type !== 'contact' && <div><label className={labelClass}>Image URL</label><input className={fieldClass} value={activeSection.imageUrl} onChange={(e) => updateSection({ imageUrl: e.target.value })} placeholder="Choose from Media or paste URL" /></div>}
+                  {activeSection.type !== 'contact' && <div><label className={labelClass}>Image URL</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl })} media={site.media} /></div>}
                   {activeSection.type === 'video' && <div><label className={labelClass}>Video URL</label><input className={fieldClass} value={activeSection.videoUrl} onChange={(e) => updateSection({ videoUrl: e.target.value })} placeholder="YouTube, Vimeo, MP4 or WEBM" /></div>}
                   <div><label className={labelClass}>Background</label><select className={fieldClass} value={activeSection.background} onChange={(e) => updateSection({ background: e.target.value as WebsiteSection['background'] })}><option value="default">White</option><option value="muted">Soft gray</option><option value="primary">Primary color</option><option value="dark">Dark</option></select></div>
                   <div><label className={labelClass}>Alignment</label><select className={fieldClass} value={activeSection.alignment} onChange={(e) => updateSection({ alignment: e.target.value as WebsiteSection['alignment'] })}><option value="left">Left</option><option value="center">Center</option></select></div>
-                  {activeSection.type === 'hero' && <><div><label className={labelClass}>Button text</label><input className={fieldClass} value={activeSection.buttonText} onChange={(e) => updateSection({ buttonText: e.target.value })} /></div><div><label className={labelClass}>Button URL</label><input className={fieldClass} value={activeSection.buttonUrl} onChange={(e) => updateSection({ buttonUrl: e.target.value })} /></div></>}
+                  {['hero', 'about', 'custom'].includes(activeSection.type) && <><div><label className={labelClass}>Button text</label><input className={fieldClass} value={activeSection.buttonText} onChange={(e) => updateSection({ buttonText: e.target.value })} /></div><div><label className={labelClass}>Button URL</label><input className={fieldClass} value={activeSection.buttonUrl} onChange={(e) => updateSection({ buttonUrl: e.target.value })} /></div></>}
                 </div>
-                {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq'].includes(activeSection.type) && <CardEditor section={activeSection} onChange={(cards) => updateSection({ cards })} />}
+                {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'staff', 'partners'].includes(activeSection.type) && <CardEditor media={site.media} section={activeSection} onChange={(cards) => updateSection({ cards })} />}
               </div> : <div className={`${panelClass} flex min-h-[300px] items-center justify-center p-8 text-center text-sm text-[var(--color-text-tertiary)]`}>Add or select a section to edit it.</div>}
             </div>
           )}
@@ -631,10 +670,8 @@ export function WebsiteManagement() {
             />
           )}
 
-          {tab === 'preview' && (
-            <div className={`${panelClass} overflow-hidden`}><div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] px-4 py-3"><div><p className="text-sm font-bold">Live Draft Preview</p><p className="text-[11px] text-[var(--color-text-tertiary)]">This preview shows unsaved draft changes. Publish when ready.</p></div><div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]"><Monitor className="h-4 w-4" /><span>Responsive preview</span><Smartphone className="h-4 w-4" /></div></div><div className="max-h-[75vh] overflow-y-auto bg-white"><WebsiteRenderer site={site} organization={organization} pageSlug={activePage?.slug || ''} preview /></div></div>
-          )}
-        </>}
+          {tab === 'preview' && <WebsitePreview site={site} organization={organization} initialPageSlug={activePage?.slug || ''} />}
+        </fieldset>}
       </div>
     </div>
   );

@@ -82,6 +82,7 @@ function TemplatesPanel({ schoolId, onReplaceDraft, showNotice }: Pick<Props, 's
   }, []);
 
   const apply = async (id: string) => {
+    if (!window.confirm('Replace the current draft with this template? The live website stays unchanged until Publish.')) return;
     setLoadingId(id);
     try {
       const { data } = await api.post(`/website-management/templates/${id}/apply`, { schoolId });

@@ -18,7 +18,7 @@ export type WebsiteSectionType =
   | 'testimonials'
   | 'faq'
   | 'contact'
-  | 'custom';
+  | 'custom' | 'news' | 'staff' | 'partners';
 
 export interface WebsiteLink {
   id: string;
@@ -37,6 +37,8 @@ export interface WebsiteCard {
   link?: string;
   question?: string;
   answer?: string;
+  date?: string;
+  role?: string;
 }
 
 export interface WebsiteSection {
@@ -87,6 +89,7 @@ export interface WebsiteLanguage {
 
 export interface WebsiteSiteDocument {
   header: {
+    displayName?: string;
     logoUrl: string;
     showOrganizationName: boolean;
     sticky: boolean;

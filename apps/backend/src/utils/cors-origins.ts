@@ -12,3 +12,15 @@ export function getAllowedOrigins(): string[] {
     .map((o) => o.trim())
     .filter(Boolean);
 }
+
+/** Tenant origins are registered in the same directory used for host routing. */
+export async function isAllowedOrigin(origin?: string): Promise<boolean> {
+  if (!origin || getAllowedOrigins().includes(origin)) return true;
+  let url: URL;
+  try { url = new URL(origin); } catch { return false; }
+  if (url.protocol !== 'https:' || url.origin !== origin || url.port || url.username || url.password) return false;
+  const base = (process.env.BASE_DOMAIN || 'sahaledu.com').toLowerCase();
+  if (url.hostname === base || url.hostname === `www.${base}`) return true;
+  const { default: School } = await import('../models/school.model');
+  return Boolean(await School.findByHost(url.hostname));
+}

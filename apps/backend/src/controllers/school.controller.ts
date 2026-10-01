@@ -1,3 +1,5 @@
+import WebsiteConfig from '../models/website-config.model';
+import { buildDefaultSite } from '../utils/website-starter';
 /**
  * School Controller
  *
@@ -153,6 +155,12 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   };
 
   const school = await School.create(payload);
+  // Every new organization receives its own unpublished website immediately.
+  // Older organizations get the same starter when Website Management opens.
+  await WebsiteConfig.findOneAndUpdate({ school: school._id }, {
+    $setOnInsert: { school: school._id, draft: buildDefaultSite(school),
+      updatedBy: req.user!.userId, isPublished: false, version: 1 },
+  }, { upsert: true, setDefaultsOnInsert: true });
 
   // DNS provisioning is best-effort: organization creation must not fail just
   // because Cloudflare is temporarily unavailable or the custom zone belongs

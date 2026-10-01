@@ -14,13 +14,15 @@ import WebsiteConfig, {
   WebsiteSiteDocument,
 } from '../models/website-config.model';
 import WebsiteVersion from '../models/website-version.model';
+import { buildDefaultSite } from '../utils/website-starter';
+export { buildDefaultSite } from '../utils/website-starter';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import { deleteFromR2, getFromR2, r2Enabled, uploadToR2, websiteMediaProxyUrl } from '../utils/r2-storage';
 
 const SECTION_TYPES = new Set<WebsiteSectionType>([
   'hero', 'about', 'services', 'programs', 'stats', 'gallery',
-  'video', 'testimonials', 'faq', 'contact', 'custom',
+  'video', 'testimonials', 'faq', 'contact', 'custom', 'news', 'staff', 'partners',
 ]);
 const BACKGROUNDS = new Set(['default', 'muted', 'primary', 'dark']);
 const ALIGNMENTS = new Set(['left', 'center']);
@@ -42,11 +44,19 @@ const color = (value: unknown, fallback: string): string => {
   return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(candidate) ? candidate : fallback;
 };
 
+function cleanUrl(value: unknown, fallback = ''): string {
+  const candidate = cleanText(value, 2048, fallback);
+  if (!candidate) return '';
+  if (/^[\u0000-\u0020]*[a-z][a-z0-9+.-]*:/i.test(candidate) && !/^(https?:|mailto:|tel:)/i.test(candidate)) return '';
+  if (/[\u0000-\u001f\\]/.test(candidate) || candidate.startsWith('//')) return '';
+  return candidate;
+}
+
 function normalizeLink(value: any, prefix: string): WebsiteLink {
   return {
     id: id(value?.id, prefix),
     label: cleanText(value?.label, 80, 'Link'),
-    href: cleanText(value?.href, 2048, '#'),
+    href: cleanUrl(value?.href, '#'),
     visible: bool(value?.visible, true),
   };
 }
@@ -58,10 +68,12 @@ function normalizeCard(value: any, prefix: string): WebsiteCard {
     text: cleanText(value?.text, 4000),
     value: cleanText(value?.value, 80),
     icon: cleanText(value?.icon, 50),
-    imageUrl: cleanText(value?.imageUrl, 2048),
-    link: cleanText(value?.link, 2048),
+    imageUrl: cleanUrl(value?.imageUrl),
+    link: cleanUrl(value?.link),
     question: cleanText(value?.question, 500),
     answer: cleanText(value?.answer, 4000),
+    date: /^\d{4}-\d{2}-\d{2}$/.test(value?.date || "") ? value.date : "",
+    role: cleanText(value?.role, 160),
   };
 }
 
@@ -76,11 +88,11 @@ function normalizeSection(value: any, index: number): WebsiteSection {
     title: cleanText(value?.title, 240),
     subtitle: cleanText(value?.subtitle, 500),
     body: cleanText(value?.body, 12000),
-    imageUrl: cleanText(value?.imageUrl, 2048),
-    videoUrl: cleanText(value?.videoUrl, 2048),
+    imageUrl: cleanUrl(value?.imageUrl),
+    videoUrl: cleanUrl(value?.videoUrl),
     icon: cleanText(value?.icon, 50),
     buttonText: cleanText(value?.buttonText, 80),
-    buttonUrl: cleanText(value?.buttonUrl, 2048),
+    buttonUrl: cleanUrl(value?.buttonUrl),
     background: (BACKGROUNDS.has(requestedBackground) ? requestedBackground : 'default') as WebsiteSection['background'],
     alignment: (ALIGNMENTS.has(requestedAlignment) ? requestedAlignment : 'left') as WebsiteSection['alignment'],
     visible: bool(value?.visible, true),
@@ -179,14 +191,15 @@ export function normalizeSite(raw: any, school: any): WebsiteSiteDocument {
 
   return {
     header: {
-      logoUrl: cleanText(header.logoUrl, 2048),
+      displayName: cleanText(header.displayName, 180),
+      logoUrl: cleanUrl(header.logoUrl),
       showOrganizationName: bool(header.showOrganizationName, true),
       sticky: bool(header.sticky, true),
       navItems: Array.isArray(header.navItems)
         ? header.navItems.slice(0, 30).map((link: any, index: number) => normalizeLink(link, `nav${index + 1}`))
         : [],
       ctaText: cleanText(header.ctaText, 80, 'Portal Login'),
-      ctaUrl: cleanText(header.ctaUrl, 2048, '/auth/login'),
+      ctaUrl: cleanUrl(header.ctaUrl, '/auth/login'),
     },
     pages,
     footer: {
@@ -214,7 +227,7 @@ export function normalizeSite(raw: any, school: any): WebsiteSiteDocument {
       siteTitle: cleanText(seo.siteTitle, 180, school.name),
       description: cleanText(seo.description, 500, `${school.name} official website`),
       keywords: cleanText(seo.keywords, 800),
-      ogImage: cleanText(seo.ogImage, 2048),
+      ogImage: cleanUrl(seo.ogImage),
     },
     settings: {
       contactFormEnabled: bool(settings.contactFormEnabled, true),
@@ -230,7 +243,7 @@ export function normalizeSite(raw: any, school: any): WebsiteSiteDocument {
           type: ['image', 'video', 'document'].includes(cleanText(item?.type, 20))
             ? cleanText(item?.type, 20) as 'image' | 'video' | 'document'
             : 'image',
-          url: cleanText(item?.url, 2048),
+          url: cleanUrl(item?.url),
           alt: cleanText(item?.alt, 300),
           storageKey: cleanText(item?.storageKey, 1024),
           storageProvider: ['r2', 'local'].includes(cleanText(item?.storageProvider, 12))
@@ -240,102 +253,6 @@ export function normalizeSite(raw: any, school: any): WebsiteSiteDocument {
           size: Number.isFinite(Number(item?.size)) ? Math.max(0, Math.min(Number(item.size), 100 * 1024 * 1024)) : undefined,
         }))
       : [],
-  };
-}
-
-export function buildDefaultSite(school: any): WebsiteSiteDocument {
-  const primary = school.branding?.themeColor || '#0d9488';
-  return {
-    header: {
-      logoUrl: school.branding?.logo || '',
-      showOrganizationName: true,
-      sticky: true,
-      navItems: [
-        { id: 'nav-home', label: 'Home', href: '/', visible: true },
-        { id: 'nav-about', label: 'About', href: '/#about', visible: true },
-        { id: 'nav-programs', label: 'Programs', href: '/#programs', visible: true },
-        { id: 'nav-contact', label: 'Contact', href: '/#contact', visible: true },
-      ],
-      ctaText: 'Portal Login',
-      ctaUrl: '/auth/login',
-    },
-    pages: [{
-      id: 'page-home',
-      title: 'Home',
-      slug: '',
-      showInNavigation: true,
-      seoTitle: school.name,
-      seoDescription: `Welcome to ${school.name}.`,
-      sections: [
-        {
-          id: 'hero', type: 'hero', title: school.name,
-          subtitle: 'Learning, growth and opportunity in one connected community.',
-          body: 'Build knowledge, develop skills and stay connected with our institution.',
-          imageUrl: '', videoUrl: '', icon: 'GraduationCap',
-          buttonText: 'Explore Programs', buttonUrl: '/#programs',
-          background: 'default', alignment: 'left', visible: true, cards: [],
-        },
-        {
-          id: 'about', type: 'about', title: 'About Us',
-          subtitle: 'A learning community built for student success.',
-          body: `${school.name} is committed to quality education, strong values and meaningful student development.`,
-          imageUrl: '', videoUrl: '', icon: 'Building2', buttonText: '', buttonUrl: '',
-          background: 'muted', alignment: 'left', visible: true, cards: [],
-        },
-        {
-          id: 'programs', type: 'programs', title: 'Our Programs',
-          subtitle: 'Discover opportunities designed for every learner.',
-          body: '', imageUrl: '', videoUrl: '', icon: 'BookOpen', buttonText: '', buttonUrl: '',
-          background: 'default', alignment: 'center', visible: true,
-          cards: [
-            { id: 'program-1', title: 'Quality Learning', text: 'Structured learning experiences with clear outcomes.', icon: 'BookOpen' },
-            { id: 'program-2', title: 'Student Support', text: 'A supportive environment focused on progress and wellbeing.', icon: 'Users' },
-            { id: 'program-3', title: 'Future Ready', text: 'Skills and knowledge that prepare learners for what comes next.', icon: 'Award' },
-          ],
-        },
-        {
-          id: 'contact', type: 'contact', title: 'Contact Us',
-          subtitle: 'We would be happy to hear from you.',
-          body: '', imageUrl: '', videoUrl: '', icon: 'Mail', buttonText: '', buttonUrl: '',
-          background: 'dark', alignment: 'left', visible: true, cards: [],
-        },
-      ],
-    }],
-    footer: {
-      description: `Official website of ${school.name}.`,
-      address: school.address || '',
-      phone: school.phone || '',
-      email: school.email || '',
-      quickLinks: [
-        { id: 'footer-home', label: 'Home', href: '/', visible: true },
-        { id: 'footer-login', label: 'Portal Login', href: '/auth/login', visible: true },
-      ],
-      socials: [],
-      copyright: `© ${new Date().getFullYear()} ${school.name}. All rights reserved.`,
-    },
-    theme: {
-      primaryColor: primary,
-      secondaryColor: '#0f172a',
-      accentColor: '#f59e0b',
-      fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
-      buttonStyle: 'rounded',
-      cardStyle: 'soft',
-    },
-    seo: {
-      siteTitle: school.name,
-      description: `${school.name} official website`,
-      keywords: 'education, learning, students',
-      ogImage: school.branding?.logo || '',
-    },
-    settings: { contactFormEnabled: true, analyticsEnabled: true },
-    defaultLanguage: 'en',
-    languages: [
-      { code: 'en', label: 'English', direction: 'ltr', enabled: true },
-      { code: 'so', label: 'Somali', direction: 'ltr', enabled: false },
-      { code: 'ar', label: 'العربية', direction: 'rtl', enabled: false },
-    ],
-    translations: {},
-    media: [],
   };
 }
 
@@ -377,20 +294,12 @@ export function schoolSummary(school: any) {
 
 export async function getWebsiteConfig(req: Request, res: Response): Promise<Response> {
   const school = await getManagedSchool(req, req.query.schoolId);
-  let config = await WebsiteConfig.findOne({ school: school._id }).lean();
-
-  if (!config) {
-    const draft = buildDefaultSite(school);
-    const created = await WebsiteConfig.create({
-      school: school._id,
-      draft,
-      published: null,
-      isPublished: false,
-      version: 1,
-      updatedBy: req.user!.userId,
-    });
-    config = created.toObject() as any;
-  }
+  const config = await WebsiteConfig.findOneAndUpdate(
+    { school: school._id },
+    { $setOnInsert: { school: school._id, draft: buildDefaultSite(school), published: null,
+      isPublished: false, version: 1, updatedBy: req.user!.userId } },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  ).lean();
 
   const currentConfig = config!;
   return ApiResponse.success(res, {
@@ -539,7 +448,7 @@ export async function uploadWebsiteMedia(req: Request, res: Response): Promise<R
     url = `${baseUrl}/uploads/organization-websites/${school._id}/${filename}`;
   }
 
-  return ApiResponse.success(res, {
+  const item = {
     id: `media-${crypto.randomUUID().slice(0, 12)}`,
     name: req.file.originalname.slice(0, 160),
     type: mediaType,
@@ -549,7 +458,11 @@ export async function uploadWebsiteMedia(req: Request, res: Response): Promise<R
     storageProvider,
     mimeType: req.file.mimetype,
     size: req.file.size,
-  }, r2Enabled ? 'Media uploaded to Cloudflare R2.' : 'Media uploaded to local storage.');
+  };
+  await WebsiteConfig.updateOne({ school: school._id }, {
+    $push: { 'draft.media': item }, $set: { updatedBy: req.user!.userId },
+  });
+  return ApiResponse.success(res, item, 'Media uploaded.');
 }
 
 export async function deleteWebsiteMedia(req: Request, res: Response): Promise<Response> {

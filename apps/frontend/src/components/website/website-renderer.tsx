@@ -9,7 +9,7 @@ import api from '../../lib/axios';
 
 export type WebsiteSectionType =
   | 'hero' | 'about' | 'services' | 'programs' | 'stats' | 'gallery'
-  | 'video' | 'testimonials' | 'faq' | 'contact' | 'custom';
+  | 'video' | 'testimonials' | 'faq' | 'contact' | 'custom' | 'news' | 'staff' | 'partners';
 
 export interface WebsiteLink {
   id: string;
@@ -28,6 +28,8 @@ export interface WebsiteCard {
   link?: string;
   question?: string;
   answer?: string;
+  date?: string;
+  role?: string;
 }
 
 export interface WebsiteSection {
@@ -78,6 +80,7 @@ export interface WebsiteLanguage {
 
 export interface WebsiteSiteDocument {
   header: {
+    displayName?: string;
     logoUrl: string;
     showOrganizationName: boolean;
     sticky: boolean;
@@ -283,8 +286,8 @@ function WebsiteSectionView({ section, site, organization, tr, pageSlug, preview
               </a>
             )}
           </div>
-          {section.imageUrl && section.alignment !== 'center' && (
-            <div className="overflow-hidden rounded-3xl border border-white/20 shadow-xl">
+          {section.imageUrl && (
+            <div className={`overflow-hidden rounded-3xl border border-white/20 shadow-xl ${section.alignment === 'center' ? 'lg:col-span-2 mx-auto w-full max-w-4xl' : ''}`}>
               <img src={section.imageUrl} alt={title} fetchPriority="high" className="aspect-[4/3] h-full w-full object-cover" />
             </div>
           )}
@@ -297,14 +300,15 @@ function WebsiteSectionView({ section, site, organization, tr, pageSlug, preview
     return (
       <SectionShell section={section} primary={primary} secondary={secondary}>
         <div className={`grid items-center gap-10 ${section.imageUrl ? 'lg:grid-cols-2' : ''}`}>
-          <SectionHeading section={section} dark={dark} tr={tr} />
+          <div><SectionHeading section={section} dark={dark} tr={tr} />
+          {section.buttonText && <a href={section.buttonUrl || '#'} style={{ backgroundColor: primary, borderRadius: buttonRadius }} className="mt-6 inline-flex items-center gap-2 px-5 py-3 text-sm font-semibold text-white">{tr(`section.${section.id}.buttonText`, section.buttonText)}<ArrowRight className="h-4 w-4" /></a>}</div>
           {section.imageUrl && <img loading="lazy" src={section.imageUrl} alt={tr(`section.${section.id}.title`, section.title)} className="aspect-[4/3] w-full rounded-3xl object-cover shadow-lg" />}
         </div>
       </SectionShell>
     );
   }
 
-  if (section.type === 'services' || section.type === 'programs' || section.type === 'testimonials') {
+  if (['services', 'programs', 'testimonials', 'news', 'staff', 'partners'].includes(section.type)) {
     return (
       <SectionShell section={section} primary={primary} secondary={secondary}>
         <SectionHeading section={section} dark={dark} tr={tr} />
@@ -314,9 +318,11 @@ function WebsiteSectionView({ section, site, organization, tr, pageSlug, preview
             const body = tr(`card.${card.id}.text`, card.text);
             return (
               <a key={card.id} onClick={() => card.link && onTrack?.('cta', pageSlug || '/')} href={card.link || undefined} className={`${cardClass} block overflow-hidden rounded-2xl p-6 text-slate-900 transition hover:-translate-y-0.5 hover:shadow-md`}>
-                {card.imageUrl && <img loading="lazy" src={card.imageUrl} alt={title} className="-mx-6 -mt-6 mb-5 aspect-video w-[calc(100%+3rem)] object-cover" />}
+                {card.imageUrl && <img loading="lazy" src={card.imageUrl} alt={title} className={`-mx-6 -mt-6 mb-5 w-[calc(100%+3rem)] ${section.type === 'partners' ? 'aspect-video object-contain p-6' : section.type === 'staff' ? 'aspect-square object-cover object-top' : 'aspect-video object-cover'}`} />}
                 <div style={{ color: primary }} className="mb-4 inline-flex rounded-xl bg-slate-50 p-2.5"><Icon name={card.icon || section.icon} /></div>
+                {card.date && <p className="mb-2 text-xs font-semibold text-slate-500">{card.date}</p>}
                 <h3 className="text-lg font-bold">{title}</h3>
+                {card.role && <p style={{ color: primary }} className="mt-1 text-sm font-semibold">{tr(`card.${card.id}.role`, card.role)}</p>}
                 {body && <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{body}</p>}
               </a>
             );
@@ -451,15 +457,16 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
   const secondary = site.theme.secondaryColor || '#0f172a';
   const buttonRadius = site.theme.buttonStyle === 'pill' ? '999px' : site.theme.buttonStyle === 'square' ? '4px' : '12px';
   const css = { fontFamily: site.theme.fontFamily || undefined, '--website-primary': primary } as CSSProperties;
-  const logo = organization.branding?.logo || site.header.logoUrl || '';
+  const logo = site.header.logoUrl || organization.branding?.logo || '';
+  const displayName = site.header.displayName || organization.name;
 
   return (
-    <div dir={currentLanguage.direction} lang={currentLanguage.code} style={css} className={`min-h-full bg-white text-slate-900 ${preview ? 'overflow-hidden' : ''}`}>
+    <div dir={currentLanguage.direction} lang={currentLanguage.code} style={css} className={`min-h-full bg-white text-slate-900 overflow-x-clip [overflow-wrap:anywhere]`}>
       <header className={`${site.header.sticky && !preview ? 'sticky top-0 z-40' : ''} border-b border-slate-200/80 bg-white/95 backdrop-blur`}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <a href="/" className="flex min-w-0 items-center gap-3">
-            {logo ? <img src={logo} alt={organization.name} className="h-11 w-11 rounded-xl object-contain" /> : <div style={{ backgroundColor: primary }} className="flex h-11 w-11 items-center justify-center rounded-xl text-white"><GraduationCap className="h-6 w-6" /></div>}
-            {site.header.showOrganizationName && <span className="truncate text-base font-bold sm:text-lg">{organization.name}</span>}
+            {logo ? <img src={logo} alt={displayName} className="h-11 w-11 rounded-xl object-contain" /> : <div style={{ backgroundColor: primary }} className="flex h-11 w-11 items-center justify-center rounded-xl text-white"><GraduationCap className="h-6 w-6" /></div>}
+            {site.header.showOrganizationName && <span className="truncate text-base font-bold sm:text-lg">{displayName}</span>}
           </a>
           <nav className="hidden items-center gap-1 lg:flex">
             {site.header.navItems.filter((item) => item.visible).map((item) => <a key={item.id} href={item.href} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-950">{tr(`link.${item.id}.label`, item.label)}</a>)}
@@ -494,7 +501,7 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
           <div className="lg:col-span-2">
             <div className="flex items-center gap-3">
               {logo && <img loading="lazy" src={logo} alt="" className="h-10 w-10 rounded-lg bg-white object-contain p-0.5" />}
-              <p className="text-lg font-bold">{organization.name}</p>
+              <p className="text-lg font-bold">{displayName}</p>
             </div>
             {site.footer.description && <p className="mt-4 max-w-xl whitespace-pre-line text-sm leading-6 text-white/70">{tr('footer.description', site.footer.description)}</p>}
           </div>

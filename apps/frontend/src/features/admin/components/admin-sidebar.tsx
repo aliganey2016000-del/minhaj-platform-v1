@@ -5,7 +5,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Activity, Award, BadgePercent, BarChart3, BookOpen, Building2,
+  Globe2, Activity, Award, BadgePercent, BarChart3, BookOpen, Building2,
   CalendarCheck, CalendarClock, CalendarRange, CircleHelp, ClipboardEdit,
   ClipboardList, Compass, CreditCard, Database, FileBarChart, FileCheck2, FileQuestion,
   FileText, GraduationCap, History, Image, KeyRound, LayoutDashboard, ListChecks, LogOut,
@@ -29,6 +29,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     items: [
       { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
       { path: '/admin/schools', label: 'Organization Management', icon: Building2 },
+      { path: '/admin/website', label: 'Website Management', icon: Globe2 },
       { path: '/admin/hr?tab=structure', label: 'Institution Structure', icon: Building2 },
       { path: '/admin/users', label: 'User Management', icon: UserCog },
       { path: '/admin/teachers', label: 'Manage Teachers', icon: Presentation },

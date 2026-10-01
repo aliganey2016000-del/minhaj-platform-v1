@@ -1,4 +1,5 @@
 import express from 'express';
+import { ForbiddenError } from './utils/api-error';
 import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -8,7 +9,7 @@ import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
-import { getAllowedOrigins } from './utils/cors-origins';
+import { isAllowedOrigin } from './utils/cors-origins';
 import {
   enforceHttps,
   requestTimeout,
@@ -47,16 +48,17 @@ app.use(helmet({
   noSniff: true,
   xssFilter: true,
 }));
-const allowedOrigins = getAllowedOrigins();
+
 app.use(cors({
   origin: (origin, callback) => {
-    // No Origin header (server-to-server, curl, same-origin) — allow.
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
+    void isAllowedOrigin(origin).then((allowed) => {
+      if (allowed) callback(null, true);
+      else callback(new ForbiddenError('This website origin is not registered.'));
+    }).catch(callback);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Login-Session-Id', 'X-Timezone'],
   exposedHeaders: ['X-Total-Count', 'X-Page-Count', 'API-Version'],
   maxAge: 86400, // 24 hours
 }));
