@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Download, List, MoreVertical, Pencil, Printer, RefreshCw, RotateCcw, Save, School, Settings, Upload, Users, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Download, List, MoreVertical, Pencil, Printer, RefreshCw, RotateCcw, Save, School, Settings, Sun, Upload, Users, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -184,7 +184,10 @@ export function SchedulesTimetable({
   const [shiftFilter, setShiftFilter] = useState(ALL_SHIFTS);
   const [dayClassFilters, setDayClassFilters] = useState<string[]>([ALL_CLASSES]);
   const [dayClassPickerOpen, setDayClassPickerOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [classesLoading, setClassesLoading] = useState(true);
+  const [scheduleLoadFailed, setScheduleLoadFailed] = useState(false);
+  const [classesLoadFailed, setClassesLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -198,8 +201,9 @@ export function SchedulesTimetable({
   const draftStorageKey = `timetable-draft:${effectiveSchoolId || 'none'}`;
 
   const loadAllSchedules = useCallback(async () => {
-    if (!effectiveSchoolId && isOrgAdmin) return;
+    if (!effectiveSchoolId && isOrgAdmin) { setLoading(false); return; }
     setLoading(true);
+    setScheduleLoadFailed(false);
     setError('');
     try {
       const first = await api.get('/class-schedules', { params: { school: effectiveSchoolId || undefined, page: 1, limit: 500 } });
@@ -215,6 +219,7 @@ export function SchedulesTimetable({
       setSchedules(Array.from(new Map(all.map(item => [item._id, item])).values()));
     } catch (err: any) {
       setSchedules([]);
+      setScheduleLoadFailed(true);
       setError(err?.response?.data?.message || 'Failed to load class schedules.');
     } finally {
       setLoading(false);
@@ -222,7 +227,9 @@ export function SchedulesTimetable({
   }, [effectiveSchoolId, isOrgAdmin]);
 
   const loadGridMeta = useCallback(async () => {
-    if (!effectiveSchoolId) { setClasses([]); setDepartments([]); return; }
+    if (!effectiveSchoolId) { setClasses([]); setDepartments([]); setClassesLoading(false); return; }
+    setClassesLoading(true);
+    setClassesLoadFailed(false);
     try {
       const all: ClassItem[] = [];
       for (let page = 1; page <= 25; page += 1) {
@@ -237,7 +244,12 @@ export function SchedulesTimetable({
       const unique = Array.from(new Map(all.map(item => [item._id, item])).values());
       unique.sort((a, b) => Number(a.gradeLevel ?? 9999) - Number(b.gradeLevel ?? 9999) || classLabel(a).localeCompare(classLabel(b), undefined, { numeric: true }));
       setClasses(unique);
-    } catch { setClasses([]); }
+    } catch {
+      setClasses([]);
+      setClassesLoadFailed(true);
+    } finally {
+      setClassesLoading(false);
+    }
 
     try {
       const response = await api.get('/departments', { params: { school: effectiveSchoolId, limit: 300 } });
@@ -343,30 +355,46 @@ export function SchedulesTimetable({
     });
   }, [columns]);
 
-  const allDayClassesSelected = dayClassFilters.includes(ALL_CLASSES);
-
-  const dayColumns = useMemo(
-    () => allDayClassesSelected ? columns : columns.filter(cls => dayClassFilters.includes(cls._id)),
-    [allDayClassesSelected, columns, dayClassFilters],
+  const scheduledDayClassIds = useMemo(
+    () => new Set(daySchedules.map(item => classIdOf(item.class))),
+    [daySchedules],
+  );
+  // Empty classes remain available when editing so new lessons can be added.
+  const selectableDayColumns = useMemo(
+    () => editMode ? columns : columns.filter(cls => scheduledDayClassIds.has(cls._id)),
+    [columns, editMode, scheduledDayClassIds],
   );
 
+  useEffect(() => {
+    setDayClassFilters([ALL_CLASSES]);
+    setDayClassPickerOpen(false);
+  }, [selectedDay]);
+
+  const dayColumns = useMemo(
+    () => dayClassFilters.includes(ALL_CLASSES)
+      ? selectableDayColumns
+      : selectableDayColumns.filter(cls => dayClassFilters.includes(cls._id)),
+    [selectableDayColumns, dayClassFilters],
+  );
+  const allDayClassesSelected = selectableDayColumns.length > 0 && dayColumns.length === selectableDayColumns.length;
+  const isDayHoliday = classes.length > 0 && !classes.some(cls => scheduledDayClassIds.has(cls._id));
+
   const dayClassFilterLabel = useMemo(() => {
-    if (allDayClassesSelected) return 'All Classes';
-    if (dayClassFilters.length === 0) return 'No Classes';
-    if (dayClassFilters.length === 1) {
-      return classLabel(columns.find(cls => cls._id === dayClassFilters[0]));
-    }
-    return `${dayClassFilters.length} Classes`;
-  }, [allDayClassesSelected, columns, dayClassFilters]);
+    if (dayColumns.length === 0) return 'No Classes';
+    if (allDayClassesSelected && dayColumns.length === columns.length) return 'All Classes';
+    if (dayColumns.length === 1) return classLabel(dayColumns[0]);
+    return `${dayColumns.length} Classes`;
+  }, [allDayClassesSelected, columns.length, dayColumns]);
 
   const toggleAllDayClasses = () => {
-    setDayClassFilters(current => current.includes(ALL_CLASSES) ? [] : [ALL_CLASSES]);
+    setDayClassFilters(allDayClassesSelected ? [] : [ALL_CLASSES]);
   };
 
   const toggleDayClass = (classId: string) => {
+    if (!selectableDayColumns.some(cls => cls._id === classId)) return;
     setDayClassFilters(current => {
       if (current.includes(ALL_CLASSES)) {
-        return columns.filter(cls => cls._id !== classId).map(cls => cls._id);
+        return selectableDayColumns.filter(cls => cls._id !== classId).map(cls => cls._id);
       }
       return current.includes(classId)
         ? current.filter(id => id !== classId)
@@ -1125,17 +1153,19 @@ export function SchedulesTimetable({
                           </span>
                         </button>
                         {columns.map(cls => {
-                          const checked = allDayClassesSelected || dayClassFilters.includes(cls._id);
+                          const checked = dayColumns.some(column => column._id === cls._id);
+                          const unavailable = !editMode && !scheduledDayClassIds.has(cls._id);
                           return (
                             <button
                               type="button"
                               key={cls._id}
                               onClick={() => toggleDayClass(cls._id)}
+                              disabled={unavailable}
                               className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"
                               role="option"
                               aria-selected={checked}
                             >
-                              <span>{classLabel(cls)}</span>
+                              <span>{classLabel(cls)}{unavailable && <span className="ml-2 text-[10px] text-[var(--color-text-tertiary)]">No lessons</span>}</span>
                               <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${checked ? 'border-primary-600 bg-primary-600 text-white' : 'border-[var(--color-border-default)]'}`}>
                                 {checked && <Check className="h-3.5 w-3.5" />}
                               </span>
@@ -1144,7 +1174,7 @@ export function SchedulesTimetable({
                         })}
                       </div>
                       <div className="flex items-center justify-between border-t border-[var(--color-border-subtle)] px-3 py-2">
-                        <span className="text-xs text-[var(--color-text-tertiary)]">{allDayClassesSelected ? `All ${columns.length} selected` : dayClassFilters.length ? `${dayClassFilters.length} selected` : 'No classes selected'}</span>
+                        <span className="text-xs text-[var(--color-text-tertiary)]">{dayColumns.length ? `${dayColumns.length} selected` : 'No classes selected'}</span>
                         <button type="button" onClick={() => setDayClassPickerOpen(false)} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white">Done</button>
                       </div>
                     </div>
@@ -1212,10 +1242,24 @@ export function SchedulesTimetable({
               <div className="schedule-print-meta-row"><span className="schedule-print-meta-label">Generated:</span><span>{printGeneratedDate}</span></div>
             </div>
           </div>
-          {loading ? (
+          {loading || classesLoading ? (
             <div className="flex min-h-72 items-center justify-center"><RefreshCw className="mr-2 h-5 w-5 animate-spin" />Loading timetable...</div>
           ) : !effectiveSchoolId ? (
             <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Select an organization to view the timetable.</div>
+          ) : scheduleLoadFailed || classesLoadFailed ? (
+            <div role="status" className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Unable to load the timetable. Please refresh to try again.</div>
+          ) : perspective === 'day' && columns.length === 0 ? (
+            <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No class matches the current filters.</div>
+          ) : perspective === 'day' && !editMode && isDayHoliday ? (
+            <div role="status" className="flex min-h-72 flex-col items-center justify-center bg-gradient-to-br from-amber-50 to-emerald-50 px-5 py-12 text-center dark:from-amber-950/20 dark:to-emerald-950/20">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-300"><Sun className="h-9 w-9" /></div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">{DAYS[selectedDay]}</div>
+              <h2 className="text-2xl font-bold">Holiday</h2>
+              <p className="mt-2 max-w-sm text-sm text-[var(--color-text-secondary)]">No classes scheduled for this day.</p>
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Choose another day to view the timetable.</p>
+            </div>
+          ) : perspective === 'day' && dayColumns.length === 0 ? (
+            <div role="status" className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">{selectableDayColumns.length ? 'No classes selected. Choose a class from the Classes filter.' : 'No classes have lessons on this day in the selected department or shift.'}</div>
           ) : perspective === 'class' && !selectedClass ? (
             <div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">No class matches the current filters.</div>
           ) : perspective === 'teacher' && !selectedTeacherId ? (
