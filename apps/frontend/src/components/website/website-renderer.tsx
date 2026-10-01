@@ -292,6 +292,18 @@ function SchoolHomeLayout({ page, site, organization, tr, preview, sessionId, on
   const partners = byId('partners') || firstType('partners');
   const video = byId('video') || firstType('video');
   const contact = byId('contact') || firstType('contact');
+  const statCards: WebsiteCard[] = stats?.cards.length ? stats.cards.slice(0, 4) : [
+    { id: 'visual-highlight-1', title: 'Learning', text: '', value: 'Strong', icon: 'BookOpen' },
+    { id: 'visual-highlight-2', title: 'Students', text: '', value: 'Supported', icon: 'Heart' },
+    { id: 'visual-highlight-3', title: 'Community', text: '', value: 'Connected', icon: 'Users' },
+    { id: 'visual-highlight-4', title: 'Future', text: '', value: 'Ready', icon: 'Trophy' },
+  ];
+  const valueCards: WebsiteCard[] = values?.cards.length ? values.cards.slice(0, 4) : [
+    { id: 'visual-value-1', title: 'Safe & Supportive', text: 'A welcoming place to learn and grow.', icon: 'ShieldCheck' },
+    { id: 'visual-value-2', title: 'Engaging Learning', text: 'Learning experiences built around curiosity.', icon: 'Sparkles' },
+    { id: 'visual-value-3', title: 'Strong Values', text: 'Respect, character and responsibility.', icon: 'Heart' },
+    { id: 'visual-value-4', title: 'Future Focused', text: 'Skills and confidence for what comes next.', icon: 'Award' },
+  ];
   const primary = site.theme.primaryColor || organization.branding?.themeColor || '#0f766e';
   const secondary = site.theme.secondaryColor || '#082f49';
   const accent = site.theme.accentColor || '#f59e0b';
@@ -350,10 +362,10 @@ function SchoolHomeLayout({ page, site, organization, tr, preview, sessionId, on
         </section>
       )}
 
-      {stats && stats.cards.length > 0 && (
-        <section id={stats.id} className="relative z-20 -mt-10 px-4 sm:-mt-12 sm:px-6 lg:px-8">
+      {hero && (
+        <section id={stats?.id || 'school-highlights'} className="relative z-20 -mt-10 px-4 sm:-mt-12 sm:px-6 lg:px-8">
           <div className="mx-auto grid max-w-[1180px] grid-cols-2 overflow-hidden rounded-[1.75rem] border border-slate-100 bg-white shadow-[0_22px_65px_-28px_rgba(15,23,42,.3)] sm:grid-cols-4">
-            {stats.cards.slice(0, 4).map((card, index) => {
+            {statCards.map((card, index) => {
               const color = SCHOOL_ACCENTS[index % SCHOOL_ACCENTS.length];
               return <div key={card.id} className="flex items-center gap-3 border-b border-r border-slate-100 p-4 last:border-r-0 sm:p-5">
                 <div style={{ backgroundColor: `${color}16`, color }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl"><Icon name={card.icon || ['Users','GraduationCap','BookOpen','Trophy'][index]} /></div>
@@ -407,9 +419,9 @@ function SchoolHomeLayout({ page, site, organization, tr, preview, sessionId, on
               <div className="absolute inset-0 flex items-center justify-center"><div className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-white/95 text-slate-800 shadow-xl"><PlayCircle className="h-7 w-7" /></div></div>
             </div>
             <div className="grid gap-3">
-              {(values?.cards || []).slice(0,4).map((card, index) => {
+              {valueCards.map((card, index) => {
                 const color = SCHOOL_ACCENTS[(index + 2) % SCHOOL_ACCENTS.length];
-                return <div key={card.id} className="flex items-start gap-3 rounded-2xl bg-white/75 p-3 shadow-sm ring-1 ring-white"><div style={{ backgroundColor: `${color}16`, color }} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"><Icon name={card.icon || values?.icon} /></div><div><p className="text-sm font-black text-slate-900">{cardTitle(card)}</p>{cardText(card) && <p className="mt-1 text-xs leading-5 text-slate-500">{cardText(card)}</p>}</div></div>;
+                return <div key={card.id} className="flex items-start gap-3 rounded-2xl bg-white/75 p-3 shadow-sm ring-1 ring-white"><div style={{ backgroundColor: `${color}16`, color }} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"><Icon name={card.icon || values?.icon || 'CheckCircle2'} /></div><div><p className="text-sm font-black text-slate-900">{cardTitle(card)}</p>{cardText(card) && <p className="mt-1 text-xs leading-5 text-slate-500">{cardText(card)}</p>}</div></div>;
               })}
             </div>
           </div>
