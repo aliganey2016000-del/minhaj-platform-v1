@@ -17,6 +17,13 @@
 // only the auth middleware declares; reference it without loading it.
 /// <reference path="../middleware/auth.middleware.ts" />
 
+// Some of the controllers under test (invoice/payment via billing.service,
+// exam, etc.) transitively import utils/jwt.ts, which throws at module load
+// if these aren't set — set them before any of those imports run.
+process.env.JWT_ACCESS_SECRET = 'test-access-secret-do-not-use-in-prod';
+process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-do-not-use-in-prod';
+process.env.NODE_ENV = 'test';
+
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 
