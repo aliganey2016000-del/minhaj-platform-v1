@@ -78,8 +78,26 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
     throw new BadRequestError('The selected schedule does not meet on this attendance date.');
   }
 
-  const { isSchool, students, studentIds } = await expectedRoster(course);
+  const { school, isSchool, students, studentIds } = await expectedRoster(course);
   if (students.length === 0) throw new BadRequestError('This class/course has no active approved students in its attendance roster.');
+
+  // A class_based school's whole workflow — the complete-roster requirement,
+  // the AttendanceSession record admin reports/dashboards read, the
+  // session-level lock/unlock audit trail — only exists on the schedule
+  // branch below. Submitting without a schedule (reachable from the
+  // teacher's generic "My Students" quick-attendance page, which isn't
+  // aware of attendanceType) used to silently accept it anyway: it got
+  // locked immediately with no completeness check against the real class
+  // roster, created no AttendanceSession, and — because the Attendance
+  // unique index includes `schedule` — upserted into separate documents
+  // from whatever the class's real scheduled session already recorded,
+  // leaving two conflicting, independently-"locked" attendance records for
+  // the same student/course/date with no way to reconcile them.
+  // course_based schools have no class/schedule concept to require here,
+  // so they keep working exactly as before.
+  if (isSchool && school.attendanceType === 'class_based' && !schedule) {
+    throw new BadRequestError('This school takes attendance by scheduled class period. Use Take Attendance for the class’s period instead of the course attendance screen.');
+  }
 
   if (isSchool) {
     const calendarDay = await SchoolCalendarDay.findOne({ school: course.school, date }).select('name type isInstructional').lean();
