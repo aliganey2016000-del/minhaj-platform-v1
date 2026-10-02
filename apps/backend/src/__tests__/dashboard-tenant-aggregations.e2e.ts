@@ -10,6 +10,10 @@
  * Runs against an ephemeral in-memory MongoDB. `npm run test:dashboard-aggregations`.
  */
 
+// The controllers type req.user via the global Express augmentation, which
+// only the auth middleware declares; reference it without loading it.
+/// <reference path="../middleware/auth.middleware.ts" />
+
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 
