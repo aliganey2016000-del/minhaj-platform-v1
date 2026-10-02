@@ -10,6 +10,7 @@ import School, { resolveInstitutionType } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import { resolveViewableOrgId } from '../utils/tenant-scope';
+import { microCache } from '../utils/micro-cache';
 
 const STATUSES = new Set(['present', 'absent']);
 const REASONS = new Set(['', 'sick', 'medical', 'family_emergency', 'school_activity', 'suspension', 'transport_delay', 'other']);
@@ -224,11 +225,7 @@ export const checkOut = async (req: Request, res: Response): Promise<Response> =
   return ApiResponse.success(res, { studentId: student.studentId, attendance: existing }, 'Student checked out successfully');
 };
 
-export const getSchoolDashboard = async (req: Request, res: Response): Promise<Response> => {
-  const { schoolId } = await schoolContext(req);
-  const date = dateOnly(req.query.date || new Date().toISOString().slice(0, 10));
-  const days = Math.min(120, Math.max(7, Number(req.query.days) || 30));
-  const threshold = Math.min(100, Math.max(1, Number(req.query.threshold) || 90));
+async function computeSchoolDashboard(schoolId: string, dateParam: string, date: Date, days: number, threshold: number) {
   const from = new Date(date);
   from.setDate(from.getDate() - days + 1);
   from.setHours(0, 0, 0, 0);
@@ -294,11 +291,26 @@ export const getSchoolDashboard = async (req: Request, res: Response): Promise<R
     };
   });
 
-  return ApiResponse.success(res, {
-    date: String(req.query.date || new Date().toISOString().slice(0, 10)),
+  return {
+    date: dateParam,
     calendarDay: calendarDay || null,
     sessions: { total: daySchedules.length, complete, partial, missing, completionRate: daySchedules.length ? Math.round((complete / daySchedules.length) * 100) : 0 },
     attendance: statusCounts,
     earlyWarning: { windowDays: days, threshold, count: atRisk.length, students: atRisk },
-  });
+  };
+}
+
+export const getSchoolDashboard = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await schoolContext(req);
+  const dateParam = String(req.query.date || new Date().toISOString().slice(0, 10));
+  const date = dateOnly(dateParam);
+  const days = Math.min(120, Math.max(7, Number(req.query.days) || 30));
+  const threshold = Math.min(100, Math.max(1, Number(req.query.threshold) || 90));
+
+  // Several admins at the same school opening the dashboard within the same
+  // few seconds used to each recompute this from scratch — see
+  // micro-cache.ts for the staleness trade-off.
+  const cacheKey = `school-dashboard:${schoolId}:${dateParam}:${days}:${threshold}`;
+  const data = await microCache(cacheKey, 20_000, () => computeSchoolDashboard(schoolId, dateParam, date, days, threshold));
+  return ApiResponse.success(res, data);
 };
