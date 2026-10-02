@@ -102,6 +102,16 @@ studentSchema.index({ school: 1, shiftMode: 1 });
 studentSchema.index({ school: 1, studentId: 1 }, { unique: true });
 // Course-based rosters and teacher scopes look students up by enrolled course.
 studentSchema.index({ enrolledCourses: 1 });
+// The class attendance roster — { school, class, status, approvalStatus } —
+// is the single most-repeated query in the whole attendance system: every
+// teacher opening Take Attendance and every markBulk submission re-runs it.
+// It previously relied on intersecting four single-field indexes; many
+// schools' teachers opening/submitting attendance around the same period
+// boundaries makes this one query shape the dominant source of load.
+studentSchema.index({ school: 1, class: 1, status: 1, approvalStatus: 1 });
+// Mirror for course-based (non-class) attendance institutions, used by the
+// same roster-resolution path (expectedRoster in attendance-pro.controller.ts).
+studentSchema.index({ school: 1, enrolledCourses: 1, status: 1, approvalStatus: 1 });
 
 /**
  * Generate a tenant-friendly Student ID from the first word of the
