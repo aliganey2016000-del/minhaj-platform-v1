@@ -22,7 +22,7 @@ import AssignmentSubmission from '../models/assignment-submission.model';
 // DOES cover every non-admin role uniformly (reads only, by design).
 const TENANT_SCOPED_ROLES = new Set(['org_admin', 'finance_manager', 'cashier', 'auditor']);
 
-function isTenantScoped(req: Request): boolean {
+export function isTenantScoped(req: Request): boolean {
   return TENANT_SCOPED_ROLES.has(req.user?.role || '');
 }
 

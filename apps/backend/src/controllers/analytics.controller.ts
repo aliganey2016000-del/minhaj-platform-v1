@@ -10,9 +10,16 @@ import Course from '../models/course.model';
 import Payment from '../models/payment.model';
 import Refund from '../models/refund.model';
 import ApiResponse from '../utils/api-response';
-import { applyOrgFilter } from '../utils/tenant-scope';
+import { applyOrgFilter, isTenantScoped } from '../utils/tenant-scope';
+import { microCache } from '../utils/micro-cache';
 
-export const getDashboardStats = async (req: Request, res: Response): Promise<Response> => {
+// Several admins at the same school (or one admin re-navigating) opening
+// the dashboard within the same few seconds used to each recompute every
+// aggregation below from scratch. A short cache lets them share one
+// computed result instead — see micro-cache.ts for the staleness trade-off.
+const DASHBOARD_CACHE_TTL_MS = 20_000;
+
+async function computeDashboardStats(req: Request) {
   const studentFilter = applyOrgFilter(req, {}, 'school');
   const courseFilter = applyOrgFilter(req, {}, 'school');
   const userFilter = applyOrgFilter(req, {}, 'organizationId');
@@ -133,7 +140,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
     ? Math.min(100, Math.round((totalEnrolled / totalCapacity) * 100))
     : 0;
 
-  return ApiResponse.success(res, {
+  return {
     students: { total: totalStudents, active: activeStudents },
     courses: { total: totalCourses, published: publishedCourses },
     teachers: totalTeachers,
@@ -153,5 +160,20 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
       totalCapacity,
       occupancyRate,
     },
-  });
+  };
+}
+
+export const getDashboardStats = async (req: Request, res: Response): Promise<Response> => {
+  // applyOrgFilter only scopes student/course/user filters for
+  // isTenantScoped roles (org_admin, finance_manager, cashier, auditor);
+  // everyone else gets identical platform-wide filters, so they can share
+  // one cache key. The role is part of a scoped key (not just the org id)
+  // because only 'org_admin' exactly also gets the revenue pipeline scoped
+  // to its org — another tenant-scoped role at the same org sees different
+  // (platform-wide) revenue, a real output difference the key must respect.
+  const cacheKey = req.user?.organizationId && isTenantScoped(req)
+    ? `dashboard-stats:${req.user.role}:${req.user.organizationId}`
+    : 'dashboard-stats:platform';
+  const data = await microCache(cacheKey, DASHBOARD_CACHE_TTL_MS, () => computeDashboardStats(req));
+  return ApiResponse.success(res, data);
 };

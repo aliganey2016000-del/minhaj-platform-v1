@@ -76,6 +76,9 @@ jobs:
       - name: Manage list search/pagination tests (batch 2)
         run: npm run test:list-search-2
 
+      - name: Dashboard micro-cache tests
+        run: npm run test:dashboard-cache
+
       - name: Teacher CRUD & import tests
         run: npm run test:teacher-crud
 

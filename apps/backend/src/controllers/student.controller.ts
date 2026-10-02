@@ -29,6 +29,7 @@ import { persistStudentPhoto } from './student-documents.controller';
 import { parseSpreadsheetDate } from '../utils/spreadsheet-date';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { escapeRegex } from '../utils/escape-regex';
+import { microCache } from '../utils/micro-cache';
 
 // Nested-populate the guardian's actual email/phone/name — a shallow
 // `.populate(PARENT_POPULATE)` leaves those as raw ObjectIds, which
@@ -385,7 +386,16 @@ async function computeStudentStats(req: Request): Promise<StudentStatsResult> {
 }
 
 export const getStats = async (req: Request, res: Response): Promise<Response> => {
-  const stats = await computeStudentStats(req);
+  // Several admins at the same school opening the dashboard within the same
+  // few seconds used to each recompute this from scratch — see
+  // micro-cache.ts for the staleness trade-off. Scoping only by role/org
+  // would leak one teacher's own-courses-scoped breakdown to another
+  // teacher with the same query params, so the key also includes the
+  // caller's id; that still gives the common case (the same admin/teacher
+  // re-rendering, or several admins at one school hitting the default,
+  // param-less dashboard call) a real cache hit.
+  const cacheKey = `student-stats:${req.user?.role}:${req.user?.organizationId || req.user?.userId || 'anon'}:${JSON.stringify(req.query)}`;
+  const stats = await microCache(cacheKey, 20_000, () => computeStudentStats(req));
   return ApiResponse.success(res, stats);
 };
 
