@@ -14,6 +14,7 @@ import { applyOrgFilter, resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { syncStudentCourseEnrollment, reassignStudentClassCourses } from '../services/enrollment.service';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
+import { parseSpreadsheetDate } from '../utils/spreadsheet-date';
 
 /**
  * One canonical, human-editable student registration contract.
@@ -141,20 +142,6 @@ function relationshipTitle(raw: unknown): string {
 function relationshipModel(raw: unknown): string {
   const value = clean(raw).toLowerCase() || 'father';
   return RELATIONSHIPS.has(value) ? value : 'father';
-}
-
-function parseSpreadsheetDate(raw: unknown): Date | undefined {
-  if (raw === null || raw === undefined || clean(raw) === '') return undefined;
-  if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
-  if (typeof raw === 'number') {
-    const parts = XLSX.SSF.parse_date_code(raw);
-    if (parts) {
-      const date = new Date(parts.y, parts.m - 1, parts.d);
-      if (!Number.isNaN(date.getTime())) return date;
-    }
-  }
-  const date = new Date(clean(raw));
-  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 function isoDate(value: unknown): string {

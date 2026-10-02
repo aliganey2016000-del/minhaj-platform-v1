@@ -61,6 +61,9 @@ jobs:
       - name: Teacher promotion tests
         run: npm run test:teacher-promotion
 
+      - name: Corrupt student date repair tests
+        run: npm run test:student-corrupt-dates
+
       - name: Teacher CRUD & import tests
         run: npm run test:teacher-crud
 

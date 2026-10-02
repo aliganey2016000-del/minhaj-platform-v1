@@ -26,6 +26,7 @@ import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, assertCanAccessSt
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import { syncStudentCourseEnrollment, reassignStudentClassCourses } from '../services/enrollment.service';
 import { persistStudentPhoto } from './student-documents.controller';
+import { parseSpreadsheetDate } from '../utils/spreadsheet-date';
 
 // Nested-populate the guardian's actual email/phone/name — a shallow
 // `.populate(PARENT_POPULATE)` leaves those as raw ObjectIds, which
@@ -1363,7 +1364,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       const className = String(getField(row, 'Class Name', 'Class') ?? '').trim();
       const section = String(getField(row, 'Section') ?? '').trim();
       const gradeRaw = String(getField(row, 'Grade') ?? '').trim();
-      const enrollmentDateRaw = String(getField(row, 'Enrollment Date') ?? '').trim();
+      const enrollmentDateRaw = getField(row, 'Enrollment Date');
       const medicalNotes = String(getField(row, 'Medical Notes') ?? '').trim();
       const guardianName = String(getField(row, 'Guardian Name') ?? '').trim();
       const guardianEmail = String(getField(row, 'Guardian Email') ?? '').trim().toLowerCase();
@@ -1375,8 +1376,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       // raw JS "Invalid Date" — Mongoose's Date cast rejects it, and since
       // the batch is written with `ordered: true`, that one bad value
       // aborts every row in the transaction. Fall back to today instead.
-      const parsedEnrollmentDate = enrollmentDateRaw ? new Date(enrollmentDateRaw) : new Date();
-      const enrollmentDate = isNaN(parsedEnrollmentDate.getTime()) ? new Date() : parsedEnrollmentDate;
+      const enrollmentDate = parseSpreadsheetDate(enrollmentDateRaw) || new Date();
 
       if (!firstName || !lastName) throw new Error('First Name and Last Name are required');
       if (!email) throw new Error('Email is required');
