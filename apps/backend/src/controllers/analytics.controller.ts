@@ -27,20 +27,16 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<Re
   const revenueRefundPipeline: mongoose.PipelineStage[] = [{ $match: { status: 'completed' } }];
 
   if (isOrgAdmin && organizationObjectId) {
-    revenuePaymentPipeline.push(
-      { $lookup: { from: 'students', localField: 'student', foreignField: '_id', as: '_revenueStudent' } },
-      { $match: { $or: [
-        { school: organizationObjectId },
-        { school: null, '_revenueStudent.school': organizationObjectId },
-      ] } },
-    );
-    revenueRefundPipeline.push(
-      { $lookup: { from: 'students', localField: 'student', foreignField: '_id', as: '_revenueStudent' } },
-      { $match: { $or: [
-        { school: organizationObjectId },
-        { school: null, '_revenueStudent.school': organizationObjectId },
-      ] } },
-    );
+    // Legacy rows without a school belong to the org through their student.
+    // Matching those student ids directly keeps this on the school/student
+    // indexes; a $lookup here joined every completed payment on the platform.
+    const orgStudentIds = await Student.find({ school: organizationObjectId }).distinct('_id');
+    const orgRevenueMatch = { $match: { $or: [
+      { school: organizationObjectId },
+      { school: null, student: { $in: orgStudentIds } },
+    ] } };
+    revenuePaymentPipeline.unshift(orgRevenueMatch);
+    revenueRefundPipeline.unshift(orgRevenueMatch);
   } else if (isOrgAdmin) {
     revenuePaymentPipeline.push({ $match: { _id: null } });
     revenueRefundPipeline.push({ $match: { _id: null } });

@@ -64,6 +64,9 @@ jobs:
       - name: Corrupt student date repair tests
         run: npm run test:student-corrupt-dates
 
+      - name: Dashboard tenant aggregation tests
+        run: npm run test:dashboard-aggregations
+
       - name: Teacher CRUD & import tests
         run: npm run test:teacher-crud
 

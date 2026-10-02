@@ -40,7 +40,7 @@ const schema = new Schema<IWhatsAppMessage>(
     templateName: { type: String, trim: true, default: undefined },
     languageCode: { type: String, trim: true, default: undefined },
     body: { type: String, default: undefined },
-    providerMessageId: { type: String, default: undefined, index: true },
+    providerMessageId: { type: String, default: undefined },
     providerTimestamp: { type: Date, default: undefined },
     pushName: { type: String, default: undefined },
     raw: { type: Schema.Types.Mixed, default: undefined },

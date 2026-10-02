@@ -100,6 +100,8 @@ studentSchema.index({ status: 1, enrollmentDate: -1 });
 studentSchema.index({ school: 1, department: 1 });
 studentSchema.index({ school: 1, shiftMode: 1 });
 studentSchema.index({ school: 1, studentId: 1 }, { unique: true });
+// Course-based rosters and teacher scopes look students up by enrolled course.
+studentSchema.index({ enrolledCourses: 1 });
 
 /**
  * Generate a tenant-friendly Student ID from the first word of the
