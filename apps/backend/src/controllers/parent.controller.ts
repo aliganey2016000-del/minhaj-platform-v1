@@ -17,6 +17,8 @@ import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-erro
 import Student from '../models/student.model';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { escapeRegex } from '../utils/escape-regex';
 
 // ---------------------------------------------------------------------------
 // GET /parents — List all with optional filters
@@ -40,44 +42,68 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 10));
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
-
-  const [parents, total] = await Promise.all([
-    Parent.find(scopedFilter)
-      .populate('user', 'email phone isVerified isActive')
-      .populate('profile', 'firstName lastName gender')
-      .populate('school', 'name')
-      .populate({ path: 'children', select: 'studentId school', populate: { path: 'school', select: 'name' } })
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
-    Parent.countDocuments(scopedFilter),
-  ]);
-
+  const populateParents = (q: ReturnType<typeof Parent.find>) => q
+    .populate('user', 'email phone isVerified isActive')
+    .populate('profile', 'firstName lastName gender')
+    .populate('school', 'name')
+    .populate({ path: 'children', select: 'studentId school', populate: { path: 'school', select: 'name' } });
   // The parent's own `school` is the authoritative organization (set at
   // creation/import), but a handful of legacy records predate that field
   // being populated here at all — for those, fall back to the distinct set
   // of organizations among their linked children rather than showing blank.
-  let result = parents.map((p: any) => {
+  const withOrgNames = (p: any) => {
     if (p.school?.name) return { ...p, organizationNames: [p.school.name] };
     const childOrgNames = [...new Set((p.children || []).map((c: any) => c.school?.name).filter(Boolean))];
     return { ...p, organizationNames: childOrgNames };
-  });
+  };
+
+  let result: any[];
+  let total: number;
+
   if (search) {
-    const s = (search as string).toLowerCase();
-    result = result.filter((p: any) => {
-      const fullName = `${p.profile?.firstName || ''} ${p.profile?.lastName || ''}`.toLowerCase();
-      const email = (p.user?.email || '').toLowerCase();
-      const pid = (p.parentId || '').toLowerCase();
-      return fullName.includes(s) || email.includes(s) || pid.includes(s);
-    });
+    // Previously: paginate first (skip/limit), THEN filter that one page by
+    // search in memory — a matching parent outside the current page never
+    // showed up, and `total` reported only how many of that one page
+    // matched. Matched and paginated at the database level instead, same as
+    // students/teachers/classes (see student.controller.ts getAll).
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const aggregateMatch = castObjectIdFilter(scopedFilter, ['school']);
+    const [facetResult] = await Parent.aggregate([
+      { $match: aggregateMatch },
+      { $lookup: { from: 'profiles', localField: 'profile', foreignField: '_id', as: 'profileDoc' } },
+      { $unwind: { path: '$profileDoc', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'users', localField: 'user', foreignField: '_id', as: 'userDoc' } },
+      { $unwind: { path: '$userDoc', preserveNullAndEmptyArrays: true } },
+      { $addFields: { fullName: { $concat: [{ $ifNull: ['$profileDoc.firstName', ''] }, ' ', { $ifNull: ['$profileDoc.lastName', ''] }] } } },
+      { $match: { $or: [{ fullName: regex }, { 'userDoc.email': regex }, { parentId: regex }] } },
+      { $sort: { createdAt: -1 } },
+      { $facet: {
+          data: [{ $skip: (pageNum - 1) * limitNum }, { $limit: limitNum }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const pageDocs = orderedIds.length
+      ? await populateParents(Parent.find({ _id: { $in: orderedIds } })).lean()
+      : [];
+    const docById = new Map((pageDocs as any[]).map((doc) => [String(doc._id), withOrgNames(doc)]));
+    result = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    const [parents, count] = await Promise.all([
+      populateParents(Parent.find(scopedFilter))
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean(),
+      Parent.countDocuments(scopedFilter),
+    ]);
+    result = (parents as any[]).map(withOrgNames);
+    total = count;
   }
 
-  return ApiResponse.paginated(res, result, {
-    page: pageNum,
-    limit: limitNum,
-    total: search ? result.length : total,
-  });
+  return ApiResponse.paginated(res, result, { page: pageNum, limit: limitNum, total });
 };
 
 // ---------------------------------------------------------------------------

@@ -26,6 +26,8 @@ import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-err
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import { resolveInstitutionType, defaultAcademicConfig, validateAcademicConfig, INSTITUTION_TYPES, OWNERSHIP_TYPES } from '../utils/academic-config';
 import { syncSchoolDomains } from '../utils/cloudflare-dns';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { escapeRegex } from '../utils/escape-regex';
 
 // ---------------------------------------------------------------------------
 // GET /schools — List all with pagination, search, and filters
@@ -53,38 +55,54 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 20));
-
-  const [schools, total] = await Promise.all([
-    School.find(filter)
-      .populate('createdBy', 'email')
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
-    School.countDocuments(filter),
-  ]);
-
-  let result = schools;
-  if (search) {
-    const s = (search as string).toLowerCase();
-    result = schools.filter((item: any) => {
-      const name = (item.name || '').toLowerCase();
-      const email = (item.email || '').toLowerCase();
-      const principal = (item.principalName || '').toLowerCase();
-      const address = (item.address || '').toLowerCase();
-      return name.includes(s) || email.includes(s) || principal.includes(s) || address.includes(s);
-    });
-  }
-
   // Normalize institutionType so callers never see an undefined/legacy value
   // for a pre-migration document (see resolveInstitutionType doc comment).
-  result = result.map((item: any) => ({ ...item, institutionType: resolveInstitutionType(item) }));
+  const withInstitutionType = (item: any) => ({ ...item, institutionType: resolveInstitutionType(item) });
 
-  return ApiResponse.paginated(res, result, {
-    page: pageNum,
-    limit: limitNum,
-    total: search ? result.length : total,
-  });
+  let result: any[];
+  let total: number;
+
+  if (search) {
+    // Previously: paginate first (skip/limit), THEN filter that one page by
+    // search in memory — a matching school outside the current page never
+    // showed up, and `total` reported only how many of that one page
+    // matched. Matched and paginated at the database level instead, same as
+    // students/teachers/classes/parents/invoices/payments (see
+    // student.controller.ts getAll).
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const aggregateMatch = castObjectIdFilter(filter, ['_id']);
+    const [facetResult] = await School.aggregate([
+      { $match: aggregateMatch },
+      { $match: { $or: [{ name: regex }, { email: regex }, { principalName: regex }, { address: regex }] } },
+      { $sort: { createdAt: -1 } },
+      { $facet: {
+          data: [{ $skip: (pageNum - 1) * limitNum }, { $limit: limitNum }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const pageDocs = orderedIds.length
+      ? await School.find({ _id: { $in: orderedIds } }).populate('createdBy', 'email').lean()
+      : [];
+    const docById = new Map((pageDocs as any[]).map((doc) => [String(doc._id), withInstitutionType(doc)]));
+    result = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    const [schools, count] = await Promise.all([
+      School.find(filter)
+        .populate('createdBy', 'email')
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean(),
+      School.countDocuments(filter),
+    ]);
+    result = (schools as any[]).map(withInstitutionType);
+    total = count;
+  }
+
+  return ApiResponse.paginated(res, result, { page: pageNum, limit: limitNum, total });
 };
 
 // ---------------------------------------------------------------------------

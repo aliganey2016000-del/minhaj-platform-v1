@@ -28,6 +28,8 @@ import ensureStudentRecord from '../utils/ensure-student';
 import { getOwnTeacherRecord } from '../utils/tenant-scope';
 import { notifyUsers } from '../utils/notify';
 import { logActivityFromRequest } from '../utils/learning-activity-logger';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { escapeRegex } from '../utils/escape-regex';
 
 // ---------------------------------------------------------------------------
 // Shared ownership guard for assignment mutation/read endpoints — mirrors the
@@ -283,24 +285,54 @@ export const getAll = async (req: Request, res: Response) => {
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 20));
 
-  const [items, total] = await Promise.all([
-    Assignment.find(filter)
-      .populate('course', 'title.en slug category level thumbnail school')
-      .populate({ path: 'course', populate: { path: 'school', select: 'name' } })
-      .populate({ path: 'course', populate: { path: 'teacher', select: 'teacherId profile', populate: { path: 'profile', select: 'firstName lastName' } } })
-      .populate('class', 'title section')
-      .populate('createdBy', 'email')
-      .sort({ dueDate: 1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
-    Assignment.countDocuments(filter),
-  ]);
+  const populateAssignments = (q: ReturnType<typeof Assignment.find>) => q
+    .populate('course', 'title.en slug category level thumbnail school')
+    .populate({ path: 'course', populate: { path: 'school', select: 'name' } })
+    .populate({ path: 'course', populate: { path: 'teacher', select: 'teacherId profile', populate: { path: 'profile', select: 'firstName lastName' } } })
+    .populate('class', 'title section')
+    .populate('createdBy', 'email');
 
-  let result = items;
+  let result: any[];
+  let total: number;
+
   if (search) {
-    const s = (search as string).toLowerCase();
-    result = items.filter((a: any) => (a.title || '').toLowerCase().includes(s) || (a.description || '').toLowerCase().includes(s));
+    // Previously: paginate first (skip/limit), THEN filter that one page by
+    // search in memory — a matching assignment outside the current page
+    // never showed up, and `total` reported only how many of that one page
+    // matched. Matched and paginated at the database level instead, same as
+    // students/teachers/classes/parents/invoices/payments/schools/
+    // certificates/exams/results (see student.controller.ts getAll). Both
+    // search fields live directly on the document, so no $lookup is needed.
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const aggregateMatch = castObjectIdFilter(filter, ['course']);
+    const [facetResult] = await Assignment.aggregate([
+      { $match: aggregateMatch },
+      { $match: { $or: [{ title: regex }, { description: regex }] } },
+      { $sort: { dueDate: 1 } },
+      { $facet: {
+          data: [{ $skip: (pageNum - 1) * limitNum }, { $limit: limitNum }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const pageDocs = orderedIds.length
+      ? await populateAssignments(Assignment.find({ _id: { $in: orderedIds } })).lean()
+      : [];
+    const docById = new Map((pageDocs as any[]).map((doc: any) => [String(doc._id), doc]));
+    result = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    const [items, count] = await Promise.all([
+      populateAssignments(Assignment.find(filter))
+        .sort({ dueDate: 1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean(),
+      Assignment.countDocuments(filter),
+    ]);
+    result = items;
+    total = count;
   }
 
   const enriched = result.map((a: any) => ({
@@ -308,7 +340,7 @@ export const getAll = async (req: Request, res: Response) => {
     tab: new Date(a.dueDate) < now ? 'past' : new Date(a.startDate || a.createdAt) > now ? 'upcoming' : 'active',
   }));
 
-  return ApiResponse.paginated(res, enriched, { page: pageNum, limit: limitNum, total: search ? result.length : total });
+  return ApiResponse.paginated(res, enriched, { page: pageNum, limit: limitNum, total });
 };
 
 // ---------------------------------------------------------------------------

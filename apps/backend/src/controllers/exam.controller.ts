@@ -22,6 +22,8 @@ import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-erro
 import ensureStudentRecord from '../utils/ensure-student';
 import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, assertOwnsExamIfTeacher, resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { escapeRegex } from '../utils/escape-regex';
 import {
   getExamSchedulingRulesForSchool,
   normalizeExamSchedulingRules,
@@ -1356,37 +1358,62 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(200, parseInt(limit as string, 10) || 50));
+  const populateExams = (q: ReturnType<typeof Exam.find>) => q
+    .populate({
+      path: 'course',
+      select: 'title.en slug category teacher class school thumbnail enrolledStudents',
+      populate: [
+        { path: 'teacher', select: 'profile', populate: { path: 'profile', select: 'firstName lastName' } },
+        { path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } },
+        { path: 'school', select: 'name' },
+      ],
+    })
+    .populate('school', 'name')
+    .populate('period', 'name academicYear term status startDate endDate')
+    .populate('createdBy', 'email');
 
-  const [exams, total] = await Promise.all([
-    Exam.find(scopedFilter)
-      .populate({
-        path: 'course',
-        select: 'title.en slug category teacher class school thumbnail enrolledStudents',
-        populate: [
-          { path: 'teacher', select: 'profile', populate: { path: 'profile', select: 'firstName lastName' } },
-          { path: 'class', select: 'title section department', populate: { path: 'department', select: 'name' } },
-          { path: 'school', select: 'name' },
-        ],
-      })
-      .populate('school', 'name')
-      .populate('period', 'name academicYear term status startDate endDate')
-      .populate('createdBy', 'email')
-      .sort({ examDate: 1, startTime: 1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
-    Exam.countDocuments(scopedFilter),
-  ]);
+  let result: any[];
+  let total: number;
 
-  let result = exams;
   if (search) {
-    const s = (search as string).toLowerCase();
-    result = exams.filter((e: any) => {
-      const title = (e.title || '').toLowerCase();
-      const courseName = (e.course?.title?.en || '').toLowerCase();
-      const room = (e.room || '').toLowerCase();
-      return title.includes(s) || courseName.includes(s) || room.includes(s);
-    });
+    // Previously: paginate first (skip/limit), THEN filter that one page by
+    // search in memory — a matching exam outside the current page never
+    // showed up, and `total` reported only how many of that one page
+    // matched. Matched and paginated at the database level instead, same as
+    // students/teachers/classes/parents/invoices/payments/schools/
+    // certificates (see student.controller.ts getAll).
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const aggregateMatch = castObjectIdFilter(scopedFilter, ['school', 'course', 'period']);
+    const [facetResult] = await Exam.aggregate([
+      { $match: aggregateMatch },
+      { $lookup: { from: 'courses', localField: 'course', foreignField: '_id', as: 'courseDoc' } },
+      { $unwind: { path: '$courseDoc', preserveNullAndEmptyArrays: true } },
+      { $match: { $or: [{ title: regex }, { 'courseDoc.title.en': regex }, { room: regex }] } },
+      { $sort: { examDate: 1, startTime: 1 } },
+      { $facet: {
+          data: [{ $skip: (pageNum - 1) * limitNum }, { $limit: limitNum }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const pageDocs = orderedIds.length
+      ? await populateExams(Exam.find({ _id: { $in: orderedIds } })).lean()
+      : [];
+    const docById = new Map((pageDocs as any[]).map((doc) => [String(doc._id), doc]));
+    result = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    const [exams, count] = await Promise.all([
+      populateExams(Exam.find(scopedFilter))
+        .sort({ examDate: 1, startTime: 1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean(),
+      Exam.countDocuments(scopedFilter),
+    ]);
+    result = exams;
+    total = count;
   }
 
   // Attach each exam's paper status (draft/submitted/approved/rejected, or
@@ -1440,11 +1467,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     };
   });
 
-  return ApiResponse.paginated(res, result, {
-    page: pageNum,
-    limit: limitNum,
-    total: search ? result.length : total,
-  });
+  return ApiResponse.paginated(res, result, { page: pageNum, limit: limitNum, total });
 };
 
 // GET /exams/:id

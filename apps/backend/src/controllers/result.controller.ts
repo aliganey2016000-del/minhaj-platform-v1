@@ -15,6 +15,8 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
 import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord } from '../utils/tenant-scope';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { escapeRegex } from '../utils/escape-regex';
 
 // ---------------------------------------------------------------------------
 // Helper: compute percentage + grade from raw marks
@@ -98,22 +100,62 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(200, parseInt(limit as string, 10) || 50));
+  const populateResults = (q: ReturnType<typeof Result.find>) => q
+    .populate('exam', 'title examDate totalMarks passingMarks course')
+    .populate({ path: 'exam', populate: { path: 'course', select: 'title.en slug category' } })
+    .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
+    .populate('enteredBy', 'email');
 
-  const [results, total] = await Promise.all([
-    Result.find(filter)
-      .populate('exam', 'title examDate totalMarks passingMarks course')
-      .populate({ path: 'exam', populate: { path: 'course', select: 'title.en slug category' } })
-      .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
-      .populate('enteredBy', 'email')
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
-    Result.countDocuments(filter),
-  ]);
+  let resultList: any[];
+  let total: number;
+
+  if (search) {
+    // Previously: paginate first (skip/limit), THEN filter that one page by
+    // search in memory — a matching result outside the current page never
+    // showed up, and `total` reported only how many of that one page
+    // matched. Matched and paginated at the database level instead, same as
+    // students/teachers/classes/parents/invoices/payments/schools/
+    // certificates/exams (see student.controller.ts getAll).
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const aggregateMatch = castObjectIdFilter(filter, ['exam', 'student']);
+    const [facetResult] = await Result.aggregate([
+      { $match: aggregateMatch },
+      { $lookup: { from: 'exams', localField: 'exam', foreignField: '_id', as: 'examDoc' } },
+      { $unwind: { path: '$examDoc', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'students', localField: 'student', foreignField: '_id', as: 'studentDoc' } },
+      { $unwind: { path: '$studentDoc', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'profiles', localField: 'studentDoc.profile', foreignField: '_id', as: 'profileDoc' } },
+      { $unwind: { path: '$profileDoc', preserveNullAndEmptyArrays: true } },
+      { $addFields: { fullName: { $concat: [{ $ifNull: ['$profileDoc.firstName', ''] }, ' ', { $ifNull: ['$profileDoc.lastName', ''] }] } } },
+      { $match: { $or: [{ fullName: regex }, { 'studentDoc.studentId': regex }, { 'examDoc.title': regex }] } },
+      { $sort: { createdAt: -1 } },
+      { $facet: {
+          data: [{ $skip: (pageNum - 1) * limitNum }, { $limit: limitNum }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const pageDocs = orderedIds.length
+      ? await populateResults(Result.find({ _id: { $in: orderedIds } })).lean()
+      : [];
+    const docById = new Map((pageDocs as any[]).map((doc) => [String(doc._id), doc]));
+    resultList = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    const [results, count] = await Promise.all([
+      populateResults(Result.find(filter))
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean(),
+      Result.countDocuments(filter),
+    ]);
+    resultList = results;
+    total = count;
+  }
 
   // ── Attach exam attendance status per (exam, student) pair ──
-  const resultList = results;
   const examIds = [...new Set(resultList.map((r: any) => r.exam?._id?.toString()).filter(Boolean))];
   const attendanceMap: Record<string, string> = {};
 
@@ -129,7 +171,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   }
 
   // Enrich each result with attendance status
-  let enriched = resultList.map((r: any) => {
+  const enriched = resultList.map((r: any) => {
     const key = `${r.exam?._id?.toString()}_${r.student?._id?.toString()}`;
     return {
       ...r,
@@ -137,18 +179,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
     };
   });
 
-  // Post-filter by search
-  if (search) {
-    const s = (search as string).toLowerCase();
-    enriched = enriched.filter((r: any) => {
-      const name = `${r.student?.profile?.firstName || ''} ${r.student?.profile?.lastName || ''}`.toLowerCase();
-      const sid = (r.student?.studentId || '').toLowerCase();
-      const examTitle = (r.exam?.title || '').toLowerCase();
-      return name.includes(s) || sid.includes(s) || examTitle.includes(s);
-    });
-  }
-
-  return ApiResponse.paginated(res, enriched, { page: pageNum, limit: limitNum, total: search ? enriched.length : total });
+  return ApiResponse.paginated(res, enriched, { page: pageNum, limit: limitNum, total });
 };
 
 // ---------------------------------------------------------------------------
