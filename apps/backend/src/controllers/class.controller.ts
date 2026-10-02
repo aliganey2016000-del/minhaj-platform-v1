@@ -14,6 +14,8 @@ import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherReco
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import ensureStudentRecord from '../utils/ensure-student';
 import { resolveInstitutionType } from '../utils/academic-config';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { escapeRegex } from '../utils/escape-regex';
 
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -82,47 +84,68 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(200, parseInt(limit as string, 10) || 50));
-
-  const [classes, total] = await Promise.all([
-    ClassModel.find(scopedFilter)
-      .populate('school', 'name')
-      .populate('course', 'title.en slug category')
-      .populate('teacher', 'teacherId')
-      .populate('department', 'name code')
-      .populate('program', 'name code')
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
-    ClassModel.countDocuments(scopedFilter),
-  ]);
-
-  const normalizedClasses = (classes as any[]).map((c: any) => ({
+  const populateClass = (q: ReturnType<typeof ClassModel.find>) => q
+    .populate('school', 'name')
+    .populate('course', 'title.en slug category')
+    .populate('teacher', 'teacherId')
+    .populate('department', 'name code')
+    .populate('program', 'name code');
+  const normalize = (c: any) => ({
     ...c,
     department: typeof c.department === 'string' ? c.department : c.department?.name || '',
     departmentId: typeof c.department === 'object' && c.department?._id ? c.department._id.toString() : undefined,
     program: typeof c.program === 'string' ? c.program : c.program?.name || '',
     programId: typeof c.program === 'object' && c.program?._id ? c.program._id.toString() : undefined,
-  }));
+  });
 
-  let result = normalizedClasses;
+  let classes: any[];
+  let total: number;
+
   if (search) {
-    const s = (search as string).toLowerCase();
-    result = normalizedClasses.filter((c: any) => {
-      const title = (c.title || '').toLowerCase();
-      const room = (c.room || '').toLowerCase();
-      const section = (c.section || '').toLowerCase();
-      const schoolName = (c.school?.name || '').toLowerCase();
-      const department = (c.department || '').toLowerCase();
-      return title.includes(s) || room.includes(s) || section.includes(s) || schoolName.includes(s) || department.includes(s);
-    });
+    // Previously: paginate first (skip/limit), THEN filter that one page by
+    // search in memory — a matching class outside the current page never
+    // showed up, and `total` reported only how many of that one page
+    // matched. Matched and paginated at the database level instead, same as
+    // students/teachers (see student.controller.ts getAll).
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const aggregateMatch = castObjectIdFilter(scopedFilter, ['school', 'department']);
+    const [facetResult] = await ClassModel.aggregate([
+      { $match: aggregateMatch },
+      { $lookup: { from: 'schools', localField: 'school', foreignField: '_id', as: 'schoolDoc' } },
+      { $unwind: { path: '$schoolDoc', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'departments', localField: 'department', foreignField: '_id', as: 'departmentDoc' } },
+      { $unwind: { path: '$departmentDoc', preserveNullAndEmptyArrays: true } },
+      { $match: { $or: [
+          { title: regex }, { room: regex }, { section: regex },
+          { 'schoolDoc.name': regex }, { 'departmentDoc.name': regex },
+        ] } },
+      { $sort: { createdAt: -1 } },
+      { $facet: {
+          data: [{ $skip: (pageNum - 1) * limitNum }, { $limit: limitNum }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const pageDocs = orderedIds.length
+      ? await populateClass(ClassModel.find({ _id: { $in: orderedIds } })).lean()
+      : [];
+    const docById = new Map((pageDocs as any[]).map((doc) => [String(doc._id), normalize(doc)]));
+    classes = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    [classes, total] = await Promise.all([
+      populateClass(ClassModel.find(scopedFilter))
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean()
+        .then((rows) => (rows as any[]).map(normalize)),
+      ClassModel.countDocuments(scopedFilter),
+    ]);
   }
 
-  return ApiResponse.paginated(res, result, {
-    page: pageNum,
-    limit: limitNum,
-    total: search ? result.length : total,
-  });
+  return ApiResponse.paginated(res, classes, { page: pageNum, limit: limitNum, total });
 };
 
 // ---------------------------------------------------------------------------

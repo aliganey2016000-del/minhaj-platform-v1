@@ -27,6 +27,8 @@ import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import { syncStudentCourseEnrollment, reassignStudentClassCourses } from '../services/enrollment.service';
 import { persistStudentPhoto } from './student-documents.controller';
 import { parseSpreadsheetDate } from '../utils/spreadsheet-date';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { escapeRegex } from '../utils/escape-regex';
 
 // Nested-populate the guardian's actual email/phone/name — a shallow
 // `.populate(PARENT_POPULATE)` leaves those as raw ObjectIds, which
@@ -161,36 +163,60 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   let total: number;
 
   if (search) {
-    const [students, count] = await Promise.all([
-      Student.find(scopedFilter)
-        .populate('user', 'email phone role isActive isVerified preferredLanguage')
-        .populate('profile', 'firstName lastName avatar gender')
-        .populate(PARENT_POPULATE)
-        .populate('school', 'name')
-        .populate('class', 'title section')
-        .populate('enrolledCourses', 'title slug')
-        .sort(sort)
-        .lean(),
-      Student.countDocuments(scopedFilter),
+    // Matched and paginated at the database level via aggregation instead of
+    // loading the whole scoped roster (every student in the school, fully
+    // populated) into Node on every keystroke to filter in memory — the
+    // previous approach that worked for a handful of schools but meant one
+    // admin's search could mean fetching and populating 1,000+ students, and
+    // the same again for every other school's admin searching at once.
+    const regex = new RegExp(escapeRegex(search), 'i');
+    // Digits of the search term, each allowed to be separated by non-digit
+    // characters in the stored number — equivalent to the old
+    // digitsOnly(phone).includes(digitsOnly(search)) substring match, since
+    // stripping non-digits never reorders digits or merges separate runs.
+    const searchDigits = search.replace(/\D/g, '');
+    const orClauses: Record<string, unknown>[] = [
+      { fullName: regex },
+      { 'userDoc.email': regex },
+      { studentId: regex },
+    ];
+    if (searchDigits.length >= 3) {
+      orClauses.push({ 'userDoc.phone': new RegExp(searchDigits.split('').join('[^0-9]*')) });
+    }
+
+    const aggregateMatch = castObjectIdFilter(scopedFilter, ['school']);
+    const [facetResult] = await Student.aggregate([
+      { $match: aggregateMatch },
+      { $lookup: { from: 'profiles', localField: 'profile', foreignField: '_id', as: 'profileDoc' } },
+      { $unwind: { path: '$profileDoc', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'users', localField: 'user', foreignField: '_id', as: 'userDoc' } },
+      { $unwind: { path: '$userDoc', preserveNullAndEmptyArrays: true } },
+      { $addFields: { fullName: { $concat: [{ $ifNull: ['$profileDoc.firstName', ''] }, ' ', { $ifNull: ['$profileDoc.lastName', ''] }] } } },
+      { $match: { $or: orClauses } },
+      { $sort: sort },
+      { $facet: {
+          data: [{ $skip: (page - 1) * limit }, { $limit: limit }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
     ]);
 
-    const s = search.toLowerCase();
-    // Phone matching strips non-digits on both sides so "+252 61 234 5678",
-    // "0612345678", and a search of "612345678" all still find each other
-    // regardless of how the number was originally typed/formatted.
-    const digitsOnly = (v: string) => v.replace(/\D/g, '');
-    const sDigits = digitsOnly(search);
-    const filtered = students.filter((st: any) => {
-      const fullName = `${st.profile?.firstName || ''} ${st.profile?.lastName || ''}`.toLowerCase();
-      const email = (st.user?.email || '').toLowerCase();
-      const sid = (st.studentId || '').toLowerCase();
-      const phone = digitsOnly(st.user?.phone || '');
-      const phoneMatch = sDigits.length >= 3 && phone.includes(sDigits);
-      return fullName.includes(s) || email.includes(s) || sid.includes(s) || phoneMatch;
-    });
+    // $in doesn't preserve order, so the final populate is re-sorted to
+    // match the order the $facet's own $sort/$skip/$limit already decided.
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
 
-    total = filtered.length;
-    allStudents = filtered.slice((page - 1) * limit, page * limit);
+    const pageDocs = orderedIds.length
+      ? await Student.find({ _id: { $in: orderedIds } })
+          .populate('user', 'email phone role isActive isVerified preferredLanguage')
+          .populate('profile', 'firstName lastName avatar gender')
+          .populate(PARENT_POPULATE)
+          .populate('school', 'name')
+          .populate('class', 'title section')
+          .populate('enrolledCourses', 'title slug')
+          .lean()
+      : [];
+    const docById = new Map(pageDocs.map((doc: any) => [String(doc._id), doc]));
+    allStudents = orderedIds.map((id) => docById.get(id)).filter(Boolean);
   } else {
     const [students, count] = await Promise.all([
       Student.find(scopedFilter)
@@ -251,17 +277,7 @@ async function computeStudentStats(req: Request): Promise<StudentStatsResult> {
   // below would silently match zero students for an org_admin while `total`
   // (countDocuments) still reported the real count. Cast explicitly for the
   // aggregation pipelines only.
-  const aggregateMatch: Record<string, unknown> = { ...scopedFilter };
-  const schoolFilter = aggregateMatch.school;
-  if (typeof schoolFilter === 'string' && mongoose.isValidObjectId(schoolFilter)) {
-    aggregateMatch.school = new mongoose.Types.ObjectId(schoolFilter);
-  } else if (schoolFilter && typeof schoolFilter === 'object' && Array.isArray((schoolFilter as { $in?: unknown[] }).$in)) {
-    aggregateMatch.school = {
-      $in: (schoolFilter as { $in: unknown[] }).$in.map((v) =>
-        typeof v === 'string' && mongoose.isValidObjectId(v) ? new mongoose.Types.ObjectId(v) : v
-      ),
-    };
-  }
+  const aggregateMatch = castObjectIdFilter(scopedFilter, ['school']);
 
   // Enrollment trend covers the trailing 12 months (inclusive of the
   // current one) so the report's line chart has a fixed, predictable
