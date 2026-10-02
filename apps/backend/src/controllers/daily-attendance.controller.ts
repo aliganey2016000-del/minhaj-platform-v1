@@ -237,17 +237,18 @@ export const getSchoolDashboard = async (req: Request, res: Response): Promise<R
   const calendarDay: any = await SchoolCalendarDay.findOne({ school: schoolId, date }).select('name type isInstructional').lean();
   const daySchedules: any[] = calendarDay?.isInstructional === false ? [] : await ClassSchedule.find({ school: schoolId, dayOfWeek: date.getDay(), isActive: true }).select('_id').lean();
   const scheduleIds = daySchedules.map((row) => row._id);
+  // Start the early-warning window from this school's roster so the
+  // {student, date} index does the work. Matching on date alone scanned every
+  // school's attendance for the whole window and joined each row to students.
+  const rosterIds = await Student.find({ school: schoolId, status: 'active', approvalStatus: 'approved' }).distinct('_id');
   const [sessions, todayRows, riskStats] = await Promise.all([
     scheduleIds.length ? AttendanceSession.find({ school: schoolId, schedule: { $in: scheduleIds }, date }).select('schedule status locked').lean() : Promise.resolve([]),
     Attendance.aggregate([
       { $match: { date, schedule: { $in: scheduleIds } } },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]),
-    Attendance.aggregate([
-      { $match: { date: { $gte: from, $lte: end } } },
-      { $lookup: { from: 'students', localField: 'student', foreignField: '_id', as: 'studentDoc' } },
-      { $unwind: '$studentDoc' },
-      { $match: { 'studentDoc.school': new mongoose.Types.ObjectId(schoolId), 'studentDoc.status': 'active', 'studentDoc.approvalStatus': 'approved' } },
+    rosterIds.length ? Attendance.aggregate([
+      { $match: { student: { $in: rosterIds }, date: { $gte: from, $lte: end } } },
       { $group: {
         _id: '$student',
         total: { $sum: 1 },
@@ -255,7 +256,7 @@ export const getSchoolDashboard = async (req: Request, res: Response): Promise<R
         absent: { $sum: { $cond: [{ $in: ['$status', ['absent', 'excused']] }, 1, 0] } },
       } },
       { $match: { total: { $gte: 3 } } },
-    ]),
+    ]) : Promise.resolve([]),
   ]);
 
   const completionMap = new Map((sessions as any[]).map((row) => [String(row.schedule), row]));

@@ -27,7 +27,5 @@ const studentSequenceSchema = new Schema<IStudentSequence>(
   { timestamps: true },
 );
 
-studentSequenceSchema.index({ key: 1 }, { unique: true });
-
 export default mongoose.models.StudentSequence
   || mongoose.model<IStudentSequence>('StudentSequence', studentSequenceSchema);

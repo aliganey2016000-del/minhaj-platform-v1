@@ -72,6 +72,8 @@ attendanceSchema.index({ course: 1, student: 1, date: 1, schedule: 1 }, { unique
 attendanceSchema.index({ student: 1, date: 1 });
 attendanceSchema.index({ date: 1 });
 attendanceSchema.index({ course: 1, date: 1, status: 1 });
+// School session lists and reports filter by { schedule: { $in }, date }.
+attendanceSchema.index({ schedule: 1, date: 1 });
 
 const Attendance = mongoose.model<IAttendance>('Attendance', attendanceSchema);
 export default Attendance;

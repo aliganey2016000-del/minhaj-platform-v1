@@ -297,10 +297,12 @@ async function computeStudentStats(req: Request): Promise<StudentStatsResult> {
       { $group: { _id: '$profile.gender', count: { $sum: 1 } } },
     ]),
     Student.aggregate([
+      // Group before joining so the lookup runs once per class, not per student.
       { $match: aggregateMatch },
-      { $lookup: { from: 'classes', localField: 'class', foreignField: '_id', as: 'class' } },
+      { $group: { _id: '$class', count: { $sum: 1 } } },
+      { $lookup: { from: 'classes', localField: '_id', foreignField: '_id', as: 'class' } },
       { $unwind: { path: '$class', preserveNullAndEmptyArrays: true } },
-      { $group: { _id: '$class._id', title: { $first: '$class.title' }, section: { $first: '$class.section' }, count: { $sum: 1 } } },
+      { $group: { _id: '$class._id', title: { $first: '$class.title' }, section: { $first: '$class.section' }, count: { $sum: '$count' } } },
       { $sort: { count: -1 } },
     ]),
     Student.aggregate([
@@ -310,9 +312,10 @@ async function computeStudentStats(req: Request): Promise<StudentStatsResult> {
     ]),
     Student.aggregate([
       { $match: aggregateMatch },
-      { $lookup: { from: 'schools', localField: 'school', foreignField: '_id', as: 'school' } },
+      { $group: { _id: '$school', count: { $sum: 1 } } },
+      { $lookup: { from: 'schools', localField: '_id', foreignField: '_id', as: 'school' } },
       { $unwind: { path: '$school', preserveNullAndEmptyArrays: true } },
-      { $group: { _id: '$school._id', name: { $first: '$school.name' }, count: { $sum: 1 } } },
+      { $group: { _id: '$school._id', name: { $first: '$school.name' }, count: { $sum: '$count' } } },
       { $sort: { count: -1 } },
     ]),
     Student.aggregate([
