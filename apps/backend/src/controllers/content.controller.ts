@@ -41,9 +41,12 @@ export const getAll = (modelName: ModelName) => async (req: Request, res: Respon
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
 
-  const populateContent = (q: ReturnType<typeof Model.find>) => q
-    .populate('createdBy', 'email')
-    .populate('uploadedBy', 'email');
+  // Gallery items are attributed via `uploadedBy`; the other three via
+  // `createdBy` — never both. Mongoose 8 defaults to strictPopulate, so
+  // populating the field the other models don't have threw
+  // StrictPopulateError on every single call to this shared handler.
+  const attributionField = modelName === 'Gallery' ? 'uploadedBy' : 'createdBy';
+  const populateContent = (q: ReturnType<typeof Model.find>) => q.populate(attributionField, 'email');
 
   let result: any[];
   let total: number;

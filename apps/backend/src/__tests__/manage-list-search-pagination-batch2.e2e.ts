@@ -186,6 +186,15 @@ async function main() {
     const page1 = await call(contentController.getAll('Announcement') as any, { user: admin, query: { search: 'Needle-Announcement', page: '1', limit: '5' } });
     assert(page1?.data?.length === 1, `finds the announcement even though it sorts onto a later page (got ${page1?.data?.length})`);
     assert(page1?.meta?.total === 1, `total reflects the real match count (got ${page1?.meta?.total})`);
+
+    // Gallery is attributed via `uploadedBy`, not `createdBy` (the other
+    // three models) — getAll used to populate both unconditionally, which
+    // threw StrictPopulateError on every single call for whichever model
+    // doesn't have that path (i.e. every model, every call).
+    const { default: Gallery } = await import('../models/gallery.model');
+    await Gallery.collection.insertOne({ _id: id(), title: 'A Photo', imageUrl: 'https://example.test/a.jpg', uploadedBy: createdBy, status: 'published', createdAt: new Date(base) });
+    const galleryPage = await call(contentController.getAll('Gallery') as any, { user: admin, query: { page: '1', limit: '5' } });
+    assert(galleryPage?.data?.length === 1, `Gallery list does not throw on its own uploadedBy field (got ${galleryPage?.data?.length} rows)`);
   }
 
   // -----------------------------------------------------------------------
