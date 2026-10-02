@@ -166,7 +166,14 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
   const { user, logout } = useAuth();
   const location = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [organizationLogo, setOrganizationLogo] = useState('');
+  // auth-context's own single /auth/me call already carries the org logo
+  // (see normalizeUser) — this used to be this sidebar's own
+  // GET /schools/:id/branding, fetched again on every mount. `brokenLogo`
+  // tracks only a local "this URL 404'd, fall back to the icon" override.
+  const [brokenLogo, setBrokenLogo] = useState(false);
+  const organizationLogo = user?.organizationId && ['org_admin', 'teacher', 'staff'].includes(user.role) && !brokenLogo
+    ? user.organizationLogo || ''
+    : '';
   const [visibility, setVisibility] = useState<Record<string, boolean> | null>(null);
   const isSuperAdmin = user?.role === 'admin';
 
@@ -183,19 +190,8 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
   }, [isSuperAdmin, user?.role]);
 
   useEffect(() => {
-    let cancelled = false;
-    if (!user?.organizationId || !['org_admin', 'teacher', 'staff'].includes(user.role)) {
-      setOrganizationLogo('');
-      return;
-    }
-    (async () => {
-      try {
-        const { data } = await api.get(`/schools/${user.organizationId}/branding`);
-        if (!cancelled) setOrganizationLogo(data.data?.school?.branding?.logo || '');
-      } catch { if (!cancelled) setOrganizationLogo(''); }
-    })();
-    return () => { cancelled = true; };
-  }, [user?.organizationId, user?.role]);
+    setBrokenLogo(false);
+  }, [user?.organizationLogo]);
 
   const isVisible = (key: string) => isSuperAdmin || visibility?.[key] !== false;
   const staffSidebar = (key: string) => user?.role !== 'staff' || user.sidebarAccess.includes(key);
@@ -264,7 +260,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
   const renderContent = (isCollapsed: boolean) => (
     <aside className="flex h-full flex-col border-r border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]">
       <div className={`flex items-center gap-3 border-b border-[var(--color-border-subtle)] ${isCollapsed ? 'justify-center px-2 py-5' : 'px-5 py-5'}`}>
-        <Link to="/" className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-gold-500 to-gold-700 text-white shadow-gold-sm">{organizationLogo ? <img src={organizationLogo} alt="Organization logo" className="h-full w-full bg-white object-contain p-1" onError={() => setOrganizationLogo('')} /> : <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7v5.5c0 5.05 4.29 9.5 10 11 5.71-1.5 10-5.95 10-11V7l-10-5z" /></svg>}</Link>
+        <Link to="/" className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-gold-500 to-gold-700 text-white shadow-gold-sm">{organizationLogo ? <img src={organizationLogo} alt="Organization logo" className="h-full w-full bg-white object-contain p-1" onError={() => setBrokenLogo(true)} /> : <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7v5.5c0 5.05 4.29 9.5 10 11 5.71-1.5 10-5.95 10-11V7l-10-5z" /></svg>}</Link>
         {!isCollapsed && <div className="min-w-0"><p className="truncate text-sm font-bold text-[var(--color-text-primary)]">Admin Portal</p><p className="truncate text-xs text-[var(--color-text-tertiary)]">{user?.email}</p></div>}
       </div>
       {onToggleCollapsed && <button type="button" onClick={onToggleCollapsed} className={`hidden items-center gap-2 border-b border-[var(--color-border-subtle)] px-3 py-2.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)] lg:flex ${isCollapsed ? 'justify-center' : ''}`}>{isCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <><PanelLeftClose className="h-4 w-4" /><span>Collapse</span></>}</button>}

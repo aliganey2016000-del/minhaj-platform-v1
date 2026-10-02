@@ -13,6 +13,7 @@
     "repair:student-dates": "ts-node src/scripts/repair-corrupt-student-dates.ts",
     "test:student-corrupt-dates": "ts-node src/__tests__/student-corrupt-date-repair.e2e.ts",
     "test:dashboard-aggregations": "ts-node src/__tests__/dashboard-tenant-aggregations.e2e.ts",
+    "test:cloudflare-client-ip": "ts-node src/__tests__/cloudflare-client-ip.e2e.ts",
     "test": "node scripts/run-e2e-tests.mjs",
     "test:website": "ts-node --files src/__tests__/organization-website.e2e.ts",
     "test:student-registration-optional-number": "ts-node src/__tests__/student-registration-optional-number.e2e.ts",

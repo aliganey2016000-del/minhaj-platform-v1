@@ -5,6 +5,10 @@ node_modules/
 dist/
 build/
 
+# Fetched at build time by apps/frontend/scripts/fetch-biometrics-assets.mjs
+# (prebuild), pinned to a specific upstream commit — not source.
+apps/frontend/public/biometrics/
+
 # Env files
 .env
 .env.local
