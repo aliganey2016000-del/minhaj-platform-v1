@@ -73,6 +73,9 @@ jobs:
       - name: Manage list search/pagination tests
         run: npm run test:list-search
 
+      - name: Manage list search/pagination tests (batch 2)
+        run: npm run test:list-search-2
+
       - name: Teacher CRUD & import tests
         run: npm run test:teacher-crud
 

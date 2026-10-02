@@ -4,6 +4,8 @@ import Setting from '../models/setting.model';
 import ActivityLog from '../models/activity-log.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { escapeRegex } from '../utils/escape-regex';
 
 // ── Settings ──
 export const getSettings = async (_req: Request, res: Response) => {
@@ -29,16 +31,49 @@ export const getLogs = async (req: Request, res: Response) => {
   if (user) filter.user = user;
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 30));
-  const [logs, total] = await Promise.all([
-    ActivityLog.find(filter).populate('user', 'email role').sort({ createdAt: -1 }).skip((pageNum - 1) * limitNum).limit(limitNum).lean(),
-    ActivityLog.countDocuments(filter),
-  ]);
-  let result = logs;
+
+  let result: any[];
+  let total: number;
+
   if (search) {
-    const s = (search as string).toLowerCase();
-    result = logs.filter((l: any) => (l.resource || '').toLowerCase().includes(s) || (l.details || '').toLowerCase().includes(s) || (l.user?.email || '').toLowerCase().includes(s));
+    // Previously: paginate first (skip/limit), THEN filter that one page by
+    // search in memory — a matching log entry outside the current page
+    // never showed up, and `total` reported only how many of that one page
+    // matched. Matched and paginated at the database level instead, same as
+    // students/teachers/classes/parents/invoices/payments/schools/
+    // certificates/exams/results/assignments (see student.controller.ts
+    // getAll).
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const aggregateMatch = castObjectIdFilter(filter, ['user']);
+    const [facetResult] = await ActivityLog.aggregate([
+      { $match: aggregateMatch },
+      { $lookup: { from: 'users', localField: 'user', foreignField: '_id', as: 'userDoc' } },
+      { $unwind: { path: '$userDoc', preserveNullAndEmptyArrays: true } },
+      { $match: { $or: [{ resource: regex }, { details: regex }, { 'userDoc.email': regex }] } },
+      { $sort: { createdAt: -1 } },
+      { $facet: {
+          data: [{ $skip: (pageNum - 1) * limitNum }, { $limit: limitNum }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const pageDocs = orderedIds.length
+      ? await ActivityLog.find({ _id: { $in: orderedIds } }).populate('user', 'email role').lean()
+      : [];
+    const docById = new Map((pageDocs as any[]).map((doc) => [String(doc._id), doc]));
+    result = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    const [logs, count] = await Promise.all([
+      ActivityLog.find(filter).populate('user', 'email role').sort({ createdAt: -1 }).skip((pageNum - 1) * limitNum).limit(limitNum).lean(),
+      ActivityLog.countDocuments(filter),
+    ]);
+    result = logs;
+    total = count;
   }
-  return ApiResponse.paginated(res, result, { page: pageNum, limit: limitNum, total: search ? result.length : total });
+
+  return ApiResponse.paginated(res, result, { page: pageNum, limit: limitNum, total });
 };
 
 export const clearLogs = async (_req: Request, res: Response) => {

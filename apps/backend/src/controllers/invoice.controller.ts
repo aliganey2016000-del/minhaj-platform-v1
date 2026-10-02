@@ -12,6 +12,8 @@ import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/
 import { collectPaymentService, recalcStudentBalance, syncInvoiceInstallments, withComputedInvoiceFields, getActiveDiscountGrants, sumGrantDiscount } from '../services/billing.service';
 import { notifyUsers } from '../utils/notify';
 import ensureStudentRecord from '../utils/ensure-student';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { escapeRegex } from '../utils/escape-regex';
 
 const INVOICE_STATUSES = ['pending', 'partial', 'paid', 'void'];
 
@@ -53,29 +55,57 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 20));
 
-  const [invoices, total] = await Promise.all([
-    Invoice.find(scopedFilter)
-      .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
-      .populate('feeStructure', 'title feeType')
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean({ virtuals: true }),
-    Invoice.countDocuments(scopedFilter),
-  ]);
+  const populateInvoices = (q: ReturnType<typeof Invoice.find>) => q
+    .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
+    .populate('feeStructure', 'title feeType');
 
-  let result = invoices;
+  let result: any[];
+  let total: number;
+
   if (search) {
-    const s = (search as string).toLowerCase();
-    result = invoices.filter((inv: any) => {
-      const name = `${inv.student?.profile?.firstName || ''} ${inv.student?.profile?.lastName || ''}`.toLowerCase();
-      const sid = (inv.student?.studentId || '').toLowerCase();
-      const title = (inv.title || '').toLowerCase();
-      return name.includes(s) || sid.includes(s) || title.includes(s);
-    });
+    // Previously: paginate first (skip/limit), THEN filter that one page by
+    // search in memory — a matching invoice outside the current page never
+    // showed up, and `total` reported only how many of that one page
+    // matched. Matched and paginated at the database level instead, same as
+    // students/teachers/classes/parents (see student.controller.ts getAll).
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const aggregateMatch = castObjectIdFilter(scopedFilter, ['school', 'student', 'feeStructure']);
+    const [facetResult] = await Invoice.aggregate([
+      { $match: aggregateMatch },
+      { $lookup: { from: 'students', localField: 'student', foreignField: '_id', as: 'studentDoc' } },
+      { $unwind: { path: '$studentDoc', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'profiles', localField: 'studentDoc.profile', foreignField: '_id', as: 'profileDoc' } },
+      { $unwind: { path: '$profileDoc', preserveNullAndEmptyArrays: true } },
+      { $addFields: { fullName: { $concat: [{ $ifNull: ['$profileDoc.firstName', ''] }, ' ', { $ifNull: ['$profileDoc.lastName', ''] }] } } },
+      { $match: { $or: [{ fullName: regex }, { 'studentDoc.studentId': regex }, { title: regex }] } },
+      { $sort: { createdAt: -1 } },
+      { $facet: {
+          data: [{ $skip: (pageNum - 1) * limitNum }, { $limit: limitNum }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const pageDocs = orderedIds.length
+      ? await populateInvoices(Invoice.find({ _id: { $in: orderedIds } })).lean({ virtuals: true })
+      : [];
+    const docById = new Map((pageDocs as any[]).map((doc) => [String(doc._id), doc]));
+    result = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    const [invoices, count] = await Promise.all([
+      populateInvoices(Invoice.find(scopedFilter))
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean({ virtuals: true }),
+      Invoice.countDocuments(scopedFilter),
+    ]);
+    result = invoices;
+    total = count;
   }
 
-  return ApiResponse.paginated(res, result, { page: pageNum, limit: limitNum, total: search ? result.length : total });
+  return ApiResponse.paginated(res, result, { page: pageNum, limit: limitNum, total });
 };
 
 // ---------------------------------------------------------------------------

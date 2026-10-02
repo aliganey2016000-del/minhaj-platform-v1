@@ -10,6 +10,7 @@ import ensureStudentRecord from '../utils/ensure-student';
 import { collectPaymentService, recalcStudentBalance } from '../services/billing.service';
 import { buildReceiptPdf } from '../utils/receipt-pdf';
 import { escapeRegex } from '../utils/escape-regex';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { getFromR2, r2Enabled } from '../utils/r2-storage';
 
 // ---------------------------------------------------------------------------
@@ -273,29 +274,58 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 20));
 
-  const [payments, total] = await Promise.all([
-    Payment.find(scopedFilter)
-      .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId totalFeesPaid totalFeesDue' })
-      .populate('recordedBy', 'email')
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
-    Payment.countDocuments(scopedFilter),
-  ]);
+  const populatePayments = (q: ReturnType<typeof Payment.find>) => q
+    .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId totalFeesPaid totalFeesDue' })
+    .populate('recordedBy', 'email');
 
-  let result = payments;
+  let result: any[];
+  let total: number;
+
   if (search) {
-    const s = (search as string).toLowerCase();
-    result = payments.filter((p: any) => {
-      const name = `${p.student?.profile?.firstName || ''} ${p.student?.profile?.lastName || ''}`.toLowerCase();
-      const sid = (p.student?.studentId || '').toLowerCase();
-      const notes = (p.notes || '').toLowerCase();
-      return name.includes(s) || sid.includes(s) || notes.includes(s);
-    });
+    // Previously: paginate first (skip/limit), THEN filter that one page by
+    // search in memory — a matching payment outside the current page never
+    // showed up, and `total` reported only how many of that one page
+    // matched. Matched and paginated at the database level instead, same as
+    // students/teachers/classes/parents/invoices (see student.controller.ts
+    // getAll).
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const aggregateMatch = castObjectIdFilter(scopedFilter, ['school', 'student']);
+    const [facetResult] = await Payment.aggregate([
+      { $match: aggregateMatch },
+      { $lookup: { from: 'students', localField: 'student', foreignField: '_id', as: 'studentDoc' } },
+      { $unwind: { path: '$studentDoc', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'profiles', localField: 'studentDoc.profile', foreignField: '_id', as: 'profileDoc' } },
+      { $unwind: { path: '$profileDoc', preserveNullAndEmptyArrays: true } },
+      { $addFields: { fullName: { $concat: [{ $ifNull: ['$profileDoc.firstName', ''] }, ' ', { $ifNull: ['$profileDoc.lastName', ''] }] } } },
+      { $match: { $or: [{ fullName: regex }, { 'studentDoc.studentId': regex }, { notes: regex }] } },
+      { $sort: { createdAt: -1 } },
+      { $facet: {
+          data: [{ $skip: (pageNum - 1) * limitNum }, { $limit: limitNum }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const pageDocs = orderedIds.length
+      ? await populatePayments(Payment.find({ _id: { $in: orderedIds } })).lean()
+      : [];
+    const docById = new Map((pageDocs as any[]).map((doc) => [String(doc._id), doc]));
+    result = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    const [payments, count] = await Promise.all([
+      populatePayments(Payment.find(scopedFilter))
+        .sort({ createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean(),
+      Payment.countDocuments(scopedFilter),
+    ]);
+    result = payments;
+    total = count;
   }
 
-  return ApiResponse.paginated(res, result, { page: pageNum, limit: limitNum, total: search ? result.length : total });
+  return ApiResponse.paginated(res, result, { page: pageNum, limit: limitNum, total });
 };
 
 // ---------------------------------------------------------------------------
