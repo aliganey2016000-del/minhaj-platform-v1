@@ -69,6 +69,9 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules/recharts/')) return 'charts';
+          // Each icon otherwise becomes its own ~400-byte chunk, so one page
+          // fired 25-35 separate requests just for icons.
+          if (id.includes('node_modules/lucide-react/')) return 'icons';
           if (
             id.includes('node_modules/@tiptap/') ||
             id.includes('node_modules/@tiptap/pm/') ||
