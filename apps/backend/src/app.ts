@@ -11,6 +11,7 @@ import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
 import { isAllowedOrigin } from './utils/cors-origins';
 import {
+  resolveCloudflareClientIp,
   enforceHttps,
   requestTimeout,
   stripSensitiveHeaders,
@@ -31,6 +32,7 @@ validateSecurityEnv();
 // Trust proxy (required for rate limiting behind reverse proxy)
 // ---------------------------------------------------------------------------
 app.set('trust proxy', 1);
+app.use(resolveCloudflareClientIp);
 
 // ---------------------------------------------------------------------------
 // Security Middleware

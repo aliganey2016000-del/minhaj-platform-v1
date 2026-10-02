@@ -24,6 +24,11 @@ interface User {
   onboardingCompleted?: boolean;
   permissions: Array<{ module: string; page?: string; actions: string[] }>;
   sidebarAccess: string[];
+  /** From Profile, only present once /auth/me has loaded. */
+  firstName?: string;
+  lastName?: string;
+  /** From the org's branding, only present once /auth/me has loaded. */
+  organizationLogo?: string;
 }
 
 interface AuthContextValue {
@@ -54,7 +59,13 @@ function newLoginSessionId() {
   return `login-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-function normalizeUser(raw: any): User {
+// `profile` and the populated org's branding.logo are only present on the
+// full GET /auth/me response, not on login/register — those fields stay
+// undefined until the AuthProvider's own /auth/me call fills them in, which
+// is what lets every page read the greeting name and org logo straight from
+// context instead of each issuing its own /auth/me + /schools/:id/branding
+// requests.
+function normalizeUser(raw: any, profile?: any): User {
   let orgId: string | undefined;
   if (typeof raw.organizationId === 'object' && raw.organizationId !== null) orgId = (raw.organizationId._id || raw.organizationId).toString();
   else if (raw.organizationId) orgId = String(raw.organizationId);
@@ -71,6 +82,9 @@ function normalizeUser(raw: any): User {
     onboardingCompleted: raw.onboardingCompleted ?? true,
     permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
     sidebarAccess: Array.isArray(raw.sidebarAccess) ? raw.sidebarAccess : [],
+    firstName: profile?.firstName || undefined,
+    lastName: profile?.lastName || undefined,
+    organizationLogo: (typeof raw.organizationId === 'object' && raw.organizationId?.branding?.logo) || undefined,
   };
 }
 
@@ -150,7 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data } = await api.get('/auth/me', { timeout: 15_000, signal: controller.signal });
         if (controller.signal.aborted) return;
         if (!localStorage.getItem('loginSessionId')) localStorage.setItem('loginSessionId', newLoginSessionId());
-        setUser(normalizeUser(data.data?.user));
+        setUser(normalizeUser(data.data?.user, data.data?.profile));
       } catch (err: any) {
         if (controller.signal.aborted) return;
         if (err?.response?.status === 401) {
@@ -167,6 +181,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void checkAuth();
     return () => controller.abort();
   }, [sessionAttempt]);
+
+  // The org logo changes rarely (organization-branding-manage.tsx dispatches
+  // this after an upload/removal) — update it in place here instead of
+  // every header/sidebar instance keeping its own listener and own copy.
+  useEffect(() => {
+    const handleBrandingUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ organizationId?: string; logo?: string }>).detail;
+      setUser((current) => {
+        if (!current || !detail?.organizationId || String(detail.organizationId) !== String(current.organizationId || '')) return current;
+        return { ...current, organizationLogo: detail.logo || undefined };
+      });
+    };
+    window.addEventListener('organization-branding-updated', handleBrandingUpdate);
+    return () => window.removeEventListener('organization-branding-updated', handleBrandingUpdate);
+  }, []);
+
+  // Login/register responses don't include profile/branding (see
+  // normalizeUser), so firstName/organizationLogo fill in a moment later via
+  // this background fetch instead of making login/register wait on it.
+  const enrichUserInBackground = useCallback(() => {
+    api.get('/auth/me').then(({ data }) => {
+      setUser((current) => current ? normalizeUser(data.data?.user, data.data?.profile) : current);
+    }).catch(() => {
+      // The basic user set at login/register already covers the app; this
+      // only fills in the greeting name and org logo.
+    });
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     setError(null);
@@ -185,6 +226,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('loginSessionId', loginSessionId);
         const normalized = normalizeUser(userData);
         setUser(normalized);
+        enrichUserInBackground();
         return normalized;
       }
       throw new Error(data.message || 'Login failed');
@@ -193,7 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(message);
       throw err;
     }
-  }, []);
+  }, [enrichUserInBackground]);
 
   const register = useCallback(async (formData: RegisterData) => {
     setError(null);
@@ -214,6 +256,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('accessToken', accessToken);
         localStorage.setItem('loginSessionId', loginSessionId);
         setUser(normalizeUser(data.data?.user));
+        enrichUserInBackground();
         return;
       }
       throw new Error(data.message || 'Registration failed');
@@ -222,7 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(message);
       throw err;
     }
-  }, []);
+  }, [enrichUserInBackground]);
 
   const logout = useCallback(async () => {
     // Keep loginSessionId in storage until the logout request is sent so the

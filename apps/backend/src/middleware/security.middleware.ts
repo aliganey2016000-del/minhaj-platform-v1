@@ -12,6 +12,33 @@
 import { Request, Response, NextFunction } from 'express';
 
 /**
+ * Resolve the client IP behind Cloudflare.
+ *
+ * The API is reached through several proxy hops that vary by request path
+ * (Cloudflare edge, Coolify/Traefik, and the frontend's nginx container
+ * proxying /api/ back out through Cloudflare for suganhub.com-style custom
+ * domains). `app.set('trust proxy', N)` needs a single fixed hop count, so
+ * any request path with a different hop count either collapses many real
+ * users onto one IP (under-counting, causing false 429s) or lets a spoofed
+ * X-Forwarded-For entry through (over-counting). Cloudflare's own
+ * CF-Connecting-IP header is set at its edge from the real client's TCP
+ * connection and carried through unchanged by every hop after it, so when
+ * present it is used as the single X-Forwarded-For entry — Express then
+ * resolves req.ip to this value regardless of how many proxies sit between
+ * here and Cloudflare. This relies on the origin not being reachable except
+ * through Cloudflare (handled at the infrastructure/firewall level); it is
+ * no more spoofable than the trust-proxy-only setup it replaces.
+ */
+export const resolveCloudflareClientIp = (req: Request, _res: Response, next: NextFunction): void => {
+  const cfConnectingIp = req.headers['cf-connecting-ip'];
+  const clientIp = Array.isArray(cfConnectingIp) ? cfConnectingIp[0] : cfConnectingIp;
+  if (clientIp && clientIp.trim()) {
+    req.headers['x-forwarded-for'] = clientIp.trim();
+  }
+  next();
+};
+
+/**
  * Enforce HTTPS in production
  * Redirect HTTP to HTTPS with appropriate security headers.
  *

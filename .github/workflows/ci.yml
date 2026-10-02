@@ -67,6 +67,9 @@ jobs:
       - name: Dashboard tenant aggregation tests
         run: npm run test:dashboard-aggregations
 
+      - name: Cloudflare client IP resolution tests
+        run: npm run test:cloudflare-client-ip
+
       - name: Teacher CRUD & import tests
         run: npm run test:teacher-crud
 

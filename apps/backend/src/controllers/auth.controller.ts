@@ -529,8 +529,11 @@ export const refreshToken = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 
 export const getMe = async (req: Request, res: Response): Promise<Response> => {
+  // Branding is included so the dashboard header/sidebar can read the
+  // org logo from this one call instead of each issuing its own
+  // GET /schools/:id/branding request.
   const user = await User.findById(req.user!.userId)
-    .populate('organizationId', 'name');
+    .populate('organizationId', 'name branding.logo');
 
   if (!user) {
     throw new NotFoundError('User');

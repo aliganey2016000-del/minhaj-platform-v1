@@ -10,33 +10,19 @@
  *   2. A minimalist welcome card with "Welcome back, [firstName] 👋", today's
  *      date, and the user's email + role badge.
  *
- * Data is fetched from /auth/me (which includes populated organizationId and
- * profile). Falls back to auth-context data while loading.
+ * Reads firstName/org name/org logo straight from auth-context, which this
+ * header used to re-fetch itself on every mount (its own GET /auth/me +
+ * GET /schools/:id/branding) — now there's exactly one /auth/me per session,
+ * made by AuthProvider, shared by every page.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, UserPlus, BookPlus, Mail, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
-import api from '../../../lib/axios';
 import { GlobalSearchBar } from './global-search-bar';
 import { NotificationBell } from './notification-bell';
 import { ThemeToggle } from '../../../components/shared/theme-toggle';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface HeaderData {
-  firstName: string;
-  lastName: string;
-  email: string;
-  role: string;
-  title?: string;
-  orgName: string;
-  orgInitial: string;
-  orgLogo: string;
-}
 
 interface DashboardHeaderProps {
   /** When true the entire header block is hidden (e.g. full-screen learn page). */
@@ -121,86 +107,16 @@ function QuickActions() {
 
 export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeaderProps) {
   const { user } = useAuth();
-  const [data, setData] = useState<HeaderData | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
-    (async () => {
-      try {
-        const { data: res } = await api.get('/auth/me');
-        const me = res.data;
-        const profile = me?.profile;
-        const rawOrg = me?.user?.organizationId;
-        const orgName = me?.user?.organizationName ||
-          (typeof rawOrg === 'object' && rawOrg?.name) ||
-          user.organizationName ||
-          'Sahal Education Platform';
-        const orgId = typeof rawOrg === 'object'
-          ? String(rawOrg?._id || rawOrg?.id || '')
-          : String(rawOrg || user.organizationId || '');
-        let orgLogo = typeof rawOrg === 'object' ? (rawOrg?.branding?.logo || '') : '';
-
-        if (!orgLogo && orgId) {
-          try {
-            const brandingResponse = await api.get(`/schools/${orgId}/branding`);
-            orgLogo = brandingResponse.data?.data?.school?.branding?.logo || '';
-          } catch {
-            // Keep the initial fallback if branding is unavailable.
-          }
-        }
-
-        setData({
-          firstName: profile?.firstName || user.email?.split('@')[0] || '',
-          lastName: profile?.lastName || '',
-          email: me?.user?.email || user.email,
-          role: me?.user?.role || user.role,
-          title: me?.user?.title || user.title,
-          orgName,
-          orgInitial: orgName.charAt(0).toUpperCase(),
-          orgLogo,
-        });
-      } catch {
-        // Fall back to auth-context data
-        const fallbackOrg = user.organizationName || 'Sahal Education Platform';
-        let orgLogo = '';
-        if (user.organizationId) {
-          try {
-            const brandingResponse = await api.get(`/schools/${user.organizationId}/branding`);
-            orgLogo = brandingResponse.data?.data?.school?.branding?.logo || '';
-          } catch {
-            // Keep the initial fallback if branding is unavailable.
-          }
-        }
-        setData({
-          firstName: user.email?.split('@')[0] || '',
-          lastName: '',
-          email: user.email,
-          role: user.role,
-          title: user.title,
-          orgName: fallbackOrg,
-          orgInitial: fallbackOrg.charAt(0).toUpperCase(),
-          orgLogo,
-        });
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [user]);
-
-  useEffect(() => {
-    const handleBrandingUpdate = (event: Event) => {
-      const detail = (event as CustomEvent<{ organizationId?: string; logo?: string }>).detail;
-      if (!detail?.organizationId || String(detail.organizationId) !== String(user?.organizationId || '')) return;
-      setData((current) => current ? { ...current, orgLogo: detail.logo || '' } : current);
-    };
-    window.addEventListener('organization-branding-updated', handleBrandingUpdate);
-    return () => window.removeEventListener('organization-branding-updated', handleBrandingUpdate);
-  }, [user?.organizationId]);
+  const orgName = user?.organizationName || 'Sahal Education Platform';
+  const data = user ? {
+    firstName: user.firstName || user.email?.split('@')[0] || '',
+    role: user.role,
+    title: user.title,
+    orgName,
+    orgInitial: orgName.charAt(0).toUpperCase(),
+    orgLogo: user.organizationLogo || '',
+  } : null;
 
   // Format today's date
   const now = new Date();
@@ -218,11 +134,8 @@ export function DashboardHeader({ hidden, showGreeting = false }: DashboardHeade
 
   if (hidden) return null;
 
-  // Skeleton while loading
-  if (loading) {
-    return <div className="h-16 bg-[var(--color-surface-primary)] border-b border-[var(--color-border-subtle)] animate-pulse" />;
-  }
-
+  // Null only for the brief window before AuthProvider's own /auth/me
+  // resolves (most routes already gate on its isLoading before this mounts).
   if (!data) return null;
 
   // One condensed bar instead of a separate top bar + oversized welcome
